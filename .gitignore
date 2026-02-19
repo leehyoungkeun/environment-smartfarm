@@ -1,0 +1,71 @@
+# Dependencies
+node_modules/
+
+# Environment variables
+.env
+.env.local
+.env.*.local
+.env.development
+.env.production
+
+# Build output
+dist/
+build/
+
+# Uploads (user-generated content)
+uploads/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*.code-workspace
+
+# OS
+.DS_Store
+Thumbs.db
+Desktop.ini
+ehthumbs.db
+
+# Logs
+*.log
+logs/
+
+# Backup files
+*.backup
+*.bak
+
+# Prisma
+backend/prisma/*.db
+backend/prisma/migrations/
+
+# Node-RED
+node-red/.config*.json
+node-red/flows_cred.json
+
+# Frontend cache
+frontend/.vite/
+frontend/node_modules/.cache/
+
+# Debug/maintenance scripts (may contain credentials)
+backend/scripts/
+
+# Claude Code
+.claude/
+
+# Screenshots
+*.PNG
+*.png
+
+# Root lock file (monorepo 아님)
+/package-lock.json
+
+# Temp/fix files
+*.txt.bak
+backend/fix-*.txt
+
+# Misc
+*.tgz
+*.tar.gz
+*.zip

@@ -1,0 +1,143 @@
+// prisma/schema.prisma
+// SmartFarm - PostgreSQL + TimescaleDB + 영농일지
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// 기존 관계형 테이블
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+model User {
+  id           String   @id @default(uuid())
+  username     String   @unique
+  password     String
+  name         String
+  role         String   @default("worker")
+  farmId       String   @default("farm_001") @map("farm_id")
+  allowedHouses String[] @default([]) @map("allowed_houses")
+  enabled      Boolean  @default(true)
+  lastLoginAt  DateTime? @map("last_login_at")
+  refreshToken String?  @map("refresh_token")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  @@map("users")
+}
+
+model HouseConfig {
+  id             String   @id @default(uuid())
+  farmId         String   @map("farm_id")
+  houseId        String   @map("house_id")
+  houseName      String   @default("") @map("house_name")
+  sensors        Json     @default("[]")
+  collection     Json     @default("{}")
+  devices        Json     @default("[]")
+  deviceCount    Int      @default(0) @map("device_count")
+  enabled        Boolean  @default(true)
+  configVersion  Int      @default(1) @map("config_version")
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  @@unique([farmId, houseId])
+  @@map("house_configs")
+}
+
+model AutomationRule {
+  id              String   @id @default(uuid())
+  farmId          String   @map("farm_id")
+  houseId         String   @map("house_id")
+  name            String
+  description     String   @default("")
+  enabled         Boolean  @default(true)
+  conditionLogic  String   @default("AND") @map("condition_logic")
+  conditions      Json
+  actions         Json
+  cooldownSeconds Int      @default(300) @map("cooldown_seconds")
+  lastTriggeredAt DateTime? @map("last_triggered_at")
+  triggerCount    Int      @default(0) @map("trigger_count")
+  priority        Int      @default(10)
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  @@index([farmId, houseId, enabled])
+  @@map("automation_rules")
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// 영농일지 테이블
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+model FarmJournal {
+  id            String   @id @default(uuid())
+  farmId        String   @map("farm_id")
+  houseId       String?  @map("house_id")
+  date          DateTime @db.Date
+  weather       String?
+  tempMin       Float?   @map("temp_min")
+  tempMax       Float?   @map("temp_max")
+  humidity      Float?
+  workType      String   @map("work_type")
+  growthStage   String?  @map("growth_stage")
+  content       String
+  pest          String?
+  notes         String?
+  photos        Json     @default("[]")
+  createdBy     String   @map("created_by")
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  @@index([farmId, date])
+  @@index([farmId, houseId, date])
+  @@map("farm_journals")
+}
+
+model HarvestRecord {
+  id            String   @id @default(uuid())
+  farmId        String   @map("farm_id")
+  houseId       String?  @map("house_id")
+  date          DateTime @db.Date
+  cropName      String   @map("crop_name")
+  quantity      Float
+  unit          String   @default("kg")
+  grade         String?
+  destination   String?
+  unitPrice     Float?   @map("unit_price")
+  totalRevenue  Float?   @map("total_revenue")
+  notes         String?
+  photos        Json     @default("[]")
+  createdBy     String   @map("created_by")
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  @@index([farmId, date])
+  @@map("harvest_records")
+}
+
+model InputRecord {
+  id            String   @id @default(uuid())
+  farmId        String   @map("farm_id")
+  houseId       String?  @map("house_id")
+  date          DateTime @db.Date
+  inputType     String   @map("input_type")
+  productName   String   @map("product_name")
+  manufacturer  String?
+  quantity      Float
+  unit          String
+  cost          Float?
+  targetArea    Float?   @map("target_area")
+  method        String?
+  notes         String?
+  createdBy     String   @map("created_by")
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  @@index([farmId, date])
+  @@map("input_records")
+}

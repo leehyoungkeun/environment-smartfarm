@@ -1,0 +1,263 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>센서 관리 테스트</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      max-width: 800px;
+      margin: 50px auto;
+      padding: 20px;
+      background: #1e293b;
+      color: white;
+    }
+    button {
+      padding: 10px 20px;
+      margin: 5px;
+      font-size: 16px;
+      cursor: pointer;
+      border: none;
+      border-radius: 5px;
+    }
+    .success { background: #10b981; color: white; }
+    .danger { background: #ef4444; color: white; }
+    .info { background: #3b82f6; color: white; }
+    #result {
+      margin-top: 20px;
+      padding: 20px;
+      background: #0f172a;
+      border-radius: 10px;
+      white-space: pre-wrap;
+      font-family: monospace;
+    }
+    .sensor {
+      background: #334155;
+      padding: 15px;
+      margin: 10px 0;
+      border-radius: 8px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+  </style>
+</head>
+<body>
+  <h1>🌱 SmartFarm 센서 관리</h1>
+  
+  <div>
+    <button class="info" onclick="loadSensors()">📋 현재 센서 목록 보기</button>
+    <button class="success" onclick="addSensor()">➕ 염모니아 센서 추가</button>
+    <button class="danger" onclick="resetSensors()">🔄 센서 초기화 (온도, 습도만)</button>
+  </div>
+
+  <div id="sensors"></div>
+  <div id="result"></div>
+
+  <script>
+    const API_URL = 'http://localhost:3000/api';
+    const FARM_ID = 'farm_001';
+    const HOUSE_ID = 'house_002';
+
+    function showResult(message) {
+      document.getElementById('result').textContent = message;
+    }
+
+    async function loadSensors() {
+      try {
+        showResult('로딩 중...');
+        
+        const response = await fetch(`${API_URL}/config/${HOUSE_ID}?farmId=${FARM_ID}`);
+        const data = await response.json();
+        
+        if (data.success) {
+          const sensors = data.data.sensors;
+          
+          // 화면에 표시
+          const sensorsDiv = document.getElementById('sensors');
+          sensorsDiv.innerHTML = '<h2>센서 목록</h2>';
+          
+          sensors.forEach(sensor => {
+            const div = document.createElement('div');
+            div.className = 'sensor';
+            div.innerHTML = `
+              <div>
+                <strong>${sensor.icon} ${sensor.name}</strong><br>
+                <small>ID: ${sensor.sensorId} | Unit: ${sensor.unit}</small>
+              </div>
+              <button class="danger" onclick="deleteSensor('${sensor.sensorId}')">삭제</button>
+            `;
+            sensorsDiv.appendChild(div);
+          });
+          
+          showResult(JSON.stringify(data, null, 2));
+        } else {
+          showResult('실패: ' + data.error);
+        }
+      } catch (error) {
+        showResult('❌ 에러: ' + error.message);
+      }
+    }
+
+    async function addSensor() {
+      try {
+        showResult('센서 추가 중...');
+        
+        // 먼저 현재 설정 가져오기
+        const getResponse = await fetch(`${API_URL}/config/${HOUSE_ID}?farmId=${FARM_ID}`);
+        const currentData = await getResponse.json();
+        
+        if (!currentData.success) {
+          showResult('현재 설정 조회 실패');
+          return;
+        }
+        
+        const currentSensors = currentData.data.sensors;
+        
+        // 새 센서 추가
+        const newSensor = {
+          sensorId: 'nh3_001',
+          name: '염모니아',
+          unit: 'PPM',
+          type: 'number',
+          min: 0,
+          max: 100,
+          enabled: true,
+          order: currentSensors.length + 1,
+          icon: '🌫️',
+          color: '#10B981',
+          precision: 1
+        };
+        
+        const updatedSensors = [...currentSensors, newSensor];
+        
+        // 업데이트
+        const putResponse = await fetch(`${API_URL}/config/${HOUSE_ID}?farmId=${FARM_ID}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            houseName: currentData.data.houseName,
+            collection: currentData.data.collection,
+            sensors: updatedSensors
+          })
+        });
+        
+        const result = await putResponse.json();
+        
+        if (result.success) {
+          showResult('✅ 센서 추가 성공!\n\n' + JSON.stringify(result, null, 2));
+          loadSensors();
+        } else {
+          showResult('❌ 실패: ' + result.error);
+        }
+      } catch (error) {
+        showResult('❌ 에러: ' + error.message);
+      }
+    }
+
+    async function deleteSensor(sensorId) {
+      if (!confirm(`센서 ${sensorId}를 삭제하시겠습니까?`)) {
+        return;
+      }
+      
+      try {
+        showResult('센서 삭제 중...');
+        
+        // 현재 설정 가져오기
+        const getResponse = await fetch(`${API_URL}/config/${HOUSE_ID}?farmId=${FARM_ID}`);
+        const currentData = await getResponse.json();
+        
+        const updatedSensors = currentData.data.sensors.filter(s => s.sensorId !== sensorId);
+        
+        // 업데이트
+        const putResponse = await fetch(`${API_URL}/config/${HOUSE_ID}?farmId=${FARM_ID}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            houseName: currentData.data.houseName,
+            collection: currentData.data.collection,
+            sensors: updatedSensors
+          })
+        });
+        
+        const result = await putResponse.json();
+        
+        if (result.success) {
+          showResult('✅ 센서 삭제 성공!');
+          loadSensors();
+        } else {
+          showResult('❌ 실패: ' + result.error);
+        }
+      } catch (error) {
+        showResult('❌ 에러: ' + error.message);
+      }
+    }
+
+    async function resetSensors() {
+      if (!confirm('센서를 초기화하시겠습니까? (온도, 습도만 남김)')) {
+        return;
+      }
+      
+      try {
+        showResult('초기화 중...');
+        
+        const response = await fetch(`${API_URL}/config/${HOUSE_ID}?farmId=${FARM_ID}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            houseName: '2번 하우스',
+            collection: {
+              intervalSeconds: 30,
+              method: 'http',
+              retryAttempts: 3
+            },
+            sensors: [
+              {
+                sensorId: 'temp_001',
+                name: '온도',
+                unit: '°C',
+                type: 'number',
+                min: -10,
+                max: 50,
+                enabled: true,
+                order: 1,
+                icon: '🌡️',
+                color: '#EF4444',
+                precision: 1
+              },
+              {
+                sensorId: 'humidity_001',
+                name: '습도',
+                unit: '%',
+                type: 'number',
+                min: 0,
+                max: 100,
+                enabled: true,
+                order: 2,
+                icon: '💧',
+                color: '#3B82F6',
+                precision: 1
+              }
+            ]
+          })
+        });
+        
+        const result = await response.json();
+        
+        if (result.success) {
+          showResult('✅ 초기화 성공!');
+          loadSensors();
+        } else {
+          showResult('❌ 실패: ' + result.error);
+        }
+      } catch (error) {
+        showResult('❌ 에러: ' + error.message);
+      }
+    }
+
+    // 페이지 로드 시 센서 목록 표시
+    loadSensors();
+  </script>
+</body>
+</html>

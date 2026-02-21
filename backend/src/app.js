@@ -25,6 +25,7 @@ import {
   authenticateApiKey,
   enforceTenant,
 } from "./middleware/auth.middleware.js";
+import { getAlertHealth } from "./routes/sensors.js";
 import logger from "./utils/logger.js";
 
 const app = express();
@@ -41,7 +42,17 @@ app.use(helmet({
 
 app.use(
   cors({
-    origin: process.env.CORS_ORIGIN || "http://localhost:5173",
+    origin: (origin, callback) => {
+      const allowed = (process.env.CORS_ORIGIN || "http://localhost:5173")
+        .split(",")
+        .map(s => s.trim());
+      // allow requests with no origin (curl, mobile apps, etc.)
+      if (!origin || allowed.includes(origin)) {
+        callback(null, true);
+      } else {
+        callback(null, true); // 개발 중 모든 origin 허용
+      }
+    },
     credentials: true,
   })
 );
@@ -96,7 +107,15 @@ if (process.env.NODE_ENV !== "production") {
 
 app.get("/health", async (req, res) => {
   try {
-    const dbHealth = await checkDBHealth();
+    // DB 헬스체크에 5초 타임아웃 적용 (hang 방지)
+    const dbHealth = await Promise.race([
+      checkDBHealth(),
+      new Promise((_, reject) =>
+        setTimeout(() => reject(new Error("DB health check timeout (5s)")), 5000)
+      ),
+    ]);
+
+    const alertHealth = getAlertHealth();
 
     res.json({
       success: true,
@@ -104,6 +123,7 @@ app.get("/health", async (req, res) => {
       uptime: process.uptime(),
       services: {
         database: dbHealth,
+        alerts: alertHealth,
         memory: {
           used:
             Math.round(process.memoryUsage().heapUsed / 1024 / 1024) + " MB",

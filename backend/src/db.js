@@ -64,6 +64,19 @@ export async function connectDB() {
       // 테이블 미존재 시 무시 (init-timescale.sql로 생성)
     }
 
+    // system_settings 테이블 생성 (없는 경우)
+    try {
+      await pool.query(`
+        CREATE TABLE IF NOT EXISTS system_settings (
+          farm_id TEXT PRIMARY KEY,
+          settings JSONB NOT NULL DEFAULT '{}',
+          updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        )
+      `);
+    } catch {
+      // 테이블 미존재 시 무시
+    }
+
     // TimescaleDB 확인
     try {
       const tsResult = await pool.query(

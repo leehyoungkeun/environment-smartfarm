@@ -11,9 +11,7 @@ import AlertPanel from './components/Dashboard/AlertPanel';
 import JournalManager from './components/Journal/JournalManager';
 import AIManager from './components/AI/AIManager';
 import ServerStatus from './components/Dashboard/ServerStatus';
-
-
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3000/api';
+import { getApiBase } from './services/apiSwitcher';
 
 /**
  * 제어 페이지 - config에서 하우스별 deviceCount를 로드
@@ -23,21 +21,41 @@ const ControlPage = ({ farmId }) => {
   const [selectedHouse, setSelectedHouse] = useState(null);
   const [loading, setLoading] = useState(true);
 
+  const applyConfig = (configData) => {
+    setConfig(configData);
+    const housesWithDevices = configData.houses?.filter(h => h.deviceCount > 0);
+    if (housesWithDevices?.length > 0) {
+      setSelectedHouse(housesWithDevices[0]);
+    } else if (configData.houses?.length > 0) {
+      setSelectedHouse(configData.houses[0]);
+    }
+  };
+
   useEffect(() => {
     const loadConfig = async () => {
+      const API_BASE_URL = getApiBase();
       try {
         const response = await axios.get(`${API_BASE_URL}/config/${farmId}`);
         if (response.data.success && response.data.data) {
-          setConfig(response.data.data);
-          const housesWithDevices = response.data.data.houses?.filter(h => h.deviceCount > 0);
-          if (housesWithDevices?.length > 0) {
-            setSelectedHouse(housesWithDevices[0]);
-          } else if (response.data.data.houses?.length > 0) {
-            setSelectedHouse(response.data.data.houses[0]);
+          applyConfig(response.data.data);
+        } else {
+          // API 응답이 비어있으면 캐시 시도
+          const cached = localStorage.getItem(`cachedConfig_${farmId}`);
+          if (cached) {
+            console.log('[ControlPage] API 응답 비어있음 → 캐시 사용');
+            applyConfig(JSON.parse(cached));
           }
         }
       } catch (error) {
         console.error('설정 로드 실패:', error);
+        // 네트워크 오류 → 캐시된 config 사용
+        try {
+          const cached = localStorage.getItem(`cachedConfig_${farmId}`);
+          if (cached) {
+            console.log('[ControlPage] 오프라인 → 캐시된 설정 사용');
+            applyConfig(JSON.parse(cached));
+          }
+        } catch {}
       } finally {
         setLoading(false);
       }
@@ -108,7 +126,22 @@ const ControlPage = ({ farmId }) => {
 
 function AppContent() {
   const { user, logout, hasPermission, loading: authLoading, needsSetup } = useAuth();
-  const [currentPage, setCurrentPage] = useState('dashboard');
+  const getPageFromHash = () => {
+    const hash = window.location.hash.replace('#', '');
+    return hash || 'dashboard';
+  };
+  const [currentPage, setCurrentPageState] = useState(getPageFromHash);
+
+  const setCurrentPage = (page) => {
+    window.location.hash = page;
+    setCurrentPageState(page);
+  };
+
+  useEffect(() => {
+    const onHashChange = () => setCurrentPageState(getPageFromHash());
+    window.addEventListener('hashchange', onHashChange);
+    return () => window.removeEventListener('hashchange', onHashChange);
+  }, []);
   const farmId = user?.farmId || 'farm_001';
   const [showAlertPanel, setShowAlertPanel] = useState(false);
   const [showUserMenu, setShowUserMenu] = useState(false);

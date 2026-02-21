@@ -1,6 +1,8 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import axios from 'axios';
 import { useAuth } from '../../contexts/AuthContext';
 import { sendControlCommand } from '../../services/controlApi';
+import { getSystemMode, getApiBase } from '../../services/apiSwitcher';
 
 const DEVICE_TYPE_INFO = {
   window: { label: '개폐기', icon: '🪟', commands: ['open', 'stop', 'close'] },
@@ -44,12 +46,28 @@ const ControlPanel = ({ farmId, houseId, houseConfig }) => {
       const operatorName = user?.role === 'admin'
         ? '관리자'
         : `${user?.name || user?.username || '알 수 없음'}`;
-      const result = await sendControlCommand(controlHouseId, deviceId, command, 'web_dashboard', {
-        farmId, originalHouseId: houseId,
-        deviceType: devices.find(d => d.deviceId === deviceId)?.type || 'unknown',
-        deviceName: devices.find(d => d.deviceId === deviceId)?.name || deviceId,
-        operatorName,
-      });
+      const mode = getSystemMode();
+      let result;
+
+      if (mode.mode === 'offline') {
+        // 오프라인: RPi Node-RED 로컬 제어 API 호출
+        const rpiApi = getApiBase();
+        const res = await axios.post(`${rpiApi}/control/local`, {
+          house_id: controlHouseId,
+          device_id: deviceId,
+          command,
+          operator: operatorName,
+        });
+        result = { success: res.data.success, requestId: res.data.data?.request_id };
+      } else {
+        // 온라인: AWS IoT 경유 (기존)
+        result = await sendControlCommand(controlHouseId, deviceId, command, 'web_dashboard', {
+          farmId, originalHouseId: houseId,
+          deviceType: devices.find(d => d.deviceId === deviceId)?.type || 'unknown',
+          deviceName: devices.find(d => d.deviceId === deviceId)?.name || deviceId,
+          operatorName,
+        });
+      }
 
       setControlHistory(prev => [{ deviceId, command, success: result.success, requestId: result.requestId, timestamp: new Date().toISOString(), error: result.error, operatorName }, ...prev.slice(0, 19)]);
       if (result.success) {
@@ -88,26 +106,29 @@ const ControlPanel = ({ farmId, houseId, houseConfig }) => {
   const groupedDevices = {};
   devices.forEach(d => { const type = d.type || 'window'; if (!groupedDevices[type]) groupedDevices[type] = []; groupedDevices[type].push(d); });
 
-  // Button style helpers
-  const openActiveStyle = { background: '#047857', color: '#fff', boxShadow: '0 2px 8px rgba(4,120,87,0.35)' };
-  const openInactiveStyle = { background: '#ecfdf5', color: '#047857', border: '2px solid #a7f3d0' };
-  const openDisabledStyle = { background: '#f0fdf4', color: '#a7f3d0', border: '2px solid #d1fae5', cursor: 'not-allowed' };
-  
-  const stopActiveStyle = { background: '#b45309', color: '#fff', boxShadow: '0 2px 8px rgba(180,83,9,0.35)' };
-  const stopInactiveStyle = { background: '#fffbeb', color: '#b45309', border: '2px solid #fcd34d' };
-  const stopUrgentStyle = { background: '#fef3c7', color: '#92400e', border: '3px solid #f59e0b', fontWeight: 800 };
-  const stopDisabledStyle = { background: '#fefce8', color: '#d4d4d8', border: '2px solid #e5e7eb', cursor: 'not-allowed' };
-  
-  const closeActiveStyle = { background: '#1d4ed8', color: '#fff', boxShadow: '0 2px 8px rgba(29,78,216,0.35)' };
-  const closeInactiveStyle = { background: '#eff6ff', color: '#1d4ed8', border: '2px solid #93c5fd' };
-  const closeDisabledStyle = { background: '#f0f9ff', color: '#93c5fd', border: '2px solid #dbeafe', cursor: 'not-allowed' };
+  // Bold control panel styles
+  const btnBase = { padding: '14px 0', borderRadius: '12px', fontSize: '15px', fontWeight: 800, transition: 'all 0.15s', cursor: 'pointer', textAlign: 'center', border: 'none', letterSpacing: '0.02em' };
 
-  const onActiveStyle = { background: '#047857', color: '#fff', boxShadow: '0 2px 8px rgba(4,120,87,0.35)' };
-  const onInactiveStyle = { background: '#ecfdf5', color: '#047857', border: '2px solid #a7f3d0' };
-  const offActiveStyle = { background: '#6b7280', color: '#fff', boxShadow: '0 2px 8px rgba(107,114,128,0.3)' };
-  const offInactiveStyle = { background: '#f3f4f6', color: '#6b7280', border: '2px solid #d1d5db' };
+  const openActiveStyle = { background: '#059669', color: '#fff', boxShadow: '0 3px 12px rgba(5,150,105,0.4)' };
+  const openInactiveStyle = { background: '#059669', color: '#fff', boxShadow: '0 2px 8px rgba(5,150,105,0.3)' };
+  const openDisabledStyle = { background: '#d1d5db', color: '#9ca3af', cursor: 'not-allowed', boxShadow: 'none' };
 
-  const btnBase = { padding: '12px 0', borderRadius: '10px', fontSize: '14px', fontWeight: 700, transition: 'all 0.15s', cursor: 'pointer', textAlign: 'center' };
+  const stopActiveStyle = { background: '#d97706', color: '#fff', boxShadow: '0 3px 12px rgba(217,119,6,0.4)' };
+  const stopInactiveStyle = { background: '#f3f4f6', color: '#6b7280', border: '2px solid #d1d5db' };
+  const stopUrgentStyle = { background: '#f59e0b', color: '#fff', boxShadow: '0 3px 12px rgba(245,158,11,0.5)', fontWeight: 900 };
+  const stopDisabledStyle = { background: '#e5e7eb', color: '#9ca3af', cursor: 'not-allowed', boxShadow: 'none' };
+
+  const closeActiveStyle = { background: '#4f46e5', color: '#fff', boxShadow: '0 3px 12px rgba(79,70,229,0.4)' };
+  const closeInactiveStyle = { background: '#4f46e5', color: '#fff', boxShadow: '0 2px 8px rgba(79,70,229,0.3)' };
+  const closeDisabledStyle = { background: '#d1d5db', color: '#9ca3af', cursor: 'not-allowed', boxShadow: 'none' };
+
+  const onActiveStyle = { background: '#059669', color: '#fff', boxShadow: '0 3px 12px rgba(5,150,105,0.4)' };
+  const onInactiveStyle = { background: '#059669', color: '#fff', boxShadow: '0 2px 8px rgba(5,150,105,0.3)' };
+  const offActiveStyle = { background: '#6b7280', color: '#fff', boxShadow: '0 3px 12px rgba(107,114,128,0.4)' };
+  const offInactiveStyle = { background: '#6b7280', color: '#fff', boxShadow: '0 2px 8px rgba(107,114,128,0.3)' };
+
+  // Device type accent colors
+  const typeAccent = { window: '#059669', fan: '#0891b2', heater: '#dc2626', valve: '#7c3aed' };
 
   if (devices.length === 0) {
     return (
@@ -135,108 +156,116 @@ const ControlPanel = ({ farmId, houseId, houseConfig }) => {
       {Object.entries(groupedDevices).map(([type, devicesInGroup]) => {
         const typeInfo = DEVICE_TYPE_INFO[type] || DEVICE_TYPE_INFO.window;
         const isToggleType = type === 'fan' || type === 'heater';
+        const accent = typeAccent[type] || '#059669';
 
         return (
-          <div key={type} className="mb-5 last:mb-0">
-            <h3 style={{fontSize:14,fontWeight:700,color:'#374151',letterSpacing:'0.02em',marginBottom:10}} className="flex items-center gap-1.5">
-              <span>{typeInfo.icon}</span>
-              <span>{typeInfo.label}</span>
-              <span style={{color:'#9ca3af',fontSize:13}}>({devicesInGroup.length})</span>
-            </h3>
+          <div key={type} style={{background:'#fff',border:'1px solid #e2e8f0',borderRadius:16,marginBottom:16,overflow:'hidden',boxShadow:'0 1px 3px rgba(0,0,0,0.06)'}}>
+            {/* 장치 유형 헤더 - 컬러 바 */}
+            <div style={{background:accent,padding:'10px 18px',display:'flex',alignItems:'center',justifyContent:'space-between'}}>
+              <h3 style={{fontSize:16,fontWeight:800,color:'#fff',letterSpacing:'0.02em'}} className="flex items-center gap-2">
+                <span style={{fontSize:18}}>{typeInfo.icon}</span>
+                <span>{typeInfo.label}</span>
+              </h3>
+              <span style={{background:'rgba(255,255,255,0.25)',color:'#fff',fontSize:13,fontWeight:700,padding:'2px 12px',borderRadius:20}}>
+                {devicesInGroup.length}대
+              </span>
+            </div>
 
-            {/* 장치 유형별 전체 제어 */}
-            {devicesInGroup.length >= 2 && (
-              <div style={{background:'#f9fafb',border:'1px solid #e5e7eb',borderRadius:10,padding:'12px 14px',marginBottom:12}}>
-                <div className="flex items-center gap-2 mb-2">
-                  <span style={{fontSize:13,fontWeight:700,color:'#6b7280',letterSpacing:'0.02em'}}>
-                    {typeInfo.label} 전체제어
-                  </span>
-                </div>
-                {isToggleType ? (
-                  <div className="flex gap-2">
-                    <button onClick={() => devicesInGroup.forEach(d => handleControl(d.deviceId, 'on'))}
-                      style={{...btnBase,flex:1,background:'#047857',color:'#fff',border:'none',boxShadow:'0 2px 6px rgba(4,120,87,0.25)',fontSize:13}}>
-                      {typeInfo.icon} 전체 ON
-                    </button>
-                    <button onClick={() => devicesInGroup.forEach(d => handleControl(d.deviceId, 'off'))}
-                      style={{...btnBase,flex:1,background:'#6b7280',color:'#fff',border:'none',boxShadow:'0 2px 6px rgba(107,114,128,0.25)',fontSize:13}}>
-                      {typeInfo.icon} 전체 OFF
-                    </button>
-                  </div>
-                ) : (
-                  <div className="flex gap-2">
-                    <button onClick={() => devicesInGroup.forEach(d => handleControl(d.deviceId, 'open'))}
-                      style={{...btnBase,flex:1,background:'#047857',color:'#fff',border:'none',boxShadow:'0 2px 6px rgba(4,120,87,0.25)',fontSize:13}}>
-                      ▲ 전체 열기
-                    </button>
-                    <button onClick={() => devicesInGroup.forEach(d => handleControl(d.deviceId, 'stop'))}
-                      style={{...btnBase,flex:1,background:'#b45309',color:'#fff',border:'none',boxShadow:'0 2px 6px rgba(180,83,9,0.25)',fontSize:13}}>
-                      ■ 전체 정지
-                    </button>
-                    <button onClick={() => devicesInGroup.forEach(d => handleControl(d.deviceId, 'close'))}
-                      style={{...btnBase,flex:1,background:'#1d4ed8',color:'#fff',border:'none',boxShadow:'0 2px 6px rgba(29,78,216,0.25)',fontSize:13}}>
-                      ▼ 전체 닫기
-                    </button>
-                  </div>
-                )}
-              </div>
-            )}
+            <div style={{padding:'16px'}}>
+              {/* 개별 장치 제어 (위) */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                {devicesInGroup.map(device => {
+                  const state = deviceStates[device.deviceId] || { status: 'idle' };
+                  const statusDisplay = getStatusDisplay(state.status);
+                  const isProcessing = ['opening', 'closing', 'stopping', 'turning_on', 'turning_off'].includes(state.status);
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              {devicesInGroup.map(device => {
-                const state = deviceStates[device.deviceId] || { status: 'idle' };
-                const statusDisplay = getStatusDisplay(state.status);
-                const isProcessing = ['opening', 'closing', 'stopping', 'turning_on', 'turning_off'].includes(state.status);
-
-                return (
-                  <div key={device.deviceId}
-                    style={{background:'#fff',border:'1px solid #d1d5db',borderRadius:12,padding:16,transition:'all 0.2s'}}>
-                    <div className="flex items-center justify-between mb-3">
-                      <div className="flex items-center gap-2">
-                        <span className="text-lg">{device.icon || typeInfo.icon}</span>
-                        <span style={{fontSize:16,fontWeight:700,color:'#111827'}}>{device.name}</span>
+                  return (
+                    <div key={device.deviceId}
+                      style={{background:'#f8fafc',border:'2px solid #e2e8f0',borderRadius:14,padding:'14px 16px',transition:'all 0.2s'}}>
+                      <div className="flex items-center justify-between mb-3">
+                        <div className="flex items-center gap-2">
+                          <span style={{fontSize:20}}>{device.icon || typeInfo.icon}</span>
+                          <span style={{fontSize:17,fontWeight:800,color:'#0f172a'}}>{device.name}</span>
+                        </div>
+                        <div style={{display:'flex',alignItems:'center',gap:6,background:statusDisplay.animate ? `${statusDisplay.color}15` : '#f1f5f9',padding:'4px 12px',borderRadius:20,border:`1.5px solid ${statusDisplay.animate ? statusDisplay.color : '#e2e8f0'}`}}>
+                          <span style={{width:8,height:8,borderRadius:'50%',background:statusDisplay.color,display:'inline-block',boxShadow:`0 0 6px ${statusDisplay.color}`}} className={statusDisplay.animate ? 'animate-pulse' : ''} />
+                          <span style={{fontSize:13,fontWeight:700,color:statusDisplay.color}}>{statusDisplay.text}</span>
+                        </div>
                       </div>
-                      <div className="flex items-center gap-1.5">
-                        <span style={{width:8,height:8,borderRadius:'50%',background:statusDisplay.color,display:'inline-block',boxShadow:`0 0 6px ${statusDisplay.color}`}} className={statusDisplay.animate ? 'animate-pulse' : ''} />
-                        <span style={{fontSize:14,fontWeight:600,color:statusDisplay.color}}>{statusDisplay.text}</span>
-                      </div>
+
+                      {isToggleType ? (
+                        <div className="grid grid-cols-2 gap-3">
+                          <button onClick={() => handleControl(device.deviceId, 'on')}
+                            disabled={isProcessing || state.status === 'on'}
+                            style={{...btnBase, ...(state.status === 'on' || state.status === 'turning_on' ? onActiveStyle : onInactiveStyle), ...(isProcessing || state.status === 'on' ? {opacity:0.4,cursor:'not-allowed'} : {})}}>
+                            {state.status === 'turning_on' ? '⏳ 전환중...' : state.status === 'on' ? '● ON' : '◉ ON'}
+                          </button>
+                          <button onClick={() => handleControl(device.deviceId, 'off')}
+                            disabled={isProcessing || state.status === 'off' || state.status === 'idle'}
+                            style={{...btnBase, ...(state.status === 'off' || state.status === 'idle' || state.status === 'turning_off' ? offActiveStyle : offInactiveStyle), ...(isProcessing || state.status === 'off' || state.status === 'idle' ? {opacity:0.4,cursor:'not-allowed'} : {})}}>
+                            {state.status === 'turning_off' ? '⏳ 전환중...' : '○ OFF'}
+                          </button>
+                        </div>
+                      ) : (
+                        <div className="grid grid-cols-3 gap-2">
+                          <button onClick={() => handleControl(device.deviceId, 'open')}
+                            disabled={isProcessing || state.status === 'open'}
+                            style={{...btnBase, ...(state.status === 'open' || state.status === 'opening' ? openActiveStyle : (isProcessing || state.status === 'open') ? openDisabledStyle : openInactiveStyle)}}>
+                            {state.status === 'opening' ? '⏳ 여는중...' : state.status === 'open' ? '● 열림' : '▲ 열기'}
+                          </button>
+                          <button onClick={() => handleControl(device.deviceId, 'stop')}
+                            disabled={state.status === 'idle' || state.status === 'stopping'}
+                            style={{...btnBase, ...(state.status === 'stopping' ? stopActiveStyle : (state.status === 'opening' || state.status === 'closing') ? stopUrgentStyle : (state.status === 'idle') ? stopDisabledStyle : stopInactiveStyle)}}>
+                            {state.status === 'stopping' ? '⏳ 정지중...' : (state.status === 'opening' || state.status === 'closing') ? '⛔ 정지' : '■ 정지'}
+                          </button>
+                          <button onClick={() => handleControl(device.deviceId, 'close')}
+                            disabled={isProcessing || state.status === 'closed'}
+                            style={{...btnBase, ...(state.status === 'closed' || state.status === 'closing' ? closeActiveStyle : (isProcessing || state.status === 'closed') ? closeDisabledStyle : closeInactiveStyle)}}>
+                            {state.status === 'closing' ? '⏳ 닫는중...' : state.status === 'closed' ? '● 닫힘' : '▼ 닫기'}
+                          </button>
+                        </div>
+                      )}
                     </div>
+                  );
+                })}
+              </div>
 
-                    {isToggleType ? (
-                      <div className="grid grid-cols-2 gap-2">
-                        <button onClick={() => handleControl(device.deviceId, 'on')}
-                          disabled={isProcessing || state.status === 'on'}
-                          style={{...btnBase, ...(state.status === 'on' || state.status === 'turning_on' ? onActiveStyle : onInactiveStyle), ...(isProcessing || state.status === 'on' ? {opacity:0.6,cursor:'not-allowed'} : {})}}>
-                          {state.status === 'turning_on' ? '⏳ 전환중...' : state.status === 'on' ? '● ON' : '◉ ON'}
-                        </button>
-                        <button onClick={() => handleControl(device.deviceId, 'off')}
-                          disabled={isProcessing || state.status === 'off' || state.status === 'idle'}
-                          style={{...btnBase, ...(state.status === 'off' || state.status === 'idle' || state.status === 'turning_off' ? offActiveStyle : offInactiveStyle), ...(isProcessing || state.status === 'off' || state.status === 'idle' ? {opacity:0.6,cursor:'not-allowed'} : {})}}>
-                          {state.status === 'turning_off' ? '⏳ 전환중...' : '○ OFF'}
-                        </button>
-                      </div>
-                    ) : (
-                      <div className="grid grid-cols-3 gap-2">
-                        <button onClick={() => handleControl(device.deviceId, 'open')}
-                          disabled={isProcessing || state.status === 'open'}
-                          style={{...btnBase, ...(state.status === 'open' || state.status === 'opening' ? openActiveStyle : (isProcessing || state.status === 'open') ? openDisabledStyle : openInactiveStyle)}}>
-                          {state.status === 'opening' ? '⏳ 여는중...' : state.status === 'open' ? '● 열림' : '▲ 열기'}
-                        </button>
-                        <button onClick={() => handleControl(device.deviceId, 'stop')}
-                          disabled={state.status === 'idle' || state.status === 'stopping'}
-                          style={{...btnBase, ...(state.status === 'stopping' ? stopActiveStyle : (state.status === 'opening' || state.status === 'closing') ? stopUrgentStyle : (state.status === 'idle') ? stopDisabledStyle : stopInactiveStyle)}}>
-                          {state.status === 'stopping' ? '⏳ 정지중...' : (state.status === 'opening' || state.status === 'closing') ? '⛔ 정지' : '■ 정지'}
-                        </button>
-                        <button onClick={() => handleControl(device.deviceId, 'close')}
-                          disabled={isProcessing || state.status === 'closed'}
-                          style={{...btnBase, ...(state.status === 'closed' || state.status === 'closing' ? closeActiveStyle : (isProcessing || state.status === 'closed') ? closeDisabledStyle : closeInactiveStyle)}}>
-                          {state.status === 'closing' ? '⏳ 닫는중...' : state.status === 'closed' ? '● 닫힘' : '▼ 닫기'}
-                        </button>
-                      </div>
-                    )}
+              {/* 전체 제어 (아래) */}
+              {devicesInGroup.length >= 2 && (
+                <div style={{marginTop:14,paddingTop:14,borderTop:'2px solid #e2e8f0'}}>
+                  <div style={{fontSize:13,fontWeight:700,color:'#64748b',marginBottom:10,display:'flex',alignItems:'center',gap:6}}>
+                    <span style={{width:4,height:14,background:accent,borderRadius:2,display:'inline-block'}}/>
+                    전체제어
                   </div>
-                );
-              })}
+                  {isToggleType ? (
+                    <div className="flex gap-3">
+                      <button onClick={() => devicesInGroup.forEach(d => handleControl(d.deviceId, 'on'))}
+                        style={{...btnBase,flex:1,background:accent,color:'#fff',boxShadow:`0 2px 8px ${accent}40`}}>
+                        전체 ON
+                      </button>
+                      <button onClick={() => devicesInGroup.forEach(d => handleControl(d.deviceId, 'off'))}
+                        style={{...btnBase,flex:1,background:'#64748b',color:'#fff',boxShadow:'0 2px 8px rgba(100,116,139,0.3)'}}>
+                        전체 OFF
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="flex gap-3">
+                      <button onClick={() => devicesInGroup.forEach(d => handleControl(d.deviceId, 'open'))}
+                        style={{...btnBase,flex:1,background:'#059669',color:'#fff',boxShadow:'0 2px 8px rgba(5,150,105,0.35)'}}>
+                        ▲ 전체 열기
+                      </button>
+                      <button onClick={() => devicesInGroup.forEach(d => handleControl(d.deviceId, 'stop'))}
+                        style={{...btnBase,flex:1,background:'#64748b',color:'#fff',boxShadow:'0 2px 8px rgba(100,116,139,0.3)'}}>
+                        ■ 전체 정지
+                      </button>
+                      <button onClick={() => devicesInGroup.forEach(d => handleControl(d.deviceId, 'close'))}
+                        style={{...btnBase,flex:1,background:'#4f46e5',color:'#fff',boxShadow:'0 2px 8px rgba(79,70,229,0.35)'}}>
+                        ▼ 전체 닫기
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           </div>
         );

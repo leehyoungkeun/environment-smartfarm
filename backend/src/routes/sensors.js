@@ -70,8 +70,10 @@ router.post("/collect", async (req, res, next) => {
       metadata,
     });
 
-    // 4. 알림 체크 (비동기)
+    // 4. 알림 체크 (비동기, 실패 시 카운터 기록)
     checkAndCreateAlerts(farmId, houseId, data, config).catch((err) => {
+      alertFailureCount++;
+      lastAlertFailure = new Date();
       logger.error("Alert check failed:", err);
     });
 
@@ -243,9 +245,36 @@ router.get("/:farmId/:houseId/latest", async (req, res, next) => {
 router.get("/:farmId/:houseId/history", async (req, res, next) => {
   try {
     const { farmId, houseId } = req.params;
-    const { startDate, endDate } = req.query;
+    const { startDate, endDate, limit } = req.query;
 
     const history = await SensorData.getTimeRange(
+      farmId,
+      houseId,
+      startDate,
+      endDate,
+      limit ? parseInt(limit) : undefined
+    );
+
+    res.json({
+      success: true,
+      count: history.length,
+      data: history,
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+/**
+ * GET /api/sensors/:farmId/:houseId/count
+ * 데이터 건수만 반환 (전체 row를 가져오지 않아 빠름)
+ */
+router.get("/:farmId/:houseId/count", async (req, res, next) => {
+  try {
+    const { farmId, houseId } = req.params;
+    const { startDate, endDate } = req.query;
+
+    const count = await SensorData.getCount(
       farmId,
       houseId,
       startDate,
@@ -254,8 +283,7 @@ router.get("/:farmId/:houseId/history", async (req, res, next) => {
 
     res.json({
       success: true,
-      count: history.length,
-      data: history,
+      count,
     });
   } catch (error) {
     next(error);
@@ -296,6 +324,14 @@ router.get("/:farmId/:houseId/stats/:sensorId", async (req, res, next) => {
  */
 const alertCooldowns = new Map();
 const ALERT_COOLDOWN_MS = 10 * 60 * 1000; // 10분
+
+// 알림 실패 추적 (health 엔드포인트에서 조회)
+let alertFailureCount = 0;
+let lastAlertFailure = null;
+
+export function getAlertHealth() {
+  return { failureCount: alertFailureCount, lastFailure: lastAlertFailure };
+}
 
 async function checkAndCreateAlerts(farmId, houseId, data, config) {
   try {

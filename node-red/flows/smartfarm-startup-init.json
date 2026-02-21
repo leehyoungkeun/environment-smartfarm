@@ -1,0 +1,68 @@
+[
+    {
+        "id": "startup_init_flow",
+        "type": "tab",
+        "label": "시작 초기화",
+        "disabled": false,
+        "info": "Node-RED 시작 시 SQLite config_cache에서 설정을 로드하여\nglobal.houseConfig에 저장합니다.\n\nNode-RED 재시작 후에도 오프라인 센서 수집이 중단되지 않도록 보장."
+    },
+    {
+        "id": "inject_startup",
+        "type": "inject",
+        "z": "startup_init_flow",
+        "name": "시작 시 1회 실행",
+        "props": [],
+        "repeat": "",
+        "crontab": "",
+        "once": true,
+        "onceDelay": "2",
+        "topic": "",
+        "x": 170,
+        "y": 80,
+        "wires": [["startup_config_query"]]
+    },
+    {
+        "id": "startup_config_query",
+        "type": "function",
+        "z": "startup_init_flow",
+        "name": "config_cache 조회",
+        "func": "// 이미 global에 config가 있으면 스킵\nconst existing = global.get('houseConfig');\nif (existing) {\n    node.warn('✅ houseConfig 이미 로드됨 (스킵)');\n    node.status({ fill: 'green', shape: 'dot', text: 'config 이미 있음' });\n    return null;\n}\n\nmsg.topic = `SELECT config_json FROM config_cache ORDER BY version DESC LIMIT 1`;\nreturn msg;",
+        "outputs": 1,
+        "x": 410,
+        "y": 80,
+        "wires": [["sqlite_startup"]]
+    },
+    {
+        "id": "sqlite_startup",
+        "type": "sqlite",
+        "z": "startup_init_flow",
+        "name": "SQLite 조회",
+        "mydb": "sqlite_db",
+        "sqlquery": "msg.topic",
+        "sql": "",
+        "x": 620,
+        "y": 80,
+        "wires": [["startup_config_load"]]
+    },
+    {
+        "id": "startup_config_load",
+        "type": "function",
+        "z": "startup_init_flow",
+        "name": "config → global 저장",
+        "func": "const rows = msg.payload || [];\n\nif (rows.length > 0 && rows[0].config_json) {\n    try {\n        const config = JSON.parse(rows[0].config_json);\n        global.set('houseConfig', config);\n        \n        const houseCount = config.houses ? config.houses.length : 0;\n        node.warn(`📋 SQLite에서 config 복원 완료: ${houseCount}개 하우스`);\n        node.status({ fill: 'green', shape: 'dot', text: `config 복원 (${houseCount} houses)` });\n    } catch (e) {\n        node.error('❌ config JSON 파싱 실패: ' + e.message);\n        node.status({ fill: 'red', shape: 'dot', text: 'JSON 파싱 실패' });\n    }\n} else {\n    node.warn('⚠️ SQLite config_cache 비어있음 - 서버 연결 시 자동 캐시됩니다');\n    node.status({ fill: 'yellow', shape: 'ring', text: 'config 없음' });\n}\n\nreturn null;",
+        "outputs": 1,
+        "x": 850,
+        "y": 80,
+        "wires": [[]]
+    },
+    {
+        "id": "comment_startup",
+        "type": "comment",
+        "z": "startup_init_flow",
+        "name": "━━━ Node-RED 시작 시 SQLite에서 config 자동 복원 ━━━",
+        "info": "Node-RED 재시작 시 global context가 초기화되어\nhouseConfig이 null이 됩니다.\n\n이 플로우가 SQLite config_cache에서 설정을 읽어\nglobal.houseConfig에 복원하므로\n오프라인 센서 수집이 중단되지 않습니다.",
+        "x": 270,
+        "y": 40,
+        "wires": []
+    }
+]

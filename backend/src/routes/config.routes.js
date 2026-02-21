@@ -4,9 +4,44 @@
 
 import express from "express";
 import Config from "../models/Config.js";
+import { pool } from "../db.js";
 import logger from "../utils/logger.js";
 
 const router = express.Router();
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// GET /api/config/node-red/:farmId/:houseId - Node-RED용 경량 설정 조회
+// Node-RED가 주기적으로 폴링하여 수집 주기/센서 목록을 동기화
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+router.get("/node-red/:farmId/:houseId", async (req, res) => {
+  try {
+    const { farmId, houseId } = req.params;
+    const house = await Config.findOne({ farmId, houseId });
+
+    if (!house) {
+      return res.status(404).json({ success: false, error: "House not found" });
+    }
+
+    res.json({
+      success: true,
+      data: {
+        farmId: house.farmId,
+        houseId: house.houseId,
+        intervalSeconds: house.collection?.intervalSeconds || 60,
+        sensors: (house.sensors || [])
+          .filter(s => s.enabled !== false)
+          .map(s => ({
+            sensorId: s.sensorId,
+            name: s.name,
+            unit: s.unit,
+          })),
+      },
+    });
+  } catch (error) {
+    logger.error("❌ Node-RED 설정 조회 실패:", error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // GET /api/config/farm/:farmId - 농장의 모든 하우스 목록 조회
@@ -143,7 +178,7 @@ router.put("/:houseId", async (req, res) => {
     }
 
     // 허용된 필드만 추출 (Mass Assignment 방지)
-    const allowedFields = ["houseName", "sensors", "collection", "devices", "deviceCount", "enabled"];
+    const allowedFields = ["houseName", "sensors", "collection", "devices", "deviceCount", "enabled", "crops", "cropType", "cropVariety", "plantingDate"];
     const updateData = {};
     for (const field of allowedFields) {
       if (req.body[field] !== undefined) {
@@ -193,6 +228,67 @@ router.delete("/:houseId", async (req, res) => {
     res.json({ success: true, message: "House deleted" });
   } catch (error) {
     logger.error("❌ 하우스 삭제 실패:", error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// GET /api/config/system-settings/:farmId - 시스템 설정 조회
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+router.get("/system-settings/:farmId", async (req, res) => {
+  try {
+    const { farmId } = req.params;
+    const result = await pool.query(
+      "SELECT settings FROM system_settings WHERE farm_id = $1",
+      [farmId]
+    );
+
+    const defaults = { retentionDays: 60 };
+    const settings = result.rows[0]
+      ? { ...defaults, ...result.rows[0].settings }
+      : defaults;
+
+    res.json({ success: true, data: settings });
+  } catch (error) {
+    logger.error("❌ 시스템 설정 조회 실패:", error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// PUT /api/config/system-settings/:farmId - 시스템 설정 저장
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+router.put("/system-settings/:farmId", async (req, res) => {
+  try {
+    const { farmId } = req.params;
+    const { retentionDays } = req.body;
+
+    // 허용된 필드만 추출
+    const settings = {};
+    if (retentionDays !== undefined) {
+      const days = parseInt(retentionDays);
+      if (isNaN(days) || days < 7 || days > 365) {
+        return res.status(400).json({
+          success: false,
+          error: "retentionDays는 7~365 범위여야 합니다.",
+        });
+      }
+      settings.retentionDays = days;
+    }
+
+    await pool.query(
+      `INSERT INTO system_settings (farm_id, settings, updated_at)
+       VALUES ($1, $2, NOW())
+       ON CONFLICT (farm_id) DO UPDATE
+         SET settings = system_settings.settings || $2,
+             updated_at = NOW()`,
+      [farmId, JSON.stringify(settings)]
+    );
+
+    logger.info(`⚙️ 시스템 설정 저장: ${farmId} - ${JSON.stringify(settings)}`);
+    res.json({ success: true, data: settings });
+  } catch (error) {
+    logger.error("❌ 시스템 설정 저장 실패:", error);
     res.status(500).json({ success: false, error: error.message });
   }
 });

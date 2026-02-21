@@ -1,6 +1,6 @@
 // public/sw.js - SmartFarm Service Worker
 
-const CACHE_NAME = 'smartfarm-v1';
+const CACHE_NAME = 'smartfarm-v2';
 const STATIC_ASSETS = [
   '/',
   '/index.html',
@@ -35,6 +35,11 @@ self.addEventListener('activate', (event) => {
 // 요청 가로채기 - 네트워크 우선, 실패시 캐시
 self.addEventListener('fetch', (event) => {
   const { request } = event;
+
+  // 다른 origin 요청은 SW가 가로채지 않음 (헬스체크 등 백엔드 직접 요청)
+  if (new URL(request.url).origin !== self.location.origin) {
+    return;
+  }
 
   // API 요청은 네트워크만 사용
   if (request.url.includes('/api/')) {

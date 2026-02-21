@@ -21,11 +21,10 @@ const GaugeWidget = ({ sensors, latestData }) => {
     const strokeDash = percentage * 2.51;
 
     return (
-      <div className="bg-gray-50 rounded-xl p-4 border border-gray-200 
-                      hover:bg-gray-100 transition-all duration-200 group">
+      <div style={{background:'#f8fafc',borderRadius:14,padding:16,border:'2px solid #e2e8f0',transition:'all 0.2s'}}>
         <div className="flex items-center gap-2 mb-3">
-          <span className="text-xl">{sensor.icon}</span>
-          <span className="text-sm font-semibold text-gray-800">{sensor.name}</span>
+          <span style={{fontSize:22}}>{sensor.icon}</span>
+          <span style={{fontSize:14,fontWeight:800,color:'#0f172a'}}>{sensor.name}</span>
         </div>
 
         <div className="relative w-full h-28 md:h-32 mb-2">
@@ -67,11 +66,11 @@ const GaugeWidget = ({ sensors, latestData }) => {
           </svg>
 
           <div className="absolute bottom-0 left-0 right-0 text-center">
-            <div className="text-xl md:text-2xl font-bold font-mono tracking-tight" style={{ color }}>
+            <div style={{fontSize:26,fontWeight:900,fontFamily:'monospace',color,letterSpacing:'-0.02em'}}>
               {value !== null && value !== undefined
                 ? `${typeof value === 'number' ? value.toFixed(sensor.precision || 1) : value}`
                 : '—'}
-              <span className="text-xs text-gray-400 ml-1">{sensor.unit}</span>
+              <span style={{fontSize:12,color:'#94a3b8',marginLeft:4}}>{sensor.unit}</span>
             </div>
           </div>
         </div>
@@ -89,22 +88,29 @@ const GaugeWidget = ({ sensors, latestData }) => {
   if (numberSensors.length === 0) return null;
 
   return (
-    <div className="bg-white border border-gray-200 rounded-2xl shadow-sm p-4 md:p-5">
-      <h2 className="text-base md:text-lg font-bold text-gray-800 mb-4">센서 게이지</h2>
-      
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-        {numberSensors.map(sensor => {
-          const value = latestData?.data?.[sensor.sensorId];
-          const percentage = calculatePercentage(value, sensor.min, sensor.max);
-          return (
-            <GaugeChart
-              key={sensor.sensorId}
-              sensor={sensor}
-              value={value}
-              percentage={percentage}
-            />
-          );
-        })}
+    <div style={{background:'#fff',border:'1px solid #e2e8f0',borderRadius:16,overflow:'hidden',boxShadow:'0 1px 3px rgba(0,0,0,0.06)'}}>
+      <div style={{background:'#0891b2',padding:'12px 18px',display:'flex',alignItems:'center',justifyContent:'space-between'}}>
+        <h2 style={{fontSize:16,fontWeight:800,color:'#fff'}}>🎯 센서 게이지</h2>
+        <span style={{background:'rgba(255,255,255,0.2)',color:'#fff',fontSize:12,fontWeight:600,padding:'3px 10px',borderRadius:8}}>
+          {numberSensors.length}개
+        </span>
+      </div>
+
+      <div style={{padding:'16px'}}>
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+          {numberSensors.map(sensor => {
+            const value = latestData?.data?.[sensor.sensorId];
+            const percentage = calculatePercentage(value, sensor.min, sensor.max);
+            return (
+              <GaugeChart
+                key={sensor.sensorId}
+                sensor={sensor}
+                value={value}
+                percentage={percentage}
+              />
+            );
+          })}
+        </div>
       </div>
     </div>
   );

@@ -1,8 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import axiosBase from 'axios';
 import AutomationManager from '../Dashboard/AutomationManager';
-
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3000/api';
+import { getApiBase } from '../../services/apiSwitcher';
 
 // 모든 요청에 자동으로 인증 토큰 추가
 const axios = axiosBase.create();
@@ -25,7 +24,7 @@ const ConfigurationManager = ({ farmId = 'farm_001' }) => {
   const loadHouses = async () => {
     try {
       setLoading(true);
-      const response = await axios.get(`${API_BASE_URL}/config/farm/${farmId}`);
+      const response = await axios.get(`${getApiBase()}/config/farm/${farmId}`);
       if (response.data.success) {
         setHouses(response.data.data);
         if (selectedHouse) {
@@ -33,12 +32,29 @@ const ConfigurationManager = ({ farmId = 'farm_001' }) => {
           if (updatedHouse) setSelectedHouse(updatedHouse);
           else setSelectedHouse(null);
         }
+      } else {
+        // API 응답 실패 → 캐시 시도
+        loadHousesFromCache();
       }
     } catch (error) {
       console.error('Failed to load houses:', error);
+      loadHousesFromCache();
     } finally {
       setLoading(false);
     }
+  };
+
+  const loadHousesFromCache = () => {
+    try {
+      const cached = localStorage.getItem(`cachedConfig_${farmId}`);
+      if (cached) {
+        const cachedData = JSON.parse(cached);
+        if (cachedData.houses) {
+          console.log('[Settings] 캐시된 설정 사용 (읽기 전용)');
+          setHouses(cachedData.houses);
+        }
+      }
+    } catch {}
   };
 
   const createNewHouse = async () => {
@@ -50,7 +66,7 @@ const ConfigurationManager = ({ farmId = 'farm_001' }) => {
     const newHouseId = `house_${String(nextNumber).padStart(3, '0')}`;
 
     try {
-      const response = await axios.post(`${API_BASE_URL}/config`, {
+      const response = await axios.post(`${getApiBase()}/config`, {
         farmId,
         houseId: newHouseId,
         houseName: `${nextNumber}번 하우스`,
@@ -79,7 +95,7 @@ const ConfigurationManager = ({ farmId = 'farm_001' }) => {
   const deleteHouse = async (houseId, houseName) => {
     if (!confirm(`"${houseName}"을(를) 삭제하시겠습니까?\n\n모든 센서 설정이 삭제됩니다.`)) return;
     try {
-      const response = await axios.delete(`${API_BASE_URL}/config/${houseId}?farmId=${farmId}`);
+      const response = await axios.delete(`${getApiBase()}/config/${houseId}?farmId=${farmId}`);
       if (response.data.success) {
         alert('✅ 하우스가 삭제되었습니다!');
         if (selectedHouse?.houseId === houseId) setSelectedHouse(null);
@@ -105,6 +121,7 @@ const ConfigurationManager = ({ farmId = 'farm_001' }) => {
   const tabs = [
     { id: 'houses', label: '하우스/센서', icon: '🏠' },
     { id: 'automation', label: '자동화', icon: '🤖' },
+    { id: 'system', label: '시스템', icon: '⚙️' },
   ];
 
   return (
@@ -206,14 +223,28 @@ const ConfigurationManager = ({ farmId = 'farm_001' }) => {
       {activeTab === 'automation' && (
         <AutomationManager farmId={farmId} />
       )}
+
+      {/* 시스템 설정 탭 */}
+      {activeTab === 'system' && (
+        <SystemSettings />
+      )}
     </div>
   );
 };
+
+const INTERVAL_PRESETS = [
+  { value: 10, label: '10초', desc: '테스트용' },
+  { value: 30, label: '30초', desc: '빠른 모니터링' },
+  { value: 60, label: '1분', desc: '일반 (기본)' },
+  { value: 300, label: '5분', desc: '저전력' },
+  { value: 600, label: '10분', desc: '장기 모니터링' },
+];
 
 const HouseDetailEditor = ({ house, onUpdate }) => {
   const [editedHouse, setEditedHouse] = useState(house);
   const [editingSensor, setEditingSensor] = useState(null);
   const [showAddSensor, setShowAddSensor] = useState(false);
+  const [showNodeRedGuide, setShowNodeRedGuide] = useState(false);
   const [newSensor, setNewSensor] = useState({
     sensorId: '', name: '', unit: '', type: 'number',
     min: 0, max: 100, enabled: true, icon: '📊', color: '#3B82F6'
@@ -228,7 +259,7 @@ const HouseDetailEditor = ({ house, onUpdate }) => {
   const updateHouse = async () => {
     try {
       const response = await axios.put(
-        `${API_BASE_URL}/config/${house.houseId}?farmId=${house.farmId}`,
+        `${getApiBase()}/config/${house.houseId}?farmId=${house.farmId}`,
         editedHouse
       );
       if (response.data.success) {
@@ -247,7 +278,7 @@ const HouseDetailEditor = ({ house, onUpdate }) => {
     const updatedHouse = { ...editedHouse, sensors: updatedSensors };
     try {
       const response = await axios.put(
-        `${API_BASE_URL}/config/${house.houseId}?farmId=${house.farmId}`,
+        `${getApiBase()}/config/${house.houseId}?farmId=${house.farmId}`,
         updatedHouse
       );
       if (response.data.success) {
@@ -276,7 +307,7 @@ const HouseDetailEditor = ({ house, onUpdate }) => {
     };
     try {
       const response = await axios.put(
-        `${API_BASE_URL}/config/${house.houseId}?farmId=${house.farmId}`,
+        `${getApiBase()}/config/${house.houseId}?farmId=${house.farmId}`,
         updatedHouse
       );
       if (response.data.success) {
@@ -296,7 +327,7 @@ const HouseDetailEditor = ({ house, onUpdate }) => {
     const updatedHouse = { ...editedHouse, sensors: editedHouse.sensors.filter(s => s.sensorId !== sensorId) };
     try {
       const response = await axios.put(
-        `${API_BASE_URL}/config/${house.houseId}?farmId=${house.farmId}`,
+        `${getApiBase()}/config/${house.houseId}?farmId=${house.farmId}`,
         updatedHouse
       );
       if (response.data.success) {
@@ -314,31 +345,202 @@ const HouseDetailEditor = ({ house, onUpdate }) => {
       {/* 기본 설정 */}
       <div className="glass-card p-4 md:p-5">
         <h2 className="text-lg font-bold text-gray-800 mb-4">기본 설정</h2>
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
-          <div>
-            <label className="text-sm text-gray-600 font-semibold mb-1.5 block">하우스 이름</label>
-            <input
-              type="text"
-              value={editedHouse.houseName}
-              onChange={(e) => setEditedHouse({ ...editedHouse, houseName: e.target.value })}
-              className="input-field"
-            />
+
+        {/* 하우스 이름 */}
+        <div className="mb-4">
+          <label className="text-sm text-gray-600 font-semibold mb-1.5 block">하우스 이름</label>
+          <input
+            type="text"
+            value={editedHouse.houseName}
+            onChange={(e) => setEditedHouse({ ...editedHouse, houseName: e.target.value })}
+            className="input-field"
+          />
+        </div>
+
+        {/* 수집 주기 */}
+        <div className="mb-4">
+          <label className="text-sm text-gray-600 font-semibold mb-1.5 block">수집 주기</label>
+          <div className="flex flex-wrap gap-2 mb-2">
+            {INTERVAL_PRESETS.map(preset => (
+              <button
+                key={preset.value}
+                onClick={() => setEditedHouse({
+                  ...editedHouse,
+                  collection: { ...editedHouse.collection, intervalSeconds: preset.value }
+                })}
+                className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-all border
+                  ${editedHouse.collection.intervalSeconds === preset.value
+                    ? 'bg-blue-600 text-white border-blue-600 shadow-sm'
+                    : 'bg-white text-gray-600 border-gray-200 hover:border-blue-300 hover:bg-blue-50'
+                  }`}
+              >
+                {preset.label}
+              </button>
+            ))}
           </div>
-          <div>
-            <label className="text-sm text-gray-600 font-semibold mb-1.5 block">수집 주기 (초)</label>
+          <div className="flex items-center gap-3">
             <input
               type="number"
               value={editedHouse.collection.intervalSeconds}
-              onChange={(e) => setEditedHouse({
-                ...editedHouse,
-                collection: { ...editedHouse.collection, intervalSeconds: parseInt(e.target.value) }
-              })}
-              className="input-field"
+              onChange={(e) => {
+                const val = parseInt(e.target.value);
+                if (!isNaN(val)) setEditedHouse({
+                  ...editedHouse,
+                  collection: { ...editedHouse.collection, intervalSeconds: Math.max(10, Math.min(3600, val)) }
+                });
+              }}
+              className="input-field w-28"
               min="10" max="3600"
             />
+            <span className="text-sm text-gray-500">초 (10~3600)</span>
           </div>
+          <p className="text-xs text-gray-400 mt-1.5">
+            {INTERVAL_PRESETS.find(p => p.value === editedHouse.collection.intervalSeconds)?.desc
+              || `${editedHouse.collection.intervalSeconds}초 간격`}
+            {' · '}하루 약 {Math.floor(86400 / (editedHouse.collection.intervalSeconds || 60)).toLocaleString()}건 수집
+          </p>
         </div>
+
+        {/* Node-RED 연동 안내 */}
+        <div className="bg-orange-50 border border-orange-200 rounded-xl p-3.5 mb-4">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <span className="text-lg">🔴</span>
+              <div>
+                <p className="text-sm font-bold text-orange-700">Node-RED 자동 동기화</p>
+                <p className="text-xs text-orange-600">
+                  Node-RED가 이 설정을 자동으로 가져가 수집 주기를 맞춥니다
+                </p>
+              </div>
+            </div>
+            <button
+              onClick={() => setShowNodeRedGuide(!showNodeRedGuide)}
+              className="text-xs text-orange-500 hover:text-orange-700 underline whitespace-nowrap ml-2"
+            >
+              {showNodeRedGuide ? '접기' : '설정 가이드'}
+            </button>
+          </div>
+
+          {showNodeRedGuide && (
+            <div className="mt-3 pt-3 border-t border-orange-200 space-y-2.5">
+              <div>
+                <p className="text-xs font-semibold text-gray-600 mb-1">Node-RED 설정 조회 API</p>
+                <code className="block text-xs bg-white border border-orange-100 rounded-lg px-3 py-2 font-mono text-gray-700 break-all">
+                  GET {getApiBase()}/config/node-red/{house.farmId}/{house.houseId}
+                </code>
+              </div>
+              <div>
+                <p className="text-xs font-semibold text-gray-600 mb-1">응답 예시</p>
+                <pre className="text-[11px] bg-white border border-orange-100 rounded-lg px-3 py-2 font-mono text-gray-600 overflow-x-auto">
+{JSON.stringify({
+  success: true,
+  data: {
+    farmId: house.farmId,
+    houseId: house.houseId,
+    intervalSeconds: editedHouse.collection.intervalSeconds,
+    sensors: (editedHouse.sensors || []).slice(0, 2).map(s => ({
+      sensorId: s.sensorId, name: s.name, unit: s.unit
+    }))
+  }
+}, null, 2)}
+                </pre>
+              </div>
+              <div>
+                <p className="text-xs font-semibold text-gray-600 mb-1">Node-RED Flow 구성</p>
+                <div className="text-xs text-gray-600 bg-white border border-orange-100 rounded-lg px-3 py-2 space-y-1">
+                  <p><span className="font-mono bg-gray-100 px-1 rounded">Inject</span> (5분 반복) →
+                     <span className="font-mono bg-gray-100 px-1 rounded">HTTP Request</span> (위 API 호출) →
+                     <span className="font-mono bg-gray-100 px-1 rounded">Function</span> (아래 코드)</p>
+                  <pre className="mt-1.5 text-[10px] bg-gray-50 rounded p-2 font-mono overflow-x-auto whitespace-pre">{`var data = msg.payload.data;
+flow.set('intervalSeconds', data.intervalSeconds);
+flow.set('sensors', data.sensors);
+node.status({text: data.intervalSeconds + "초"});
+return msg;`}</pre>
+                  <p className="text-gray-400 mt-1">센서 수집 Inject 노드에서 <code className="bg-gray-100 px-1 rounded">flow.get('intervalSeconds')</code>를 반복 주기로 사용</p>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+
         <button onClick={updateHouse} className="btn-primary w-full">💾 저장</button>
+      </div>
+
+      {/* 재배작물 */}
+      <div className="glass-card p-4 md:p-5">
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-lg font-bold text-gray-800">🌿 재배작물 ({(editedHouse.crops || []).length})</h2>
+          <button
+            onClick={() => {
+              const crops = [...(editedHouse.crops || [])];
+              crops.push({ name: '', variety: '', plantingDate: '', area: '' });
+              setEditedHouse({ ...editedHouse, crops });
+            }}
+            className="btn-primary"
+          >
+            + 작물 추가
+          </button>
+        </div>
+
+        {(editedHouse.crops || []).length === 0 ? (
+          <p className="text-sm text-gray-400 text-center py-6">등록된 재배작물이 없습니다</p>
+        ) : (
+          <div className="space-y-3">
+            {(editedHouse.crops || []).map((crop, idx) => {
+              const updateCrop = (field, value) => {
+                const crops = [...editedHouse.crops];
+                crops[idx] = { ...crops[idx], [field]: value };
+                setEditedHouse({ ...editedHouse, crops });
+              };
+              const removeCrop = () => {
+                if (!confirm(`"${crop.name || '작물'}"을(를) 삭제하시겠습니까?`)) return;
+                const crops = editedHouse.crops.filter((_, i) => i !== idx);
+                setEditedHouse({ ...editedHouse, crops });
+              };
+              const daysSincePlanting = crop.plantingDate
+                ? Math.floor((new Date() - new Date(crop.plantingDate)) / (1000 * 60 * 60 * 24))
+                : null;
+
+              return (
+                <div key={idx} className="bg-emerald-50 border border-emerald-200 rounded-xl p-4">
+                  <div className="flex items-center justify-between mb-3">
+                    <span className="text-sm font-bold text-emerald-700">
+                      {crop.name || `작물 ${idx + 1}`}
+                      {crop.variety && <span className="text-emerald-500 font-normal ml-1">({crop.variety})</span>}
+                    </span>
+                    <button onClick={removeCrop} className="text-xs text-rose-400 hover:text-rose-600 transition-colors">삭제</button>
+                  </div>
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-2.5">
+                    <div>
+                      <label className="text-xs text-gray-500 mb-1 block">작물명</label>
+                      <input type="text" placeholder="토마토" value={crop.name || ''}
+                        onChange={(e) => updateCrop('name', e.target.value)} className="input-field text-sm" />
+                    </div>
+                    <div>
+                      <label className="text-xs text-gray-500 mb-1 block">품종</label>
+                      <input type="text" placeholder="설향" value={crop.variety || ''}
+                        onChange={(e) => updateCrop('variety', e.target.value)} className="input-field text-sm" />
+                    </div>
+                    <div>
+                      <label className="text-xs text-gray-500 mb-1 block">정식일</label>
+                      <input type="date" value={crop.plantingDate || ''}
+                        onChange={(e) => updateCrop('plantingDate', e.target.value)} className="input-field text-sm" />
+                    </div>
+                    <div>
+                      <label className="text-xs text-gray-500 mb-1 block">재배면적</label>
+                      <input type="text" placeholder="100평" value={crop.area || ''}
+                        onChange={(e) => updateCrop('area', e.target.value)} className="input-field text-sm" />
+                    </div>
+                  </div>
+                  {daysSincePlanting !== null && daysSincePlanting >= 0 && (
+                    <p className="text-xs text-emerald-600 mt-2">정식 후 {daysSincePlanting}일 경과</p>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
+        <button onClick={updateHouse} className="btn-primary w-full mt-3">💾 저장</button>
       </div>
 
       {/* 센서 목록 */}
@@ -479,7 +681,7 @@ const DeviceManager = ({ house, setEditedHouse, onUpdate }) => {
 
     try {
       const response = await axios.put(
-        `${API_BASE_URL}/config/${house.houseId}?farmId=${house.farmId}`,
+        `${getApiBase()}/config/${house.houseId}?farmId=${house.farmId}`,
         updatedHouse
       );
       if (response.data.success) {
@@ -502,7 +704,7 @@ const DeviceManager = ({ house, setEditedHouse, onUpdate }) => {
 
     try {
       const response = await axios.put(
-        `${API_BASE_URL}/config/${house.houseId}?farmId=${house.farmId}`,
+        `${getApiBase()}/config/${house.houseId}?farmId=${house.farmId}`,
         updatedHouse
       );
       if (response.data.success) {
@@ -639,6 +841,332 @@ const SensorEditForm = ({ sensor, onSave, onCancel }) => {
         <button onClick={() => onSave(editData)} className="flex-1 btn-success">💾 저장</button>
         <button onClick={onCancel} className="flex-1 btn-secondary">취소</button>
       </div>
+    </div>
+  );
+};
+
+const TIMEOUT_PRESETS = [
+  { value: 60, label: '1분', desc: '빠른 감지' },
+  { value: 180, label: '3분', desc: '기본' },
+  { value: 300, label: '5분', desc: '보통' },
+  { value: 600, label: '10분', desc: '느긋한 감지' },
+];
+
+const POLLING_PRESETS = [
+  { value: 5, label: '5초', desc: '실시간' },
+  { value: 10, label: '10초', desc: '기본' },
+  { value: 30, label: '30초', desc: '보통' },
+  { value: 60, label: '1분', desc: '절약' },
+];
+
+const RETENTION_PRESETS = [
+  { value: 30, label: '1개월', desc: '최소 보관' },
+  { value: 60, label: '2개월', desc: '기본' },
+  { value: 90, label: '3개월', desc: '권장' },
+  { value: 180, label: '6개월', desc: '장기 보관' },
+];
+
+const SystemSettings = () => {
+  const getSavedTimeout = () => {
+    try {
+      const val = parseInt(localStorage.getItem('smartfarm_serverTimeout'));
+      if (!isNaN(val) && val >= 30) return val;
+    } catch {}
+    return 180;
+  };
+
+  const getSavedPolling = () => {
+    try {
+      const val = parseInt(localStorage.getItem('smartfarm_pollingInterval'));
+      if (!isNaN(val) && val >= 3) return val;
+    } catch {}
+    return 10;
+  };
+
+  const [timeoutSec, setTimeoutSec] = useState(getSavedTimeout);
+  const [pollingSec, setPollingSec] = useState(getSavedPolling);
+  const [retentionDays, setRetentionDays] = useState(60);
+  const [serverRetention, setServerRetention] = useState(60); // 서버에 저장된 값
+  const [retentionLoading, setRetentionLoading] = useState(true);
+  const [saved, setSaved] = useState(true);
+
+  // 서버에서 보관 기간 설정 로드
+  useEffect(() => {
+    loadRetentionSetting();
+  }, []);
+
+  const loadRetentionSetting = async () => {
+    try {
+      setRetentionLoading(true);
+      const res = await axios.get(`${getApiBase()}/config/system-settings/farm_001`);
+      if (res.data.success) {
+        const days = res.data.data.retentionDays || 60;
+        setRetentionDays(days);
+        setServerRetention(days);
+      }
+    } catch (err) {
+      console.warn('시스템 설정 로드 실패 (기본값 사용):', err.message);
+    } finally {
+      setRetentionLoading(false);
+    }
+  };
+
+  const checkSaved = (timeout, polling, retention) => {
+    return timeout === getSavedTimeout() && polling === getSavedPolling() && retention === serverRetention;
+  };
+
+  const handleChange = (val) => {
+    const clamped = Math.max(30, Math.min(1800, val));
+    setTimeoutSec(clamped);
+    setSaved(checkSaved(clamped, pollingSec, retentionDays));
+  };
+
+  const handlePollingChange = (val) => {
+    const clamped = Math.max(3, Math.min(300, val));
+    setPollingSec(clamped);
+    setSaved(checkSaved(timeoutSec, clamped, retentionDays));
+  };
+
+  const handleRetentionChange = (val) => {
+    const clamped = Math.max(7, Math.min(365, val));
+    setRetentionDays(clamped);
+    setSaved(checkSaved(timeoutSec, pollingSec, clamped));
+  };
+
+  const handleSave = async () => {
+    // localStorage 설정 저장
+    localStorage.setItem('smartfarm_serverTimeout', String(timeoutSec));
+    localStorage.setItem('smartfarm_pollingInterval', String(pollingSec));
+
+    // 서버에 보관 기간 저장
+    if (retentionDays !== serverRetention) {
+      try {
+        const res = await axios.put(`${getApiBase()}/config/system-settings/farm_001`, {
+          retentionDays,
+        });
+        if (res.data.success) {
+          setServerRetention(retentionDays);
+        }
+      } catch (err) {
+        alert('보관 기간 저장 실패: ' + (err.response?.data?.error || err.message));
+        return;
+      }
+    }
+
+    setSaved(true);
+    alert('저장되었습니다!');
+  };
+
+  const formatTime = (sec) => {
+    if (sec >= 60) {
+      const m = Math.floor(sec / 60);
+      const s = sec % 60;
+      return s > 0 ? `${m}분 ${s}초` : `${m}분`;
+    }
+    return `${sec}초`;
+  };
+
+  const formatDays = (days) => {
+    if (days >= 30) {
+      const months = Math.floor(days / 30);
+      const d = days % 30;
+      return d > 0 ? `${months}개월 ${d}일` : `${months}개월`;
+    }
+    return `${days}일`;
+  };
+
+  return (
+    <div className="max-w-2xl space-y-4 animate-fade-in-up">
+      {/* 서버 연결 설정 */}
+      <div className="glass-card p-4 md:p-5">
+        <h2 className="text-lg font-bold text-gray-800 mb-4">서버 연결 설정</h2>
+
+        {/* 서버 연결 타임아웃 */}
+        <div className="mb-4">
+          <label className="text-sm text-gray-600 font-semibold mb-1.5 block">
+            서버 연결 타임아웃
+          </label>
+          <p className="text-xs text-gray-400 mb-3">
+            서버 연결이 <span className="text-red-500 font-bold">{formatTime(timeoutSec)}</span> 이상 끊기면 대시보드에 경고 알림을 표시합니다
+          </p>
+
+          <div className="flex flex-wrap gap-2 mb-2">
+            {TIMEOUT_PRESETS.map(preset => (
+              <button
+                key={preset.value}
+                onClick={() => handleChange(preset.value)}
+                className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-all border
+                  ${timeoutSec === preset.value
+                    ? 'bg-blue-600 text-white border-blue-600 shadow-sm'
+                    : 'bg-white text-gray-600 border-gray-200 hover:border-blue-300 hover:bg-blue-50'
+                  }`}
+              >
+                {preset.label}
+              </button>
+            ))}
+          </div>
+
+          <div className="flex items-center gap-3">
+            <input
+              type="number"
+              value={timeoutSec}
+              onChange={(e) => {
+                const val = parseInt(e.target.value);
+                if (!isNaN(val)) handleChange(val);
+              }}
+              className="input-field w-28"
+              min="30" max="1800"
+            />
+            <span className="text-sm text-gray-500">초 (30~1800)</span>
+          </div>
+          <p className="text-xs text-gray-400 mt-1.5">
+            {TIMEOUT_PRESETS.find(p => p.value === timeoutSec)?.desc || `${formatTime(timeoutSec)} 간격`}
+            {' · '}헬스체크 주기 10초
+          </p>
+        </div>
+
+        {/* 대시보드 폴링 주기 */}
+        <div className="mb-4">
+          <label className="text-sm text-gray-600 font-semibold mb-1.5 block">
+            대시보드 데이터 갱신 주기
+          </label>
+          <p className="text-xs text-gray-400 mb-3">
+            대시보드가 <span className="text-blue-500 font-bold">{formatTime(pollingSec)}</span>마다 서버에서 최신 센서 데이터를 가져옵니다
+          </p>
+
+          <div className="flex flex-wrap gap-2 mb-2">
+            {POLLING_PRESETS.map(preset => (
+              <button
+                key={preset.value}
+                onClick={() => handlePollingChange(preset.value)}
+                className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-all border
+                  ${pollingSec === preset.value
+                    ? 'bg-blue-600 text-white border-blue-600 shadow-sm'
+                    : 'bg-white text-gray-600 border-gray-200 hover:border-blue-300 hover:bg-blue-50'
+                  }`}
+              >
+                {preset.label}
+              </button>
+            ))}
+          </div>
+
+          <div className="flex items-center gap-3">
+            <input
+              type="number"
+              value={pollingSec}
+              onChange={(e) => {
+                const val = parseInt(e.target.value);
+                if (!isNaN(val)) handlePollingChange(val);
+              }}
+              className="input-field w-28"
+              min="3" max="300"
+            />
+            <span className="text-sm text-gray-500">초 (3~300)</span>
+          </div>
+          <p className="text-xs text-gray-400 mt-1.5">
+            {POLLING_PRESETS.find(p => p.value === pollingSec)?.desc || `${formatTime(pollingSec)} 간격`}
+            {' · '}짧을수록 실시간 반영, 길수록 네트워크 부하 감소
+          </p>
+        </div>
+
+        {/* 안내 */}
+        <div className="bg-red-50 border border-red-200 rounded-xl p-3.5 mb-4">
+          <div className="flex items-center gap-2">
+            <span className="text-lg">⚠️</span>
+            <div>
+              <p className="text-sm font-bold text-red-700">알림 동작</p>
+              <p className="text-xs text-red-600">
+                설정 시간이 지나면 대시보드 상단에 빨간 경고 배너가 나타나고,
+                "로컬 운영 전환" 버튼으로 즉시 로컬 모드로 전환할 수 있습니다.
+                서버가 복구되면 알림이 자동으로 사라집니다.
+              </p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* 로컬 데이터 보관 설정 */}
+      <div className="glass-card p-4 md:p-5">
+        <h2 className="text-lg font-bold text-gray-800 mb-4">로컬 데이터 보관 설정</h2>
+
+        <div className="mb-4">
+          <label className="text-sm text-gray-600 font-semibold mb-1.5 block">
+            로컬 데이터 보관 기간
+          </label>
+          <p className="text-xs text-gray-400 mb-3">
+            라즈베리파이(로컬)에 저장된 센서 데이터를{' '}
+            <span className="text-emerald-600 font-bold">{formatDays(retentionDays)}</span> 동안 보관합니다.
+            서버로 동기화 완료된 오래된 데이터는 자동으로 삭제됩니다.
+          </p>
+
+          {retentionLoading ? (
+            <div className="text-sm text-gray-400 py-2">서버 설정 불러오는 중...</div>
+          ) : (
+            <>
+              <div className="flex flex-wrap gap-2 mb-2">
+                {RETENTION_PRESETS.map(preset => (
+                  <button
+                    key={preset.value}
+                    onClick={() => handleRetentionChange(preset.value)}
+                    className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-all border
+                      ${retentionDays === preset.value
+                        ? 'bg-emerald-600 text-white border-emerald-600 shadow-sm'
+                        : 'bg-white text-gray-600 border-gray-200 hover:border-emerald-300 hover:bg-emerald-50'
+                      }`}
+                  >
+                    {preset.label}
+                  </button>
+                ))}
+              </div>
+
+              <div className="flex items-center gap-3">
+                <input
+                  type="number"
+                  value={retentionDays}
+                  onChange={(e) => {
+                    const val = parseInt(e.target.value);
+                    if (!isNaN(val)) handleRetentionChange(val);
+                  }}
+                  className="input-field w-28"
+                  min="7" max="365"
+                />
+                <span className="text-sm text-gray-500">일 (7~365)</span>
+              </div>
+              <p className="text-xs text-gray-400 mt-1.5">
+                {RETENTION_PRESETS.find(p => p.value === retentionDays)?.desc || `${formatDays(retentionDays)} 보관`}
+                {' · '}10분 간격 수집 기준 약 {(retentionDays * 144 * 0.02 / 1024).toFixed(1)}MB
+              </p>
+            </>
+          )}
+        </div>
+
+        {/* 안내 */}
+        <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-3.5">
+          <div className="flex items-center gap-2">
+            <span className="text-lg">💾</span>
+            <div>
+              <p className="text-sm font-bold text-emerald-700">자동 적용</p>
+              <p className="text-xs text-emerald-600">
+                저장하면 라즈베리파이 Node-RED가 다음 정리 주기(매일 자정)에 새 보관 기간을 자동 반영합니다.
+                서버 동기화가 완료된 데이터만 삭제되므로 미동기화 데이터는 안전합니다.
+              </p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* 저장 버튼 */}
+      <button
+        onClick={handleSave}
+        disabled={saved}
+        className={`w-full py-2.5 rounded-xl text-base font-bold transition-all active:scale-[0.97]
+          ${saved
+            ? 'bg-gray-100 text-gray-400 border border-gray-200 cursor-default'
+            : 'bg-blue-600 text-white shadow-lg shadow-blue-600/20 hover:bg-blue-700 cursor-pointer'
+          }`}
+      >
+        {saved ? '저장 완료' : '저장'}
+      </button>
     </div>
   );
 };

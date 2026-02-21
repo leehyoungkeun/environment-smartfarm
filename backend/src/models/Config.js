@@ -131,6 +131,10 @@ function buildUpdateData(data) {
   if (data.houseName !== undefined) update.houseName = data.houseName;
   if (data.sensors !== undefined) update.sensors = data.sensors;
   if (data.collection !== undefined) update.collection = data.collection;
+  if (data.crops !== undefined) update.crops = data.crops;
+  if (data.cropType !== undefined) update.cropType = data.cropType;
+  if (data.cropVariety !== undefined) update.cropVariety = data.cropVariety;
+  if (data.plantingDate !== undefined) update.plantingDate = data.plantingDate;
   if (data.devices !== undefined) update.devices = data.devices;
   if (data.deviceCount !== undefined) update.deviceCount = data.deviceCount;
   if (data.enabled !== undefined) update.enabled = data.enabled;

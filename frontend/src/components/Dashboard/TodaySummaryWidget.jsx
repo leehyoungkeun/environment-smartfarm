@@ -1,49 +1,50 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
+import { getApiBase } from '../../services/apiSwitcher';
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3000/api';
-
-const TodaySummaryWidget = ({ farmId, houseId }) => {
-  const [todayAlerts, setTodayAlerts] = useState([]);
-  const [todayData, setTodayData] = useState([]);
+const TodaySummaryWidget = ({ farmId, houseId, alerts: parentAlerts, dataVersion }) => {
+  const [dataCount, setDataCount] = useState(0);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    loadTodayData();
-  }, [farmId, houseId]);
+    loadDataCount();
+  }, [farmId, houseId, dataVersion]);
 
-  const loadTodayData = async () => {
+  const loadDataCount = async () => {
     try {
-      setLoading(true);
+      if (dataVersion === 0) setLoading(true);
       const today = new Date();
       today.setHours(0, 0, 0, 0);
       const tomorrow = new Date(today);
       tomorrow.setDate(tomorrow.getDate() + 1);
 
-      const alertsResponse = await axios.get(
-        `${API_BASE_URL}/alerts/${farmId}?houseId=${houseId}&limit=100`
-      );
-      if (alertsResponse.data.success) {
-        const todayOnly = alertsResponse.data.data.filter(alert => {
-          const alertDate = new Date(alert.createdAt);
-          return alertDate >= today && alertDate < tomorrow;
-        });
-        setTodayAlerts(todayOnly);
-      }
-
-      const dataResponse = await axios.get(
-        `${API_BASE_URL}/sensors/${farmId}/${houseId}/history`,
+      const API_BASE_URL = getApiBase();
+      const countResponse = await axios.get(
+        `${API_BASE_URL}/sensors/${farmId}/${houseId}/count`,
         { params: { startDate: today.toISOString(), endDate: tomorrow.toISOString() } }
       );
-      if (dataResponse.data.success) {
-        setTodayData(dataResponse.data.data);
+
+      if (countResponse.data.success) {
+        // PC 서버: { count: N }, RPi: { data: { count: N } } 양쪽 호환
+        const count = countResponse.data.count ?? countResponse.data.data?.count ?? 0;
+        setDataCount(count);
       }
     } catch (error) {
-      console.error('Failed to load today summary:', error);
+      console.error('Failed to load data count:', error);
     } finally {
       setLoading(false);
     }
   };
+
+  // 부모에서 받은 alerts에서 오늘 것만 필터
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const tomorrow = new Date(today);
+  tomorrow.setDate(tomorrow.getDate() + 1);
+  const todayAlerts = (parentAlerts || []).filter(alert => {
+    const alertDate = new Date(alert.createdAt);
+    return alertDate >= today && alertDate < tomorrow;
+  });
 
   const criticalAlerts = todayAlerts.filter(a => a.severity === 'CRITICAL' && a.alertType !== 'NORMAL');
   const warningAlerts = todayAlerts.filter(a => a.severity === 'WARNING' && a.alertType !== 'NORMAL');
@@ -67,74 +68,84 @@ const TodaySummaryWidget = ({ farmId, houseId }) => {
   const stats = [
     {
       label: '데이터 수집',
-      value: todayData.length,
+      value: dataCount,
       unit: '회',
-      bgColor: 'bg-blue-50',
-      borderColor: 'border-blue-200',
-      textColor: 'text-blue-600',
+      icon: '📊',
+      color: '#2563eb',
+      bg: '#eff6ff',
+      border: '#bfdbfe',
     },
     {
       label: '전체 알림',
       value: todayAlerts.length,
       unit: '건',
-      bgColor: 'bg-violet-50',
-      borderColor: 'border-violet-200',
-      textColor: 'text-violet-600',
+      icon: '🔔',
+      color: '#7c3aed',
+      bg: '#f5f3ff',
+      border: '#ddd6fe',
     },
     {
       label: '심각',
       value: criticalAlerts.length,
       unit: '건',
-      bgColor: criticalAlerts.length > 0 ? 'bg-rose-50' : 'bg-gray-50',
-      borderColor: criticalAlerts.length > 0 ? 'border-rose-200' : 'border-gray-200',
-      textColor: criticalAlerts.length > 0 ? 'text-rose-600' : 'text-gray-400',
+      icon: '🚨',
+      color: criticalAlerts.length > 0 ? '#dc2626' : '#9ca3af',
+      bg: criticalAlerts.length > 0 ? '#fef2f2' : '#f9fafb',
+      border: criticalAlerts.length > 0 ? '#fecaca' : '#e5e7eb',
     },
     {
       label: '경고',
       value: warningAlerts.length,
       unit: '건',
-      bgColor: warningAlerts.length > 0 ? 'bg-amber-50' : 'bg-gray-50',
-      borderColor: warningAlerts.length > 0 ? 'border-amber-200' : 'border-gray-200',
-      textColor: warningAlerts.length > 0 ? 'text-amber-600' : 'text-gray-400',
+      icon: '⚠️',
+      color: warningAlerts.length > 0 ? '#d97706' : '#9ca3af',
+      bg: warningAlerts.length > 0 ? '#fffbeb' : '#f9fafb',
+      border: warningAlerts.length > 0 ? '#fde68a' : '#e5e7eb',
     },
   ];
 
   return (
-    <div className="bg-white border border-gray-200 rounded-2xl shadow-sm p-4 md:p-5">
-      <div className="flex items-center justify-between mb-4">
-        <h2 className="text-base md:text-lg font-bold text-gray-800">오늘의 요약</h2>
-        <span className="text-xs text-gray-500">
+    <div style={{background:'#fff',border:'1px solid #e2e8f0',borderRadius:16,overflow:'hidden',boxShadow:'0 1px 3px rgba(0,0,0,0.06)'}}>
+      {/* 컬러 헤더 */}
+      <div style={{background:'#0ea5e9',padding:'12px 18px',display:'flex',alignItems:'center',justifyContent:'space-between'}}>
+        <h2 style={{fontSize:16,fontWeight:800,color:'#fff'}}>📋 오늘의 요약</h2>
+        <span style={{background:'rgba(255,255,255,0.2)',color:'#fff',fontSize:12,fontWeight:600,padding:'3px 10px',borderRadius:8}}>
           {new Date().toLocaleDateString('ko-KR', { month: 'long', day: 'numeric', weekday: 'short' })}
         </span>
       </div>
 
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-2.5 md:gap-3">
-        {stats.map((stat, idx) => (
-          <div
-            key={stat.label}
-            className={`${stat.bgColor} rounded-xl p-3 md:p-4 border ${stat.borderColor}
-                       transition-all duration-200`}
-          >
-            <p className="text-[11px] md:text-xs text-gray-500 font-medium mb-1">{stat.label}</p>
-            <div className="flex items-baseline gap-1">
-              <span className={`text-xl md:text-2xl font-bold font-mono ${stat.textColor}`}>
-                {stat.value}
-              </span>
-              <span className="text-[10px] text-gray-400">{stat.unit}</span>
+      <div style={{padding:'16px'}}>
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+          {stats.map((stat) => (
+            <div key={stat.label}
+              style={{background:stat.bg,borderRadius:14,padding:'14px 16px',border:`2px solid ${stat.border}`,transition:'all 0.2s'}}>
+              <div className="flex items-center gap-2 mb-2">
+                <span style={{fontSize:18}}>{stat.icon}</span>
+                <span style={{fontSize:12,fontWeight:700,color:'#64748b'}}>{stat.label}</span>
+              </div>
+              <div className="flex items-baseline gap-1.5">
+                <span style={{fontSize:28,fontWeight:900,fontFamily:'monospace',color:stat.color,lineHeight:1}}>
+                  {stat.value.toLocaleString()}
+                </span>
+                <span style={{fontSize:12,color:'#94a3b8',fontWeight:600}}>{stat.unit}</span>
+              </div>
             </div>
-          </div>
-        ))}
-      </div>
+          ))}
+        </div>
 
-      {/* 상태 메시지 */}
-      <div className="mt-3 text-center">
-        {todayAlerts.length === 0 ? (
-          <p className="text-emerald-600 text-xs font-medium">✔ 오늘은 이상 없이 정상 운영 중</p>
-        ) : criticalAlerts.length > 0 ? (
-          <p className="text-rose-600 text-xs font-medium">⚠ 심각한 알림 {criticalAlerts.length}건 발생</p>
-        ) : (
-          <p className="text-amber-600 text-xs font-medium">⚠ 경고 알림 {warningAlerts.length}건 발생</p>
-        )}
+        {/* 상태 메시지 */}
+        <div style={{marginTop:12,textAlign:'center',padding:'8px 0',borderRadius:10,
+          background: todayAlerts.length === 0 ? '#ecfdf5' : criticalAlerts.length > 0 ? '#fef2f2' : '#fffbeb',
+          border: todayAlerts.length === 0 ? '1.5px solid #a7f3d0' : criticalAlerts.length > 0 ? '1.5px solid #fecaca' : '1.5px solid #fde68a',
+        }}>
+          {todayAlerts.length === 0 ? (
+            <p style={{color:'#059669',fontSize:13,fontWeight:700}}>✔ 오늘은 이상 없이 정상 운영 중</p>
+          ) : criticalAlerts.length > 0 ? (
+            <p style={{color:'#dc2626',fontSize:13,fontWeight:700}}>🚨 심각한 알림 {criticalAlerts.length}건 발생</p>
+          ) : (
+            <p style={{color:'#d97706',fontSize:13,fontWeight:700}}>⚠️ 경고 알림 {warningAlerts.length}건 발생</p>
+          )}
+        </div>
       </div>
     </div>
   );

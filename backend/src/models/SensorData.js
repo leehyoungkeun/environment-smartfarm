@@ -95,7 +95,7 @@ const SensorData = {
   /**
    * 시간 범위 조회
    */
-  async getTimeRange(farmId, houseId, startDate, endDate) {
+  async getTimeRange(farmId, houseId, startDate, endDate, limit) {
     let sql =
       "SELECT * FROM sensor_data WHERE farm_id = $1 AND house_id = $2";
     const params = [farmId, houseId];
@@ -110,10 +110,37 @@ const SensorData = {
       params.push(new Date(endDate));
     }
 
-    sql += " ORDER BY timestamp DESC LIMIT 1000";
+    sql += " ORDER BY timestamp DESC";
+
+    if (limit) {
+      sql += ` LIMIT $${idx++}`;
+      params.push(limit);
+    }
 
     const result = await pool.query(sql, params);
     return result.rows.map(formatSensorData);
+  },
+
+  /**
+   * 시간 범위 내 데이터 건수 조회 (COUNT만 반환, 전체 row를 가져오지 않음)
+   */
+  async getCount(farmId, houseId, startDate, endDate) {
+    let sql =
+      "SELECT COUNT(*)::int AS count FROM sensor_data WHERE farm_id = $1 AND house_id = $2";
+    const params = [farmId, houseId];
+    let idx = 3;
+
+    if (startDate) {
+      sql += ` AND timestamp >= $${idx++}`;
+      params.push(new Date(startDate));
+    }
+    if (endDate) {
+      sql += ` AND timestamp <= $${idx++}`;
+      params.push(new Date(endDate));
+    }
+
+    const result = await pool.query(sql, params);
+    return result.rows[0]?.count || 0;
   },
 
   /**

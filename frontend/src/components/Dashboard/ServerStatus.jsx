@@ -1,8 +1,11 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import axios from 'axios';
+import { getApiBase, getSystemMode, onModeChange } from '../../services/apiSwitcher';
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3000/api';
-const HEALTH_URL = API_BASE_URL.replace(/\/api$/, '/health');
+const PC_API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://192.168.137.1:3000/api';
+const PC_HEALTH_URL = PC_API_BASE.replace(/\/api$/, '/health');
+const RPI_API_BASE = import.meta.env.VITE_RPI_API_URL || 'http://192.168.137.86:1880/api';
+const RPI_HEALTH_URL = RPI_API_BASE.replace(/\/api$/, '/api/health');
 const AWS_CONTROL_ENDPOINT = import.meta.env.VITE_AWS_CONTROL_ENDPOINT || '';
 
 const ServerStatus = () => {
@@ -11,6 +14,13 @@ const ServerStatus = () => {
   const [error, setError] = useState(null);
   const [lastChecked, setLastChecked] = useState(null);
   const [awsStatus, setAwsStatus] = useState({ checked: false, connected: false, latency: null, error: null });
+  const [rpiStatus, setRpiStatus] = useState({ checked: false, connected: false, latency: null, error: null });
+  const [systemMode, setSystemMode] = useState(getSystemMode());
+
+  useEffect(() => {
+    const unsubscribe = onModeChange((mode) => setSystemMode(mode));
+    return unsubscribe;
+  }, []);
 
   const checkAwsHealth = useCallback(async () => {
     if (!AWS_CONTROL_ENDPOINT) {
@@ -19,12 +29,13 @@ const ServerStatus = () => {
     }
     const start = Date.now();
     try {
+      // 빈 body POST → Lambda가 400/422 등 에러를 반환해도 "연결됨"
       await axios.post(AWS_CONTROL_ENDPOINT, {}, { timeout: 5000 });
       setAwsStatus({ checked: true, connected: true, latency: Date.now() - start, error: null });
     } catch (err) {
       const elapsed = Date.now() - start;
-      // API Gateway가 응답했으면 (4xx/5xx) 연결은 성공한 것
       if (err.response) {
+        // HTTP 응답이 왔다 = AWS 엔드포인트 살아있음 (400, 403, 500 등)
         setAwsStatus({ checked: true, connected: true, latency: elapsed, error: null });
       } else {
         setAwsStatus({ checked: true, connected: false, latency: null, error: err.message });
@@ -32,11 +43,23 @@ const ServerStatus = () => {
     }
   }, []);
 
+  const checkRpiHealth = useCallback(async () => {
+    const start = Date.now();
+    try {
+      const res = await axios.get(RPI_HEALTH_URL, { timeout: 5000 });
+      const latency = Date.now() - start;
+      const ok = res.data?.status === 'ok' || res.data?.success === true;
+      setRpiStatus({ checked: true, connected: ok, latency, error: ok ? null : '응답 이상' });
+    } catch (err) {
+      setRpiStatus({ checked: true, connected: false, latency: null, error: err.message });
+    }
+  }, []);
+
   const checkHealth = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      const res = await axios.get(HEALTH_URL, { timeout: 5000 });
+      const res = await axios.get(PC_HEALTH_URL, { timeout: 5000 });
       setHealth(res.data);
       setLastChecked(new Date());
     } catch (err) {
@@ -47,15 +70,17 @@ const ServerStatus = () => {
     }
   }, []);
 
-  useEffect(() => {
+  const checkAll = useCallback(() => {
     checkHealth();
+    checkRpiHealth();
     checkAwsHealth();
-    const interval = setInterval(() => {
-      checkHealth();
-      checkAwsHealth();
-    }, 15000);
+  }, [checkHealth, checkRpiHealth, checkAwsHealth]);
+
+  useEffect(() => {
+    checkAll();
+    const interval = setInterval(() => { checkHealth(); checkRpiHealth(); }, 15000);
     return () => clearInterval(interval);
-  }, [checkHealth, checkAwsHealth]);
+  }, [checkAll, checkHealth, checkRpiHealth]);
 
   const formatUptime = (seconds) => {
     if (!seconds) return '-';
@@ -71,44 +96,103 @@ const ServerStatus = () => {
   const db = health?.services?.database;
   const mem = health?.services?.memory;
   const isConnected = health?.success === true;
+  const isUsingRpi = systemMode.isUsingRpi;
+  const modeLabel = systemMode.manualOverride ? '로컬 오프라인' : (isUsingRpi ? '로컬 운영' : (isConnected ? '온라인' : '연결 끊김'));
 
   return (
     <div className="max-w-7xl mx-auto px-4 md:px-6 py-4 md:py-6 space-y-5">
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-xl md:text-2xl font-bold text-gray-800 tracking-tight">서버 상태</h1>
-          <p className="text-gray-500 text-xs md:text-sm mt-0.5">백엔드 서버 연결 및 시스템 모니터링</p>
+          <p className="text-gray-500 text-xs md:text-sm mt-0.5">시스템 연결 및 운영 모드 모니터링</p>
         </div>
-        <button onClick={() => { checkHealth(); checkAwsHealth(); }} disabled={loading}
+        <button onClick={checkAll} disabled={loading}
           className="px-4 py-2 bg-gray-100 text-gray-600 rounded-xl text-sm font-medium
                      hover:bg-gray-200 transition-all active:scale-95 border border-gray-200 disabled:opacity-50">
           {loading ? '확인 중...' : '🔄 새로고침'}
         </button>
       </div>
 
-      {/* 연결 상태 카드 */}
-      <div className={`rounded-2xl p-6 border ${isConnected
-        ? 'bg-emerald-50 border-emerald-200'
-        : 'bg-rose-50 border-rose-200'}`}>
+      {/* 시스템 운영 모드 배너 */}
+      <div className={`rounded-2xl p-5 border ${
+        isUsingRpi ? 'bg-blue-50 border-blue-200'
+        : isConnected ? 'bg-emerald-50 border-emerald-200'
+        : 'bg-rose-50 border-rose-200'
+      }`}>
         <div className="flex items-center gap-4">
-          <div className={`w-14 h-14 rounded-2xl flex items-center justify-center text-2xl ${isConnected
-            ? 'bg-emerald-100' : 'bg-rose-100'}`}>
-            {isConnected ? '✅' : '❌'}
+          <div className={`w-14 h-14 rounded-2xl flex items-center justify-center text-2xl ${
+            isUsingRpi ? 'bg-blue-100' : isConnected ? 'bg-emerald-100' : 'bg-rose-100'
+          }`}>
+            {isUsingRpi ? '🍓' : isConnected ? '🖥️' : '❌'}
           </div>
-          <div>
-            <h2 className={`text-xl font-bold ${isConnected ? 'text-emerald-700' : 'text-rose-700'}`}>
-              {isConnected ? '서버 연결됨' : '서버 연결 실패'}
-            </h2>
-            <p className={`text-sm ${isConnected ? 'text-emerald-600' : 'text-rose-600'}`}>
-              {isConnected
-                ? `가동시간: ${formatUptime(health.uptime)}`
-                : error || '백엔드 서버가 실행 중인지 확인하세요'}
+          <div className="flex-1">
+            <div className="flex items-center gap-2">
+              <h2 className={`text-xl font-bold ${
+                isUsingRpi ? 'text-blue-700' : isConnected ? 'text-emerald-700' : 'text-rose-700'
+              }`}>
+                {modeLabel}
+              </h2>
+              <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                isUsingRpi ? 'bg-blue-200 text-blue-700'
+                : isConnected ? 'bg-emerald-200 text-emerald-700'
+                : 'bg-rose-200 text-rose-700'
+              }`}>
+                {isUsingRpi ? '로컬 API' : isConnected ? 'PC 서버' : 'OFFLINE'}
+              </span>
+            </div>
+            <p className={`text-sm ${
+              isUsingRpi ? 'text-blue-600' : isConnected ? 'text-emerald-600' : 'text-rose-600'
+            }`}>
+              {isUsingRpi
+                ? '로컬 API로 운영 중 · 서버 복구 시 자동 전환'
+                : isConnected
+                  ? `PC 서버 정상 · 가동시간: ${formatUptime(health?.uptime)}`
+                  : error || 'PC 서버와 로컬 모두 연결할 수 없습니다'}
             </p>
             {lastChecked && (
               <p className="text-xs text-gray-400 mt-1">
                 마지막 확인: {lastChecked.toLocaleTimeString('ko-KR')}
               </p>
             )}
+          </div>
+        </div>
+      </div>
+
+      {/* PC 서버 + RPi 상태 카드 (나란히) */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        {/* PC 서버 상태 */}
+        <div className={`rounded-2xl p-5 border ${isConnected
+          ? 'bg-emerald-50 border-emerald-200'
+          : 'bg-rose-50 border-rose-200'}`}>
+          <div className="flex items-center gap-3 mb-1">
+            <span className="text-xl">{isConnected ? '✅' : '❌'}</span>
+            <div>
+              <h3 className={`text-base font-bold ${isConnected ? 'text-emerald-700' : 'text-rose-700'}`}>
+                PC 서버 {isConnected ? '연결됨' : '연결 실패'}
+              </h3>
+              <p className={`text-xs ${isConnected ? 'text-emerald-600' : 'text-rose-500'}`}>
+                {isConnected ? `가동 ${formatUptime(health?.uptime)}` : error || '서버 미실행'}
+              </p>
+            </div>
+          </div>
+        </div>
+
+        {/* RPi Node-RED 상태 */}
+        <div className={`rounded-2xl p-5 border ${rpiStatus.connected
+          ? 'bg-blue-50 border-blue-200'
+          : 'bg-gray-50 border-gray-200'}`}>
+          <div className="flex items-center gap-3 mb-1">
+            <span className="text-xl">{!rpiStatus.checked ? '⏳' : rpiStatus.connected ? '🍓' : '⚠️'}</span>
+            <div>
+              <h3 className={`text-base font-bold ${rpiStatus.connected ? 'text-blue-700' : 'text-gray-500'}`}>
+                로컬 서버 {!rpiStatus.checked ? '확인 중' : rpiStatus.connected ? '연결됨' : '연결 실패'}
+              </h3>
+              <p className={`text-xs ${rpiStatus.connected ? 'text-blue-600' : 'text-gray-400'}`}>
+                {rpiStatus.connected
+                  ? `응답 ${rpiStatus.latency}ms`
+                  : rpiStatus.error || '로컬 미연결'}
+              </p>
+            </div>
           </div>
         </div>
       </div>
@@ -144,88 +228,89 @@ const ServerStatus = () => {
         </div>
       </div>
 
+      {/* 상세 상태 카드 (PC 서버 연결 시) */}
       {isConnected && (
-        <>
-          {/* 상세 상태 카드 */}
-          <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
-            <StatusCard
-              label="데이터베이스"
-              value={db?.prisma === 'connected' ? '정상' : '오류'}
-              sub="Prisma (PostgreSQL)"
-              color={db?.prisma === 'connected' ? 'text-emerald-600' : 'text-rose-600'}
-              icon="🗄️"
-            />
-            <StatusCard
-              label="TimescaleDB"
-              value={db?.pool === 'connected' ? '정상' : '오류'}
-              sub={`연결 ${db?.totalPoolClients || 0} / 대기 ${db?.waitingPoolClients || 0}`}
-              color={db?.pool === 'connected' ? 'text-emerald-600' : 'text-rose-600'}
-              icon="📊"
-            />
-            <StatusCard
-              label="메모리 사용"
-              value={mem?.used || '-'}
-              sub={`전체 ${mem?.total || '-'}`}
-              color="text-blue-600"
-              icon="💾"
-            />
-            <StatusCard
-              label="가동 시간"
-              value={formatUptime(health.uptime)}
-              sub="서버 시작 후"
-              color="text-violet-600"
-              icon="⏱️"
-            />
-            <StatusCard
-              label="AWS IoT"
-              value={awsStatus.connected ? '정상' : '오류'}
-              sub="MQTT 제어 채널"
-              color={awsStatus.connected ? 'text-amber-600' : 'text-rose-600'}
-              icon="☁️"
-            />
-          </div>
-
-          {/* 연결 정보 */}
-          <div className="bg-white border border-gray-200 rounded-2xl shadow-sm p-5">
-            <h3 className="text-base font-bold text-gray-800 mb-4">🔗 연결 정보</h3>
-            <div className="space-y-3">
-              <InfoRow label="API 주소" value={API_BASE_URL} />
-              <InfoRow label="Health 엔드포인트" value={HEALTH_URL} />
-              <InfoRow label="AWS 제어 엔드포인트" value={AWS_CONTROL_ENDPOINT || '미설정'} />
-              <InfoRow label="서버 시간"
-                value={health.timestamp ? new Date(health.timestamp).toLocaleString('ko-KR') : '-'} />
-            </div>
-          </div>
-
-          {/* 빠른 링크 */}
-          <div className="bg-white border border-gray-200 rounded-2xl shadow-sm p-5">
-            <h3 className="text-base font-bold text-gray-800 mb-4">🚀 빠른 링크</h3>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-              <QuickLink
-                label="Health Check"
-                desc="서버 상태 JSON"
-                url={HEALTH_URL}
-                icon="💚"
-              />
-              <QuickLink
-                label="API 문서"
-                desc="REST API 엔드포인트"
-                url={`${API_BASE_URL.replace(/\/api$/, '')}`}
-                icon="📄"
-              />
-              <QuickLink
-                label="Node-RED"
-                desc="센서 수집 플로우 편집"
-                url="http://192.168.137.86:1880/node-red"
-                icon="🔴"
-              />
-            </div>
-          </div>
-        </>
+        <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+          <StatusCard
+            label="데이터베이스"
+            value={db?.prisma === 'connected' ? '정상' : '오류'}
+            sub="Prisma (PostgreSQL)"
+            color={db?.prisma === 'connected' ? 'text-emerald-600' : 'text-rose-600'}
+            icon="🗄️"
+          />
+          <StatusCard
+            label="TimescaleDB"
+            value={db?.pool === 'connected' ? '정상' : '오류'}
+            sub={`연결 ${db?.totalPoolClients || 0} / 대기 ${db?.waitingPoolClients || 0}`}
+            color={db?.pool === 'connected' ? 'text-emerald-600' : 'text-rose-600'}
+            icon="📊"
+          />
+          <StatusCard
+            label="메모리 사용"
+            value={mem?.used || '-'}
+            sub={`전체 ${mem?.total || '-'}`}
+            color="text-blue-600"
+            icon="💾"
+          />
+          <StatusCard
+            label="가동 시간"
+            value={formatUptime(health.uptime)}
+            sub="서버 시작 후"
+            color="text-violet-600"
+            icon="⏱️"
+          />
+          <StatusCard
+            label="AWS IoT"
+            value={awsStatus.connected ? '정상' : '오류'}
+            sub="MQTT 제어 채널"
+            color={awsStatus.connected ? 'text-amber-600' : 'text-rose-600'}
+            icon="☁️"
+          />
+        </div>
       )}
 
-      {/* 연결 실패 시 가이드 */}
-      {!isConnected && !loading && (
+      {/* 연결 정보 (항상 표시) */}
+      <div className="bg-white border border-gray-200 rounded-2xl shadow-sm p-5">
+        <h3 className="text-base font-bold text-gray-800 mb-4">🔗 연결 정보</h3>
+        <div className="space-y-3">
+          <InfoRow label="현재 활성 API" value={getApiBase()} highlight />
+          <InfoRow label="PC 서버" value={PC_API_BASE} />
+          <InfoRow label="로컬 서버" value={RPI_API_BASE} />
+          <InfoRow label="AWS 제어 엔드포인트" value={AWS_CONTROL_ENDPOINT || '미설정'} />
+          {isConnected && health?.timestamp && (
+            <InfoRow label="서버 시간"
+              value={new Date(health.timestamp).toLocaleString('ko-KR')} />
+          )}
+        </div>
+      </div>
+
+      {/* 빠른 링크 */}
+      <div className="bg-white border border-gray-200 rounded-2xl shadow-sm p-5">
+        <h3 className="text-base font-bold text-gray-800 mb-4">🚀 빠른 링크</h3>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+          <QuickLink
+            label="PC Health"
+            desc="PC 서버 상태 JSON"
+            url={PC_HEALTH_URL}
+            icon="💚"
+          />
+          <QuickLink
+            label="로컬 Health"
+            desc="로컬 서버 상태"
+            url={RPI_HEALTH_URL}
+            icon="🍓"
+          />
+          <QuickLink
+            label="Node-RED"
+            desc="센서 수집 플로우 편집"
+            url="http://192.168.137.86:1880/node-red"
+            icon="🔴"
+          />
+        </div>
+      </div>
+
+      {/* 연결 실패 시 가이드 (RPi 운영 중이면 숨김) */}
+      {!isConnected && !isUsingRpi && !loading && (
         <div className="bg-white border border-gray-200 rounded-2xl shadow-sm p-6">
           <h3 className="text-base font-bold text-gray-800 mb-4">🔧 문제 해결</h3>
           <div className="space-y-3 text-sm text-gray-600">
@@ -240,7 +325,7 @@ const ServerStatus = () => {
               <span className="text-lg">2️⃣</span>
               <div>
                 <p className="font-medium text-gray-800">환경변수 확인</p>
-                <code className="text-xs bg-gray-200 px-2 py-0.5 rounded mt-1 inline-block">VITE_API_BASE_URL={API_BASE_URL}</code>
+                <code className="text-xs bg-gray-200 px-2 py-0.5 rounded mt-1 inline-block">VITE_API_BASE_URL={PC_API_BASE}</code>
               </div>
             </div>
             <div className="flex items-start gap-3 bg-gray-50 rounded-xl p-4">
@@ -268,10 +353,12 @@ const StatusCard = ({ label, value, sub, color, icon }) => (
   </div>
 );
 
-const InfoRow = ({ label, value }) => (
-  <div className="flex items-center justify-between bg-gray-50 rounded-lg px-4 py-2.5 border border-gray-100">
-    <span className="text-sm text-gray-500">{label}</span>
-    <code className="text-sm text-gray-800 font-mono">{value}</code>
+const InfoRow = ({ label, value, highlight }) => (
+  <div className={`flex items-center justify-between rounded-lg px-4 py-2.5 border ${
+    highlight ? 'bg-blue-50 border-blue-200' : 'bg-gray-50 border-gray-100'
+  }`}>
+    <span className={`text-sm ${highlight ? 'text-blue-600 font-bold' : 'text-gray-500'}`}>{label}</span>
+    <code className={`text-sm font-mono ${highlight ? 'text-blue-800 font-bold' : 'text-gray-800'}`}>{value}</code>
   </div>
 );
 

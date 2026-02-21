@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import axios from 'axios';
+import { isServerOnline } from '../services/apiSwitcher';
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3000/api';
 
@@ -15,6 +16,7 @@ export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
   const [needsSetup, setNeedsSetup] = useState(false);
+  const [offlineMode, setOfflineMode] = useState(false);
 
   const getTokens = () => ({
     accessToken: localStorage.getItem('accessToken'),
@@ -29,6 +31,19 @@ export const AuthProvider = ({ children }) => {
   const clearTokens = () => {
     localStorage.removeItem('accessToken');
     localStorage.removeItem('refreshToken');
+  };
+
+  const cacheUser = (userData) => {
+    localStorage.setItem('cachedUser', JSON.stringify(userData));
+  };
+
+  const getCachedUser = () => {
+    try {
+      const cached = localStorage.getItem('cachedUser');
+      return cached ? JSON.parse(cached) : null;
+    } catch {
+      return null;
+    }
   };
 
   useEffect(() => {
@@ -114,22 +129,50 @@ export const AuthProvider = ({ children }) => {
 
         if (response.data.success) {
           setUser(response.data.data);
+          cacheUser(response.data.data);
+          setOfflineMode(false);
         }
       } catch (error) {
-        try {
-          const { refreshToken } = getTokens();
-          if (refreshToken) {
-            const refreshRes = await axios.post(`${API_BASE_URL}/auth/refresh`, { refreshToken });
-            const { accessToken: newAccess, refreshToken: newRefresh } = refreshRes.data.data;
-            saveTokens(newAccess, newRefresh);
+        const status = error.response?.status;
+        const code = error.response?.data?.code;
 
-            const meRes = await axios.get(`${API_BASE_URL}/auth/me`, {
-              headers: { Authorization: `Bearer ${newAccess}` }
-            });
-            if (meRes.data.success) setUser(meRes.data.data);
+        // 서버가 토큰이 만료됐다고 명시한 경우만 갱신 시도
+        if (status === 401 && (code === 'TOKEN_EXPIRED' || code === 'INVALID_TOKEN')) {
+          try {
+            const { refreshToken } = getTokens();
+            if (refreshToken) {
+              const refreshRes = await axios.post(`${API_BASE_URL}/auth/refresh`, { refreshToken });
+              const { accessToken: newAccess, refreshToken: newRefresh } = refreshRes.data.data;
+              saveTokens(newAccess, newRefresh);
+
+              const meRes = await axios.get(`${API_BASE_URL}/auth/me`, {
+                headers: { Authorization: `Bearer ${newAccess}` }
+              });
+              if (meRes.data.success) {
+                setUser(meRes.data.data);
+                cacheUser(meRes.data.data);
+              }
+            } else {
+              clearTokens();
+            }
+          } catch (refreshError) {
+            // 리프레시 토큰도 거부된 경우만 로그아웃
+            if (refreshError.response?.status === 401 || refreshError.response?.status === 403) {
+              clearTokens();
+            }
+            // 네트워크 오류, rate limit(429) 등은 토큰 유지 (다음 새로고침에서 재시도)
           }
-        } catch {
-          clearTokens();
+        }
+
+        // 네트워크 오류 (서버 다운) → 캐시된 사용자로 오프라인 모드
+        if (!error.response) {
+          const { accessToken } = getTokens();
+          const cachedUser = getCachedUser();
+          if (accessToken && cachedUser) {
+            console.log('[Auth] 서버 연결 불가 → 오프라인 모드 (캐시된 사용자 정보 사용)');
+            setUser(cachedUser);
+            setOfflineMode(true);
+          }
         }
       } finally {
         setLoading(false);
@@ -143,7 +186,9 @@ export const AuthProvider = ({ children }) => {
     const response = await axios.post(`${API_BASE_URL}/auth/login`, { username, password });
     const { user: userData, accessToken, refreshToken } = response.data.data;
     saveTokens(accessToken, refreshToken);
+    cacheUser(userData);
     setUser(userData);
+    setOfflineMode(false);
     return userData;
   };
 
@@ -151,8 +196,10 @@ export const AuthProvider = ({ children }) => {
     const response = await axios.post(`${API_BASE_URL}/auth/setup`, { username, password, name });
     const { user: userData, accessToken, refreshToken } = response.data.data;
     saveTokens(accessToken, refreshToken);
+    cacheUser(userData);
     setUser(userData);
     setNeedsSetup(false);
+    setOfflineMode(false);
     return userData;
   };
 
@@ -166,7 +213,9 @@ export const AuthProvider = ({ children }) => {
       }
     } catch { } finally {
       clearTokens();
+      localStorage.removeItem('cachedUser');
       setUser(null);
+      setOfflineMode(false);
     }
   };
 
@@ -184,7 +233,7 @@ export const AuthProvider = ({ children }) => {
 
   return (
     <AuthContext.Provider value={{
-      user, loading, needsSetup, isAdmin,
+      user, loading, needsSetup, isAdmin, offlineMode,
       login, logout, setup, hasPermission,
     }}>
       {children}

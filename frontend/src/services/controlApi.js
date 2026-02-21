@@ -1,13 +1,20 @@
 /**
  * 제어 API 클라이언트
  *
- * 1. AWS API Gateway → Lambda → AWS IoT → 라즈베리파이 제어
- * 2. 제어 후 자동으로 DB에 이력 저장
+ * 제어 경로 (이중화):
+ * 1. AWS: Frontend → API Gateway → Lambda → IoT Core MQTT → RPi
+ * 2. 로컬: Frontend → RPi Node-RED REST API → GPIO 직접 제어
+ *
+ * 모드별 동작:
+ * - 온라인: AWS 우선, 실패 시 로컬 폴백
+ * - 오프라인/로컬: 로컬 제어 직접 사용 (AWS 건너뜀)
  */
 
 import axios from 'axios';
+import { getSystemMode } from './apiSwitcher';
 
 const AWS_CONTROL_ENDPOINT = import.meta.env.VITE_AWS_CONTROL_ENDPOINT;
+const RPI_CONTROL_URL = (import.meta.env.VITE_RPI_API_URL || 'http://192.168.137.86:1880/api') + '/control/local';
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3000/api';
 
@@ -16,7 +23,8 @@ const RETRY_ATTEMPTS = 2;
 
 /**
  * 제어 명령 전송 + 이력 자동 저장
- * 
+ * 모드에 따라 AWS 또는 로컬 경로를 자동 선택
+ *
  * @param {string} houseId - 제어용 하우스 ID (예: 'house1')
  * @param {string} deviceId - 장치 ID (예: 'window1', 'fan1')
  * @param {string} command - 명령 ('open','stop','close','on','off')
@@ -24,6 +32,56 @@ const RETRY_ATTEMPTS = 2;
  * @param {object} meta - 추가 메타 정보 { farmId, originalHouseId, deviceType, deviceName, operatorName }
  */
 export const sendControlCommand = async (houseId, deviceId, command, operator = 'web_dashboard', meta = {}) => {
+  const mode = getSystemMode();
+
+  // 오프라인/로컬 모드 → 로컬 제어 직접 사용
+  if (!mode.serverOnline || mode.manualOverride || mode.isUsingRpi) {
+    console.log(`🎮 로컬 모드 제어: ${houseId}/${deviceId} ${command.toUpperCase()}`);
+    const result = await sendLocalControl(houseId, deviceId, command, operator);
+
+    // 로컬 제어 로그는 RPi SQLite에 자동 저장됨 (Node-RED에서 처리)
+    return result;
+  }
+
+  // 온라인 모드 → AWS 우선, 실패 시 로컬 폴백
+  const result = await sendAwsControl(houseId, deviceId, command, operator);
+
+  if (!result.success) {
+    console.log(`⚠️ AWS 제어 실패, 로컬 폴백 시도...`);
+    const localResult = await sendLocalControl(houseId, deviceId, command, operator);
+    if (localResult.success) {
+      localResult.fallback = true; // 폴백으로 성공했음을 표시
+      return localResult;
+    }
+    // 로컬도 실패하면 AWS 결과 반환
+  }
+
+  // 이력 자동 저장 (서버 온라인 시만, 비동기)
+  if (result.success) {
+    saveControlLog({
+      farmId: meta.farmId,
+      houseId: meta.originalHouseId || houseId,
+      controlHouseId: houseId,
+      deviceId,
+      deviceType: meta.deviceType || guessDeviceType(deviceId),
+      deviceName: meta.deviceName || deviceId,
+      command,
+      success: result.success,
+      error: result.error || null,
+      requestId: result.requestId,
+      operator,
+      operatorName: meta.operatorName || null,
+      lambdaResponse: result.lambdaResponse || null,
+    });
+  }
+
+  return result;
+};
+
+/**
+ * AWS IoT Core를 통한 제어
+ */
+const sendAwsControl = async (houseId, deviceId, command, operator) => {
   const requestId = `${Date.now()}-${Math.random().toString(36).substring(2, 10)}`;
   const timestamp = new Date().toISOString();
 
@@ -36,14 +94,9 @@ export const sendControlCommand = async (houseId, deviceId, command, operator = 
     timestamp,
   };
 
-  console.log(`🎛️ 제어 명령 전송: ${houseId}/${deviceId} ${command.toUpperCase()}`);
-
   if (!AWS_CONTROL_ENDPOINT) {
-    console.error('❌ VITE_AWS_CONTROL_ENDPOINT 환경변수가 설정되지 않았습니다.');
-    return { success: false, requestId, houseId, deviceId, command, error: 'AWS 제어 엔드포인트 미설정', timestamp };
+    return { success: false, requestId, houseId, deviceId, command, error: 'AWS 엔드포인트 미설정', timestamp, mode: 'aws' };
   }
-
-  let result;
 
   for (let attempt = 1; attempt <= RETRY_ATTEMPTS; attempt++) {
     try {
@@ -55,9 +108,9 @@ export const sendControlCommand = async (houseId, deviceId, command, operator = 
       const data = typeof response.data === 'string' ? JSON.parse(response.data) : response.data;
       const lambdaResult = data.body ? (typeof data.body === 'string' ? JSON.parse(data.body) : data.body) : data;
 
-      console.log(`✅ 제어 명령 전송 성공:`, lambdaResult);
+      console.log(`✅ AWS 제어 성공:`, lambdaResult);
 
-      result = {
+      return {
         success: true,
         requestId,
         houseId,
@@ -65,44 +118,81 @@ export const sendControlCommand = async (houseId, deviceId, command, operator = 
         command,
         timestamp,
         lambdaResponse: lambdaResult,
+        mode: 'aws',
       };
-      break;
-
     } catch (error) {
-      console.error(`❌ 제어 명령 실패 (시도 ${attempt}/${RETRY_ATTEMPTS}):`, error.message);
-      if (attempt === RETRY_ATTEMPTS) {
-        result = {
-          success: false,
-          requestId,
-          houseId,
-          deviceId,
-          command,
-          error: error.message,
-          timestamp,
-        };
+      console.error(`❌ AWS 제어 실패 (${attempt}/${RETRY_ATTEMPTS}):`, error.message);
+      if (attempt < RETRY_ATTEMPTS) {
+        await new Promise(r => setTimeout(r, 1000 * attempt));
       }
-      await new Promise(r => setTimeout(r, 1000 * attempt));
     }
   }
 
-  // 이력 자동 저장 (비동기, 실패해도 무시)
-  saveControlLog({
-    farmId: meta.farmId,
-    houseId: meta.originalHouseId || houseId,
-    controlHouseId: houseId,
-    deviceId,
-    deviceType: meta.deviceType || guessDeviceType(deviceId),
-    deviceName: meta.deviceName || deviceId,
-    command,
-    success: result.success,
-    error: result.error || null,
+  return {
+    success: false,
     requestId,
-    operator,
-    operatorName: meta.operatorName || null,
-    lambdaResponse: result.lambdaResponse || null,
-  });
+    houseId,
+    deviceId,
+    command,
+    error: 'AWS 제어 실패',
+    timestamp,
+    mode: 'aws',
+  };
+};
 
-  return result;
+/**
+ * RPi 로컬 REST API를 통한 직접 제어
+ */
+const sendLocalControl = async (houseId, deviceId, command, operator) => {
+  const timestamp = new Date().toISOString();
+
+  try {
+    const response = await axios.post(RPI_CONTROL_URL, {
+      house_id: houseId,
+      device_id: deviceId,
+      command: command.toLowerCase(),
+      operator: operator || 'local_dashboard',
+    }, {
+      timeout: 5000,
+      headers: { 'Content-Type': 'application/json' },
+    });
+
+    const data = response.data;
+
+    if (data.success) {
+      console.log(`✅ 로컬 제어 성공:`, data.data);
+      return {
+        success: true,
+        requestId: data.data.request_id,
+        houseId,
+        deviceId,
+        command,
+        timestamp: data.data.executed_at || timestamp,
+        mode: 'local',
+      };
+    }
+
+    return {
+      success: false,
+      houseId,
+      deviceId,
+      command,
+      error: data.error || '로컬 제어 실패',
+      timestamp,
+      mode: 'local',
+    };
+  } catch (error) {
+    console.error(`❌ 로컬 제어 실패:`, error.message);
+    return {
+      success: false,
+      houseId,
+      deviceId,
+      command,
+      error: `로컬 제어 실패: ${error.message}`,
+      timestamp,
+      mode: 'local',
+    };
+  }
 };
 
 /**

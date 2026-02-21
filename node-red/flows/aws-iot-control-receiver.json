@@ -131,6 +131,25 @@
         "wires": []
     },
     {
+        "id": "link_in_local_control",
+        "type": "link in",
+        "z": "aws_control_receiver_tab",
+        "name": "← 로컬 제어",
+        "links": ["link_gpio_control"],
+        "x": 440,
+        "y": 400,
+        "wires": [["execute_control"]]
+    },
+    {
+        "id": "comment_local_entry",
+        "type": "comment",
+        "z": "aws_control_receiver_tab",
+        "name": "━━━ 로컬 REST API → GPIO 연결 (인터넷 없이 제어) ━━━",
+        "x": 340,
+        "y": 360,
+        "wires": []
+    },
+    {
         "id": "comment_broker_setup",
         "type": "comment",
         "z": "aws_control_receiver_tab",

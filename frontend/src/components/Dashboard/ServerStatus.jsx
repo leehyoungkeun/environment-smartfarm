@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import axios from 'axios';
-import { getApiBase, getSystemMode, onModeChange } from '../../services/apiSwitcher';
+import { getApiBase, getSystemMode, onModeChange, isFarmLocalMode } from '../../services/apiSwitcher';
 
 const PC_API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://192.168.137.1:3000/api';
 const PC_HEALTH_URL = PC_API_BASE.replace(/\/api$/, '/health');
@@ -43,10 +43,13 @@ const ServerStatus = () => {
     }
   }, []);
 
+  const farmLocal = isFarmLocalMode();
+
   const checkRpiHealth = useCallback(async () => {
+    const healthUrl = farmLocal ? (window.location.origin + '/api/health') : RPI_HEALTH_URL;
     const start = Date.now();
     try {
-      const res = await axios.get(RPI_HEALTH_URL, { timeout: 5000 });
+      const res = await axios.get(healthUrl, { timeout: 5000 });
       const latency = Date.now() - start;
       const ok = res.data?.status === 'ok' || res.data?.success === true;
       setRpiStatus({ checked: true, connected: ok, latency, error: ok ? null : '응답 이상' });
@@ -71,16 +74,23 @@ const ServerStatus = () => {
   }, []);
 
   const checkAll = useCallback(() => {
+    if (farmLocal) {
+      checkRpiHealth();
+      return;
+    }
     checkHealth();
     checkRpiHealth();
     checkAwsHealth();
-  }, [checkHealth, checkRpiHealth, checkAwsHealth]);
+  }, [farmLocal, checkHealth, checkRpiHealth, checkAwsHealth]);
 
   useEffect(() => {
     checkAll();
-    const interval = setInterval(() => { checkHealth(); checkRpiHealth(); }, 15000);
+    const interval = setInterval(() => {
+      if (farmLocal) { checkRpiHealth(); }
+      else { checkHealth(); checkRpiHealth(); }
+    }, 15000);
     return () => clearInterval(interval);
-  }, [checkAll, checkHealth, checkRpiHealth]);
+  }, [checkAll, checkHealth, checkRpiHealth, farmLocal]);
 
   const formatUptime = (seconds) => {
     if (!seconds) return '-';
@@ -97,7 +107,7 @@ const ServerStatus = () => {
   const mem = health?.services?.memory;
   const isConnected = health?.success === true;
   const isUsingRpi = systemMode.isUsingRpi;
-  const modeLabel = systemMode.manualOverride ? '로컬 오프라인' : (isUsingRpi ? '로컬 운영' : (isConnected ? '온라인' : '연결 끊김'));
+  const modeLabel = farmLocal ? '팜로컬 운영' : systemMode.manualOverride ? '로컬 오프라인' : (isUsingRpi ? '로컬 운영' : (isConnected ? '온라인' : '연결 끊김'));
 
   return (
     <div className="max-w-7xl mx-auto px-4 md:px-6 py-4 md:py-6 space-y-5">
@@ -115,35 +125,42 @@ const ServerStatus = () => {
 
       {/* 시스템 운영 모드 배너 */}
       <div className={`rounded-2xl p-5 border ${
-        isUsingRpi ? 'bg-blue-50 border-blue-200'
+        farmLocal ? 'bg-emerald-50 border-emerald-200'
+        : isUsingRpi ? 'bg-blue-50 border-blue-200'
         : isConnected ? 'bg-emerald-50 border-emerald-200'
         : 'bg-rose-50 border-rose-200'
       }`}>
         <div className="flex items-center gap-4">
           <div className={`w-14 h-14 rounded-2xl flex items-center justify-center text-2xl ${
-            isUsingRpi ? 'bg-blue-100' : isConnected ? 'bg-emerald-100' : 'bg-rose-100'
+            farmLocal ? 'bg-emerald-100'
+            : isUsingRpi ? 'bg-blue-100' : isConnected ? 'bg-emerald-100' : 'bg-rose-100'
           }`}>
-            {isUsingRpi ? '🍓' : isConnected ? '🖥️' : '❌'}
+            {farmLocal ? '🌿' : isUsingRpi ? '🍓' : isConnected ? '🖥️' : '❌'}
           </div>
           <div className="flex-1">
             <div className="flex items-center gap-2">
               <h2 className={`text-xl font-bold ${
-                isUsingRpi ? 'text-blue-700' : isConnected ? 'text-emerald-700' : 'text-rose-700'
+                farmLocal ? 'text-emerald-700'
+                : isUsingRpi ? 'text-blue-700' : isConnected ? 'text-emerald-700' : 'text-rose-700'
               }`}>
                 {modeLabel}
               </h2>
               <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
-                isUsingRpi ? 'bg-blue-200 text-blue-700'
+                farmLocal ? 'bg-emerald-200 text-emerald-700'
+                : isUsingRpi ? 'bg-blue-200 text-blue-700'
                 : isConnected ? 'bg-emerald-200 text-emerald-700'
                 : 'bg-rose-200 text-rose-700'
               }`}>
-                {isUsingRpi ? '로컬 API' : isConnected ? 'PC 서버' : 'OFFLINE'}
+                {farmLocal ? '팜로컬' : isUsingRpi ? '로컬 API' : isConnected ? 'PC 서버' : 'OFFLINE'}
               </span>
             </div>
             <p className={`text-sm ${
-              isUsingRpi ? 'text-blue-600' : isConnected ? 'text-emerald-600' : 'text-rose-600'
+              farmLocal ? 'text-emerald-600'
+              : isUsingRpi ? 'text-blue-600' : isConnected ? 'text-emerald-600' : 'text-rose-600'
             }`}>
-              {isUsingRpi
+              {farmLocal
+                ? '독립 운영 모드 · 인터넷 없이 로컬 센서 데이터 운영'
+                : isUsingRpi
                 ? '로컬 API로 운영 중 · 서버 복구 시 자동 전환'
                 : isConnected
                   ? `PC 서버 정상 · 가동시간: ${formatUptime(health?.uptime)}`
@@ -158,36 +175,38 @@ const ServerStatus = () => {
         </div>
       </div>
 
-      {/* PC 서버 + RPi 상태 카드 (나란히) */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        {/* PC 서버 상태 */}
-        <div className={`rounded-2xl p-5 border ${isConnected
-          ? 'bg-emerald-50 border-emerald-200'
-          : 'bg-rose-50 border-rose-200'}`}>
-          <div className="flex items-center gap-3 mb-1">
-            <span className="text-xl">{isConnected ? '✅' : '❌'}</span>
-            <div>
-              <h3 className={`text-base font-bold ${isConnected ? 'text-emerald-700' : 'text-rose-700'}`}>
-                PC 서버 {isConnected ? '연결됨' : '연결 실패'}
-              </h3>
-              <p className={`text-xs ${isConnected ? 'text-emerald-600' : 'text-rose-500'}`}>
-                {isConnected ? `가동 ${formatUptime(health?.uptime)}` : error || '서버 미실행'}
-              </p>
+      {/* 서버 상태 카드 */}
+      <div className={`grid grid-cols-1 ${farmLocal ? '' : 'md:grid-cols-2'} gap-4`}>
+        {/* PC 서버 상태 (팜로컬에서 숨김) */}
+        {!farmLocal && (
+          <div className={`rounded-2xl p-5 border ${isConnected
+            ? 'bg-emerald-50 border-emerald-200'
+            : 'bg-rose-50 border-rose-200'}`}>
+            <div className="flex items-center gap-3 mb-1">
+              <span className="text-xl">{isConnected ? '✅' : '❌'}</span>
+              <div>
+                <h3 className={`text-base font-bold ${isConnected ? 'text-emerald-700' : 'text-rose-700'}`}>
+                  PC 서버 {isConnected ? '연결됨' : '연결 실패'}
+                </h3>
+                <p className={`text-xs ${isConnected ? 'text-emerald-600' : 'text-rose-500'}`}>
+                  {isConnected ? `가동 ${formatUptime(health?.uptime)}` : error || '서버 미실행'}
+                </p>
+              </div>
             </div>
           </div>
-        </div>
+        )}
 
-        {/* RPi Node-RED 상태 */}
+        {/* RPi/로컬 Node-RED 상태 */}
         <div className={`rounded-2xl p-5 border ${rpiStatus.connected
-          ? 'bg-blue-50 border-blue-200'
+          ? (farmLocal ? 'bg-emerald-50 border-emerald-200' : 'bg-blue-50 border-blue-200')
           : 'bg-gray-50 border-gray-200'}`}>
           <div className="flex items-center gap-3 mb-1">
-            <span className="text-xl">{!rpiStatus.checked ? '⏳' : rpiStatus.connected ? '🍓' : '⚠️'}</span>
+            <span className="text-xl">{!rpiStatus.checked ? '⏳' : rpiStatus.connected ? (farmLocal ? '🌿' : '🍓') : '⚠️'}</span>
             <div>
-              <h3 className={`text-base font-bold ${rpiStatus.connected ? 'text-blue-700' : 'text-gray-500'}`}>
-                로컬 서버 {!rpiStatus.checked ? '확인 중' : rpiStatus.connected ? '연결됨' : '연결 실패'}
+              <h3 className={`text-base font-bold ${rpiStatus.connected ? (farmLocal ? 'text-emerald-700' : 'text-blue-700') : 'text-gray-500'}`}>
+                {farmLocal ? '팜로컬' : '로컬'} 서버 {!rpiStatus.checked ? '확인 중' : rpiStatus.connected ? '연결됨' : '연결 실패'}
               </h3>
-              <p className={`text-xs ${rpiStatus.connected ? 'text-blue-600' : 'text-gray-400'}`}>
+              <p className={`text-xs ${rpiStatus.connected ? (farmLocal ? 'text-emerald-600' : 'text-blue-600') : 'text-gray-400'}`}>
                 {rpiStatus.connected
                   ? `응답 ${rpiStatus.latency}ms`
                   : rpiStatus.error || '로컬 미연결'}
@@ -197,8 +216,8 @@ const ServerStatus = () => {
         </div>
       </div>
 
-      {/* AWS IoT 연결 상태 카드 */}
-      <div className={`rounded-2xl p-6 border ${awsStatus.connected
+      {/* AWS IoT 연결 상태 카드 (팜로컬에서 숨김) */}
+      {!farmLocal && <div className={`rounded-2xl p-6 border ${awsStatus.connected
         ? 'bg-amber-50 border-amber-200'
         : 'bg-gray-50 border-gray-200'}`}>
         <div className="flex items-center gap-4">
@@ -226,7 +245,7 @@ const ServerStatus = () => {
             </div>
           )}
         </div>
-      </div>
+      </div>}
 
       {/* 상세 상태 카드 (PC 서버 연결 시) */}
       {isConnected && (
@@ -269,14 +288,15 @@ const ServerStatus = () => {
         </div>
       )}
 
-      {/* 연결 정보 (항상 표시) */}
+      {/* 연결 정보 */}
       <div className="bg-white border border-gray-200 rounded-2xl shadow-sm p-5">
         <h3 className="text-base font-bold text-gray-800 mb-4">🔗 연결 정보</h3>
         <div className="space-y-3">
           <InfoRow label="현재 활성 API" value={getApiBase()} highlight />
-          <InfoRow label="PC 서버" value={PC_API_BASE} />
-          <InfoRow label="로컬 서버" value={RPI_API_BASE} />
-          <InfoRow label="AWS 제어 엔드포인트" value={AWS_CONTROL_ENDPOINT || '미설정'} />
+          {!farmLocal && <InfoRow label="PC 서버" value={PC_API_BASE} />}
+          {!farmLocal && <InfoRow label="로컬 서버" value={RPI_API_BASE} />}
+          {!farmLocal && <InfoRow label="AWS 제어 엔드포인트" value={AWS_CONTROL_ENDPOINT || '미설정'} />}
+          {farmLocal && <InfoRow label="운영 모드" value="팜로컬 (독립 운영)" />}
           {isConnected && health?.timestamp && (
             <InfoRow label="서버 시간"
               value={new Date(health.timestamp).toLocaleString('ko-KR')} />
@@ -287,30 +307,32 @@ const ServerStatus = () => {
       {/* 빠른 링크 */}
       <div className="bg-white border border-gray-200 rounded-2xl shadow-sm p-5">
         <h3 className="text-base font-bold text-gray-800 mb-4">🚀 빠른 링크</h3>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+        <div className={`grid grid-cols-1 ${farmLocal ? 'md:grid-cols-2' : 'md:grid-cols-3'} gap-3`}>
+          {!farmLocal && (
+            <QuickLink
+              label="PC Health"
+              desc="PC 서버 상태 JSON"
+              url={PC_HEALTH_URL}
+              icon="💚"
+            />
+          )}
           <QuickLink
-            label="PC Health"
-            desc="PC 서버 상태 JSON"
-            url={PC_HEALTH_URL}
-            icon="💚"
-          />
-          <QuickLink
-            label="로컬 Health"
-            desc="로컬 서버 상태"
-            url={RPI_HEALTH_URL}
-            icon="🍓"
+            label={farmLocal ? '팜로컬 Health' : '로컬 Health'}
+            desc={farmLocal ? '팜로컬 서버 상태' : '로컬 서버 상태'}
+            url={farmLocal ? (window.location.origin + '/api/health') : RPI_HEALTH_URL}
+            icon={farmLocal ? '🌿' : '🍓'}
           />
           <QuickLink
             label="Node-RED"
             desc="센서 수집 플로우 편집"
-            url="http://192.168.137.86:1880/node-red"
+            url={farmLocal ? (window.location.origin + '/node-red') : 'http://192.168.137.86:1880/node-red'}
             icon="🔴"
           />
         </div>
       </div>
 
-      {/* 연결 실패 시 가이드 (RPi 운영 중이면 숨김) */}
-      {!isConnected && !isUsingRpi && !loading && (
+      {/* 연결 실패 시 가이드 (RPi 운영 중이거나 팜로컬이면 숨김) */}
+      {!farmLocal && !isConnected && !isUsingRpi && !loading && (
         <div className="bg-white border border-gray-200 rounded-2xl shadow-sm p-6">
           <h3 className="text-base font-bold text-gray-800 mb-4">🔧 문제 해결</h3>
           <div className="space-y-3 text-sm text-gray-600">

@@ -23,7 +23,7 @@
 * { margin:0; padding:0; box-sizing:border-box; }
 
 body {
-  font-family: 'Outfit', 'Noto Sans KR', -apple-system, sans-serif;
+  font-family: 'Outfit', 'Noto Sans KR', 'Malgun Gothic', 'Apple SD Gothic Neo', -apple-system, sans-serif;
   -webkit-font-smoothing: antialiased;
   background: var(--bg-primary);
   color: #111827;

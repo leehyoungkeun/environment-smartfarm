@@ -1,7 +1,8 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, lazy, Suspense } from 'react';
 import axiosBase from 'axios';
-import AutomationManager from '../Dashboard/AutomationManager';
-import { getApiBase } from '../../services/apiSwitcher';
+import { getApiBase, isFarmLocalMode, setFarmLocalMode } from '../../services/apiSwitcher';
+
+const AutomationManager = lazy(() => import('../Dashboard/AutomationManager'));
 
 // 모든 요청에 자동으로 인증 토큰 추가
 const axios = axiosBase.create();
@@ -13,48 +14,47 @@ axios.interceptors.request.use((config) => {
 
 const ConfigurationManager = ({ farmId = 'farm_001' }) => {
   const [activeTab, setActiveTab] = useState('houses');
-  const [houses, setHouses] = useState([]);
   const [selectedHouse, setSelectedHouse] = useState(null);
-  const [loading, setLoading] = useState(true);
+
+  // 캐시에서 즉시 로드 → API는 백그라운드 갱신
+  const loadHousesFromCache = () => {
+    try {
+      const cached = localStorage.getItem(`cachedConfig_${farmId}`);
+      if (cached) {
+        const cachedData = JSON.parse(cached);
+        if (cachedData.houses) return cachedData.houses;
+      }
+    } catch {}
+    return [];
+  };
+
+  const [houses, setHouses] = useState(() => loadHousesFromCache());
+  const [loading, setLoading] = useState(() => loadHousesFromCache().length === 0);
 
   useEffect(() => {
     loadHouses();
   }, [farmId]);
 
   const loadHouses = async () => {
+    const hadCache = houses.length > 0;
+    if (!hadCache) setLoading(true);
     try {
-      setLoading(true);
-      const response = await axios.get(`${getApiBase()}/config/farm/${farmId}`);
+      const response = await axios.get(`${getApiBase()}/config/farm/${farmId}`, { timeout: 5000 });
       if (response.data.success) {
         setHouses(response.data.data);
-        if (selectedHouse) {
-          const updatedHouse = response.data.data.find(h => h.houseId === selectedHouse.houseId);
-          if (updatedHouse) setSelectedHouse(updatedHouse);
-          else setSelectedHouse(null);
-        }
-      } else {
-        // API 응답 실패 → 캐시 시도
-        loadHousesFromCache();
+        setSelectedHouse(prev => {
+          if (!prev) return null;
+          return response.data.data.find(h => h.houseId === prev.houseId) || null;
+        });
+      } else if (!hadCache) {
+        setHouses(loadHousesFromCache());
       }
     } catch (error) {
       console.error('Failed to load houses:', error);
-      loadHousesFromCache();
+      if (!hadCache) setHouses(loadHousesFromCache());
     } finally {
       setLoading(false);
     }
-  };
-
-  const loadHousesFromCache = () => {
-    try {
-      const cached = localStorage.getItem(`cachedConfig_${farmId}`);
-      if (cached) {
-        const cachedData = JSON.parse(cached);
-        if (cachedData.houses) {
-          console.log('[Settings] 캐시된 설정 사용 (읽기 전용)');
-          setHouses(cachedData.houses);
-        }
-      }
-    } catch {}
   };
 
   const createNewHouse = async () => {
@@ -221,7 +221,9 @@ const ConfigurationManager = ({ farmId = 'farm_001' }) => {
 
       {/* 자동화 탭 */}
       {activeTab === 'automation' && (
-        <AutomationManager farmId={farmId} />
+        <Suspense fallback={<div className="skeleton h-96 rounded-2xl" />}>
+          <AutomationManager farmId={farmId} />
+        </Suspense>
       )}
 
       {/* 시스템 설정 탭 */}
@@ -867,6 +869,15 @@ const RETENTION_PRESETS = [
 ];
 
 const SystemSettings = () => {
+  const [farmLocal, setFarmLocal] = useState(isFarmLocalMode());
+
+  const handleFarmLocalToggle = () => {
+    const newValue = !farmLocal;
+    setFarmLocalMode(newValue);
+    setFarmLocal(newValue);
+    setTimeout(() => window.location.reload(), 300);
+  };
+
   const getSavedTimeout = () => {
     try {
       const val = parseInt(localStorage.getItem('smartfarm_serverTimeout'));
@@ -898,7 +909,7 @@ const SystemSettings = () => {
   const loadRetentionSetting = async () => {
     try {
       setRetentionLoading(true);
-      const res = await axios.get(`${getApiBase()}/config/system-settings/farm_001`);
+      const res = await axios.get(`${getApiBase()}/config/system-settings/farm_001`, { timeout: 5000 });
       if (res.data.success) {
         const days = res.data.data.retentionDays || 60;
         setRetentionDays(days);
@@ -977,8 +988,65 @@ const SystemSettings = () => {
 
   return (
     <div className="max-w-2xl space-y-4 animate-fade-in-up">
-      {/* 서버 연결 설정 */}
+      {/* 팜로컬 모드 */}
       <div className="glass-card p-4 md:p-5">
+        <h2 className="text-lg font-bold text-gray-800 mb-2">팜로컬 모드</h2>
+        <p className="text-xs text-gray-400 mb-3">
+          인터넷 연결 없이 라즈베리파이 단독으로 운영할 때 활성화하세요.
+          터치패널에서 직접 대시보드를 확인하고 제어할 수 있습니다.
+        </p>
+
+        <div className="flex items-center justify-between bg-gray-50 rounded-xl p-4 border border-gray-200">
+          <div className="flex items-center gap-3">
+            <span className="text-2xl">🌿</span>
+            <div>
+              <p className="text-sm font-bold text-gray-800">팜로컬 모드</p>
+              <p className="text-xs text-gray-500">
+                {farmLocal ? '활성 - RPi 독립 운영 중' : '비활성 - 서버/클라우드 연동 모드'}
+              </p>
+            </div>
+          </div>
+          <button
+            onClick={handleFarmLocalToggle}
+            className={`relative w-14 h-7 rounded-full transition-all ${farmLocal ? 'bg-emerald-500' : 'bg-gray-300'}`}
+          >
+            <span className={`absolute top-0.5 w-6 h-6 bg-white rounded-full shadow transition-all ${farmLocal ? 'left-7' : 'left-0.5'}`} />
+          </button>
+        </div>
+
+        {farmLocal && (
+          <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-3.5 mt-3">
+            <div className="flex items-start gap-2">
+              <span className="text-lg mt-0.5">✅</span>
+              <div>
+                <p className="text-sm font-bold text-emerald-700">팜로컬 모드 활성</p>
+                <p className="text-xs text-emerald-600 leading-relaxed">
+                  서버 헬스체크 중지, 모든 API가 로컬로 전송됩니다.
+                  대시보드, 제어, 기본 설정만 표시됩니다.
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {!farmLocal && (
+          <div className="bg-amber-50 border border-amber-200 rounded-xl p-3.5 mt-3">
+            <div className="flex items-start gap-2">
+              <span className="text-lg mt-0.5">💡</span>
+              <div>
+                <p className="text-sm font-bold text-amber-700">모드 전환 안내</p>
+                <p className="text-xs text-amber-600 leading-relaxed">
+                  전환 후 페이지가 새로고침됩니다.
+                  팜로컬 모드에서는 영농일지, AI, 사용자 관리 등 서버 전용 기능을 사용할 수 없습니다.
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* 서버 연결 설정 (팜로컬에서는 숨김) */}
+      {!farmLocal && <div className="glass-card p-4 md:p-5">
         <h2 className="text-lg font-bold text-gray-800 mb-4">서버 연결 설정</h2>
 
         {/* 서버 연결 타임아웃 */}
@@ -1083,7 +1151,7 @@ const SystemSettings = () => {
             </div>
           </div>
         </div>
-      </div>
+      </div>}
 
       {/* 로컬 데이터 보관 설정 */}
       <div className="glass-card p-4 md:p-5">

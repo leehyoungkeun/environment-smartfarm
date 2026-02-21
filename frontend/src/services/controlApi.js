@@ -11,7 +11,7 @@
  */
 
 import axios from 'axios';
-import { getSystemMode } from './apiSwitcher';
+import { getSystemMode, getApiBase } from './apiSwitcher';
 
 const AWS_CONTROL_ENDPOINT = import.meta.env.VITE_AWS_CONTROL_ENDPOINT;
 const RPI_CONTROL_URL = (import.meta.env.VITE_RPI_API_URL || 'http://192.168.137.86:1880/api') + '/control/local';
@@ -34,8 +34,8 @@ const RETRY_ATTEMPTS = 2;
 export const sendControlCommand = async (houseId, deviceId, command, operator = 'web_dashboard', meta = {}) => {
   const mode = getSystemMode();
 
-  // 오프라인/로컬 모드 → 로컬 제어 직접 사용
-  if (!mode.serverOnline || mode.manualOverride || mode.isUsingRpi) {
+  // 팜로컬/오프라인/로컬 모드 → 로컬 제어 직접 사용
+  if (mode.isFarmLocal || !mode.serverOnline || mode.manualOverride || mode.isUsingRpi) {
     console.log(`🎮 로컬 모드 제어: ${houseId}/${deviceId} ${command.toUpperCase()}`);
     const result = await sendLocalControl(houseId, deviceId, command, operator);
 
@@ -147,7 +147,8 @@ const sendLocalControl = async (houseId, deviceId, command, operator) => {
   const timestamp = new Date().toISOString();
 
   try {
-    const response = await axios.post(RPI_CONTROL_URL, {
+    const controlUrl = getApiBase() + '/control/local';
+    const response = await axios.post(controlUrl, {
       house_id: houseId,
       device_id: deviceId,
       command: command.toLowerCase(),

@@ -254,27 +254,33 @@ const DynamicDashboard = ({ farmId }) => {
   const currentHouse = config.houses.find(h => h.houseId === selectedHouse);
   const sensors = currentHouse?.sensors || [];
 
-  // 헤더 상태 결정: 타임아웃 전에는 파란색 유지, 타임아웃 후 빨간색
-  // 3단계: online(파란) → 연결 확인 중(파란+노란뱃지) → 연결 끊김(빨강)
-  const isChecking = !systemMode.serverOnline && !systemMode.manualOverride && !showTimeoutBanner && downElapsed > 0;
-  const isDisconnected = showTimeoutBanner && !systemMode.manualOverride;
-  const headerState = systemMode.manualOverride ? 'manual' : isDisconnected ? 'disconnected' : 'online';
+  // 헤더 상태 결정
+  const isFarmLocal = systemMode.isFarmLocal || systemMode.mode === 'farm-local';
+  const isChecking = !isFarmLocal && !systemMode.serverOnline && !systemMode.manualOverride && !showTimeoutBanner && downElapsed > 0;
+  const isDisconnected = !isFarmLocal && showTimeoutBanner && !systemMode.manualOverride;
+  const headerState = isFarmLocal ? 'farm-local'
+    : systemMode.manualOverride ? 'manual'
+    : isDisconnected ? 'disconnected' : 'online';
 
   return (
     <div className="max-w-7xl mx-auto px-4 md:px-6 py-4 md:py-6 space-y-5">
       {/* 헤더 */}
       <div className="animate-fade-in-up" style={{
-        background: headerState === 'online'
-          ? 'linear-gradient(135deg, #1e40af 0%, #3b82f6 100%)'
-          : headerState === 'manual'
-            ? 'linear-gradient(135deg, #b45309 0%, #d97706 100%)'
-            : 'linear-gradient(135deg, #991b1b 0%, #dc2626 100%)',
+        background: headerState === 'farm-local'
+          ? 'linear-gradient(135deg, #065f46 0%, #059669 100%)'
+          : headerState === 'online'
+            ? 'linear-gradient(135deg, #1e40af 0%, #3b82f6 100%)'
+            : headerState === 'manual'
+              ? 'linear-gradient(135deg, #b45309 0%, #d97706 100%)'
+              : 'linear-gradient(135deg, #991b1b 0%, #dc2626 100%)',
         borderRadius:18,padding:'20px 24px',
-        boxShadow: headerState === 'online'
-          ? '0 4px 20px rgba(30,64,175,0.25)'
-          : headerState === 'manual'
-            ? '0 4px 20px rgba(180,83,9,0.25)'
-            : '0 4px 20px rgba(153,27,27,0.25)',
+        boxShadow: headerState === 'farm-local'
+          ? '0 4px 20px rgba(5,150,105,0.25)'
+          : headerState === 'online'
+            ? '0 4px 20px rgba(30,64,175,0.25)'
+            : headerState === 'manual'
+              ? '0 4px 20px rgba(180,83,9,0.25)'
+              : '0 4px 20px rgba(153,27,27,0.25)',
         transition:'background 0.5s, box-shadow 0.5s'
       }}>
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
@@ -303,22 +309,24 @@ const DynamicDashboard = ({ farmId }) => {
                         ? '0 0 6px #fbbf24' : '0 0 6px #fca5a5',
                   animation: 'pulse 2s infinite'
                 }}/>
-                {isChecking ? `연결 확인 중 (${downElapsed}초)` : headerState === 'online' ? '서버 연결' : headerState === 'manual' ? '로컬 운영' : '연결 끊김'}
+                {isFarmLocal ? '팜로컬 운영' : isChecking ? `연결 확인 중 (${downElapsed}초)` : headerState === 'online' ? '서버 연결' : headerState === 'manual' ? '로컬 운영' : '연결 끊김'}
               </span>
             </div>
             <p style={{color:'rgba(255,255,255,0.7)',fontSize:13,marginTop:4}}>
-              {isChecking
-                ? '서버 연결을 확인하고 있습니다...'
-                : headerState === 'online'
-                  ? '실시간 센서 모니터링'
-                  : headerState === 'manual'
-                    ? '로컬 데이터로 운영 중 · 서버 복구 시 자동 동기화'
-                    : '서버 연결이 끊겼습니다 · 로컬 운영으로 전환하세요'}
+              {isFarmLocal
+                ? '독립 운영 모드 · 로컬 센서 데이터'
+                : isChecking
+                  ? '서버 연결을 확인하고 있습니다...'
+                  : headerState === 'online'
+                    ? '실시간 센서 모니터링'
+                    : headerState === 'manual'
+                      ? '로컬 데이터로 운영 중 · 서버 복구 시 자동 동기화'
+                      : '서버 연결이 끊겼습니다 · 로컬 운영으로 전환하세요'}
             </p>
           </div>
           <div style={{textAlign:'right'}}>
             <div style={{display:'flex',alignItems:'center',gap:8,justifyContent:'flex-end',marginBottom:6}}>
-              <button
+              {!isFarmLocal && <button
                 onClick={() => setManualMode(!systemMode.manualOverride)}
                 style={{
                   fontSize:14,fontWeight:800,
@@ -332,7 +340,7 @@ const DynamicDashboard = ({ farmId }) => {
                 title={systemMode.manualOverride ? '클라우드 모드로 전환' : '로컬(오프라인) 모드로 전환'}
               >
                 {systemMode.manualOverride ? '🔄 클라우드 전환' : '🔧 로컬 전환'}
-              </button>
+              </button>}
             </div>
             <div style={{color:'rgba(255,255,255,0.8)',fontSize:15,fontWeight:700}}>
               {new Date().toLocaleDateString('ko-KR', { year:'numeric', month:'long', day:'numeric', weekday:'short' })}
@@ -354,14 +362,14 @@ const DynamicDashboard = ({ farmId }) => {
               key={house.houseId}
               onClick={() => setSelectedHouse(house.houseId)}
               style={selectedHouse === house.houseId
-                ? {background:'#fff',color: headerState === 'online' ? '#1e40af' : headerState === 'manual' ? '#b45309' : '#991b1b',padding:'10px 20px',borderRadius:12,fontSize:14,fontWeight:800,border:'none',cursor:'pointer',whiteSpace:'nowrap',boxShadow:'0 2px 10px rgba(0,0,0,0.15)',transition:'all 0.2s',display:'flex',alignItems:'center',gap:8,flexShrink:0}
+                ? {background:'#fff',color: headerState === 'farm-local' ? '#065f46' : headerState === 'online' ? '#1e40af' : headerState === 'manual' ? '#b45309' : '#991b1b',padding:'10px 20px',borderRadius:12,fontSize:14,fontWeight:800,border:'none',cursor:'pointer',whiteSpace:'nowrap',boxShadow:'0 2px 10px rgba(0,0,0,0.15)',transition:'all 0.2s',display:'flex',alignItems:'center',gap:8,flexShrink:0}
                 : {background:'rgba(255,255,255,0.15)',color:'#fff',padding:'10px 20px',borderRadius:12,fontSize:14,fontWeight:600,border:'1.5px solid rgba(255,255,255,0.25)',cursor:'pointer',whiteSpace:'nowrap',transition:'all 0.2s',display:'flex',alignItems:'center',gap:8,flexShrink:0}
               }
             >
               <span>🏠</span>
               <span>{house.name}</span>
               <span style={selectedHouse === house.houseId
-                ? {background: headerState === 'online' ? '#dbeafe' : headerState === 'manual' ? '#fef3c7' : '#fee2e2',color: headerState === 'online' ? '#1e40af' : headerState === 'manual' ? '#b45309' : '#991b1b',fontSize:12,fontWeight:700,padding:'2px 8px',borderRadius:8}
+                ? {background: headerState === 'farm-local' ? '#d1fae5' : headerState === 'online' ? '#dbeafe' : headerState === 'manual' ? '#fef3c7' : '#fee2e2',color: headerState === 'farm-local' ? '#065f46' : headerState === 'online' ? '#1e40af' : headerState === 'manual' ? '#b45309' : '#991b1b',fontSize:12,fontWeight:700,padding:'2px 8px',borderRadius:8}
                 : {background:'rgba(255,255,255,0.2)',fontSize:12,padding:'2px 8px',borderRadius:8}
               }>
                 {house.sensors?.length || 0}
@@ -371,8 +379,8 @@ const DynamicDashboard = ({ farmId }) => {
         </div>
       </div>
 
-      {/* 서버 연결 타임아웃 경고 배너 */}
-      {showTimeoutBanner && !bannerDismissed && !systemMode.manualOverride && (
+      {/* 서버 연결 타임아웃 경고 배너 (팜로컬에서는 숨김) */}
+      {showTimeoutBanner && !bannerDismissed && !systemMode.manualOverride && !isFarmLocal && (
         <div className="animate-fade-in-up" style={{
           background: 'linear-gradient(135deg, #dc2626 0%, #b91c1c 100%)',
           borderRadius: 14,

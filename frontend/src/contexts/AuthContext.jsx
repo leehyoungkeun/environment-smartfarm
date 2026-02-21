@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import axios from 'axios';
-import { isServerOnline } from '../services/apiSwitcher';
+import { isServerOnline, isFarmLocalMode } from '../services/apiSwitcher';
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3000/api';
 
@@ -109,6 +109,22 @@ export const AuthProvider = ({ children }) => {
 
   useEffect(() => {
     const initAuth = async () => {
+      // 팜로컬 모드: 자동 로그인 (JWT 서버 없음)
+      if (isFarmLocalMode()) {
+        const farmLocalUser = {
+          id: 'farm-local',
+          username: 'farmer',
+          name: '농장관리자',
+          role: 'admin',
+          farmId: 'farm_001',
+        };
+        setUser(farmLocalUser);
+        cacheUser(farmLocalUser);
+        setOfflineMode(true);
+        setLoading(false);
+        return;
+      }
+
       try {
         const setupRes = await axios.get(`${API_BASE_URL}/auth/check-setup`);
         if (setupRes.data.data.needsSetup) {
@@ -204,6 +220,10 @@ export const AuthProvider = ({ children }) => {
   };
 
   const logout = async () => {
+    if (isFarmLocalMode()) {
+      window.location.reload();
+      return;
+    }
     try {
       const { accessToken } = getTokens();
       if (accessToken) {

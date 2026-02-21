@@ -49,7 +49,7 @@ const ControlPanel = ({ farmId, houseId, houseConfig }) => {
       const mode = getSystemMode();
       let result;
 
-      if (mode.mode === 'offline') {
+      if (mode.isFarmLocal || mode.mode === 'offline') {
         // 오프라인: RPi Node-RED 로컬 제어 API 호출
         const rpiApi = getApiBase();
         const res = await axios.post(`${rpiApi}/control/local`, {

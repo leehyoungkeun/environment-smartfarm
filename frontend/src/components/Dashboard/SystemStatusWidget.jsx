@@ -33,10 +33,14 @@ const SystemStatusWidget = ({ config, latestData, alerts }) => {
 
   const sensorFresh = isSensorFresh(latestData?.timestamp);
   const isManualRpi = systemMode.manualOverride;
+  const isFarmLocal = systemMode.isFarmLocal || systemMode.mode === 'farm-local';
 
-  // 종합 상태: 로컬 모드 우선 체크 → 서버 연결 + 센서 데이터 신선도
-  // 로컬 모드일 때만 '로컬 운영/대기' 표시, 자동 폴백은 '연결 끊김'
-  const sensorStatus = serverOnline === null && !isManualRpi
+  // 종합 상태: 팜로컬 → 로컬 모드 → 서버 연결 + 센서 데이터 신선도
+  const sensorStatus = isFarmLocal
+    ? (sensorFresh || latestData?.timestamp
+      ? { value: '팜로컬 운영', color: 'text-emerald-600', dotColor: 'bg-emerald-500' }
+      : { value: '팜로컬 대기', color: 'text-amber-600', dotColor: 'bg-amber-500' })
+    : serverOnline === null && !isManualRpi
     ? { value: '확인 중', color: 'text-gray-400', dotColor: 'bg-gray-400' }
     : isManualRpi && sensorFresh
       ? { value: '로컬 운영', color: 'text-blue-600', dotColor: 'bg-blue-500' }
@@ -84,7 +88,9 @@ const SystemStatusWidget = ({ config, latestData, alerts }) => {
   ];
 
   // 센서 상태에 따른 헤더 색상 (로컬 모드 우선)
-  const headerColor = isManualRpi
+  const headerColor = isFarmLocal
+    ? '#059669'   // 팜로컬: 초록
+    : isManualRpi
     ? '#2563eb'   // 로컬 모드: 파란색
     : serverOnline
       ? (sensorFresh ? '#059669' : '#d97706')

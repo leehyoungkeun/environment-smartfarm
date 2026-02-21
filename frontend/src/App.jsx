@@ -11,7 +11,7 @@ import AlertPanel from './components/Dashboard/AlertPanel';
 import JournalManager from './components/Journal/JournalManager';
 import AIManager from './components/AI/AIManager';
 import ServerStatus from './components/Dashboard/ServerStatus';
-import { getApiBase } from './services/apiSwitcher';
+import { getApiBase, isFarmLocalMode } from './services/apiSwitcher';
 
 /**
  * 제어 페이지 - config에서 하우스별 deviceCount를 로드
@@ -201,21 +201,29 @@ function AppContent() {
     localStorage.setItem('pwa-install-dismissed', 'true');
   };
 
-  const allNavItems = [
-    { id: 'dashboard', label: '대시보드', icon: '📊', permission: 'dashboard' },
-    { id: 'control', label: '제어', icon: '🎛️', permission: 'control' },
-    { id: 'history', label: '이력', icon: '📋', permission: 'history' },
-    { id: 'journal', label: '영농일지', icon: '📝', permission: 'journal' },
-    { id: 'ai', label: 'AI도우미', icon: '🤖', permission: 'ai' },
-    { id: 'server', label: '서버', icon: '🖥️', permission: 'settings' },
-    { id: 'settings', label: '설정', icon: '⚙️', permission: 'settings' },
-  ];
+  const farmLocal = isFarmLocalMode();
+
+  const allNavItems = farmLocal
+    ? [
+        { id: 'dashboard', label: '대시보드', icon: '📊', permission: 'dashboard' },
+        { id: 'control', label: '제어', icon: '🎛️', permission: 'control' },
+        { id: 'settings', label: '설정', icon: '⚙️', permission: 'settings' },
+      ]
+    : [
+        { id: 'dashboard', label: '대시보드', icon: '📊', permission: 'dashboard' },
+        { id: 'control', label: '제어', icon: '🎛️', permission: 'control' },
+        { id: 'history', label: '이력', icon: '📋', permission: 'history' },
+        { id: 'journal', label: '영농일지', icon: '📝', permission: 'journal' },
+        { id: 'ai', label: 'AI도우미', icon: '🤖', permission: 'ai' },
+        { id: 'server', label: '서버', icon: '🖥️', permission: 'settings' },
+        { id: 'settings', label: '설정', icon: '⚙️', permission: 'settings' },
+      ];
   const navItems = allNavItems.filter(item => hasPermission(item.permission));
 
   return (
     <div className="min-h-screen bg-mesh safe-top">
-      {/* PWA 설치 배너 */}
-      {showInstallBanner && (
+      {/* PWA 설치 배너 (팜로컬에서는 숨김) */}
+      {showInstallBanner && !farmLocal && (
         <div className="fixed top-0 left-0 right-0 z-[60] bg-gradient-to-r from-blue-600 to-violet-600 px-4 py-3 animate-fade-in-up">
           <div className="max-w-7xl mx-auto flex items-center justify-between gap-3">
             <div className="flex items-center gap-3">
@@ -256,6 +264,7 @@ function AppContent() {
               </div>
               <span className="text-xl font-bold text-gray-800 tracking-tight">
                 SmartFarm
+                {farmLocal && <span className="text-xs text-emerald-600 font-bold ml-1.5 bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-200">팜로컬</span>}
               </span>
             </div>
 
@@ -309,12 +318,14 @@ function AppContent() {
                           👥 사용자 관리
                         </button>
                       )}
-                      <button
-                        onClick={() => { logout(); setShowUserMenu(false); }}
-                        className="w-full text-left px-3 py-2 text-sm text-rose-600 hover:bg-rose-50 rounded-lg transition-all"
-                      >
-                        🚪 로그아웃
-                      </button>
+                      {!farmLocal && (
+                        <button
+                          onClick={() => { logout(); setShowUserMenu(false); }}
+                          className="w-full text-left px-3 py-2 text-sm text-rose-600 hover:bg-rose-50 rounded-lg transition-all"
+                        >
+                          🚪 로그아웃
+                        </button>
+                      )}
                     </div>
                   </>
                 )}
@@ -332,7 +343,10 @@ function AppContent() {
                           flex items-center justify-center text-base shadow-lg shadow-emerald-500/20">
               🌱
             </div>
-            <span className="text-base font-bold text-gray-800 tracking-tight">SmartFarm</span>
+            <span className="text-base font-bold text-gray-800 tracking-tight">
+              SmartFarm
+              {farmLocal && <span className="text-[10px] text-emerald-600 font-bold ml-1 bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200">팜로컬</span>}
+            </span>
           </div>
           <button
             onClick={() => setShowAlertPanel(!showAlertPanel)}
@@ -377,7 +391,7 @@ function AppContent() {
 
       {/* 모바일 하단 네비게이션 */}
       <nav className="md:hidden fixed bottom-0 left-0 right-0 glass-nav z-50 safe-bottom">
-        <div className="grid grid-cols-8 h-16">
+        <div className={`grid ${farmLocal ? 'grid-cols-4' : 'grid-cols-8'} h-16`}>
           {navItems.map((item) => (
             <button
               key={item.id}

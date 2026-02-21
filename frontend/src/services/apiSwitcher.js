@@ -17,9 +17,39 @@ const PC_SERVER = import.meta.env.VITE_API_BASE_URL || 'http://192.168.137.1:300
 const RPI_SERVER = import.meta.env.VITE_RPI_API_URL || 'http://192.168.137.86:1880/api';
 const STORAGE_KEY = 'apiSwitcher_state';
 const GLOBAL_KEY = '__smartfarmApiState';
+const FARM_LOCAL_KEY = 'smartfarm_farmLocalMode';
+
+/**
+ * 팜로컬 모드 확인 (RPi 단독 운영, 인터넷 없음)
+ */
+export function isFarmLocalMode() {
+  return localStorage.getItem(FARM_LOCAL_KEY) === 'true';
+}
+
+/**
+ * 팜로컬 모드 설정
+ * @param {boolean} enabled
+ */
+export function setFarmLocalMode(enabled) {
+  if (enabled) {
+    localStorage.setItem(FARM_LOCAL_KEY, 'true');
+    S.currentApiBase = window.location.origin + '/api';
+    S.serverOnline = false;
+    S.rpiOnline = true;
+    S.manualOverride = false;
+    stopHealthCheck();
+  } else {
+    localStorage.removeItem(FARM_LOCAL_KEY);
+  }
+  saveState();
+  notifyListeners();
+}
 
 // localStorage에서 마지막 상태 복원
 function loadSavedState() {
+  if (isFarmLocalMode()) {
+    return { serverOnline: false, manualOverride: false, downSince: null, currentApiBase: window.location.origin + '/api' };
+  }
   try {
     const saved = localStorage.getItem(STORAGE_KEY);
     if (saved) {
@@ -80,6 +110,7 @@ export function getServerTimeoutSec() {
  * 현재 API 베이스 URL 반환
  */
 export function getApiBase() {
+  if (isFarmLocalMode()) return window.location.origin + '/api';
   return S.currentApiBase;
 }
 
@@ -94,6 +125,19 @@ export function isServerOnline() {
  * 현재 시스템 모드 반환
  */
 export function getSystemMode() {
+  if (isFarmLocalMode()) {
+    return {
+      apiBase: window.location.origin + '/api',
+      serverOnline: false,
+      rpiOnline: true,
+      manualOverride: false,
+      mode: 'farm-local',
+      lastCheck: new Date(),
+      downSince: null,
+      isUsingRpi: true,
+      isFarmLocal: true,
+    };
+  }
   return {
     apiBase: S.currentApiBase,
     serverOnline: S.serverOnline,
@@ -103,6 +147,7 @@ export function getSystemMode() {
     lastCheck: S.lastCheck,
     downSince: S.downSince,
     isUsingRpi: S.currentApiBase === RPI_SERVER,
+    isFarmLocal: false,
   };
 }
 
@@ -227,6 +272,7 @@ function notifyListeners() {
  * 헬스체크 시작 (10초 간격)
  */
 export function startHealthCheck() {
+  if (isFarmLocalMode()) return;
   if (window.__apiSwitcherInterval) return;
 
   // 즉시 1회 체크
@@ -257,15 +303,17 @@ if (typeof window !== 'undefined') {
     document.removeEventListener('visibilitychange', window.__apiSwitcherVisHandler);
   }
 
-  startHealthCheck();
+  if (!isFarmLocalMode()) {
+    startHealthCheck();
 
-  // 탭 전환 시 체크 일시정지/재개
-  window.__apiSwitcherVisHandler = () => {
-    if (document.hidden) {
-      stopHealthCheck();
-    } else {
-      startHealthCheck();
-    }
-  };
-  document.addEventListener('visibilitychange', window.__apiSwitcherVisHandler);
+    // 탭 전환 시 체크 일시정지/재개
+    window.__apiSwitcherVisHandler = () => {
+      if (document.hidden) {
+        stopHealthCheck();
+      } else {
+        startHealthCheck();
+      }
+    };
+    document.addEventListener('visibilitychange', window.__apiSwitcherVisHandler);
+  }
 }

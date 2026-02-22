@@ -75,7 +75,7 @@ export const AuthProvider = ({ children }) => {
             const { refreshToken } = getTokens();
             if (!refreshToken) throw new Error('No refresh token');
 
-            const response = await axios.post(`${API_BASE_URL}/auth/refresh`, { refreshToken });
+            const response = await axios.post(`${API_BASE_URL}/auth/refresh`, { refreshToken }, { timeout: 5000 });
             const { accessToken: newAccess, refreshToken: newRefresh } = response.data.data;
 
             saveTokens(newAccess, newRefresh);
@@ -126,7 +126,7 @@ export const AuthProvider = ({ children }) => {
       }
 
       try {
-        const setupRes = await axios.get(`${API_BASE_URL}/auth/check-setup`);
+        const setupRes = await axios.get(`${API_BASE_URL}/auth/check-setup`, { timeout: 5000 });
         if (setupRes.data.data.needsSetup) {
           setNeedsSetup(true);
           setLoading(false);
@@ -140,7 +140,8 @@ export const AuthProvider = ({ children }) => {
         }
 
         const response = await axios.get(`${API_BASE_URL}/auth/me`, {
-          headers: { Authorization: `Bearer ${accessToken}` }
+          headers: { Authorization: `Bearer ${accessToken}` },
+          timeout: 5000,
         });
 
         if (response.data.success) {
@@ -157,12 +158,13 @@ export const AuthProvider = ({ children }) => {
           try {
             const { refreshToken } = getTokens();
             if (refreshToken) {
-              const refreshRes = await axios.post(`${API_BASE_URL}/auth/refresh`, { refreshToken });
+              const refreshRes = await axios.post(`${API_BASE_URL}/auth/refresh`, { refreshToken }, { timeout: 5000 });
               const { accessToken: newAccess, refreshToken: newRefresh } = refreshRes.data.data;
               saveTokens(newAccess, newRefresh);
 
               const meRes = await axios.get(`${API_BASE_URL}/auth/me`, {
-                headers: { Authorization: `Bearer ${newAccess}` }
+                headers: { Authorization: `Bearer ${newAccess}` },
+                timeout: 5000,
               });
               if (meRes.data.success) {
                 setUser(meRes.data.data);

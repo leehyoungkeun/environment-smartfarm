@@ -231,7 +231,7 @@ export const getControlLogs = async (farmId, options = {}) => {
     if (options.limit) params.set('limit', options.limit);
     if (options.page) params.set('page', options.page);
 
-    const response = await axios.get(`${API_BASE_URL}/control-logs/${farmId}?${params.toString()}`);
+    const response = await axios.get(`${API_BASE_URL}/control-logs/${farmId}?${params.toString()}`, { timeout: 10000 });
     return response.data;
   } catch (error) {
     console.error('이력 조회 실패:', error.message);
@@ -248,7 +248,7 @@ export const getControlStats = async (farmId, options = {}) => {
     if (options.houseId) params.set('houseId', options.houseId);
     if (options.period) params.set('period', options.period);
 
-    const response = await axios.get(`${API_BASE_URL}/control-logs/${farmId}/stats?${params.toString()}`);
+    const response = await axios.get(`${API_BASE_URL}/control-logs/${farmId}/stats?${params.toString()}`, { timeout: 10000 });
     return response.data;
   } catch (error) {
     console.error('통계 조회 실패:', error.message);

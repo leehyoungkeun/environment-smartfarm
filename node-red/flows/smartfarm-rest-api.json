@@ -4,7 +4,13 @@
         "type": "tab",
         "label": "REST API (오프라인)",
         "disabled": false,
-        "info": "React 대시보드용 REST API 엔드포인트\nSQLite 기반으로 서버 다운 시 대체 API 제공\n\n엔드포인트:\n- GET /api/sensors/latest/:farmId/:houseId\n- GET /api/sensors/:farmId/:houseId/history\n- GET /api/sensors/:farmId/:houseId/count\n- GET /api/alerts/:farmId\n- GET /api/health\n- GET /api/config/:houseId\n- POST /api/control/local"
+        "info": "React 대시보드용 REST API 엔드포인트\nSQLite 기반으로 서버 다운 시 대체 API 제공\n\n엔드포인트:\n- GET /api/sensors/latest/:farmId/:houseId\n- GET /api/sensors/:farmId/:houseId/history\n- GET /api/sensors/:farmId/:houseId/count\n- GET /api/alerts/:farmId\n- GET /api/health\n- GET /api/config/:houseId\n- POST /api/control/local\n- GET/POST /api/automation/:farmId\n- PUT/DELETE /api/automation/:farmId/:ruleId\n- PATCH /api/automation/:farmId/:ruleId/toggle",
+        "env": [
+            { "name": "SENSOR_API_KEY", "value": "smartfarm-sensor-key", "type": "str" },
+            { "name": "SERVER_URL", "value": "http://192.168.137.1:3000", "type": "str" },
+            { "name": "FARM_ID", "value": "farm_001", "type": "str" },
+            { "name": "HOUSE_ID", "value": "house_001", "type": "str" }
+        ]
     },
     {
         "id": "comment_sensors",
@@ -32,7 +38,7 @@
         "type": "function",
         "z": "rest_api_flow",
         "name": "최신 데이터 쿼리",
-        "func": "const farmId = msg.req.params.farmId;\nconst houseId = msg.req.params.houseId;\n\nmsg.topic = `SELECT sensor_id, value, timestamp\nFROM sensor_data\nWHERE farm_id = $farmId AND house_id = $houseId\nAND timestamp = (\n  SELECT MAX(timestamp) FROM sensor_data\n  WHERE farm_id = $farmId AND house_id = $houseId\n)\nORDER BY sensor_id`;\nmsg.params = { $farmId: farmId, $houseId: houseId };\n\nmsg._farmId = farmId;\nmsg._houseId = houseId;\nreturn msg;",
+        "func": "const farmId = msg.req.params.farmId;\nconst houseId = msg.req.params.houseId;\n\nmsg.topic = 'SELECT sensor_id, value, timestamp FROM sensor_data WHERE farm_id = $1 AND house_id = $2 AND timestamp = (SELECT MAX(timestamp) FROM sensor_data WHERE farm_id = $3 AND house_id = $4) ORDER BY sensor_id';\nmsg.payload = [farmId, houseId, farmId, houseId];\n\nmsg._farmId = farmId;\nmsg._houseId = houseId;\nreturn msg;",
         "outputs": 1,
         "x": 530,
         "y": 100,
@@ -89,7 +95,7 @@
         "type": "function",
         "z": "rest_api_flow",
         "name": "이력 데이터 쿼리",
-        "func": "const farmId = msg.req.params.farmId;\nconst houseId = msg.req.params.houseId;\nconst startDate = msg.req.query.startDate || new Date(Date.now() - 24*60*60*1000).toISOString();\nconst endDate = msg.req.query.endDate || new Date().toISOString();\nconst limit = Math.min(parseInt(msg.req.query.limit) || 1000, 10000);\n\nmsg.topic = `SELECT sensor_id, value, timestamp\nFROM sensor_data\nWHERE farm_id = $farmId AND house_id = $houseId\nAND timestamp BETWEEN $startDate AND $endDate\nORDER BY timestamp ASC\nLIMIT $limit`;\nmsg.params = { $farmId: farmId, $houseId: houseId, $startDate: startDate, $endDate: endDate, $limit: limit };\n\nmsg._farmId = farmId;\nmsg._houseId = houseId;\nreturn msg;",
+        "func": "const farmId = msg.req.params.farmId;\nconst houseId = msg.req.params.houseId;\nconst startDate = msg.req.query.startDate || new Date(Date.now() - 24*60*60*1000).toISOString();\nconst endDate = msg.req.query.endDate || new Date().toISOString();\nconst limit = Math.min(parseInt(msg.req.query.limit) || 1000, 10000);\n\nmsg.topic = 'SELECT sensor_id, value, timestamp FROM sensor_data WHERE farm_id = $1 AND house_id = $2 AND timestamp BETWEEN $3 AND $4 ORDER BY timestamp ASC LIMIT $5';\nmsg.payload = [farmId, houseId, startDate, endDate, limit];\n\nmsg._farmId = farmId;\nmsg._houseId = houseId;\nreturn msg;",
         "outputs": 1,
         "x": 530,
         "y": 180,
@@ -135,7 +141,7 @@
         "type": "function",
         "z": "rest_api_flow",
         "name": "오늘 수집 건수 쿼리",
-        "func": "const farmId = msg.req.params.farmId;\nconst houseId = msg.req.params.houseId;\nconst today = new Date();\ntoday.setHours(0, 0, 0, 0);\n\nmsg.topic = `SELECT COUNT(DISTINCT timestamp) as count\nFROM sensor_data\nWHERE farm_id = $farmId AND house_id = $houseId\nAND timestamp >= $today`;\nmsg.params = { $farmId: farmId, $houseId: houseId, $today: today.toISOString() };\n\nreturn msg;",
+        "func": "const farmId = msg.req.params.farmId;\nconst houseId = msg.req.params.houseId;\nconst today = new Date();\ntoday.setHours(0, 0, 0, 0);\n\nmsg.topic = 'SELECT COUNT(DISTINCT timestamp) as count FROM sensor_data WHERE farm_id = $1 AND house_id = $2 AND timestamp >= $3';\nmsg.payload = [farmId, houseId, today.toISOString()];\n\nreturn msg;",
         "outputs": 1,
         "x": 540,
         "y": 260,
@@ -190,7 +196,7 @@
         "type": "function",
         "z": "rest_api_flow",
         "name": "알림 조회",
-        "func": "const farmId = msg.req.params.farmId;\nconst houseId = msg.req.query.houseId;\n\nif (houseId) {\n    msg.topic = `SELECT id, timestamp, device_id, command, source\nFROM control_logs\nWHERE source = 'automation' AND device_id LIKE $housePattern\nORDER BY timestamp DESC\nLIMIT 50`;\n    msg.params = { $housePattern: houseId + '%' };\n} else {\n    msg.topic = `SELECT id, timestamp, device_id, command, source\nFROM control_logs\nWHERE source = 'automation'\nORDER BY timestamp DESC\nLIMIT 50`;\n    msg.params = {};\n}\n\nreturn msg;",
+        "func": "const farmId = msg.req.params.farmId;\nconst houseId = msg.req.query.houseId;\n\nif (houseId) {\n    msg.topic = \"SELECT id, timestamp, device_id, command, source FROM control_logs WHERE source = 'automation' AND device_id LIKE $1 ORDER BY timestamp DESC LIMIT 50\";\n    msg.payload = [houseId + '%'];\n} else {\n    msg.topic = \"SELECT id, timestamp, device_id, command, source FROM control_logs WHERE source = 'automation' ORDER BY timestamp DESC LIMIT 50\";\n    msg.payload = [];\n}\n\nreturn msg;",
         "outputs": 1,
         "x": 430,
         "y": 400,
@@ -353,12 +359,264 @@
         "wires": [["http_res_health"]]
     },
     {
+        "id": "comment_automation_api",
+        "type": "comment",
+        "z": "rest_api_flow",
+        "name": "━━━ 자동화 규칙 API ━━━",
+        "x": 160,
+        "y": 860,
+        "wires": []
+    },
+    {
+        "id": "http_auto_list",
+        "type": "http in",
+        "z": "rest_api_flow",
+        "name": "GET /api/automation/:farmId",
+        "url": "/api/automation/:farmId",
+        "method": "get",
+        "upload": false,
+        "x": 210,
+        "y": 920,
+        "wires": [["auto_list_query"]]
+    },
+    {
+        "id": "auto_list_query",
+        "type": "function",
+        "z": "rest_api_flow",
+        "name": "규칙 목록 조회",
+        "func": "const farmId = msg.req.params.farmId;\nconst houseId = msg.req.query.houseId;\nconst enabled = msg.req.query.enabled;\n\nlet sql = 'SELECT * FROM automation_rules WHERE farm_id = $1';\nconst params = [farmId];\nlet paramIdx = 2;\n\nif (houseId) {\n    sql += ' AND house_id = $' + paramIdx;\n    params.push(houseId);\n    paramIdx++;\n}\nif (enabled !== undefined) {\n    sql += ' AND enabled = $' + paramIdx;\n    params.push(enabled === 'true' ? 1 : 0);\n    paramIdx++;\n}\nsql += ' ORDER BY priority ASC, created_at DESC';\n\nmsg.topic = sql;\nmsg.payload = params;\nreturn msg;",
+        "outputs": 1,
+        "x": 490,
+        "y": 920,
+        "wires": [["sqlite_auto_list"]]
+    },
+    {
+        "id": "sqlite_auto_list",
+        "type": "sqlite",
+        "z": "rest_api_flow",
+        "name": "SQLite 쿼리",
+        "mydb": "sqlite_db",
+        "sqlquery": "msg.topic",
+        "sql": "",
+        "x": 690,
+        "y": 920,
+        "wires": [["auto_list_response"]]
+    },
+    {
+        "id": "auto_list_response",
+        "type": "function",
+        "z": "rest_api_flow",
+        "name": "목록 응답 포맷",
+        "func": "const rows = msg.payload || [];\nconst rules = rows.map(function(row) {\n    var conditions, actions;\n    try { conditions = JSON.parse(row.conditions); } catch(e) { conditions = []; }\n    try { actions = JSON.parse(row.actions); } catch(e) { actions = []; }\n    return {\n        _id: row.id,\n        farmId: row.farm_id,\n        houseId: row.house_id,\n        name: row.name,\n        description: row.description || '',\n        enabled: row.enabled === 1,\n        conditionLogic: row.condition_logic,\n        conditions: conditions,\n        actions: actions,\n        cooldownSeconds: row.cooldown_seconds,\n        priority: row.priority,\n        lastTriggeredAt: row.last_triggered_at,\n        triggerCount: row.trigger_count || 0,\n        createdAt: row.created_at,\n        updatedAt: row.updated_at\n    };\n});\nmsg.payload = { success: true, data: rules };\nmsg.headers = { 'Access-Control-Allow-Origin': '*' };\nreturn msg;",
+        "outputs": 1,
+        "x": 910,
+        "y": 920,
+        "wires": [["http_res_auto"]]
+    },
+    {
+        "id": "http_res_auto",
+        "type": "http response",
+        "z": "rest_api_flow",
+        "name": "자동화 응답",
+        "statusCode": "",
+        "headers": {},
+        "x": 1110,
+        "y": 980,
+        "wires": []
+    },
+    {
+        "id": "http_auto_create",
+        "type": "http in",
+        "z": "rest_api_flow",
+        "name": "POST /api/automation/:farmId",
+        "url": "/api/automation/:farmId",
+        "method": "post",
+        "upload": false,
+        "x": 210,
+        "y": 1000,
+        "wires": [["auto_create_handler"]]
+    },
+    {
+        "id": "auto_create_handler",
+        "type": "function",
+        "z": "rest_api_flow",
+        "name": "규칙 생성",
+        "func": "const farmId = msg.req.params.farmId;\nconst body = msg.payload;\n\nif (!body.name || !body.houseId) {\n    msg.payload = { success: false, error: 'name, houseId 필수' };\n    msg.statusCode = 400;\n    msg.headers = { 'Access-Control-Allow-Origin': '*' };\n    return [msg, null];\n}\n\nconst id = Date.now().toString(36) + Math.random().toString(36).substr(2, 9);\nconst now = new Date().toISOString();\n\nconst rule = {\n    id: id,\n    farm_id: farmId,\n    house_id: body.houseId,\n    name: body.name,\n    description: body.description || '',\n    enabled: body.enabled !== false ? 1 : 0,\n    condition_logic: body.conditionLogic || 'AND',\n    conditions: JSON.stringify(body.conditions || []),\n    actions: JSON.stringify(body.actions || []),\n    cooldown_seconds: body.cooldownSeconds || 300,\n    priority: body.priority || 10,\n    created_at: now,\n    updated_at: now\n};\n\n// HTTP 응답 먼저\nmsg.payload = {\n    success: true,\n    data: {\n        _id: id,\n        farmId: farmId,\n        houseId: rule.house_id,\n        name: rule.name,\n        description: rule.description,\n        enabled: rule.enabled === 1,\n        conditionLogic: rule.condition_logic,\n        conditions: body.conditions || [],\n        actions: body.actions || [],\n        cooldownSeconds: rule.cooldown_seconds,\n        priority: rule.priority,\n        lastTriggeredAt: null,\n        triggerCount: 0,\n        createdAt: now,\n        updatedAt: now\n    }\n};\nmsg.headers = { 'Access-Control-Allow-Origin': '*' };\n\n// SQLite INSERT\nvar dbMsg = {};\ndbMsg.topic = 'INSERT INTO automation_rules (id, farm_id, house_id, name, description, enabled, condition_logic, conditions, actions, cooldown_seconds, priority, trigger_count, synced, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,0,0,$12,$13)';\ndbMsg.payload = [id, farmId, rule.house_id, rule.name, rule.description, rule.enabled, rule.condition_logic, rule.conditions, rule.actions, rule.cooldown_seconds, rule.priority, now, now];\n\nnode.warn('✅ 자동화 규칙 생성: ' + rule.name);\nreturn [msg, dbMsg];",
+        "outputs": 2,
+        "outputLabels": ["HTTP 응답", "SQLite 저장"],
+        "x": 480,
+        "y": 1000,
+        "wires": [["http_res_auto"], ["sqlite_auto_write"]]
+    },
+    {
+        "id": "sqlite_auto_write",
+        "type": "sqlite",
+        "z": "rest_api_flow",
+        "name": "규칙 저장",
+        "mydb": "sqlite_db",
+        "sqlquery": "msg.topic",
+        "sql": "",
+        "x": 690,
+        "y": 1040,
+        "wires": [["link_out_rule_changed"]]
+    },
+    {
+        "id": "http_auto_update",
+        "type": "http in",
+        "z": "rest_api_flow",
+        "name": "PUT /api/automation/:farmId/:ruleId",
+        "url": "/api/automation/:farmId/:ruleId",
+        "method": "put",
+        "upload": false,
+        "x": 230,
+        "y": 1080,
+        "wires": [["auto_update_handler"]]
+    },
+    {
+        "id": "auto_update_handler",
+        "type": "function",
+        "z": "rest_api_flow",
+        "name": "규칙 수정",
+        "func": "const farmId = msg.req.params.farmId;\nconst ruleId = msg.req.params.ruleId;\nconst body = msg.payload;\nconst now = new Date().toISOString();\n\n// 업데이트할 필드 동적 구성\nconst sets = [];\nconst params = [];\nlet idx = 1;\n\nif (body.name !== undefined) { sets.push('name = $' + idx); params.push(body.name); idx++; }\nif (body.houseId !== undefined) { sets.push('house_id = $' + idx); params.push(body.houseId); idx++; }\nif (body.description !== undefined) { sets.push('description = $' + idx); params.push(body.description); idx++; }\nif (body.enabled !== undefined) { sets.push('enabled = $' + idx); params.push(body.enabled ? 1 : 0); idx++; }\nif (body.conditionLogic !== undefined) { sets.push('condition_logic = $' + idx); params.push(body.conditionLogic); idx++; }\nif (body.conditions !== undefined) { sets.push('conditions = $' + idx); params.push(JSON.stringify(body.conditions)); idx++; }\nif (body.actions !== undefined) { sets.push('actions = $' + idx); params.push(JSON.stringify(body.actions)); idx++; }\nif (body.cooldownSeconds !== undefined) { sets.push('cooldown_seconds = $' + idx); params.push(body.cooldownSeconds); idx++; }\nif (body.priority !== undefined) { sets.push('priority = $' + idx); params.push(body.priority); idx++; }\n\nsets.push('updated_at = $' + idx); params.push(now); idx++;\nsets.push('synced = 0');\n\nparams.push(ruleId);\nvar sql = 'UPDATE automation_rules SET ' + sets.join(', ') + ' WHERE id = $' + idx;\n\n// HTTP 응답 먼저 (POST 핸들러와 동일한 즉시 응답 패턴)\nvar conditions = body.conditions || [];\nvar actions = body.actions || [];\nmsg.payload = {\n    success: true,\n    data: {\n        _id: ruleId,\n        farmId: farmId,\n        houseId: body.houseId || '',\n        name: body.name || '',\n        description: body.description || '',\n        enabled: body.enabled !== false,\n        conditionLogic: body.conditionLogic || 'AND',\n        conditions: conditions,\n        actions: actions,\n        cooldownSeconds: body.cooldownSeconds || 300,\n        priority: body.priority || 10,\n        updatedAt: now\n    }\n};\nmsg.headers = { 'Access-Control-Allow-Origin': '*' };\n\n// SQLite UPDATE (별도 메시지)\nvar dbMsg = {};\ndbMsg.topic = sql;\ndbMsg.payload = params;\n\nnode.warn('✏️ 자동화 규칙 수정: ' + (body.name || ruleId));\nreturn [msg, dbMsg];",
+        "outputs": 2,
+        "outputLabels": ["HTTP 응답", "SQLite 업데이트"],
+        "x": 480,
+        "y": 1080,
+        "wires": [["http_res_auto"], ["sqlite_auto_write"]]
+    },
+    {
+        "id": "http_auto_delete",
+        "type": "http in",
+        "z": "rest_api_flow",
+        "name": "DELETE /api/automation/:farmId/:ruleId",
+        "url": "/api/automation/:farmId/:ruleId",
+        "method": "delete",
+        "upload": false,
+        "x": 240,
+        "y": 1200,
+        "wires": [["auto_delete_handler"]]
+    },
+    {
+        "id": "auto_delete_handler",
+        "type": "function",
+        "z": "rest_api_flow",
+        "name": "규칙 삭제",
+        "func": "const ruleId = msg.req.params.ruleId;\nmsg.topic = 'DELETE FROM automation_rules WHERE id = $1';\nmsg.payload = [ruleId];\nmsg._ruleId = ruleId;\nreturn msg;",
+        "outputs": 1,
+        "x": 480,
+        "y": 1200,
+        "wires": [["sqlite_auto_delete"]]
+    },
+    {
+        "id": "sqlite_auto_delete",
+        "type": "sqlite",
+        "z": "rest_api_flow",
+        "name": "규칙 삭제",
+        "mydb": "sqlite_db",
+        "sqlquery": "msg.topic",
+        "sql": "",
+        "x": 690,
+        "y": 1200,
+        "wires": [["auto_delete_response", "link_out_rule_changed"]]
+    },
+    {
+        "id": "auto_delete_response",
+        "type": "function",
+        "z": "rest_api_flow",
+        "name": "삭제 응답",
+        "func": "node.warn('🗑️ 자동화 규칙 삭제: ' + msg._ruleId);\nmsg.payload = { success: true };\nmsg.headers = { 'Access-Control-Allow-Origin': '*' };\nreturn msg;",
+        "outputs": 1,
+        "x": 900,
+        "y": 1200,
+        "wires": [["http_res_auto"]]
+    },
+    {
+        "id": "http_auto_toggle",
+        "type": "http in",
+        "z": "rest_api_flow",
+        "name": "PATCH /api/automation/:farmId/:ruleId/toggle",
+        "url": "/api/automation/:farmId/:ruleId/toggle",
+        "method": "patch",
+        "upload": false,
+        "x": 270,
+        "y": 1280,
+        "wires": [["auto_toggle_handler"]]
+    },
+    {
+        "id": "auto_toggle_handler",
+        "type": "function",
+        "z": "rest_api_flow",
+        "name": "규칙 토글",
+        "func": "const ruleId = msg.req.params.ruleId;\nconst now = new Date().toISOString();\nmsg.topic = 'UPDATE automation_rules SET enabled = CASE WHEN enabled = 1 THEN 0 ELSE 1 END, synced = 0, updated_at = $1 WHERE id = $2';\nmsg.payload = [now, ruleId];\nmsg._ruleId = ruleId;\nreturn msg;",
+        "outputs": 1,
+        "x": 490,
+        "y": 1280,
+        "wires": [["sqlite_auto_toggle"]]
+    },
+    {
+        "id": "sqlite_auto_toggle",
+        "type": "sqlite",
+        "z": "rest_api_flow",
+        "name": "토글 실행",
+        "mydb": "sqlite_db",
+        "sqlquery": "msg.topic",
+        "sql": "",
+        "x": 690,
+        "y": 1280,
+        "wires": [["auto_toggle_select", "link_out_rule_changed"]]
+    },
+    {
+        "id": "auto_toggle_select",
+        "type": "function",
+        "z": "rest_api_flow",
+        "name": "토글 후 조회",
+        "func": "msg.topic = 'SELECT * FROM automation_rules WHERE id = $1';\nmsg.payload = [msg._ruleId];\nreturn msg;",
+        "outputs": 1,
+        "x": 900,
+        "y": 1280,
+        "wires": [["sqlite_auto_toggle_read"]]
+    },
+    {
+        "id": "sqlite_auto_toggle_read",
+        "type": "sqlite",
+        "z": "rest_api_flow",
+        "name": "SQLite 조회",
+        "mydb": "sqlite_db",
+        "sqlquery": "msg.topic",
+        "sql": "",
+        "x": 1110,
+        "y": 1280,
+        "wires": [["auto_single_response"]]
+    },
+    {
+        "id": "auto_single_response",
+        "type": "function",
+        "z": "rest_api_flow",
+        "name": "단일 규칙 응답",
+        "func": "var rows = msg.payload;\nif (!Array.isArray(rows) || rows.length === 0) {\n    msg.payload = { success: false, error: '규칙을 찾을 수 없습니다' };\n    msg.statusCode = 404;\n    return msg;\n}\nvar r = rows[0];\nvar conditions = [];\nvar actions = [];\ntry { conditions = JSON.parse(r.conditions || '[]'); } catch(e) {}\ntry { actions = JSON.parse(r.actions || '[]'); } catch(e) {}\nmsg.payload = {\n    success: true,\n    data: {\n        _id: r.id,\n        farmId: r.farm_id,\n        houseId: r.house_id,\n        name: r.name,\n        description: r.description || '',\n        enabled: r.enabled === 1,\n        conditionLogic: r.condition_logic || 'AND',\n        conditions: conditions,\n        actions: actions,\n        cooldownSeconds: r.cooldown_seconds || 300,\n        priority: r.priority || 10,\n        lastTriggeredAt: r.last_triggered_at,\n        triggerCount: r.trigger_count || 0,\n        createdAt: r.created_at,\n        updatedAt: r.updated_at\n    }\n};\nmsg.headers = { 'Access-Control-Allow-Origin': '*' };\nreturn msg;",
+        "outputs": 1,
+        "x": 1310,
+        "y": 1280,
+        "wires": [["http_res_auto"]]
+    },
+    {
+        "id": "link_out_rule_changed",
+        "type": "link out",
+        "z": "rest_api_flow",
+        "name": "규칙 변경 → 동기화",
+        "mode": "link",
+        "links": ["link_in_rule_sync"],
+        "x": 915,
+        "y": 1340,
+        "wires": []
+    },
+    {
         "id": "comment_cors_api",
         "type": "comment",
         "z": "rest_api_flow",
         "name": "━━━ CORS 지원 ━━━",
         "x": 140,
-        "y": 860,
+        "y": 1380,
         "wires": []
     },
     {
@@ -370,7 +628,7 @@
         "method": "options",
         "upload": false,
         "x": 160,
-        "y": 920,
+        "y": 1440,
         "wires": [["cors_all"]]
     },
     {
@@ -378,10 +636,10 @@
         "type": "function",
         "z": "rest_api_flow",
         "name": "CORS 헤더",
-        "func": "msg.headers = {\n    'Access-Control-Allow-Origin': '*',\n    'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',\n    'Access-Control-Allow-Headers': 'Content-Type, x-api-key, Authorization'\n};\nmsg.payload = '';\nmsg.statusCode = 204;\nreturn msg;",
+        "func": "msg.headers = {\n    'Access-Control-Allow-Origin': '*',\n    'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, PATCH, OPTIONS',\n    'Access-Control-Allow-Headers': 'Content-Type, x-api-key, Authorization'\n};\nmsg.payload = '';\nmsg.statusCode = 204;\nreturn msg;",
         "outputs": 1,
         "x": 380,
-        "y": 920,
+        "y": 1440,
         "wires": [["http_res_cors_all"]]
     },
     {
@@ -392,7 +650,7 @@
         "statusCode": "",
         "headers": {},
         "x": 590,
-        "y": 920,
+        "y": 1440,
         "wires": []
     }
 ]

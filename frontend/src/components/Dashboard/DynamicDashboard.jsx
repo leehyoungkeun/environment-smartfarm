@@ -1,13 +1,11 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import axios from 'axios';
 import StatsWidget from './StatsWidget';
 import GaugeWidget from './GaugeWidget';
 import SystemStatusWidget from './SystemStatusWidget';
 import TodaySummaryWidget from './TodaySummaryWidget';
 import SensorChart from './SensorChart';
-import { getApiBase, getSystemMode, setManualMode, onModeChange, getServerTimeoutSec } from '../../services/apiSwitcher';
-
-const API_BASE_URL_DEFAULT = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3000/api';
+import { getApiBase, getSystemMode, setManualMode, onModeChange, getServerTimeoutSec, getConfigCache, setConfigCache } from '../../services/apiSwitcher';
 
 const DynamicDashboard = ({ farmId }) => {
   const [config, setConfig] = useState(null);
@@ -25,6 +23,7 @@ const DynamicDashboard = ({ farmId }) => {
   const [bannerDismissed, setBannerDismissed] = useState(false);
   const intervalRef = useRef(null);
   const bannerTimerRef = useRef(null);
+  const abortRef = useRef(null); // API 요청 취소용
 
   // API 전환 모드 감지 + 서버 복구 시 config 재조회
   useEffect(() => {
@@ -73,10 +72,6 @@ const DynamicDashboard = ({ farmId }) => {
     return () => { if (bannerTimerRef.current) clearInterval(bannerTimerRef.current); };
   }, []);
 
-  useEffect(() => {
-    loadConfig();
-  }, [farmId]);
-
   // localStorage에서 폴링 주기 읽기 (기본 10초)
   const getPollingInterval = () => {
     try {
@@ -85,6 +80,144 @@ const DynamicDashboard = ({ farmId }) => {
     } catch {}
     return 10000;
   };
+
+  // 캐시에서 config 복원 시도 (TTL 지원)
+  const tryLoadFromCache = () => {
+    const { data: cachedData } = getConfigCache(farmId);
+    if (cachedData) {
+      console.log('[Dashboard] 캐시된 설정 사용');
+      setConfig(cachedData);
+      if (cachedData.houses && cachedData.houses.length > 0) {
+        setSelectedHouse(cachedData.houses[0].houseId);
+      }
+      return true;
+    }
+    return false;
+  };
+
+  const fetchConfigFromServer = async (showLoadingState) => {
+    const API_BASE_URL = getApiBase();
+    try {
+      const response = await axios.get(`${API_BASE_URL}/config/${farmId}`, { timeout: 8000 });
+      if (response.data.success && response.data.data) {
+        const configData = response.data.data;
+        setConfig(configData);
+        if (configData.houses && configData.houses.length > 0) {
+          setConfigCache(farmId, configData);
+          setSelectedHouse(prev => prev || configData.houses[0].houseId);
+        } else {
+          if (!tryLoadFromCache()) {
+            // 캐시도 없으면 서버 데이터 그대로 사용
+          }
+        }
+      } else {
+        console.warn('[Dashboard] API 응답 실패 → 캐시 시도');
+        if (!tryLoadFromCache() && showLoadingState) {
+          setLoadError('network');
+        }
+      }
+    } catch (error) {
+      console.error('설정 로드 실패:', error);
+      const status = error.response?.status;
+      if (status === 401) {
+        if (showLoadingState) setLoadError('auth');
+      } else if (status === 403) {
+        if (showLoadingState) setLoadError('forbidden');
+      } else {
+        if (!tryLoadFromCache() && showLoadingState) {
+          setLoadError('network');
+        }
+      }
+    } finally {
+      if (showLoadingState) setLoading(false);
+    }
+  };
+
+  const loadConfig = async () => {
+    setLoadError(null);
+
+    // 팜로컬 모드: 서버 config API 없음 → 캐시에서 즉시 로드
+    if (getSystemMode().isFarmLocal) {
+      if (tryLoadFromCache()) {
+        setLoading(false);
+        return;
+      }
+      setLoadError('network');
+      setLoading(false);
+      return;
+    }
+
+    // Cache-first: TTL 유효하면 캐시 즉시 사용 + 백그라운드 갱신
+    const { data: cached, fresh } = getConfigCache(farmId);
+    if (cached && fresh) {
+      setConfig(cached);
+      if (cached.houses?.length > 0) setSelectedHouse(cached.houses[0].houseId);
+      setLoading(false);
+      // 백그라운드에서 서버 최신 데이터 갱신 (UI 블로킹 없음)
+      fetchConfigFromServer(true);
+      return;
+    }
+
+    // 캐시 만료 또는 없음 → 서버에서 가져오기 (stale 캐시 폴백)
+    if (cached) {
+      setConfig(cached);
+      if (cached.houses?.length > 0) setSelectedHouse(cached.houses[0].houseId);
+      setLoading(false);
+    }
+    await fetchConfigFromServer(!cached);
+  };
+
+  const loadLatestData = useCallback(async () => {
+    if (!selectedHouse) return;
+
+    // 이전 요청 취소 (하우스 전환 시 레이스 컨디션 방지)
+    if (abortRef.current) abortRef.current.abort();
+    const controller = new AbortController();
+    abortRef.current = controller;
+
+    const API_BASE_URL = getApiBase();
+    const now = new Date();
+    const yesterday = new Date(now.getTime() - 86400000);
+
+    try {
+      const [latestRes, historyRes, alertsRes] = await Promise.allSettled([
+        axios.get(`${API_BASE_URL}/sensors/latest/${farmId}/${selectedHouse}`, { timeout: 5000, signal: controller.signal }),
+        axios.get(`${API_BASE_URL}/sensors/${farmId}/${selectedHouse}/history`, {
+          params: { startDate: yesterday.toISOString(), endDate: now.toISOString() },
+          timeout: 5000, signal: controller.signal,
+        }),
+        axios.get(`${API_BASE_URL}/alerts/${farmId}?houseId=${selectedHouse}`, { timeout: 5000, signal: controller.signal }),
+      ]);
+
+      // 취소된 요청의 응답은 무시
+      if (controller.signal.aborted) return;
+
+      if (latestRes.status === 'fulfilled' && latestRes.value.data.success) {
+        setLatestData(latestRes.value.data.data || {});
+      }
+      if (historyRes.status === 'fulfilled' && historyRes.value.data.success) {
+        setHistoryData(historyRes.value.data.data || []);
+      }
+      if (alertsRes.status === 'fulfilled' && alertsRes.value.data.success) {
+        setAlerts(alertsRes.value.data.data || []);
+      }
+
+      setLastUpdated(new Date());
+      setDataVersion(prev => prev + 1);
+    } catch (e) {
+      if (e.name !== 'CanceledError' && e.name !== 'AbortError') {
+        console.error('[Dashboard] loadLatestData error:', e.message);
+      }
+    }
+  }, [farmId, selectedHouse]);
+
+  // useMemo는 early return 위에 배치 (React 훅 규칙: 항상 동일 순서로 호출)
+  const currentHouse = useMemo(() => config?.houses?.find(h => h.houseId === selectedHouse) || null, [config, selectedHouse]);
+  const sensors = useMemo(() => currentHouse?.sensors || [], [currentHouse]);
+
+  useEffect(() => {
+    loadConfig();
+  }, [farmId]);
 
   useEffect(() => {
     if (selectedHouse) {
@@ -106,100 +239,10 @@ const DynamicDashboard = ({ farmId }) => {
       return () => {
         clearInterval(intervalRef.current);
         document.removeEventListener('visibilitychange', handleVisibility);
+        if (abortRef.current) abortRef.current.abort(); // 언마운트 시 진행중 요청 취소
       };
     }
-  }, [selectedHouse]);
-
-  // 캐시에서 config 복원 시도
-  const tryLoadFromCache = () => {
-    try {
-      const cached = localStorage.getItem(`cachedConfig_${farmId}`);
-      if (cached) {
-        const cachedData = JSON.parse(cached);
-        console.log('[Dashboard] 캐시된 설정 사용');
-        setConfig(cachedData);
-        if (cachedData.houses && cachedData.houses.length > 0) {
-          setSelectedHouse(cachedData.houses[0].houseId);
-        }
-        return true;
-      }
-    } catch {}
-    return false;
-  };
-
-  const loadConfig = async () => {
-    setLoadError(null);
-    const API_BASE_URL = getApiBase();
-    try {
-      const response = await axios.get(`${API_BASE_URL}/config/${farmId}`);
-      if (response.data.success && response.data.data) {
-        const configData = response.data.data;
-        setConfig(configData);
-        // 하우스가 있는 유효한 config만 캐시
-        if (configData.houses && configData.houses.length > 0) {
-          try {
-            localStorage.setItem(`cachedConfig_${farmId}`, JSON.stringify(configData));
-          } catch {}
-          setSelectedHouse(configData.houses[0].houseId);
-        } else {
-          // 서버 응답은 있지만 하우스가 없음 → 캐시 시도
-          if (!tryLoadFromCache()) {
-            // 캐시도 없으면 서버 데이터 그대로 사용 (하우스가 없습니다 표시)
-          }
-        }
-      } else {
-        // 서버 응답이 success=false → 캐시 시도
-        console.warn('[Dashboard] API 응답 실패 → 캐시 시도');
-        if (!tryLoadFromCache()) {
-          setLoadError('network');
-        }
-      }
-    } catch (error) {
-      console.error('설정 로드 실패:', error);
-      const status = error.response?.status;
-      if (status === 401) {
-        setLoadError('auth');
-      } else if (status === 403) {
-        setLoadError('forbidden');
-      } else {
-        // 네트워크 오류 또는 기타 → 캐시된 config 사용
-        if (!tryLoadFromCache()) {
-          setLoadError('network');
-        }
-      }
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const loadLatestData = async () => {
-    if (!selectedHouse) return;
-
-    const API_BASE_URL = getApiBase();
-    const now = new Date();
-    const yesterday = new Date(now.getTime() - 24 * 60 * 60 * 1000);
-
-    const [latestRes, historyRes, alertsRes] = await Promise.allSettled([
-      axios.get(`${API_BASE_URL}/sensors/latest/${farmId}/${selectedHouse}`),
-      axios.get(`${API_BASE_URL}/sensors/${farmId}/${selectedHouse}/history`, {
-        params: { startDate: yesterday.toISOString(), endDate: now.toISOString() }
-      }),
-      axios.get(`${API_BASE_URL}/alerts/${farmId}?houseId=${selectedHouse}`),
-    ]);
-
-    if (latestRes.status === 'fulfilled' && latestRes.value.data.success) {
-      setLatestData(latestRes.value.data.data || {});
-    }
-    if (historyRes.status === 'fulfilled' && historyRes.value.data.success) {
-      setHistoryData(historyRes.value.data.data || []);
-    }
-    if (alertsRes.status === 'fulfilled' && alertsRes.value.data.success) {
-      setAlerts(alertsRes.value.data.data || []);
-    }
-
-    setLastUpdated(new Date());
-    setDataVersion(prev => prev + 1);
-  };
+  }, [selectedHouse, loadLatestData]);
 
   if (loading) {
     return (
@@ -250,9 +293,6 @@ const DynamicDashboard = ({ farmId }) => {
       </div>
     );
   }
-
-  const currentHouse = config.houses.find(h => h.houseId === selectedHouse);
-  const sensors = currentHouse?.sensors || [];
 
   // 헤더 상태 결정
   const isFarmLocal = systemMode.isFarmLocal || systemMode.mode === 'farm-local';

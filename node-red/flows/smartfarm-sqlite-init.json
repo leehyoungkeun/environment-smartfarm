@@ -25,7 +25,7 @@
         "topic": "",
         "x": 170,
         "y": 80,
-        "wires": [["init_tables"]]
+        "wires": [["pragma_settings"]]
     },
     {
         "id": "inject_auto_init",
@@ -40,7 +40,42 @@
         "topic": "",
         "x": 170,
         "y": 140,
-        "wires": [["init_tables"]]
+        "wires": [["pragma_settings"]]
+    },
+    {
+        "id": "pragma_settings",
+        "type": "function",
+        "z": "sqlite_init_flow",
+        "name": "PRAGMA 순차 실행",
+        "func": "// node-red-node-sqlite는 단일 PRAGMA만 실행 가능\n// 순차 체인으로 5개 PRAGMA 실행\nvar pragmas = [\n  'PRAGMA journal_mode = WAL',\n  'PRAGMA busy_timeout = 5000',\n  'PRAGMA synchronous = NORMAL',\n  'PRAGMA cache_size = -8000',\n  'PRAGMA temp_store = MEMORY'\n];\nmsg._pragmaList = pragmas;\nmsg._pragmaIdx = 0;\nmsg.topic = pragmas[0];\nnode.warn('⚙️ SQLite PRAGMA 설정 시작 (5개)');\nreturn msg;",
+        "outputs": 1,
+        "x": 430,
+        "y": 60,
+        "wires": [["sqlite_exec_pragma"]]
+    },
+    {
+        "id": "sqlite_exec_pragma",
+        "type": "sqlite",
+        "z": "sqlite_init_flow",
+        "name": "PRAGMA 적용",
+        "mydb": "sqlite_db",
+        "sqlquery": "msg.topic",
+        "sql": "",
+        "x": 650,
+        "y": 60,
+        "wires": [["pragma_next"]]
+    },
+    {
+        "id": "pragma_next",
+        "type": "function",
+        "z": "sqlite_init_flow",
+        "name": "다음 PRAGMA",
+        "func": "var idx = (msg._pragmaIdx || 0) + 1;\nvar list = msg._pragmaList || [];\nif (idx < list.length) {\n  msg._pragmaIdx = idx;\n  msg.topic = list[idx];\n  return [msg, null];\n}\nnode.warn('✅ PRAGMA 5개 설정 완료');\nreturn [null, msg];",
+        "outputs": 2,
+        "outputLabels": ["다음 PRAGMA", "완료→테이블생성"],
+        "x": 840,
+        "y": 60,
+        "wires": [["sqlite_exec_pragma"], ["init_tables"]]
     },
     {
         "id": "init_tables",
@@ -50,7 +85,7 @@
         "func": "msg.topic = `\nCREATE TABLE IF NOT EXISTS sensor_data (\n  id INTEGER PRIMARY KEY AUTOINCREMENT,\n  timestamp TEXT NOT NULL,\n  farm_id TEXT NOT NULL,\n  house_id TEXT NOT NULL,\n  sensor_id TEXT NOT NULL,\n  value REAL,\n  synced INTEGER DEFAULT 0\n);\n`;\nreturn msg;",
         "outputs": 1,
         "x": 420,
-        "y": 110,
+        "y": 130,
         "wires": [["sqlite_exec_1"]]
     },
     {
@@ -70,7 +105,7 @@
         "type": "function",
         "z": "sqlite_init_flow",
         "name": "인덱스 생성",
-        "func": "msg.topic = `\nCREATE INDEX IF NOT EXISTS idx_sensor_timestamp ON sensor_data(timestamp);\nCREATE INDEX IF NOT EXISTS idx_sensor_synced ON sensor_data(synced);\nCREATE INDEX IF NOT EXISTS idx_sensor_farm_house ON sensor_data(farm_id, house_id);\n`;\nreturn msg;",
+        "func": "msg.topic = `\nCREATE INDEX IF NOT EXISTS idx_sensor_timestamp ON sensor_data(timestamp);\nCREATE INDEX IF NOT EXISTS idx_sensor_synced ON sensor_data(synced);\nCREATE INDEX IF NOT EXISTS idx_sensor_farm_house ON sensor_data(farm_id, house_id);\nCREATE INDEX IF NOT EXISTS idx_sensor_synced_ts ON sensor_data(synced, timestamp);\nCREATE INDEX IF NOT EXISTS idx_sensor_synced_farm_house ON sensor_data(synced, farm_id, house_id, timestamp);\n`;\nreturn msg;",
         "outputs": 1,
         "x": 850,
         "y": 110,
@@ -116,7 +151,7 @@
         "type": "function",
         "z": "sqlite_init_flow",
         "name": "automation_rules 테이블",
-        "func": "msg.topic = `\nCREATE TABLE IF NOT EXISTS automation_rules (\n  id INTEGER PRIMARY KEY,\n  rule_json TEXT NOT NULL,\n  updated_at TEXT NOT NULL\n);\n`;\nreturn msg;",
+        "func": "msg.topic = `\nCREATE TABLE IF NOT EXISTS automation_rules (\n  id TEXT PRIMARY KEY,\n  farm_id TEXT NOT NULL DEFAULT 'farm_001',\n  house_id TEXT NOT NULL,\n  name TEXT NOT NULL,\n  description TEXT DEFAULT '',\n  enabled INTEGER DEFAULT 1,\n  condition_logic TEXT DEFAULT 'AND',\n  conditions TEXT NOT NULL,\n  actions TEXT NOT NULL,\n  cooldown_seconds INTEGER DEFAULT 300,\n  priority INTEGER DEFAULT 10,\n  last_triggered_at TEXT,\n  trigger_count INTEGER DEFAULT 0,\n  synced INTEGER DEFAULT 0,\n  created_at TEXT NOT NULL,\n  updated_at TEXT NOT NULL\n);\nCREATE INDEX IF NOT EXISTS idx_automation_farm ON automation_rules(farm_id, house_id);\nCREATE INDEX IF NOT EXISTS idx_automation_enabled ON automation_rules(enabled);\nCREATE INDEX IF NOT EXISTS idx_automation_synced ON automation_rules(synced);\n`;\nreturn msg;",
         "outputs": 1,
         "x": 870,
         "y": 200,

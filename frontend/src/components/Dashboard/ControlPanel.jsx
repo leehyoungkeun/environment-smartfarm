@@ -57,7 +57,7 @@ const ControlPanel = ({ farmId, houseId, houseConfig }) => {
           device_id: deviceId,
           command,
           operator: operatorName,
-        });
+        }, { timeout: 10000 });
         result = { success: res.data.success, requestId: res.data.data?.request_id };
       } else {
         // 온라인: AWS IoT 경유 (기존)

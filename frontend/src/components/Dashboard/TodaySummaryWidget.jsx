@@ -21,7 +21,7 @@ const TodaySummaryWidget = ({ farmId, houseId, alerts: parentAlerts, dataVersion
       const API_BASE_URL = getApiBase();
       const countResponse = await axios.get(
         `${API_BASE_URL}/sensors/${farmId}/${houseId}/count`,
-        { params: { startDate: today.toISOString(), endDate: tomorrow.toISOString() } }
+        { params: { startDate: today.toISOString(), endDate: tomorrow.toISOString() }, timeout: 5000 }
       );
 
       if (countResponse.data.success) {

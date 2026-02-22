@@ -33,10 +33,16 @@ const pool = new Pool({
   max: 20,
   idleTimeoutMillis: 30000,
   connectionTimeoutMillis: 5000,
+  statement_timeout: 30000, // 쿼리 30초 타임아웃 (hang 방지)
+  query_timeout: 30000,
+  keepAlive: true, // TCP keepalive 활성화
+  keepAliveInitialDelayMillis: 10000,
+  application_name: "smartfarm-backend",
 });
 
 pool.on("error", (err) => {
-  logger.error("PostgreSQL pool error:", err);
+  logger.error("PostgreSQL pool error — 연결 복구 시도 중:", err.message);
+  // Pool이 자동으로 dead client를 제거하고 새 연결을 생성함
 });
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

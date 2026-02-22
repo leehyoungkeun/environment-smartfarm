@@ -14,6 +14,51 @@ import ServerStatus from './components/Dashboard/ServerStatus';
 import { getApiBase, isFarmLocalMode } from './services/apiSwitcher';
 
 /**
+ * Error Boundary — 컴포넌트 렌더 에러 시 하얀 화면 방지
+ */
+class ErrorBoundary extends React.Component {
+  constructor(props) {
+    super(props);
+    this.state = { hasError: false, error: null };
+  }
+
+  static getDerivedStateFromError(error) {
+    return { hasError: true, error };
+  }
+
+  componentDidCatch(error, errorInfo) {
+    console.error('[ErrorBoundary]', error, errorInfo);
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#f8fafc', padding: 24 }}>
+          <div style={{ textAlign: 'center', maxWidth: 400 }}>
+            <div style={{ fontSize: 48, marginBottom: 16, opacity: 0.5 }}>⚠️</div>
+            <h2 style={{ fontSize: 20, fontWeight: 800, color: '#1e293b', marginBottom: 8 }}>화면 표시 오류</h2>
+            <p style={{ fontSize: 14, color: '#64748b', marginBottom: 20, lineHeight: 1.6 }}>
+              일시적인 오류가 발생했습니다.<br />
+              아래 버튼을 눌러 페이지를 새로고침 해주세요.
+            </p>
+            <p style={{ fontSize: 12, color: '#94a3b8', marginBottom: 16, fontFamily: 'monospace', background: '#f1f5f9', padding: '8px 12px', borderRadius: 8, wordBreak: 'break-all' }}>
+              {this.state.error?.message || '알 수 없는 오류'}
+            </p>
+            <button
+              onClick={() => window.location.reload()}
+              style={{ padding: '12px 32px', background: '#2563eb', color: '#fff', border: 'none', borderRadius: 12, fontSize: 15, fontWeight: 700, cursor: 'pointer' }}
+            >
+              새로고침
+            </button>
+          </div>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
+/**
  * 제어 페이지 - config에서 하우스별 deviceCount를 로드
  */
 const ControlPage = ({ farmId }) => {
@@ -35,7 +80,7 @@ const ControlPage = ({ farmId }) => {
     const loadConfig = async () => {
       const API_BASE_URL = getApiBase();
       try {
-        const response = await axios.get(`${API_BASE_URL}/config/${farmId}`);
+        const response = await axios.get(`${API_BASE_URL}/config/${farmId}`, { timeout: 8000 });
         if (response.data.success && response.data.data) {
           applyConfig(response.data.data);
         } else {
@@ -442,9 +487,11 @@ function AppContent() {
 
 function App() {
   return (
-    <AuthProvider>
-      <AppContent />
-    </AuthProvider>
+    <ErrorBoundary>
+      <AuthProvider>
+        <AppContent />
+      </AuthProvider>
+    </ErrorBoundary>
   );
 }
 

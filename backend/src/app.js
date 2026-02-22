@@ -272,6 +272,29 @@ async function startServer() {
 
 startServer();
 
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// 프로세스 안정성: 예외 핸들러
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+process.on("uncaughtException", (err) => {
+  logger.error("UNCAUGHT EXCEPTION — 프로세스 종료 예정:", {
+    message: err.message,
+    stack: err.stack,
+  });
+  // DB 연결 정리 후 종료 (PM2가 자동 재시작)
+  disconnectDB()
+    .catch(() => {})
+    .finally(() => process.exit(1));
+});
+
+process.on("unhandledRejection", (reason, promise) => {
+  logger.error("UNHANDLED REJECTION:", {
+    reason: reason instanceof Error ? reason.message : String(reason),
+    stack: reason instanceof Error ? reason.stack : undefined,
+  });
+  // unhandledRejection은 로그만 남기고 계속 실행 (프로세스 종료 안 함)
+});
+
 // Graceful shutdown
 process.on("SIGTERM", async () => {
   logger.info("SIGTERM received, shutting down gracefully...");

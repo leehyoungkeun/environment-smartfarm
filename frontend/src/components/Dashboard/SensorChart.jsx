@@ -1,22 +1,51 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import axios from 'axios';
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer
 } from 'recharts';
 import { getApiBase } from '../../services/apiSwitcher';
 
+// 컴포넌트 외부: 렌더마다 재생성 방지
+const RANGE_CONFIG = {
+  '1h':  { ms: 1*60*60*1000,      maxPoints: 120, tickInterval: 10*60*1000     },
+  '6h':  { ms: 6*60*60*1000,      maxPoints: 120, tickInterval: 60*60*1000     },
+  '24h': { ms: 24*60*60*1000,     maxPoints: 144, tickInterval: 2*60*60*1000   },
+  '7d':  { ms: 7*24*60*60*1000,   maxPoints: 168, tickInterval: 24*60*60*1000  },
+  '30d': { ms: 30*24*60*60*1000,  maxPoints: 180, tickInterval: 3*24*60*60*1000 },
+};
+
+const TIME_RANGES = [
+  {value:'1h',label:'1시간'},{value:'6h',label:'6시간'},{value:'24h',label:'24시간'},
+  {value:'7d',label:'7일'},{value:'30d',label:'30일'},
+];
+
 const SensorChart = ({ farmId, houseId, config, dataVersion }) => {
   const [timeRange, setTimeRange] = useState('24h');
   const [chartData, setChartData] = useState([]);
   const [selectedSensors, setSelectedSensors] = useState([]);
   const [loading, setLoading] = useState(false);
+  const abortRef = useRef(null);
+
+  const numberSensors = useMemo(
+    () => config?.sensors?.filter(s => s.type === 'number') || [],
+    [config]
+  );
+
+  // 센서 정보 조회 캐시 (매번 .find 반복 방지)
+  const sensorInfoMap = useMemo(() => {
+    const map = {};
+    if (config?.sensors) config.sensors.forEach(s => { map[s.sensorId] = s; });
+    return map;
+  }, [config]);
+
+  const getSensorInfo = useCallback((id) => sensorInfoMap[id] || {}, [sensorInfoMap]);
 
   useEffect(() => {
-    if (config?.sensors?.length > 0) {
-      const defaultSensors = config.sensors.filter(s => s.type === 'number').slice(0, 3).map(s => s.sensorId);
+    if (numberSensors.length > 0) {
+      const defaultSensors = numberSensors.slice(0, 3).map(s => s.sensorId);
       setSelectedSensors(defaultSensors);
     }
-  }, [config]);
+  }, [numberSensors]);
 
   useEffect(() => {
     if (selectedSensors.length > 0) loadChartData();
@@ -28,15 +57,6 @@ const SensorChart = ({ farmId, houseId, config, dataVersion }) => {
       loadChartData();
     }
   }, [dataVersion]);
-
-  // 시간 범위별 설정: 최대 포인트, X축 틱 간격(ms), 라벨 수
-  const RANGE_CONFIG = {
-    '1h':  { ms: 1*60*60*1000,      maxPoints: 120, tickInterval: 10*60*1000     },  // 10분 간격
-    '6h':  { ms: 6*60*60*1000,      maxPoints: 120, tickInterval: 60*60*1000     },  // 1시간 간격
-    '24h': { ms: 24*60*60*1000,     maxPoints: 144, tickInterval: 2*60*60*1000   },  // 2시간 간격
-    '7d':  { ms: 7*24*60*60*1000,   maxPoints: 168, tickInterval: 24*60*60*1000  },  // 1일 간격
-    '30d': { ms: 30*24*60*60*1000,  maxPoints: 180, tickInterval: 3*24*60*60*1000 }, // 3일 간격
-  };
 
   const getTimeRangeParams = () => {
     const now = new Date();
@@ -115,12 +135,19 @@ const SensorChart = ({ farmId, houseId, config, dataVersion }) => {
   };
 
   const loadChartData = async () => {
+    if (abortRef.current) abortRef.current.abort();
+    const controller = new AbortController();
+    abortRef.current = controller;
+
     try {
       setLoading(true);
       const { startDate, endDate } = getTimeRangeParams();
       const cfg = RANGE_CONFIG[timeRange];
       const API_BASE_URL = getApiBase();
-      const response = await axios.get(`${API_BASE_URL}/sensors/${farmId}/${houseId}/history`, { params: { startDate, endDate } });
+      const response = await axios.get(`${API_BASE_URL}/sensors/${farmId}/${houseId}/history`, {
+        params: { startDate, endDate }, timeout: 10000, signal: controller.signal,
+      });
+      if (controller.signal.aborted) return;
       if (response.data.success) {
         const raw = response.data.data.reverse().map(item => {
           const d = new Date(item.timestamp);
@@ -130,14 +157,22 @@ const SensorChart = ({ farmId, houseId, config, dataVersion }) => {
         });
         setChartData(downsample(raw, cfg.maxPoints, selectedSensors));
       }
-    } catch (error) { console.error('Failed to load chart data:', error); }
-    finally { setLoading(false); }
+    } catch (error) {
+      if (error.name !== 'CanceledError' && error.name !== 'AbortError') {
+        console.error('Failed to load chart data:', error);
+      }
+    } finally { setLoading(false); }
   };
 
-  const toggleSensor = (id) => setSelectedSensors(prev => prev.includes(id) ? prev.filter(i => i !== id) : [...prev, id]);
-  const getSensorInfo = (id) => config?.sensors?.find(s => s.sensorId === id) || {};
+  // 언마운트 시 진행중 요청 취소
+  useEffect(() => () => { if (abortRef.current) abortRef.current.abort(); }, []);
 
-  const downloadCSV = () => {
+  const toggleSensor = useCallback(
+    (id) => setSelectedSensors(prev => prev.includes(id) ? prev.filter(i => i !== id) : [...prev, id]),
+    []
+  );
+
+  const downloadCSV = useCallback(() => {
     if (chartData.length === 0) { alert('데이터가 없습니다.'); return; }
     const headers = ['시간', ...selectedSensors.map(id => { const s = getSensorInfo(id); return `${s.name} (${s.unit})`; })];
     const rows = chartData.map(row => [row.time, ...selectedSensors.map(id => row[id] ?? '')]);
@@ -145,10 +180,9 @@ const SensorChart = ({ farmId, houseId, config, dataVersion }) => {
     const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' });
     const link = document.createElement('a'); link.href = URL.createObjectURL(blob);
     link.download = `sensor_data_${new Date().toISOString()}.csv`; link.click();
-  };
+  }, [chartData, selectedSensors, getSensorInfo]);
 
   if (!config) return null;
-  const numberSensors = config.sensors.filter(s => s.type === 'number');
 
   return (
     <div style={{background:'#fff',border:'1px solid #e2e8f0',borderRadius:16,overflow:'hidden',boxShadow:'0 1px 3px rgba(0,0,0,0.06)'}}>
@@ -162,7 +196,7 @@ const SensorChart = ({ farmId, houseId, config, dataVersion }) => {
 
       <div style={{padding:'16px'}}>
         <div className="flex gap-2 mb-4 flex-wrap">
-          {[{value:'1h',label:'1시간'},{value:'6h',label:'6시간'},{value:'24h',label:'24시간'},{value:'7d',label:'7일'},{value:'30d',label:'30일'}].map(r => (
+          {TIME_RANGES.map(r => (
             <button key={r.value} onClick={() => setTimeRange(r.value)}
               style={timeRange === r.value
                 ? {background:'#7c3aed',color:'#fff',padding:'8px 16px',borderRadius:10,fontSize:13,fontWeight:800,border:'none',cursor:'pointer',boxShadow:'0 2px 8px rgba(124,58,237,0.35)',transition:'all 0.15s'}
@@ -200,102 +234,125 @@ const SensorChart = ({ farmId, houseId, config, dataVersion }) => {
             <p className="text-sm text-gray-400">센서 데이터가 수집되면 여기에 그래프가 표시됩니다.</p>
           </div>
         </div>
-      ) : (() => {
-        // 센서별 min/max 계산 + 10% 여유 패딩
-        const sensorDomains = {};
-        selectedSensors.forEach(id => {
-          const vals = chartData.map(d => d[id]).filter(v => v != null);
-          if (vals.length > 0) {
-            const min = Math.min(...vals);
-            const max = Math.max(...vals);
-            const range = max - min || 1;
-            const padding = range * 0.15;
-            sensorDomains[id] = [
-              Math.floor((min - padding) * 10) / 10,
-              Math.ceil((max + padding) * 10) / 10
-            ];
-          }
-        });
-
-        const { startMs, endMs } = getTimeRangeParams();
-        const cfg = RANGE_CONFIG[timeRange];
-        const ticks = generateTicks(startMs, endMs, cfg.tickInterval);
-
-        return (
-          <ResponsiveContainer width="100%" height={400}>
-            <LineChart data={chartData} margin={{ left: 10, right: 10 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
-              <XAxis
-                dataKey="timestamp"
-                type="number"
-                scale="time"
-                domain={[startMs, endMs]}
-                ticks={ticks}
-                tickFormatter={formatTick}
-                stroke="#94a3b8"
-                tick={{fill:'#64748b', fontSize: 11}}
-                angle={-45}
-                textAnchor="end"
-                height={80}
-              />
-              {selectedSensors.map((id, idx) => {
-                const s = getSensorInfo(id);
-                const domain = sensorDomains[id] || ['auto', 'auto'];
-                return (
-                  <YAxis
-                    key={id}
-                    yAxisId={id}
-                    domain={domain}
-                    orientation={idx === 0 ? 'left' : 'right'}
-                    stroke={s.color || '#3B82F6'}
-                    tick={{fill: s.color || '#3B82F6', fontSize: 11}}
-                    tickFormatter={v => `${v}`}
-                    label={idx < 2 ? {value: `${s.name} (${s.unit})`, angle: idx === 0 ? -90 : 90, position: 'insideMiddle', fill: s.color || '#3B82F6', fontSize: 11, dx: idx === 0 ? -15 : 15} : undefined}
-                    hide={idx >= 2}
-                  />
-                );
-              })}
-              <Tooltip
-                contentStyle={{backgroundColor:'#fff',border:'1px solid #e2e8f0',borderRadius:'8px',boxShadow:'0 4px 6px -1px rgba(0,0,0,0.1)',color:'#1e293b'}}
-                labelStyle={{color:'#64748b'}}
-                labelFormatter={(ts) => new Date(ts).toLocaleString('ko-KR', { month:'2-digit', day:'2-digit', hour:'2-digit', minute:'2-digit', second:'2-digit' })}
-                formatter={(value, name) => [Number(value).toFixed(1), name]}
-              />
-              <Legend wrapperStyle={{color:'#475569'}} />
-              {selectedSensors.map(id => {
-                const s = getSensorInfo(id);
-                return <Line key={id} yAxisId={id} type="monotone" dataKey={id} name={`${s.name} (${s.unit})`} stroke={s.color || '#3B82F6'} strokeWidth={2} dot={chartData.length < 50} activeDot={{r:6}} connectNulls />;
-              })}
-            </LineChart>
-          </ResponsiveContainer>
-        );
-      })()}
-
-      {chartData.length > 0 && (
-        <div className="mt-5 grid grid-cols-1 md:grid-cols-3 gap-3">
-          {selectedSensors.map(id => {
-            const s = getSensorInfo(id);
-            const vals = chartData.map(d => d[id]).filter(v => v != null);
-            if (!vals.length) return null;
-            return (
-              <div key={id} style={{background:'#f8fafc',borderRadius:14,padding:'14px 16px',border:'2px solid #e2e8f0'}}>
-                <div className="flex items-center gap-2 mb-3">
-                  <span style={{fontSize:22}}>{s.icon}</span>
-                  <span style={{fontSize:15,fontWeight:800,color:'#0f172a'}}>{s.name}</span>
-                </div>
-                <div className="space-y-2">
-                  <div className="flex justify-between items-center"><span style={{fontSize:13,color:'#64748b',fontWeight:600}}>평균</span><span style={{fontSize:16,fontWeight:900,fontFamily:'monospace',color:'#0f172a'}}>{(vals.reduce((a,b)=>a+b,0)/vals.length).toFixed(1)} <span style={{fontSize:11,color:'#94a3b8'}}>{s.unit}</span></span></div>
-                  <div className="flex justify-between items-center"><span style={{fontSize:13,color:'#64748b',fontWeight:600}}>최소</span><span style={{fontSize:16,fontWeight:900,fontFamily:'monospace',color:'#2563eb'}}>{Math.min(...vals).toFixed(1)} <span style={{fontSize:11,color:'#94a3b8'}}>{s.unit}</span></span></div>
-                  <div className="flex justify-between items-center"><span style={{fontSize:13,color:'#64748b',fontWeight:600}}>최고</span><span style={{fontSize:16,fontWeight:900,fontFamily:'monospace',color:'#dc2626'}}>{Math.max(...vals).toFixed(1)} <span style={{fontSize:11,color:'#94a3b8'}}>{s.unit}</span></span></div>
-                </div>
-              </div>
-            );
-          })}
-        </div>
+      ) : (<ChartContent
+          chartData={chartData}
+          selectedSensors={selectedSensors}
+          getSensorInfo={getSensorInfo}
+          timeRange={timeRange}
+          getTimeRangeParams={getTimeRangeParams}
+          generateTicks={generateTicks}
+          formatTick={formatTick}
+        />
       )}
       </div>
     </div>
   );
 };
+
+// 차트 렌더링을 분리하여 데이터 변경 시에만 재계산
+const ChartContent = React.memo(({ chartData, selectedSensors, getSensorInfo, timeRange, getTimeRangeParams, generateTicks, formatTick }) => {
+  const sensorDomains = useMemo(() => {
+    const domains = {};
+    selectedSensors.forEach(id => {
+      const vals = chartData.map(d => d[id]).filter(v => v != null);
+      if (vals.length > 0) {
+        const min = Math.min(...vals);
+        const max = Math.max(...vals);
+        const range = max - min || 1;
+        const padding = range * 0.15;
+        domains[id] = [
+          Math.floor((min - padding) * 10) / 10,
+          Math.ceil((max + padding) * 10) / 10
+        ];
+      }
+    });
+    return domains;
+  }, [chartData, selectedSensors]);
+
+  const { startMs, endMs } = getTimeRangeParams();
+  const cfg = RANGE_CONFIG[timeRange];
+  const ticks = useMemo(() => generateTicks(startMs, endMs, cfg.tickInterval), [startMs, endMs, cfg.tickInterval]);
+  const showDots = chartData.length < 50;
+
+  // 통계 계산 메모이제이션
+  const stats = useMemo(() => {
+    return selectedSensors.map(id => {
+      const s = getSensorInfo(id);
+      const vals = chartData.map(d => d[id]).filter(v => v != null);
+      if (!vals.length) return null;
+      const sum = vals.reduce((a, b) => a + b, 0);
+      return { id, s, avg: (sum / vals.length).toFixed(1), min: Math.min(...vals).toFixed(1), max: Math.max(...vals).toFixed(1) };
+    }).filter(Boolean);
+  }, [chartData, selectedSensors, getSensorInfo]);
+
+  return (
+    <>
+      <ResponsiveContainer width="100%" height={400}>
+        <LineChart data={chartData} margin={{ left: 10, right: 10 }}>
+          <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+          <XAxis
+            dataKey="timestamp"
+            type="number"
+            scale="time"
+            domain={[startMs, endMs]}
+            ticks={ticks}
+            tickFormatter={formatTick}
+            stroke="#94a3b8"
+            tick={{fill:'#64748b', fontSize: 11}}
+            angle={-45}
+            textAnchor="end"
+            height={80}
+          />
+          {selectedSensors.map((id, idx) => {
+            const s = getSensorInfo(id);
+            const domain = sensorDomains[id] || ['auto', 'auto'];
+            return (
+              <YAxis
+                key={id}
+                yAxisId={id}
+                domain={domain}
+                orientation={idx === 0 ? 'left' : 'right'}
+                stroke={s.color || '#3B82F6'}
+                tick={{fill: s.color || '#3B82F6', fontSize: 11}}
+                tickFormatter={v => `${v}`}
+                label={idx < 2 ? {value: `${s.name} (${s.unit})`, angle: idx === 0 ? -90 : 90, position: 'insideMiddle', fill: s.color || '#3B82F6', fontSize: 11, dx: idx === 0 ? -15 : 15} : undefined}
+                hide={idx >= 2}
+              />
+            );
+          })}
+          <Tooltip
+            contentStyle={{backgroundColor:'#fff',border:'1px solid #e2e8f0',borderRadius:'8px',boxShadow:'0 4px 6px -1px rgba(0,0,0,0.1)',color:'#1e293b'}}
+            labelStyle={{color:'#64748b'}}
+            labelFormatter={(ts) => new Date(ts).toLocaleString('ko-KR', { month:'2-digit', day:'2-digit', hour:'2-digit', minute:'2-digit', second:'2-digit' })}
+            formatter={(value, name) => [Number(value).toFixed(1), name]}
+          />
+          <Legend wrapperStyle={{color:'#475569'}} />
+          {selectedSensors.map(id => {
+            const s = getSensorInfo(id);
+            return <Line key={id} yAxisId={id} type="monotone" dataKey={id} name={`${s.name} (${s.unit})`} stroke={s.color || '#3B82F6'} strokeWidth={2} dot={showDots} activeDot={{r:6}} connectNulls />;
+          })}
+        </LineChart>
+      </ResponsiveContainer>
+
+      {stats.length > 0 && (
+        <div className="mt-5 grid grid-cols-1 md:grid-cols-3 gap-3">
+          {stats.map(({ id, s, avg, min, max }) => (
+            <div key={id} style={{background:'#f8fafc',borderRadius:14,padding:'14px 16px',border:'2px solid #e2e8f0'}}>
+              <div className="flex items-center gap-2 mb-3">
+                <span style={{fontSize:22}}>{s.icon}</span>
+                <span style={{fontSize:15,fontWeight:800,color:'#0f172a'}}>{s.name}</span>
+              </div>
+              <div className="space-y-2">
+                <div className="flex justify-between items-center"><span style={{fontSize:13,color:'#64748b',fontWeight:600}}>평균</span><span style={{fontSize:16,fontWeight:900,fontFamily:'monospace',color:'#0f172a'}}>{avg} <span style={{fontSize:11,color:'#94a3b8'}}>{s.unit}</span></span></div>
+                <div className="flex justify-between items-center"><span style={{fontSize:13,color:'#64748b',fontWeight:600}}>최소</span><span style={{fontSize:16,fontWeight:900,fontFamily:'monospace',color:'#2563eb'}}>{min} <span style={{fontSize:11,color:'#94a3b8'}}>{s.unit}</span></span></div>
+                <div className="flex justify-between items-center"><span style={{fontSize:13,color:'#64748b',fontWeight:600}}>최고</span><span style={{fontSize:16,fontWeight:900,fontFamily:'monospace',color:'#dc2626'}}>{max} <span style={{fontSize:11,color:'#94a3b8'}}>{s.unit}</span></span></div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </>
+  );
+});
 
 export default SensorChart;

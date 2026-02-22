@@ -190,6 +190,7 @@ router.get("/data/:farmId/:houseId", async (req, res, next) => {
   try {
     const { farmId, houseId } = req.params;
     const { startDate, endDate, limit = 1000 } = req.query;
+    const limitNum = Math.min(Math.max(parseInt(limit) || 1000, 1), 5000);
 
     const query = { farmId, houseId };
 
@@ -201,7 +202,7 @@ router.get("/data/:farmId/:houseId", async (req, res, next) => {
 
     const data = await SensorData.find(query, {
       sort: { timestamp: -1 },
-      limit: parseInt(limit),
+      limit: limitNum,
     });
 
     res.json({
@@ -322,15 +323,41 @@ router.get("/:farmId/:houseId/stats/:sensorId", async (req, res, next) => {
  * 센서 데이터 기반 알림 체크 및 생성
  * 동일 센서/알림유형에 대해 10분 쿨다운 적용하여 중복 알림 방지
  */
-const alertCooldowns = new Map();
 const ALERT_COOLDOWN_MS = 10 * 60 * 1000; // 10분
+const ALERT_COOLDOWN_MAX_ENTRIES = 500; // 최대 엔트리 수
+
+// TTL 기반 쿨다운 맵 — 주기적 정리로 메모리 누수 방지
+const alertCooldowns = new Map();
+
+function cleanupCooldowns() {
+  const now = Date.now();
+  let deleted = 0;
+  for (const [key, timestamp] of alertCooldowns) {
+    if (now - timestamp > ALERT_COOLDOWN_MS) {
+      alertCooldowns.delete(key);
+      deleted++;
+    }
+  }
+  // 정리 후에도 너무 크면 오래된 것부터 삭제
+  if (alertCooldowns.size > ALERT_COOLDOWN_MAX_ENTRIES) {
+    const entries = [...alertCooldowns.entries()].sort((a, b) => a[1] - b[1]);
+    const toDelete = entries.slice(0, entries.length - ALERT_COOLDOWN_MAX_ENTRIES);
+    toDelete.forEach(([key]) => alertCooldowns.delete(key));
+  }
+  if (deleted > 0) {
+    logger.info(`[Alert] Cooldown cleanup: ${deleted} expired entries removed, ${alertCooldowns.size} remaining`);
+  }
+}
+
+// 5분마다 만료된 쿨다운 정리
+setInterval(cleanupCooldowns, 5 * 60 * 1000);
 
 // 알림 실패 추적 (health 엔드포인트에서 조회)
 let alertFailureCount = 0;
 let lastAlertFailure = null;
 
 export function getAlertHealth() {
-  return { failureCount: alertFailureCount, lastFailure: lastAlertFailure };
+  return { failureCount: alertFailureCount, lastFailure: lastAlertFailure, cooldownMapSize: alertCooldowns.size };
 }
 
 async function checkAndCreateAlerts(farmId, houseId, data, config) {

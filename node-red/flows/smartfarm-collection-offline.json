@@ -181,12 +181,12 @@
         "type": "function",
         "z": "collection_offline_flow",
         "name": "⑤ 모드별 분기",
-        "func": "// 마지막 INSERT 메시지만 처리 (나머지는 통과)\nif (!msg._isLast) { return null; }\n\nconst serverOnline = global.get('serverOnline');\nconst mode = msg._operationMode || global.get('operationMode') || (serverOnline === true ? 'online' : 'offline');\n\n// 원본 payload 복원 (서버 전송용)\nif (msg._originalPayload) { msg.payload = msg._originalPayload; }\n\nif (mode === 'online') {\n    const SERVER_URL = env.get('SERVER_URL') || 'http://192.168.137.1:3000';\n    const API_KEY = env.get('SENSOR_API_KEY') || '';\n\n    msg.url = SERVER_URL + '/api/sensors/collect';\n    msg.method = 'POST';\n    msg.headers = { 'Content-Type': 'application/json', 'x-api-key': API_KEY };\n\n    node.status({ fill: 'green', shape: 'dot', text: '온라인: SQLite ✓ + 서버 전송' });\n    return [msg, null];\n} else {\n    node.warn('📴 오프라인: SQLite만 저장 (synced=0)');\n    node.status({ fill: 'yellow', shape: 'dot', text: '오프라인: SQLite ✓ (' + msg._sensorCount + '건)' });\n    msg.payload = '오프라인 저장 완료: ' + msg._sensorCount + '건';\n    return [null, msg];\n}",
-        "outputs": 2,
-        "outputLabels": ["서버 전송 (온라인)", "완료 (오프라인)"],
+        "func": "// 마지막 INSERT 메시지만 처리 (나머지는 통과)\nif (!msg._isLast) { return null; }\n\nconst serverOnline = global.get('serverOnline');\nconst mode = msg._operationMode || global.get('operationMode') || (serverOnline === true ? 'online' : 'offline');\n\n// 자동화 평가용 메시지 (모드와 무관하게 항상 실행)\nvar evalMsg = null;\nif (msg._originalPayload) {\n    evalMsg = {\n        sensorData: {\n            farmId: msg._originalPayload.farmId,\n            houseId: msg._originalPayload.houseId,\n            data: msg._originalPayload.data\n        }\n    };\n}\n\n// 원본 payload 복원 (서버 전송용)\nif (msg._originalPayload) { msg.payload = msg._originalPayload; }\n\nif (mode === 'online') {\n    const SERVER_URL = env.get('SERVER_URL') || 'http://192.168.137.1:3000';\n    const API_KEY = env.get('SENSOR_API_KEY') || '';\n\n    msg.url = SERVER_URL + '/api/sensors/collect';\n    msg.method = 'POST';\n    msg.headers = { 'Content-Type': 'application/json', 'x-api-key': API_KEY };\n    msg.requestTimeout = 10000;\n\n    node.status({ fill: 'green', shape: 'dot', text: '온라인: SQLite ✓ + 서버 전송' });\n    return [msg, null, evalMsg];\n} else {\n    node.warn('📴 오프라인: SQLite만 저장 (synced=0)');\n    node.status({ fill: 'yellow', shape: 'dot', text: '오프라인: SQLite ✓ (' + msg._sensorCount + '건)' });\n    msg.payload = '오프라인 저장 완료: ' + msg._sensorCount + '건';\n    return [null, msg, evalMsg];\n}",
+        "outputs": 3,
+        "outputLabels": ["서버 전송 (온라인)", "완료 (오프라인)", "자동화 평가"],
         "x": 430,
         "y": 380,
-        "wires": [["http_send_server"], ["debug_offline_done"]]
+        "wires": [["http_send_server"], ["debug_offline_done"], ["link_out_to_evaluate"]]
     },
     {
         "id": "http_send_server",
@@ -281,5 +281,38 @@
         "x": 710,
         "y": 460,
         "wires": [["fn_send_result"]]
+    },
+    {
+        "id": "link_out_to_evaluate",
+        "type": "link out",
+        "z": "collection_offline_flow",
+        "name": "자동화 평가 →",
+        "mode": "link",
+        "links": ["link_in_evaluate"],
+        "x": 680,
+        "y": 500,
+        "wires": []
+    },
+    {
+        "id": "catch_sqlite_insert_error",
+        "type": "catch",
+        "z": "collection_offline_flow",
+        "name": "SQLite 쓰기 에러 캐치",
+        "scope": ["sqlite_insert_data", "sqlite_update_synced"],
+        "uncaught": false,
+        "x": 720,
+        "y": 540,
+        "wires": [["fn_sqlite_error_handler"]]
+    },
+    {
+        "id": "fn_sqlite_error_handler",
+        "type": "function",
+        "z": "collection_offline_flow",
+        "name": "SQLite 에러 로그",
+        "func": "var errMsg = msg.error ? msg.error.message : 'unknown';\nnode.warn('❌ SQLite 쓰기 에러: ' + errMsg);\nnode.status({fill:'red',shape:'dot',text:'SQLite 에러: ' + errMsg.substring(0,30)});\n\n// 에러 카운트 (모니터링용)\nvar count = global.get('sqliteErrorCount') || 0;\nglobal.set('sqliteErrorCount', count + 1);\nglobal.set('lastSqliteError', {message: errMsg, timestamp: new Date().toISOString()});\n\nreturn null;",
+        "outputs": 1,
+        "x": 950,
+        "y": 540,
+        "wires": [[]]
     }
 ]

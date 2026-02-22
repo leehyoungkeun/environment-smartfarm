@@ -26,20 +26,22 @@ const AutomationRule = {
    * 규칙 생성
    */
   async create(data) {
-    const rule = await prisma.automationRule.create({
-      data: {
-        farmId: data.farmId,
-        houseId: data.houseId,
-        name: data.name,
-        description: data.description || "",
-        enabled: data.enabled !== undefined ? data.enabled : true,
-        conditionLogic: data.conditionLogic || "AND",
-        conditions: data.conditions || [],
-        actions: data.actions || [],
-        cooldownSeconds: data.cooldownSeconds || 300,
-        priority: data.priority || 10,
-      },
-    });
+    const createData = {
+      farmId: data.farmId,
+      houseId: data.houseId,
+      name: data.name,
+      description: data.description || "",
+      enabled: data.enabled !== undefined ? data.enabled : true,
+      conditionLogic: data.conditionLogic || "AND",
+      conditions: data.conditions || [],
+      actions: data.actions || [],
+      cooldownSeconds: data.cooldownSeconds || 300,
+      priority: data.priority || 10,
+    };
+    if (data.id) createData.id = data.id;
+    if (data.lastTriggeredAt) createData.lastTriggeredAt = new Date(data.lastTriggeredAt);
+    if (data.triggerCount !== undefined) createData.triggerCount = data.triggerCount;
+    const rule = await prisma.automationRule.create({ data: createData });
     return new RuleDocument(rule);
   },
 

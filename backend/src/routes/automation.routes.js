@@ -222,6 +222,85 @@ router.post("/:farmId/evaluate", async (req, res) => {
 });
 
 // =========================================
+// RPi → PC 규칙 동기화
+// =========================================
+
+/**
+ * POST /api/automation/:farmId/sync
+ * RPi에서 보내는 규칙을 PC DB에 upsert
+ */
+router.post("/:farmId/sync", async (req, res) => {
+  try {
+    const { farmId } = req.params;
+    const { rules } = req.body;
+
+    if (!Array.isArray(rules) || rules.length === 0) {
+      return res
+        .status(400)
+        .json({ success: false, error: "rules 배열 필수" });
+    }
+
+    const results = { created: 0, updated: 0, skipped: 0 };
+
+    for (const rule of rules) {
+      const existing = await AutomationRule.findById(rule.id);
+
+      if (existing) {
+        // updatedAt 비교 — RPi 쪽이 최신이면 업데이트
+        const existingTime = new Date(existing.updatedAt).getTime();
+        const incomingTime = new Date(rule.updatedAt).getTime();
+
+        if (incomingTime > existingTime) {
+          await AutomationRule.findByIdAndUpdate(rule.id, {
+            farmId: rule.farmId || farmId,
+            houseId: rule.houseId,
+            name: rule.name,
+            description: rule.description,
+            enabled: rule.enabled,
+            conditionLogic: rule.conditionLogic,
+            conditions: rule.conditions,
+            actions: rule.actions,
+            cooldownSeconds: rule.cooldownSeconds,
+            lastTriggeredAt: rule.lastTriggeredAt,
+            triggerCount: rule.triggerCount,
+            priority: rule.priority,
+          });
+          results.updated++;
+        } else {
+          results.skipped++;
+        }
+      } else {
+        // 새 규칙 생성 (RPi에서 생성된 ID 유지)
+        await AutomationRule.create({
+          id: rule.id,
+          farmId: rule.farmId || farmId,
+          houseId: rule.houseId,
+          name: rule.name,
+          description: rule.description || "",
+          enabled: rule.enabled !== undefined ? rule.enabled : true,
+          conditionLogic: rule.conditionLogic || "AND",
+          conditions: rule.conditions || [],
+          actions: rule.actions || [],
+          cooldownSeconds: rule.cooldownSeconds || 300,
+          priority: rule.priority || 10,
+          lastTriggeredAt: rule.lastTriggeredAt || null,
+          triggerCount: rule.triggerCount || 0,
+        });
+        results.created++;
+      }
+    }
+
+    logger.info(
+      `🔄 규칙 동기화: 생성 ${results.created}, 업데이트 ${results.updated}, 스킵 ${results.skipped}`
+    );
+    res.json({ success: true, data: results });
+  } catch (error) {
+    logger.error("규칙 동기화 실패:", error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// =========================================
 // 헬퍼 함수
 // =========================================
 

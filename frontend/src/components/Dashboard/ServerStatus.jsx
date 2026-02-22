@@ -325,7 +325,7 @@ const ServerStatus = () => {
           <QuickLink
             label="Node-RED"
             desc="센서 수집 플로우 편집"
-            url={farmLocal ? (window.location.origin + '/node-red') : 'http://192.168.137.86:1880/node-red'}
+            url={farmLocal ? (window.location.origin + '/node-red') : RPI_API_BASE.replace(/\/api$/, '/node-red')}
             icon="🔴"
           />
         </div>

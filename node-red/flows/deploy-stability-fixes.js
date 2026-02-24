@@ -2,9 +2,9 @@
  * RPi 배포 스크립트: sqlite_init_flow + collection_offline_flow 탭 교체
  *
  * 사용법:
- *   scp deploy-stability-fixes.js smartfarm-sqlite-init.json smartfarm-collection-offline.json lhk@192.168.137.86:/tmp/
- *   ssh lhk@192.168.137.86 "node /tmp/deploy-stability-fixes.js"
- *   ssh lhk@192.168.137.86 "pm2 restart node-red"
+ *   scp deploy-stability-fixes.js smartfarm-sqlite-init.json smartfarm-collection-offline.json lhk@192.168.137.30:/tmp/
+ *   ssh lhk@192.168.137.30 "node /tmp/deploy-stability-fixes.js"
+ *   ssh lhk@192.168.137.30 "pm2 restart node-red"
  */
 const fs = require('fs');
 

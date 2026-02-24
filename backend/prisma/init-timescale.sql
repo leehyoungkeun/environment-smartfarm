@@ -128,6 +128,12 @@ CREATE INDEX IF NOT EXISTS idx_alerts_farm_house
 
 
 -- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+-- smartfarm 유저 권한 부여 (pg pool 접근용)
+-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+GRANT ALL PRIVILEGES ON TABLE sensor_data, control_logs, alerts TO smartfarm;
+GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO smartfarm;
+
+-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 -- 초기화 완료 메시지
 -- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 DO $$

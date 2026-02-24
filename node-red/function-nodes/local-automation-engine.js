@@ -100,6 +100,7 @@ function evaluateTimeCondition(cond) {
 
     // legacy: timeMode 없고 time 필드만 있으면 단일 시간
     if (!cond.timeMode && cond.time) {
+        if (typeof cond.time !== 'string') return false;
         const [hour, minute] = cond.time.split(':').map(Number);
         return Math.abs(nowMinutes - (hour * 60 + minute)) <= 2;
     }
@@ -107,6 +108,7 @@ function evaluateTimeCondition(cond) {
     // 지정 시간 모드: times 배열 중 하나라도 매칭
     if (cond.timeMode === 'specific') {
         return (cond.times || []).some(t => {
+            if (!t || typeof t !== 'string') return false;
             const [h, m] = t.split(':').map(Number);
             return Math.abs(nowMinutes - (h * 60 + m)) <= 2;
         });
@@ -328,9 +330,17 @@ for (const action of actionsToExecute) {
                 node.send([reverseMsg, logMsg]);
                 node.warn(`⏱️ Duration 종료: ${capturedAction.deviceId} → ${reverseCmd}`);
                 context.set(timerKey, null);
+                // registry에서 제거
+                const reg = context.get('timerRegistry') || {};
+                delete reg[timerKey];
+                context.set('timerRegistry', reg);
             }, action.duration * 1000);
 
             context.set(timerKey, timer);
+            // registry에 ruleId 기록 (정리용)
+            const reg = context.get('timerRegistry') || {};
+            reg[timerKey] = action.ruleId;
+            context.set('timerRegistry', reg);
             node.warn(`⏱️ Duration 설정: ${action.deviceId} ${action.duration}초 후 → ${reverseCmd}`);
         }
     }

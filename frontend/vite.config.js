@@ -33,7 +33,7 @@ export default defineConfig(({ mode }) => {
       outDir: isFarmLocal ? 'dist-farmlocal' : 'dist',
     },
     server: {
-      port: 5173,
+      port: 5174,
       host: true,
       open: true
     }

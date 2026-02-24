@@ -291,6 +291,12 @@ router.post("/:farmId/sync", async (req, res) => {
 
     const results = { created: 0, updated: 0, skipped: 0, deleted: 0 };
 
+    // 안전장치: RPi에서 빈 배열이 오면 PC 규칙 전체 삭제 방지
+    if (rules.length === 0) {
+      logger.warn("⚠️ sync: RPi 규칙 빈 배열 - 전체 삭제 방지를 위해 건너뜀");
+      return res.json({ success: true, data: { ...results, note: "empty rules - skip delete phase" } });
+    }
+
     // RPi에서 보낸 규칙 ID 목록
     const rpiRuleIds = new Set(rules.map((r) => r.id).filter(Boolean));
 

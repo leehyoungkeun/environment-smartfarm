@@ -4,7 +4,7 @@
         "type": "tab",
         "label": "시작 초기화",
         "disabled": false,
-        "info": "Node-RED 시작 시 SQLite config_cache에서 설정을 로드하여\nglobal.houseConfig에 저장합니다.\n\nNode-RED 재시작 후에도 오프라인 센서 수집이 중단되지 않도록 보장."
+        "info": "Node-RED 시작 시 설정 복원 (2단계)\n1. house_configs 테이블에서 로드 (팜로컬 CRUD 데이터)\n2. house_configs 비어있으면 config_cache에서 시딩\n\nNode-RED 재시작 후에도 오프라인 센서 수집이 중단되지 않도록 보장."
     },
     {
         "id": "inject_startup",
@@ -15,53 +15,99 @@
         "repeat": "",
         "crontab": "",
         "once": true,
-        "onceDelay": "2",
+        "onceDelay": "3",
         "topic": "",
         "x": 170,
         "y": 80,
-        "wires": [["startup_config_query"]]
+        "wires": [["startup_check_house_configs"]]
     },
     {
-        "id": "startup_config_query",
+        "id": "startup_check_house_configs",
         "type": "function",
         "z": "startup_init_flow",
-        "name": "config_cache 조회",
-        "func": "// 이미 global에 config가 있으면 스킵\nconst existing = global.get('houseConfig');\nif (existing) {\n    node.warn('✅ houseConfig 이미 로드됨 (스킵)');\n    node.status({ fill: 'green', shape: 'dot', text: 'config 이미 있음' });\n    return null;\n}\n\nmsg.topic = `SELECT config_json FROM config_cache ORDER BY version DESC LIMIT 1`;\nreturn msg;",
+        "name": "house_configs 확인",
+        "func": "// 이미 global에 config가 있으면 스킵\nvar existing = global.get('houseConfig');\nif (existing) {\n    node.warn('✅ houseConfig 이미 로드됨 (스킵)');\n    node.status({ fill: 'green', shape: 'dot', text: 'config 이미 있음' });\n    return null;\n}\n\nmsg.topic = 'SELECT * FROM house_configs ORDER BY created_at ASC';\nreturn msg;",
         "outputs": 1,
         "x": 410,
         "y": 80,
-        "wires": [["sqlite_startup"]]
+        "wires": [["sqlite_startup_hc"]]
     },
     {
-        "id": "sqlite_startup",
+        "id": "sqlite_startup_hc",
         "type": "sqlite",
         "z": "startup_init_flow",
-        "name": "SQLite 조회",
+        "name": "house_configs 조회",
         "mydb": "sqlite_db",
         "sqlquery": "msg.topic",
         "sql": "",
-        "x": 620,
+        "x": 640,
         "y": 80,
-        "wires": [["startup_config_load"]]
+        "wires": [["startup_hc_handler"]]
     },
     {
-        "id": "startup_config_load",
+        "id": "startup_hc_handler",
         "type": "function",
         "z": "startup_init_flow",
-        "name": "config → global 저장",
-        "func": "const rows = msg.payload || [];\n\nif (rows.length > 0 && rows[0].config_json) {\n    try {\n        const config = JSON.parse(rows[0].config_json);\n        global.set('houseConfig', config);\n        \n        const houseCount = config.houses ? config.houses.length : 0;\n        node.warn(`📋 SQLite에서 config 복원 완료: ${houseCount}개 하우스`);\n        node.status({ fill: 'green', shape: 'dot', text: `config 복원 (${houseCount} houses)` });\n    } catch (e) {\n        node.error('❌ config JSON 파싱 실패: ' + e.message);\n        node.status({ fill: 'red', shape: 'dot', text: 'JSON 파싱 실패' });\n    }\n} else {\n    node.warn('⚠️ SQLite config_cache 비어있음 - 서버 연결 시 자동 캐시됩니다');\n    node.status({ fill: 'yellow', shape: 'ring', text: 'config 없음' });\n}\n\nreturn null;",
+        "name": "house_configs 결과 처리",
+        "func": "var rows = msg.payload || [];\n\nif (rows.length > 0) {\n    // house_configs에 데이터 있음 → global에 저장\n    var houses = rows.map(function(row) {\n        var sensors, collection, devices;\n        try { sensors = JSON.parse(row.sensors || '[]'); } catch(e) { sensors = []; }\n        try { collection = JSON.parse(row.collection || '{}'); } catch(e) { collection = {}; }\n        try { devices = JSON.parse(row.devices || '[]'); } catch(e) { devices = []; }\n        return {\n            houseId: row.house_id,\n            houseName: row.house_name,\n            sensors: sensors,\n            collection: collection,\n            devices: devices,\n            enabled: row.enabled === 1,\n            configVersion: row.config_version || 1\n        };\n    });\n    var farmId = rows[0].farm_id || 'farm_001';\n    var config = { farmId: farmId, farmName: '스마트팜', houses: houses };\n    global.set('houseConfig', config);\n    node.warn('📋 house_configs에서 복원: ' + houses.length + '개 하우스');\n    node.status({ fill: 'green', shape: 'dot', text: houses.length + '개 하우스 복원' });\n    return null;\n}\n\n// house_configs 비어있음 → config_cache에서 시딩 시도\nnode.warn('⚠️ house_configs 비어있음 → config_cache 시딩 시도');\nmsg.topic = 'SELECT config_json FROM config_cache ORDER BY version DESC LIMIT 1';\nmsg._seedMode = true;\nreturn msg;",
         "outputs": 1,
-        "x": 850,
+        "x": 870,
         "y": 80,
+        "wires": [["sqlite_startup_cache"]]
+    },
+    {
+        "id": "sqlite_startup_cache",
+        "type": "sqlite",
+        "z": "startup_init_flow",
+        "name": "config_cache 조회",
+        "mydb": "sqlite_db",
+        "sqlquery": "msg.topic",
+        "sql": "",
+        "x": 400,
+        "y": 180,
+        "wires": [["startup_seed_handler"]]
+    },
+    {
+        "id": "startup_seed_handler",
+        "type": "function",
+        "z": "startup_init_flow",
+        "name": "config_cache → house_configs 시딩",
+        "func": "var rows = msg.payload || [];\nif (rows.length === 0 || !rows[0].config_json) {\n    node.warn('⚠️ config_cache도 비어있음 - 설정 페이지에서 하우스를 추가하세요');\n    node.status({ fill: 'yellow', shape: 'ring', text: 'config 없음' });\n    return null;\n}\n\ntry {\n    var config = JSON.parse(rows[0].config_json);\n    \n    // global에 먼저 저장 (센서 수집 즉시 가능)\n    global.set('houseConfig', config);\n    \n    // houses 배열 추출\n    var houses = config.houses || [];\n    if (houses.length === 0 && config.houseId) {\n        houses = [config];\n    }\n    if (houses.length === 0) {\n        node.warn('⚠️ config_cache에 하우스 정보 없음');\n        node.status({ fill: 'yellow', shape: 'ring', text: 'houses 없음' });\n        return null;\n    }\n    \n    // 각 하우스를 house_configs에 INSERT\n    var now = new Date().toISOString();\n    var messages = [];\n    for (var i = 0; i < houses.length; i++) {\n        var h = houses[i];\n        var id = Date.now().toString(36) + Math.random().toString(36).substr(2, 9) + i;\n        messages.push({\n            topic: 'INSERT OR IGNORE INTO house_configs (id, farm_id, house_id, house_name, sensors, collection, devices, crops, crop_type, crop_variety, planting_date, device_count, enabled, config_version, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)',\n            payload: [\n                id,\n                h.farmId || config.farmId || 'farm_001',\n                h.houseId,\n                h.houseName || h.name || '',\n                JSON.stringify(h.sensors || []),\n                JSON.stringify(h.collection || {}),\n                JSON.stringify(h.devices || []),\n                JSON.stringify(h.crops || []),\n                h.cropType || '', h.cropVariety || '', h.plantingDate || '',\n                h.deviceCount || (h.devices ? h.devices.length : 0),\n                h.enabled !== false ? 1 : 0,\n                h.configVersion || 1,\n                now, now\n            ]\n        });\n    }\n    \n    node.warn('🌱 config_cache → house_configs 시딩: ' + messages.length + '건');\n    node.status({ fill: 'blue', shape: 'dot', text: messages.length + '건 시딩 중' });\n    return [messages];\n} catch(e) {\n    node.error('❌ config_cache 시딩 실패: ' + e.message);\n    node.status({ fill: 'red', shape: 'dot', text: '시딩 실패' });\n    return null;\n}",
+        "outputs": 1,
+        "x": 680,
+        "y": 180,
+        "wires": [["sqlite_startup_seed"]]
+    },
+    {
+        "id": "sqlite_startup_seed",
+        "type": "sqlite",
+        "z": "startup_init_flow",
+        "name": "시딩 INSERT",
+        "mydb": "sqlite_db",
+        "sqlquery": "msg.topic",
+        "sql": "",
+        "x": 920,
+        "y": 180,
+        "wires": [["startup_seed_done"]]
+    },
+    {
+        "id": "startup_seed_done",
+        "type": "function",
+        "z": "startup_init_flow",
+        "name": "시딩 완료",
+        "func": "node.warn('✅ house_configs 시딩 완료');\nnode.status({ fill: 'green', shape: 'dot', text: '시딩 완료' });\nreturn null;",
+        "outputs": 1,
+        "x": 1100,
+        "y": 180,
         "wires": [[]]
     },
     {
         "id": "comment_startup",
         "type": "comment",
         "z": "startup_init_flow",
-        "name": "━━━ Node-RED 시작 시 SQLite에서 config 자동 복원 ━━━",
-        "info": "Node-RED 재시작 시 global context가 초기화되어\nhouseConfig이 null이 됩니다.\n\n이 플로우가 SQLite config_cache에서 설정을 읽어\nglobal.houseConfig에 복원하므로\n오프라인 센서 수집이 중단되지 않습니다.",
-        "x": 270,
+        "name": "━━━ Node-RED 시작 시 설정 자동 복원 (house_configs 우선, config_cache 폴백) ━━━",
+        "info": "Node-RED 재시작 시 global context가 초기화되어\nhouseConfig이 null이 됩니다.\n\n복원 순서:\n1. house_configs 테이블 확인 (팜로컬 CRUD 데이터)\n2. 비어있으면 config_cache에서 시딩 후 house_configs에 저장\n3. global.houseConfig에 복원하여 센서 수집 즉시 가능",
+        "x": 370,
         "y": 40,
         "wires": []
     }

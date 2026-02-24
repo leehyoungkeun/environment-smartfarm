@@ -16,7 +16,7 @@
  */
 
 const PC_SERVER = import.meta.env.VITE_API_BASE_URL || 'http://192.168.137.1:3000/api';
-const RPI_SERVER = import.meta.env.VITE_RPI_API_URL || 'http://192.168.137.86:1880/api';
+const RPI_SERVER = import.meta.env.VITE_RPI_API_URL || 'http://192.168.137.30:1880/api';
 const STORAGE_KEY = 'apiSwitcher_state';
 const GLOBAL_KEY = '__smartfarmApiState';
 const FARM_LOCAL_KEY = 'smartfarm_farmLocalMode';
@@ -141,6 +141,14 @@ export function getRpiApiBase() {
     return RPI_SERVER;
   }
   return RPI_SERVER;
+}
+
+/**
+ * PC 서버 API URL 반환 (항상 고정 — sync 전용)
+ * getApiBase()와 달리 모드/상태에 무관하게 항상 PC 서버 URL 반환
+ */
+export function getPcApiBase() {
+  return PC_SERVER;
 }
 
 /**

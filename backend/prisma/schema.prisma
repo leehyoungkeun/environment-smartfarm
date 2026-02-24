@@ -61,6 +61,7 @@ model AutomationRule {
   description     String   @default("")
   enabled         Boolean  @default(true)
   conditionLogic  String   @default("AND") @map("condition_logic")
+  groupLogic      String   @default("AND") @map("group_logic")
   conditions      Json
   actions         Json
   cooldownSeconds Int      @default(300) @map("cooldown_seconds")

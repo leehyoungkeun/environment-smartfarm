@@ -14,7 +14,7 @@ import axios from 'axios';
 import { getSystemMode, getApiBase } from './apiSwitcher';
 
 const AWS_CONTROL_ENDPOINT = import.meta.env.VITE_AWS_CONTROL_ENDPOINT;
-const RPI_CONTROL_URL = (import.meta.env.VITE_RPI_API_URL || 'http://192.168.137.86:1880/api') + '/control/local';
+const RPI_CONTROL_URL = (import.meta.env.VITE_RPI_API_URL || 'http://192.168.137.30:1880/api') + '/control/local';
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3000/api';
 

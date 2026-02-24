@@ -1,6 +1,6 @@
 import React, { useState, useEffect, lazy, Suspense } from 'react';
 import axiosBase from 'axios';
-import { getApiBase, isFarmLocalMode, setFarmLocalMode } from '../../services/apiSwitcher';
+import { getApiBase, getPcApiBase, getRpiApiBase, isFarmLocalMode, setFarmLocalMode } from '../../services/apiSwitcher';
 
 const AutomationManager = lazy(() => import('../Dashboard/AutomationManager'));
 
@@ -11,6 +11,37 @@ axios.interceptors.request.use((config) => {
   if (token) config.headers.Authorization = `Bearer ${token}`;
   return config;
 });
+
+// RPi → PC 설정 동기화 (백그라운드, fire & forget)
+// x-api-key 헤더로 인증 → JWT 없는 팜로컬 모드에서도 동작
+const SYNC_API_KEY = import.meta.env.VITE_SENSOR_API_KEY;
+function syncConfigToPC(farmId) {
+  const rpiUrl = getRpiApiBase();
+  const pcUrl = getPcApiBase();
+  if (rpiUrl === pcUrl) return;  // 동일 서버면 스킵
+
+  axiosBase.get(`${rpiUrl}/config/farm/${farmId}`, { timeout: 5000 })
+    .then(res => {
+      if (res?.data?.success && Array.isArray(res.data.data) && res.data.data.length > 0) {
+        return axiosBase.post(`${pcUrl}/config/${farmId}/sync`,
+          { configs: res.data.data },
+          { timeout: 10000, headers: { 'x-api-key': SYNC_API_KEY } }
+        );
+      }
+    })
+    .then(res => {
+      if (res?.data?.success) {
+        console.log('[ConfigSync] RPi→PC:', res.data.data);
+      }
+    })
+    .catch(err => { console.warn('[ConfigSync] 동기화 실패:', err.message); });
+}
+
+// RPi-Primary API: 쓰기는 RPi에만 (PC 폴백 없음 → 중복 방지)
+async function rpiApi(method, path, data) {
+  const rpiUrl = getRpiApiBase() + path;
+  return await axiosBase({ method, url: rpiUrl, data, timeout: 8000 });
+}
 
 const ConfigurationManager = ({ farmId = 'farm_001' }) => {
   const [activeTab, setActiveTab] = useState('houses');
@@ -39,13 +70,33 @@ const ConfigurationManager = ({ farmId = 'farm_001' }) => {
     const hadCache = houses.length > 0;
     if (!hadCache) setLoading(true);
     try {
-      const response = await axios.get(`${getApiBase()}/config/farm/${farmId}`, { timeout: 5000 });
-      if (response.data.success) {
-        setHouses(response.data.data);
+      const rpiUrl = getRpiApiBase();
+      const pcUrl = getApiBase();
+      const isDual = rpiUrl !== pcUrl;
+
+      // PC + RPi 병렬 로드 (RPi가 권한 기준)
+      const [pcRes, rpiRes] = await Promise.all([
+        axios.get(`${pcUrl}/config/farm/${farmId}`, { timeout: 5000 }).catch(() => null),
+        isDual ? axiosBase.get(`${rpiUrl}/config/farm/${farmId}`, { timeout: 5000 }).catch(() => null) : null,
+      ]);
+
+      const pcHouses = pcRes?.data?.success ? pcRes.data.data : [];
+      const rpiHouses = rpiRes?.data?.success ? rpiRes.data.data : [];
+
+      // RPi 데이터 있으면 우선 사용 (권한 기준), 없으면 PC 폴백
+      const finalHouses = rpiHouses.length > 0 ? rpiHouses : pcHouses;
+
+      if (finalHouses.length > 0) {
+        setHouses(finalHouses);
+        try { localStorage.setItem(`cachedConfig_${farmId}`, JSON.stringify({ houses: finalHouses })); } catch {}
         setSelectedHouse(prev => {
           if (!prev) return null;
-          return response.data.data.find(h => h.houseId === prev.houseId) || null;
+          return finalHouses.find(h => h.houseId === prev.houseId) || null;
         });
+        // RPi와 PC 불일치 시 백그라운드 sync
+        if (isDual && rpiHouses.length > 0 && rpiHouses.length !== pcHouses.length) {
+          syncConfigToPC(farmId);
+        }
       } else if (!hadCache) {
         setHouses(loadHousesFromCache());
       }
@@ -58,7 +109,14 @@ const ConfigurationManager = ({ farmId = 'farm_001' }) => {
   };
 
   const createNewHouse = async () => {
-    const existingNumbers = houses.map(h => {
+    // RPi 기준 최신 하우스 목록으로 다음 ID 계산 (PC↔RPi 데이터 차이로 인한 ID 충돌 방지)
+    let allHouses = houses;
+    try {
+      const rpiRes = await axiosBase.get(`${getRpiApiBase()}/config/farm/${farmId}`, { timeout: 5000 });
+      if (rpiRes.data?.success && Array.isArray(rpiRes.data.data)) allHouses = rpiRes.data.data;
+    } catch {} // RPi 조회 실패 시 UI에 있는 목록 사용
+
+    const existingNumbers = allHouses.map(h => {
       const match = h.houseId?.match(/house_(\d+)/);
       return match ? parseInt(match[1]) : 0;
     });
@@ -66,7 +124,7 @@ const ConfigurationManager = ({ farmId = 'farm_001' }) => {
     const newHouseId = `house_${String(nextNumber).padStart(3, '0')}`;
 
     try {
-      const response = await axios.post(`${getApiBase()}/config`, {
+      const response = await rpiApi('post', '/config', {
         farmId,
         houseId: newHouseId,
         houseName: `${nextNumber}번 하우스`,
@@ -85,7 +143,14 @@ const ConfigurationManager = ({ farmId = 'farm_001' }) => {
       });
       if (response.data.success) {
         alert('✅ 하우스가 생성되었습니다!');
-        loadHouses();
+        // 즉시 UI 반영 — RPi 응답 데이터로 추가 (PC sync 지연 무관)
+        const created = response.data.data || response.data.config;
+        if (created) {
+          setHouses(prev => [...prev, created]);
+        } else {
+          loadHouses();
+        }
+        syncConfigToPC(farmId);
       }
     } catch (error) {
       alert('❌ 하우스 생성 실패: ' + (error.response?.data?.error || error.message));
@@ -95,11 +160,13 @@ const ConfigurationManager = ({ farmId = 'farm_001' }) => {
   const deleteHouse = async (houseId, houseName) => {
     if (!confirm(`"${houseName}"을(를) 삭제하시겠습니까?\n\n모든 센서 설정이 삭제됩니다.`)) return;
     try {
-      const response = await axios.delete(`${getApiBase()}/config/${houseId}?farmId=${farmId}`);
+      const response = await rpiApi('delete', `/config/${houseId}?farmId=${farmId}`);
       if (response.data.success) {
         alert('✅ 하우스가 삭제되었습니다!');
+        // 즉시 UI 반영 (PC sync 전에 loadHouses가 PC 데이터 표시하는 문제 방지)
+        setHouses(prev => prev.filter(h => h.houseId !== houseId));
         if (selectedHouse?.houseId === houseId) setSelectedHouse(null);
-        loadHouses();
+        syncConfigToPC(farmId);
       }
     } catch (error) {
       alert('❌ 삭제 실패: ' + (error.response?.data?.error || error.message));
@@ -127,20 +194,13 @@ const ConfigurationManager = ({ farmId = 'farm_001' }) => {
   return (
     <div className="max-w-7xl mx-auto px-4 md:px-6 py-4 md:py-6">
       {/* 헤더 */}
-      <div className="flex items-center justify-between mb-5 animate-fade-in-up">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-800 tracking-tight">설정 관리</h1>
-          <p className="text-gray-500 text-sm md:text-base mt-0.5">하우스, 센서, 자동화 설정</p>
-        </div>
-        {activeTab === 'houses' && (
-          <button onClick={createNewHouse} className="btn-success">
-            + 하우스 추가
-          </button>
-        )}
+      <div className="mb-5 animate-fade-in-up">
+        <h1 className="text-2xl font-bold text-gray-800 tracking-tight">설정 관리</h1>
+        <p className="text-gray-500 text-sm md:text-base mt-0.5">하우스, 센서, 자동화 설정</p>
       </div>
 
-      {/* 탭 네비게이션 */}
-      <div className="flex gap-2 mb-5 animate-fade-in-up">
+      {/* 탭 네비게이션 + 탭별 액션 버튼 */}
+      <div className="flex items-center gap-2 mb-5 animate-fade-in-up">
         {tabs.map(tab => (
           <button
             key={tab.id}
@@ -156,6 +216,11 @@ const ConfigurationManager = ({ farmId = 'farm_001' }) => {
             {tab.label}
           </button>
         ))}
+        {activeTab === 'houses' && (
+          <button onClick={createNewHouse} className="btn-success ml-auto flex-shrink-0">
+            + 하우스 추가
+          </button>
+        )}
       </div>
 
       {/* 하우스/센서 탭 */}
@@ -208,7 +273,7 @@ const ConfigurationManager = ({ farmId = 'farm_001' }) => {
           {/* 하우스 상세 편집 */}
           <div className="lg:col-span-2 animate-fade-in-up stagger-2">
             {selectedHouse ? (
-              <HouseDetailEditor house={selectedHouse} onUpdate={loadHouses} />
+              <HouseDetailEditor house={selectedHouse} onUpdate={() => { loadHouses(); syncConfigToPC(farmId); }} />
             ) : (
               <div className="glass-card p-12 text-center">
                 <div className="text-4xl mb-4 opacity-30">⚙️</div>
@@ -247,6 +312,40 @@ const HouseDetailEditor = ({ house, onUpdate }) => {
   const [editingSensor, setEditingSensor] = useState(null);
   const [showAddSensor, setShowAddSensor] = useState(false);
   const [showNodeRedGuide, setShowNodeRedGuide] = useState(false);
+  const [saving, setSaving] = useState(false);
+
+  // 섹션별 변경 감지
+  const isBasicDirty = house.houseName !== editedHouse.houseName
+    || JSON.stringify(house.collection) !== JSON.stringify(editedHouse.collection);
+  const isCropsDirty = JSON.stringify(house.crops || []) !== JSON.stringify(editedHouse.crops || []);
+  const isSensorsDirty = JSON.stringify(house.sensors) !== JSON.stringify(editedHouse.sensors);
+  const isDevicesDirty = JSON.stringify(house.devices || []) !== JSON.stringify(editedHouse.devices || []);
+  const SENSOR_PRESETS = [
+    { id: 'temp', name: '온도', unit: '°C', icon: '🌡️', color: '#EF4444', min: -10, max: 50 },
+    { id: 'humidity', name: '습도', unit: '%', icon: '💧', color: '#3B82F6', min: 0, max: 100 },
+    { id: 'co2', name: 'CO2', unit: 'ppm', icon: '💨', color: '#8B5CF6', min: 0, max: 5000 },
+    { id: 'vent', name: '환기', unit: '%', icon: '🌀', color: '#06B6D4', min: 0, max: 100 },
+    { id: 'mist', name: '분무제어', unit: '%', icon: '🌫️', color: '#64748B', min: 0, max: 100 },
+    { id: 'solar', name: '일사량', unit: 'W/m²', icon: '☀️', color: '#F59E0B', min: 0, max: 1500 },
+    { id: 'lux', name: '조도', unit: 'lux', icon: '💡', color: '#EAB308', min: 0, max: 100000 },
+    { id: 'ext_temp', name: '외부온도', unit: '°C', icon: '🌡️', color: '#F97316', min: -20, max: 50 },
+    { id: 'ext_humidity', name: '외부습도', unit: '%', icon: '💧', color: '#0EA5E9', min: 0, max: 100 },
+    { id: 'wind_dir', name: '풍향', unit: '°', icon: '🧭', color: '#14B8A6', min: 0, max: 360 },
+    { id: 'wind_speed', name: '풍속', unit: 'm/s', icon: '💨', color: '#10B981', min: 0, max: 60 },
+    { id: 'rain', name: '강우감지', unit: '', icon: '🌧️', color: '#6366F1', min: 0, max: 1 },
+    { id: 'soil_moist', name: '토양수분', unit: '%', icon: '🌱', color: '#84CC16', min: 0, max: 100 },
+    { id: 'media_moist', name: '배지수분', unit: '%', icon: '🪴', color: '#22C55E', min: 0, max: 100 },
+    { id: 'soil_temp', name: '토양온도', unit: '°C', icon: '🌡️', color: '#A16207', min: -5, max: 50 },
+    { id: 'soil_ec', name: '토양EC', unit: 'dS/m', icon: '⚡', color: '#D97706', min: 0, max: 10 },
+    { id: 'soil_ph', name: '토양PH', unit: 'pH', icon: '🧪', color: '#7C3AED', min: 0, max: 14 },
+    { id: 'nutri_ec', name: '양액EC', unit: 'dS/m', icon: '⚡', color: '#059669', min: 0, max: 10 },
+    { id: 'nutri_ph', name: '양액PH', unit: 'pH', icon: '🧪', color: '#4F46E5', min: 0, max: 14 },
+    { id: 'nutri_temp', name: '양액온도', unit: '°C', icon: '🌡️', color: '#0D9488', min: 0, max: 50 },
+    { id: 'flow', name: '유량계', unit: 'L/min', icon: '🚰', color: '#2563EB', min: 0, max: 100 },
+    { id: 'water_level', name: '수위센서', unit: 'cm', icon: '📏', color: '#1D4ED8', min: 0, max: 200 },
+    { id: 'etc', name: '기타', unit: '', icon: '📊', color: '#6B7280', min: 0, max: 100 },
+  ];
+
   const [newSensor, setNewSensor] = useState({
     sensorId: '', name: '', unit: '', type: 'number',
     min: 0, max: 100, enabled: true, icon: '📊', color: '#3B82F6'
@@ -259,42 +358,28 @@ const HouseDetailEditor = ({ house, onUpdate }) => {
   }, [house]);
 
   const updateHouse = async () => {
+    setSaving(true);
     try {
-      const response = await axios.put(
-        `${getApiBase()}/config/${house.houseId}?farmId=${house.farmId}`,
-        editedHouse
-      );
+      const response = await rpiApi('put', `/config/${house.houseId}?farmId=${house.farmId}`, editedHouse);
       if (response.data.success) {
-        alert('✅ 저장되었습니다!');
         onUpdate();
       }
     } catch (error) {
       alert('❌ 저장 실패: ' + (error.response?.data?.error || error.message));
+    } finally {
+      setSaving(false);
     }
   };
 
-  const updateSensor = async (sensorId, updates) => {
+  const updateSensor = (sensorId, updates) => {
     const updatedSensors = editedHouse.sensors.map(s =>
       s.sensorId === sensorId ? { ...s, ...updates } : s
     );
-    const updatedHouse = { ...editedHouse, sensors: updatedSensors };
-    try {
-      const response = await axios.put(
-        `${getApiBase()}/config/${house.houseId}?farmId=${house.farmId}`,
-        updatedHouse
-      );
-      if (response.data.success) {
-        alert('✅ 센서가 수정되었습니다!');
-        setEditedHouse(updatedHouse);
-        setEditingSensor(null);
-        onUpdate();
-      }
-    } catch (error) {
-      alert('❌ 수정 실패: ' + (error.response?.data?.error || error.message));
-    }
+    setEditedHouse({ ...editedHouse, sensors: updatedSensors });
+    setEditingSensor(null);
   };
 
-  const addSensor = async () => {
+  const addSensor = () => {
     if (!newSensor.sensorId || !newSensor.name || !newSensor.unit) {
       alert('❌ 센서 ID, 이름, 단위를 모두 입력하세요!');
       return;
@@ -303,43 +388,20 @@ const HouseDetailEditor = ({ house, onUpdate }) => {
       alert('❌ 이미 존재하는 센서 ID입니다!');
       return;
     }
-    const updatedHouse = {
+    setEditedHouse({
       ...editedHouse,
       sensors: [...editedHouse.sensors, { ...newSensor, order: editedHouse.sensors.length + 1, precision: 1 }]
-    };
-    try {
-      const response = await axios.put(
-        `${getApiBase()}/config/${house.houseId}?farmId=${house.farmId}`,
-        updatedHouse
-      );
-      if (response.data.success) {
-        alert('✅ 센서가 추가되었습니다!');
-        setEditedHouse(updatedHouse);
-        setNewSensor({ sensorId: '', name: '', unit: '', type: 'number', min: 0, max: 100, enabled: true, icon: '📊', color: '#3B82F6' });
-        setShowAddSensor(false);
-        onUpdate();
-      }
-    } catch (error) {
-      alert('❌ 추가 실패: ' + (error.response?.data?.error || error.message));
-    }
+    });
+    setNewSensor({ sensorId: '', name: '', unit: '', type: 'number', min: 0, max: 100, enabled: true, icon: '📊', color: '#3B82F6' });
+    setShowAddSensor(false);
   };
 
-  const removeSensor = async (sensorId) => {
+  const removeSensor = (sensorId) => {
     if (!confirm('이 센서를 삭제하시겠습니까?')) return;
-    const updatedHouse = { ...editedHouse, sensors: editedHouse.sensors.filter(s => s.sensorId !== sensorId) };
-    try {
-      const response = await axios.put(
-        `${getApiBase()}/config/${house.houseId}?farmId=${house.farmId}`,
-        updatedHouse
-      );
-      if (response.data.success) {
-        alert('✅ 센서가 삭제되었습니다!');
-        setEditedHouse(updatedHouse);
-        onUpdate();
-      }
-    } catch (error) {
-      alert('❌ 삭제 실패: ' + (error.response?.data?.error || error.message));
-    }
+    setEditedHouse({
+      ...editedHouse,
+      sensors: editedHouse.sensors.filter(s => s.sensorId !== sensorId)
+    });
   };
 
   return (
@@ -465,7 +527,12 @@ return msg;`}</pre>
           )}
         </div>
 
-        <button onClick={updateHouse} className="btn-primary w-full">💾 저장</button>
+        <button onClick={updateHouse} disabled={!isBasicDirty || saving}
+          className={`w-full py-2.5 rounded-xl text-base font-bold transition-all
+            ${isBasicDirty ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/20 hover:bg-blue-700 active:scale-[0.97]'
+              : 'bg-gray-100 text-gray-400 border border-gray-200 cursor-default'}`}>
+          {saving ? '저장 중...' : isBasicDirty ? '💾 저장' : '변경 없음'}
+        </button>
       </div>
 
       {/* 재배작물 */}
@@ -542,7 +609,12 @@ return msg;`}</pre>
             })}
           </div>
         )}
-        <button onClick={updateHouse} className="btn-primary w-full mt-3">💾 저장</button>
+        <button onClick={updateHouse} disabled={!isCropsDirty || saving}
+          className={`w-full mt-3 py-2.5 rounded-xl text-base font-bold transition-all
+            ${isCropsDirty ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/20 hover:bg-blue-700 active:scale-[0.97]'
+              : 'bg-gray-100 text-gray-400 border border-gray-200 cursor-default'}`}>
+          {saving ? '저장 중...' : isCropsDirty ? '💾 저장' : '변경 없음'}
+        </button>
       </div>
 
       {/* 센서 목록 */}
@@ -557,31 +629,97 @@ return msg;`}</pre>
           </button>
         </div>
 
-        {/* 센서 추가 폼 */}
+        {/* 센서 추가 — 프리셋 선택 */}
         {showAddSensor && (
           <div className="bg-blue-50 border-2 border-blue-200 rounded-xl p-4 mb-4 animate-fade-in-up">
-            <h3 className="text-base font-bold text-blue-700 mb-3">새 센서 추가</h3>
-            <div className="grid grid-cols-2 gap-3 mb-3">
-              <input type="text" placeholder="센서 ID (예: co2_001)" value={newSensor.sensorId}
-                onChange={(e) => setNewSensor({ ...newSensor, sensorId: e.target.value })}
-                className="input-field text-sm" />
-              <input type="text" placeholder="이름 (예: CO2)" value={newSensor.name}
-                onChange={(e) => setNewSensor({ ...newSensor, name: e.target.value })}
-                className="input-field text-sm" />
-              <input type="text" placeholder="단위 (예: ppm)" value={newSensor.unit}
-                onChange={(e) => setNewSensor({ ...newSensor, unit: e.target.value })}
-                className="input-field text-sm" />
-              <input type="text" placeholder="아이콘 (예: 💨)" value={newSensor.icon}
-                onChange={(e) => setNewSensor({ ...newSensor, icon: e.target.value })}
-                className="input-field text-sm" />
-              <input type="number" placeholder="최소값" value={newSensor.min}
-                onChange={(e) => setNewSensor({ ...newSensor, min: parseFloat(e.target.value) })}
-                className="input-field text-sm" />
-              <input type="number" placeholder="최대값" value={newSensor.max}
-                onChange={(e) => setNewSensor({ ...newSensor, max: parseFloat(e.target.value) })}
-                className="input-field text-sm" />
+            <h3 className="text-base font-bold text-blue-700 mb-3">센서 선택</h3>
+            <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 gap-2 mb-3">
+              {SENSOR_PRESETS.map(preset => {
+                // 이미 추가된 센서인지 확인 (같은 id prefix)
+                const alreadyAdded = editedHouse.sensors.some(s => s.sensorId.startsWith(preset.id));
+                return (
+                  <button
+                    key={preset.id}
+                    onClick={() => {
+                      if (preset.id === 'etc') {
+                        // 기타: 직접 입력 모드
+                        setNewSensor({ sensorId: '', name: '', unit: '', type: 'number', min: 0, max: 100, enabled: true, icon: '📊', color: '#6B7280' });
+                      } else {
+                        // 동일 타입 센서 번호 자동 증가
+                        const existing = editedHouse.sensors.filter(s => s.sensorId.startsWith(preset.id));
+                        const nextNum = existing.length > 0
+                          ? Math.max(...existing.map(s => { const m = s.sensorId.match(/_(\d+)$/); return m ? parseInt(m[1]) : 1; })) + 1
+                          : 1;
+                        const sensorId = `${preset.id}_${String(nextNum).padStart(3, '0')}`;
+                        setNewSensor({
+                          sensorId, name: existing.length > 0 ? `${preset.name} ${nextNum}` : preset.name,
+                          unit: preset.unit, type: 'number', min: preset.min, max: preset.max,
+                          enabled: true, icon: preset.icon, color: preset.color
+                        });
+                      }
+                    }}
+                    className={`flex flex-col items-center gap-1 p-2.5 rounded-xl border-2 transition-all text-center
+                      ${newSensor.sensorId.startsWith(preset.id) && preset.id !== 'etc'
+                        ? 'border-blue-500 bg-blue-100 shadow-sm'
+                        : alreadyAdded
+                          ? 'border-green-200 bg-green-50 opacity-70'
+                          : 'border-gray-200 bg-white hover:border-blue-300 hover:bg-blue-50'
+                      }`}
+                  >
+                    <span className="text-lg">{preset.icon}</span>
+                    <span className="text-xs font-bold text-gray-700 leading-tight">{preset.name}</span>
+                    {alreadyAdded && <span className="text-[10px] text-green-600 font-bold">추가됨</span>}
+                  </button>
+                );
+              })}
             </div>
-            <button onClick={addSensor} className="btn-success w-full">✅ 센서 추가</button>
+
+            {/* 선택된 센서 상세 (또는 기타 직접입력) */}
+            {(newSensor.sensorId || newSensor.name === '') && (
+              <div className="bg-white rounded-lg p-3 border border-blue-200 space-y-2">
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <label className="text-xs text-gray-500 mb-1 block">센서 ID</label>
+                    <input type="text" value={newSensor.sensorId}
+                      onChange={(e) => setNewSensor({ ...newSensor, sensorId: e.target.value })}
+                      className="input-field text-sm" placeholder="예: co2_001" />
+                  </div>
+                  <div>
+                    <label className="text-xs text-gray-500 mb-1 block">이름</label>
+                    <input type="text" value={newSensor.name}
+                      onChange={(e) => setNewSensor({ ...newSensor, name: e.target.value })}
+                      className="input-field text-sm" placeholder="예: CO2" />
+                  </div>
+                  <div>
+                    <label className="text-xs text-gray-500 mb-1 block">단위</label>
+                    <input type="text" value={newSensor.unit}
+                      onChange={(e) => setNewSensor({ ...newSensor, unit: e.target.value })}
+                      className="input-field text-sm" placeholder="예: ppm" />
+                  </div>
+                  <div>
+                    <label className="text-xs text-gray-500 mb-1 block">아이콘</label>
+                    <input type="text" value={newSensor.icon}
+                      onChange={(e) => setNewSensor({ ...newSensor, icon: e.target.value })}
+                      className="input-field text-sm" />
+                  </div>
+                  <div>
+                    <label className="text-xs text-gray-500 mb-1 block">최소값</label>
+                    <input type="number" value={newSensor.min}
+                      onChange={(e) => setNewSensor({ ...newSensor, min: parseFloat(e.target.value) })}
+                      className="input-field text-sm" />
+                  </div>
+                  <div>
+                    <label className="text-xs text-gray-500 mb-1 block">최대값</label>
+                    <input type="number" value={newSensor.max}
+                      onChange={(e) => setNewSensor({ ...newSensor, max: parseFloat(e.target.value) })}
+                      className="input-field text-sm" />
+                  </div>
+                </div>
+                <button onClick={addSensor} className="btn-success w-full mt-2">
+                  {newSensor.icon} {newSensor.name || '센서'} 추가
+                </button>
+              </div>
+            )}
           </div>
         )}
 
@@ -626,10 +764,19 @@ return msg;`}</pre>
             </div>
           ))}
         </div>
+
+        {/* 센서 저장 버튼 */}
+        <button onClick={updateHouse} disabled={!isSensorsDirty || saving}
+          className={`w-full mt-3 py-2.5 rounded-xl text-base font-bold transition-all
+            ${isSensorsDirty ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/20 hover:bg-blue-700 active:scale-[0.97]'
+              : 'bg-gray-100 text-gray-400 border border-gray-200 cursor-default'}`}>
+          {saving ? '저장 중...' : isSensorsDirty ? '💾 센서 저장' : '변경 없음'}
+        </button>
       </div>
 
       {/* 제어 장치 관리 */}
-      <DeviceManager house={editedHouse} setEditedHouse={setEditedHouse} onUpdate={onUpdate} />
+      <DeviceManager house={editedHouse} setEditedHouse={setEditedHouse} onUpdate={onUpdate}
+        isDirty={isDevicesDirty} saving={saving} onSave={updateHouse} />
     </div>
   );
 };
@@ -638,10 +785,25 @@ return msg;`}</pre>
  * 제어 장치 관리 컴포넌트
  */
 const DEVICE_TYPES = [
-  { value: 'window', label: '개폐기 (창문)', icon: '🪟', commands: 'open/stop/close' },
-  { value: 'fan', label: '환풍기', icon: '🌀', commands: 'on/off' },
-  { value: 'heater', label: '히터', icon: '🔥', commands: 'on/off' },
-  { value: 'valve', label: '관수 밸브', icon: '🚿', commands: 'open/stop/close' },
+  { value: 'window', label: '1창', icon: '🪟', commands: 'open/stop/close' },
+  { value: 'side_window', label: '측창', icon: '🪟', commands: 'open/stop/close' },
+  { value: 'top_window', label: '천창', icon: '🪟', commands: 'open/stop/close' },
+  { value: 'shade', label: '차광', icon: '🌑', commands: 'open/stop/close' },
+  { value: 'screen', label: '스크린', icon: '🎞️', commands: 'open/stop/close' },
+  { value: 'pump', label: '펌프', icon: '🔧', commands: 'on/off' },
+  { value: 'motor', label: '모터', icon: '⚙️', commands: 'on/off' },
+  { value: 'light', label: '조명', icon: '💡', commands: 'on/off' },
+  { value: 'fan', label: '순환팬', icon: '🌀', commands: 'on/off' },
+  { value: 'nutrient', label: '양액공급', icon: '💧', commands: 'on/off' },
+  { value: 'solution', label: '배양액', icon: '🧪', commands: 'on/off' },
+  { value: 'light_ctrl', label: '조명제어', icon: '🔆', commands: 'on/off' },
+  { value: 'sprayer', label: '무인방제기', icon: '🚿', commands: 'on/off' },
+  { value: 'heater', label: '온풍기', icon: '🔥', commands: 'on/off' },
+  { value: 'cooler', label: '냉방기', icon: '❄️', commands: 'on/off' },
+  { value: 'co2_supply', label: 'CO2공급기', icon: '💨', commands: 'on/off' },
+  { value: 'mist', label: '분무제어', icon: '🌫️', commands: 'on/off' },
+  { value: 'valve', label: '관수밸브', icon: '🚰', commands: 'open/stop/close' },
+  { value: 'etc_device', label: '기타', icon: '🔧', commands: 'on/off' },
 ];
 
 const getDeviceIcon = (type) => {
@@ -652,7 +814,7 @@ const getDeviceLabel = (type) => {
   return DEVICE_TYPES.find(d => d.value === type)?.label || type;
 };
 
-const DeviceManager = ({ house, setEditedHouse, onUpdate }) => {
+const DeviceManager = ({ house, setEditedHouse, onUpdate, isDirty, saving, onSave }) => {
   const [showAddDevice, setShowAddDevice] = useState(false);
   const [newDevice, setNewDevice] = useState({
     type: 'window', name: '', enabled: true
@@ -661,62 +823,30 @@ const DeviceManager = ({ house, setEditedHouse, onUpdate }) => {
   const devices = house.devices || [];
 
   const generateDeviceId = (type) => {
-    const prefix = type === 'window' ? 'window' : type === 'fan' ? 'fan' : type === 'heater' ? 'heater' : 'valve';
-    const existing = devices.filter(d => d.type === type).length;
-    return `${prefix}${existing + 1}`;
+    const existing = devices.filter(d => d.type === type);
+    const nextNum = existing.length > 0
+      ? Math.max(...existing.map(d => { const m = d.deviceId.match(/(\d+)$/); return m ? parseInt(m[1]) : 0; })) + 1
+      : 1;
+    return `${type}${nextNum}`;
   };
 
-  const addDevice = async () => {
+  const addDevice = () => {
     const deviceId = generateDeviceId(newDevice.type);
     const name = newDevice.name || `${getDeviceLabel(newDevice.type)} ${devices.filter(d => d.type === newDevice.type).length + 1}`;
-    
+
     const updatedDevices = [...devices, {
-      deviceId,
-      name,
-      type: newDevice.type,
-      icon: getDeviceIcon(newDevice.type),
-      enabled: true,
-      order: devices.length,
+      deviceId, name, type: newDevice.type,
+      icon: getDeviceIcon(newDevice.type), enabled: true, order: devices.length,
     }];
-
-    const updatedHouse = { ...house, devices: updatedDevices, deviceCount: updatedDevices.length };
-
-    try {
-      const response = await axios.put(
-        `${getApiBase()}/config/${house.houseId}?farmId=${house.farmId}`,
-        updatedHouse
-      );
-      if (response.data.success) {
-        alert('✅ 장치가 추가되었습니다!');
-        setEditedHouse(updatedHouse);
-        setNewDevice({ type: 'window', name: '', enabled: true });
-        setShowAddDevice(false);
-        onUpdate();
-      }
-    } catch (error) {
-      alert('❌ 추가 실패: ' + (error.response?.data?.error || error.message));
-    }
+    setEditedHouse({ ...house, devices: updatedDevices, deviceCount: updatedDevices.length });
+    setNewDevice({ type: 'window', name: '', enabled: true });
+    setShowAddDevice(false);
   };
 
-  const removeDevice = async (deviceId) => {
+  const removeDevice = (deviceId) => {
     if (!confirm('이 장치를 삭제하시겠습니까?')) return;
-    
     const updatedDevices = devices.filter(d => d.deviceId !== deviceId);
-    const updatedHouse = { ...house, devices: updatedDevices, deviceCount: updatedDevices.length };
-
-    try {
-      const response = await axios.put(
-        `${getApiBase()}/config/${house.houseId}?farmId=${house.farmId}`,
-        updatedHouse
-      );
-      if (response.data.success) {
-        alert('✅ 장치가 삭제되었습니다!');
-        setEditedHouse(updatedHouse);
-        onUpdate();
-      }
-    } catch (error) {
-      alert('❌ 삭제 실패: ' + (error.response?.data?.error || error.message));
-    }
+    setEditedHouse({ ...house, devices: updatedDevices, deviceCount: updatedDevices.length });
   };
 
   return (
@@ -733,42 +863,61 @@ const DeviceManager = ({ house, setEditedHouse, onUpdate }) => {
         </button>
       </div>
 
-      {/* 장치 추가 폼 */}
+      {/* 장치 추가 — 프리셋 선택 */}
       {showAddDevice && (
         <div className="bg-violet-50 border-2 border-violet-200 rounded-xl p-4 mb-4 animate-fade-in-up">
-          <h3 className="text-base font-bold text-violet-700 mb-3">새 장치 추가</h3>
-          <div className="grid grid-cols-2 gap-3 mb-3">
-            <div>
-              <label className="text-sm text-gray-600 font-semibold mb-1.5 block">장치 유형</label>
-              <select
-                value={newDevice.type}
-                onChange={(e) => setNewDevice({ ...newDevice, type: e.target.value, name: '' })}
-                className="input-field text-sm"
-              >
-                {DEVICE_TYPES.map(dt => (
-                  <option key={dt.value} value={dt.value}>
-                    {dt.icon} {dt.label}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div>
-              <label className="text-sm text-gray-600 font-semibold mb-1.5 block">장치 이름 (선택)</label>
-              <input
-                type="text"
-                placeholder={`예: ${getDeviceLabel(newDevice.type)} 1`}
-                value={newDevice.name}
-                onChange={(e) => setNewDevice({ ...newDevice, name: e.target.value })}
-                className="input-field text-sm"
-              />
-            </div>
+          <h3 className="text-base font-bold text-violet-700 mb-3">장치 선택</h3>
+          <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 gap-2 mb-3">
+            {DEVICE_TYPES.map(dt => {
+              const alreadyAdded = devices.some(d => d.type === dt.value);
+              const isSelected = newDevice.type === dt.value;
+              return (
+                <button
+                  key={dt.value}
+                  onClick={() => setNewDevice({ ...newDevice, type: dt.value, name: '' })}
+                  className={`flex flex-col items-center gap-1 p-2.5 rounded-xl border-2 transition-all text-center
+                    ${isSelected
+                      ? 'border-violet-500 bg-violet-100 shadow-sm'
+                      : alreadyAdded
+                        ? 'border-green-200 bg-green-50 opacity-70'
+                        : 'border-gray-200 bg-white hover:border-violet-300 hover:bg-violet-50'
+                    }`}
+                >
+                  <span className="text-lg">{dt.icon}</span>
+                  <span className="text-xs font-bold text-gray-700 leading-tight">{dt.label}</span>
+                  {alreadyAdded && <span className="text-[10px] text-green-600 font-bold">추가됨</span>}
+                </button>
+              );
+            })}
           </div>
-          <div className="text-sm text-gray-500 mb-3">
-            제어 방식: <span className="text-violet-600 font-semibold">
-              {DEVICE_TYPES.find(d => d.value === newDevice.type)?.commands}
-            </span>
+
+          {/* 선택된 장치 상세 */}
+          <div className="bg-white rounded-lg p-3 border border-violet-200 space-y-2">
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <label className="text-xs text-gray-500 mb-1 block">장치 유형</label>
+                <div className="input-field text-sm bg-gray-50 flex items-center gap-1.5">
+                  {getDeviceIcon(newDevice.type)} {getDeviceLabel(newDevice.type)}
+                </div>
+              </div>
+              <div>
+                <label className="text-xs text-gray-500 mb-1 block">장치 이름 (선택)</label>
+                <input type="text"
+                  placeholder={`예: ${getDeviceLabel(newDevice.type)} 1`}
+                  value={newDevice.name}
+                  onChange={(e) => setNewDevice({ ...newDevice, name: e.target.value })}
+                  className="input-field text-sm" />
+              </div>
+            </div>
+            <div className="text-sm text-gray-500">
+              제어 방식: <span className="text-violet-600 font-semibold">
+                {DEVICE_TYPES.find(d => d.value === newDevice.type)?.commands}
+              </span>
+            </div>
+            <button onClick={addDevice} className="btn-success w-full">
+              {getDeviceIcon(newDevice.type)} {newDevice.name || getDeviceLabel(newDevice.type)} 추가
+            </button>
           </div>
-          <button onClick={addDevice} className="btn-success w-full">✅ 장치 추가</button>
         </div>
       )}
 
@@ -790,7 +939,7 @@ const DeviceManager = ({ house, setEditedHouse, onUpdate }) => {
                 <p className="text-base font-bold text-gray-800">{device.name}</p>
                 <p className="text-xs text-gray-500 truncate">
                   {device.deviceId} · {getDeviceLabel(device.type)} ·
-                  {device.type === 'fan' || device.type === 'heater' ? ' ON/OFF' : ' 열기/정지/닫기'}
+                  {DEVICE_TYPES.find(d => d.value === device.type)?.commands || 'on/off'}
                 </p>
               </div>
               <button
@@ -804,6 +953,14 @@ const DeviceManager = ({ house, setEditedHouse, onUpdate }) => {
           ))}
         </div>
       )}
+
+      {/* 장치 저장 버튼 */}
+      <button onClick={onSave} disabled={!isDirty || saving}
+        className={`w-full mt-3 py-2.5 rounded-xl text-base font-bold transition-all
+          ${isDirty ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/20 hover:bg-blue-700 active:scale-[0.97]'
+            : 'bg-gray-100 text-gray-400 border border-gray-200 cursor-default'}`}>
+        {saving ? '저장 중...' : isDirty ? '💾 장치 저장' : '변경 없음'}
+      </button>
     </div>
   );
 };
@@ -909,7 +1066,21 @@ const SystemSettings = () => {
   const loadRetentionSetting = async () => {
     try {
       setRetentionLoading(true);
-      const res = await axios.get(`${getApiBase()}/config/system-settings/farm_001`, { timeout: 5000 });
+      const rpiUrl = getRpiApiBase();
+      const pcUrl = getApiBase();
+
+      // PC 우선 → RPi 폴백
+      let res;
+      try {
+        res = await axios.get(`${pcUrl}/config/system-settings/farm_001`, { timeout: 5000 });
+      } catch {
+        if (rpiUrl !== pcUrl) {
+          res = await axiosBase.get(`${rpiUrl}/config/system-settings/farm_001`, { timeout: 5000 });
+        } else {
+          throw new Error('서버 연결 불가');
+        }
+      }
+
       if (res.data.success) {
         const days = res.data.data.retentionDays || 60;
         setRetentionDays(days);
@@ -952,7 +1123,7 @@ const SystemSettings = () => {
     // 서버에 보관 기간 저장
     if (retentionDays !== serverRetention) {
       try {
-        const res = await axios.put(`${getApiBase()}/config/system-settings/farm_001`, {
+        const res = await rpiApi('put', '/config/system-settings/farm_001', {
           retentionDays,
         });
         if (res.data.success) {

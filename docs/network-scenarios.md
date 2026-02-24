@@ -5,7 +5,7 @@
 | 구성 요소 | 역할 | IP 주소 | 포트 |
 |---|---|---|---|
 | PC 서버 		| Express API + PostgreSQL/TimescaleDB 	| 192.168.137.1 (핫스팟) 	| 3000 |
-| Raspberry Pi 	| Node-RED + SQLite (센서 수집/로컬 API) 	| 192.168.137.86 		| 1880 |
+| Raspberry Pi 	| Node-RED + SQLite (센서 수집/로컬 API) 	| 192.168.137.30 		| 1880 |
 | AWS IoT Core 	| 디바이스 제어 (MQTT publish) 		| API Gateway 엔드포인트 	| 443 |
 | 프론트엔드 (PC) 	| React 앱 (Vite dev / 빌드 배포) 		| 192.168.137.1 		| 5173 |
 | 프론트엔드 (핸드폰) | 같은 React 앱 (핫스팟 접속) 		| 192.168.137.x 		| - |
@@ -118,7 +118,7 @@
 **자동 전환 과정:**
 1. `apiSwitcher.js` 10초 폴링 → PC `/health` 실패 감지
 2. RPi 헬스체크 (`/api/system/mode`) → 성공
-3. API 베이스 URL 자동 전환: `192.168.137.1:3000/api` → `192.168.137.86:1880/api`
+3. API 베이스 URL 자동 전환: `192.168.137.1:3000/api` → `192.168.137.30:1880/api`
 
 **데이터 흐름:**
 - 센서 → RPi SQLite에만 저장 (PC 전송 실패, `synced=0`으로 마킹)
@@ -137,7 +137,7 @@
 | RPi 터치패널 | ✅ | RPi SQLite | 로컬 직접 | 팜로컬 모드 |
 
 **핸드폰 접근 제한 상세:**
-- PC 핫스팟이 살아있는 경우: 핸드폰 → RPi(192.168.137.86:1880) 접근 **가능**
+- PC 핫스팟이 살아있는 경우: 핸드폰 → RPi(192.168.137.30:1880) 접근 **가능**
   - 단, React 앱 자체를 어디서 로드하느냐가 문제 (PC 서버 다운 시 앱 서빙 불가)
   - 이미 앱이 로드되어 있다면 apiSwitcher가 RPi로 전환
 - PC가 완전히 꺼진 경우: 핫스팟 소멸 → 핸드폰은 RPi에 접근 **불가**
@@ -234,7 +234,7 @@
 npm run build:farmlocal
 
 # RPi로 전송
-scp -r dist-farmlocal/* lhk@192.168.137.86:/home/lhk/.node-red/static/
+scp -r dist-farmlocal/* lhk@192.168.137.30:/home/lhk/.node-red/static/
 
 # RPi에서 Node-RED 재시작
 pm2 restart node-red

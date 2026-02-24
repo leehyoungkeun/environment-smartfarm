@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import LoginPage from './components/Auth/LoginPage';
-import DynamicDashboard from './components/Dashboard/DynamicDashboard';
+import DynamicDashboard, { HouseTabScroller } from './components/Dashboard/DynamicDashboard';
 import ConfigurationManager from './components/Settings/ConfigurationManager';
 import ControlPanel from './components/Dashboard/ControlPanel';
 import ControlHistory from './components/Dashboard/ControlHistory';
@@ -137,25 +137,14 @@ const ControlPage = ({ farmId }) => {
       </div>
 
       {/* 하우스 선택 */}
-      <div className="flex gap-2 overflow-x-auto pb-1 mb-5 -mx-4 px-4 md:mx-0 md:px-0">
-        {config.houses.map(house => (
-          <button
-            key={house.houseId}
-            onClick={() => setSelectedHouse(house)}
-            className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-base font-medium
-                       whitespace-nowrap transition-all active:scale-[0.97] flex-shrink-0 ${selectedHouse?.houseId === house.houseId
-                ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/20'
-                : 'bg-white border border-gray-200 text-gray-600 hover:bg-gray-50 shadow-sm'
-              }`}
-          >
-            <span>🏠</span>
-            <span>{house.houseName || house.name}</span>
-            <span className={`text-sm px-1.5 py-0.5 rounded-md ${selectedHouse?.houseId === house.houseId ? 'bg-white/20' : 'bg-gray-100'
-              }`}>
-              🪟 {house.deviceCount || 0}
-            </span>
-          </button>
-        ))}
+      <div className="mb-5">
+        <HouseTabScroller
+          houses={config.houses.map(h => ({ ...h, name: h.houseName || h.name }))}
+          selectedHouse={selectedHouse?.houseId}
+          onSelect={(id) => setSelectedHouse(config.houses.find(h => h.houseId === id))}
+          headerState="control"
+          theme="light"
+        />
       </div>
 
       {selectedHouse && (
@@ -313,15 +302,16 @@ function AppContent() {
               </span>
             </div>
 
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-1.5">
               {navItems.map((item) => (
                 <button
                   key={item.id}
                   onClick={() => setCurrentPage(item.id)}
-                  className={`px-4 py-2 rounded-xl font-medium transition-all duration-200 ${currentPage === item.id ? 'tab-active' : 'tab-inactive'
+                  className={`py-2 rounded-xl font-medium transition-all duration-200 flex items-center justify-center gap-1 whitespace-nowrap ${currentPage === item.id ? 'tab-active' : 'tab-inactive'
                     }`}
+                  style={{ width: 96, paddingLeft: 4, paddingRight: 4, fontSize: 13 }}
                 >
-                  <span className="mr-1.5">{item.icon}</span>
+                  <span>{item.icon}</span>
                   {item.label}
                 </button>
               ))}

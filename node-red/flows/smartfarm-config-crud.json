@@ -1,0 +1,532 @@
+[
+    {
+        "id": "config_crud_flow",
+        "type": "tab",
+        "label": "Config CRUD API",
+        "disabled": false,
+        "info": "팜로컬 모드용 하우스 설정 CRUD API\nSQLite house_configs 테이블 기반\n\n엔드포인트:\n- GET /api/config/farm/:farmId (전체 하우스 목록)\n- GET /api/config/system-settings/:farmId\n- PUT /api/config/system-settings/:farmId\n- POST /api/config (하우스 생성)\n- PUT /api/config/:houseId (하우스 수정)\n- DELETE /api/config/:houseId (하우스 삭제)\n- GET /api/config/:houseId (단일 하우스 조회)"
+    },
+    {
+        "id": "comment_config_crud",
+        "type": "comment",
+        "z": "config_crud_flow",
+        "name": "━━━ 하우스 설정 CRUD API (팜로컬) ━━━",
+        "x": 220,
+        "y": 40,
+        "wires": []
+    },
+    {
+        "id": "http_res_config",
+        "type": "http response",
+        "z": "config_crud_flow",
+        "name": "Config 응답",
+        "statusCode": "",
+        "headers": {},
+        "x": 1110,
+        "y": 300,
+        "wires": []
+    },
+
+    {
+        "id": "http_config_farm_list",
+        "type": "http in",
+        "z": "config_crud_flow",
+        "name": "GET /api/config/farm/:farmId",
+        "url": "/api/config/farm/:farmId",
+        "method": "get",
+        "upload": false,
+        "x": 200,
+        "y": 100,
+        "wires": [["config_farm_list_query"]]
+    },
+    {
+        "id": "config_farm_list_query",
+        "type": "function",
+        "z": "config_crud_flow",
+        "name": "하우스 목록 쿼리",
+        "func": "var farmId = msg.req.params.farmId;\nmsg.topic = 'SELECT * FROM house_configs WHERE farm_id = $1 ORDER BY created_at ASC';\nmsg.payload = [farmId];\nmsg._farmId = farmId;\nreturn msg;",
+        "outputs": 1,
+        "x": 470,
+        "y": 100,
+        "wires": [["sqlite_config_farm_list"]]
+    },
+    {
+        "id": "sqlite_config_farm_list",
+        "type": "sqlite",
+        "z": "config_crud_flow",
+        "name": "SQLite 조회",
+        "mydb": "sqlite_db",
+        "sqlquery": "msg.topic",
+        "sql": "",
+        "x": 670,
+        "y": 100,
+        "wires": [["config_farm_list_response"]]
+    },
+    {
+        "id": "config_farm_list_response",
+        "type": "function",
+        "z": "config_crud_flow",
+        "name": "목록 응답 포맷",
+        "func": "var rows = msg.payload || [];\nvar houses = rows.map(function(row) {\n    var sensors, collection, devices, crops;\n    try { sensors = JSON.parse(row.sensors || '[]'); } catch(e) { sensors = []; }\n    try { collection = JSON.parse(row.collection || '{}'); } catch(e) { collection = {}; }\n    try { devices = JSON.parse(row.devices || '[]'); } catch(e) { devices = []; }\n    try { crops = JSON.parse(row.crops || '[]'); } catch(e) { crops = []; }\n    return {\n        _id: row.id,\n        farmId: row.farm_id,\n        houseId: row.house_id,\n        houseName: row.house_name,\n        sensors: sensors,\n        collection: collection,\n        devices: devices,\n        crops: crops,\n        cropType: row.crop_type || '',\n        cropVariety: row.crop_variety || '',\n        plantingDate: row.planting_date || '',\n        deviceCount: row.device_count || 0,\n        enabled: row.enabled === 1,\n        configVersion: row.config_version || 1,\n        createdAt: row.created_at,\n        updatedAt: row.updated_at\n    };\n});\nmsg.payload = { success: true, data: houses };\nmsg.headers = { 'Access-Control-Allow-Origin': '*' };\nreturn msg;",
+        "outputs": 1,
+        "x": 890,
+        "y": 100,
+        "wires": [["http_res_config"]]
+    },
+
+    {
+        "id": "comment_sys_settings",
+        "type": "comment",
+        "z": "config_crud_flow",
+        "name": "━━━ 시스템 설정 API ━━━",
+        "x": 170,
+        "y": 170,
+        "wires": []
+    },
+    {
+        "id": "http_sys_settings_get",
+        "type": "http in",
+        "z": "config_crud_flow",
+        "name": "GET /api/config/system-settings/:farmId",
+        "url": "/api/config/system-settings/:farmId",
+        "method": "get",
+        "upload": false,
+        "x": 250,
+        "y": 220,
+        "wires": [["sys_settings_get_query"]]
+    },
+    {
+        "id": "sys_settings_get_query",
+        "type": "function",
+        "z": "config_crud_flow",
+        "name": "설정 조회 쿼리",
+        "func": "var farmId = msg.req.params.farmId;\nmsg.topic = 'SELECT settings_json FROM system_settings WHERE farm_id = $1';\nmsg.payload = [farmId];\nreturn msg;",
+        "outputs": 1,
+        "x": 530,
+        "y": 220,
+        "wires": [["sqlite_sys_settings_get"]]
+    },
+    {
+        "id": "sqlite_sys_settings_get",
+        "type": "sqlite",
+        "z": "config_crud_flow",
+        "name": "SQLite 조회",
+        "mydb": "sqlite_db",
+        "sqlquery": "msg.topic",
+        "sql": "",
+        "x": 730,
+        "y": 220,
+        "wires": [["sys_settings_get_response"]]
+    },
+    {
+        "id": "sys_settings_get_response",
+        "type": "function",
+        "z": "config_crud_flow",
+        "name": "설정 응답",
+        "func": "var rows = msg.payload || [];\nvar defaults = { retentionDays: 60 };\nif (rows.length > 0 && rows[0].settings_json) {\n    try {\n        var stored = JSON.parse(rows[0].settings_json);\n        defaults = Object.assign(defaults, stored);\n    } catch(e) {}\n}\nmsg.payload = { success: true, data: defaults };\nmsg.headers = { 'Access-Control-Allow-Origin': '*' };\nreturn msg;",
+        "outputs": 1,
+        "x": 930,
+        "y": 220,
+        "wires": [["http_res_config"]]
+    },
+
+    {
+        "id": "http_sys_settings_put",
+        "type": "http in",
+        "z": "config_crud_flow",
+        "name": "PUT /api/config/system-settings/:farmId",
+        "url": "/api/config/system-settings/:farmId",
+        "method": "put",
+        "upload": false,
+        "x": 250,
+        "y": 300,
+        "wires": [["sys_settings_put_handler"]]
+    },
+    {
+        "id": "sys_settings_put_handler",
+        "type": "function",
+        "z": "config_crud_flow",
+        "name": "설정 저장 핸들러",
+        "func": "var farmId = msg.req.params.farmId;\nvar body = msg.payload;\nvar settings = {};\n\nif (body.retentionDays !== undefined) {\n    var days = parseInt(body.retentionDays);\n    if (isNaN(days) || days < 7 || days > 365) {\n        msg.payload = { success: false, error: 'retentionDays는 7~365 범위여야 합니다.' };\n        msg.statusCode = 400;\n        msg.headers = { 'Access-Control-Allow-Origin': '*' };\n        return [msg, null];\n    }\n    settings.retentionDays = days;\n}\n\nvar now = new Date().toISOString();\nmsg.topic = 'INSERT INTO system_settings (farm_id, settings_json, updated_at) VALUES ($1, $2, $3) ON CONFLICT(farm_id) DO UPDATE SET settings_json = excluded.settings_json, updated_at = excluded.updated_at';\nmsg.payload = [farmId, JSON.stringify(settings), now];\nmsg._settings = settings;\nreturn [null, msg];",
+        "outputs": 2,
+        "outputLabels": ["에러 응답", "SQLite 저장"],
+        "x": 530,
+        "y": 300,
+        "wires": [["http_res_config"], ["sqlite_sys_settings_put"]]
+    },
+    {
+        "id": "sqlite_sys_settings_put",
+        "type": "sqlite",
+        "z": "config_crud_flow",
+        "name": "SQLite 저장",
+        "mydb": "sqlite_db",
+        "sqlquery": "msg.topic",
+        "sql": "",
+        "x": 730,
+        "y": 300,
+        "wires": [["sys_settings_put_response"]]
+    },
+    {
+        "id": "sys_settings_put_response",
+        "type": "function",
+        "z": "config_crud_flow",
+        "name": "저장 응답",
+        "func": "if (msg._settings && msg._settings.retentionDays) {\n    global.set('retentionDays', msg._settings.retentionDays);\n}\nmsg.payload = { success: true, data: msg._settings };\nmsg.headers = { 'Access-Control-Allow-Origin': '*' };\nreturn msg;",
+        "outputs": 1,
+        "x": 930,
+        "y": 300,
+        "wires": [["http_res_config"]]
+    },
+
+    {
+        "id": "comment_config_create",
+        "type": "comment",
+        "z": "config_crud_flow",
+        "name": "━━━ 하우스 생성 API ━━━",
+        "x": 170,
+        "y": 370,
+        "wires": []
+    },
+    {
+        "id": "http_config_create",
+        "type": "http in",
+        "z": "config_crud_flow",
+        "name": "POST /api/config",
+        "url": "/api/config",
+        "method": "post",
+        "upload": false,
+        "x": 160,
+        "y": 420,
+        "wires": [["config_create_check"]]
+    },
+    {
+        "id": "config_create_check",
+        "type": "function",
+        "z": "config_crud_flow",
+        "name": "입력 검증 + 중복 확인",
+        "func": "var body = msg.payload;\nif (!body.farmId || !body.houseId) {\n    msg.payload = { success: false, error: 'farmId, houseId 필수' };\n    msg.statusCode = 400;\n    msg.headers = { 'Access-Control-Allow-Origin': '*' };\n    return [msg, null];\n}\nmsg._body = JSON.parse(JSON.stringify(body));\nmsg.topic = 'SELECT id FROM house_configs WHERE farm_id = $1 AND house_id = $2';\nmsg.payload = [body.farmId, body.houseId];\nreturn [null, msg];",
+        "outputs": 2,
+        "outputLabels": ["에러 응답", "중복 확인"],
+        "x": 400,
+        "y": 420,
+        "wires": [["http_res_config"], ["sqlite_config_check_dup"]]
+    },
+    {
+        "id": "sqlite_config_check_dup",
+        "type": "sqlite",
+        "z": "config_crud_flow",
+        "name": "중복 확인",
+        "mydb": "sqlite_db",
+        "sqlquery": "msg.topic",
+        "sql": "",
+        "x": 610,
+        "y": 420,
+        "wires": [["config_create_insert"]]
+    },
+    {
+        "id": "config_create_insert",
+        "type": "function",
+        "z": "config_crud_flow",
+        "name": "INSERT 준비",
+        "func": "var rows = msg.payload || [];\nif (rows.length > 0) {\n    msg.payload = { success: false, error: '이미 존재하는 하우스 ID입니다.' };\n    msg.statusCode = 409;\n    msg.headers = { 'Access-Control-Allow-Origin': '*' };\n    return [msg, null];\n}\n\nvar body = msg._body;\nvar id = Date.now().toString(36) + Math.random().toString(36).substr(2, 9);\nvar now = new Date().toISOString();\nvar sensors = body.sensors || [];\nvar collection = body.collection || { intervalSeconds: 60, method: 'http', retryAttempts: 3 };\nvar devices = body.devices || [];\n\nmsg.topic = 'INSERT INTO house_configs (id, farm_id, house_id, house_name, sensors, collection, devices, crops, crop_type, crop_variety, planting_date, device_count, enabled, config_version, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)';\nmsg.payload = [\n    id, body.farmId, body.houseId,\n    body.houseName || (body.houseId + ' 하우스'),\n    JSON.stringify(sensors),\n    JSON.stringify(collection),\n    JSON.stringify(devices),\n    JSON.stringify(body.crops || []),\n    body.cropType || '', body.cropVariety || '', body.plantingDate || '',\n    body.deviceCount || devices.length || 0,\n    body.enabled !== false ? 1 : 0,\n    1, now, now\n];\nmsg._newId = id;\nmsg._now = now;\nmsg._sensors = sensors;\nmsg._collection = collection;\nmsg._devices = devices;\nreturn [null, msg];",
+        "outputs": 2,
+        "outputLabels": ["에러(중복)", "INSERT 실행"],
+        "x": 810,
+        "y": 420,
+        "wires": [["http_res_config"], ["sqlite_config_insert"]]
+    },
+    {
+        "id": "sqlite_config_insert",
+        "type": "sqlite",
+        "z": "config_crud_flow",
+        "name": "하우스 생성",
+        "mydb": "sqlite_db",
+        "sqlquery": "msg.topic",
+        "sql": "",
+        "x": 440,
+        "y": 500,
+        "wires": [["config_create_response"]]
+    },
+    {
+        "id": "config_create_response",
+        "type": "function",
+        "z": "config_crud_flow",
+        "name": "생성 응답 + 동기화",
+        "func": "var body = msg._body;\nvar result = {\n    _id: msg._newId,\n    farmId: body.farmId,\n    houseId: body.houseId,\n    houseName: body.houseName || (body.houseId + ' 하우스'),\n    sensors: msg._sensors,\n    collection: msg._collection,\n    devices: msg._devices,\n    crops: body.crops || [],\n    cropType: body.cropType || '',\n    cropVariety: body.cropVariety || '',\n    plantingDate: body.plantingDate || '',\n    deviceCount: body.deviceCount || msg._devices.length || 0,\n    enabled: body.enabled !== false,\n    configVersion: 1,\n    createdAt: msg._now,\n    updatedAt: msg._now\n};\n\nmsg.payload = { success: true, data: result };\nmsg.statusCode = 201;\nmsg.headers = { 'Access-Control-Allow-Origin': '*' };\n\nvar syncMsg = { _farmId: body.farmId };\nnode.warn('✅ 하우스 생성: ' + body.houseId);\nreturn [msg, syncMsg];",
+        "outputs": 2,
+        "outputLabels": ["HTTP 응답", "글로벌 동기화"],
+        "x": 670,
+        "y": 500,
+        "wires": [["http_res_config"], ["link_out_config_sync"]]
+    },
+
+    {
+        "id": "comment_config_update",
+        "type": "comment",
+        "z": "config_crud_flow",
+        "name": "━━━ 하우스 수정 API ━━━",
+        "x": 170,
+        "y": 570,
+        "wires": []
+    },
+    {
+        "id": "http_config_update",
+        "type": "http in",
+        "z": "config_crud_flow",
+        "name": "PUT /api/config/:houseId",
+        "url": "/api/config/:houseId",
+        "method": "put",
+        "upload": false,
+        "x": 180,
+        "y": 620,
+        "wires": [["config_update_handler"]]
+    },
+    {
+        "id": "config_update_handler",
+        "type": "function",
+        "z": "config_crud_flow",
+        "name": "UPSERT 준비",
+        "func": "var houseId = msg.req.params.houseId;\nvar farmId = msg.req.query.farmId || msg.payload.farmId || 'farm_001';\nvar body = msg.payload;\nvar now = new Date().toISOString();\nvar id = Date.now().toString(36) + Math.random().toString(36).substr(2, 9);\nvar devices = body.devices !== undefined ? body.devices : [];\n\nmsg.topic = 'INSERT INTO house_configs (id, farm_id, house_id, house_name, sensors, collection, devices, crops, crop_type, crop_variety, planting_date, device_count, enabled, config_version, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16) ON CONFLICT(farm_id, house_id) DO UPDATE SET house_name = excluded.house_name, sensors = excluded.sensors, collection = excluded.collection, devices = excluded.devices, crops = excluded.crops, crop_type = excluded.crop_type, crop_variety = excluded.crop_variety, planting_date = excluded.planting_date, device_count = excluded.device_count, enabled = excluded.enabled, config_version = house_configs.config_version + 1, updated_at = excluded.updated_at';\nmsg.payload = [\n    id, farmId, houseId,\n    body.houseName !== undefined ? body.houseName : '',\n    JSON.stringify(body.sensors !== undefined ? body.sensors : []),\n    JSON.stringify(body.collection !== undefined ? body.collection : {}),\n    JSON.stringify(devices),\n    JSON.stringify(body.crops !== undefined ? body.crops : []),\n    body.cropType !== undefined ? body.cropType : '',\n    body.cropVariety !== undefined ? body.cropVariety : '',\n    body.plantingDate !== undefined ? body.plantingDate : '',\n    body.deviceCount !== undefined ? body.deviceCount : devices.length || 0,\n    body.enabled !== false ? 1 : 0,\n    1,\n    now, now\n];\nmsg._farmId = farmId;\nmsg._houseId = houseId;\nreturn msg;",
+        "outputs": 1,
+        "x": 420,
+        "y": 620,
+        "wires": [["sqlite_config_upsert"]]
+    },
+    {
+        "id": "sqlite_config_upsert",
+        "type": "sqlite",
+        "z": "config_crud_flow",
+        "name": "UPSERT 실행",
+        "mydb": "sqlite_db",
+        "sqlquery": "msg.topic",
+        "sql": "",
+        "x": 640,
+        "y": 620,
+        "wires": [["config_update_read"]]
+    },
+    {
+        "id": "config_update_read",
+        "type": "function",
+        "z": "config_crud_flow",
+        "name": "수정 후 조회",
+        "func": "msg.topic = 'SELECT * FROM house_configs WHERE farm_id = $1 AND house_id = $2';\nmsg.payload = [msg._farmId, msg._houseId];\nreturn msg;",
+        "outputs": 1,
+        "x": 840,
+        "y": 620,
+        "wires": [["sqlite_config_read_after_update"]]
+    },
+    {
+        "id": "sqlite_config_read_after_update",
+        "type": "sqlite",
+        "z": "config_crud_flow",
+        "name": "SQLite 조회",
+        "mydb": "sqlite_db",
+        "sqlquery": "msg.topic",
+        "sql": "",
+        "x": 440,
+        "y": 700,
+        "wires": [["config_update_response"]]
+    },
+    {
+        "id": "config_update_response",
+        "type": "function",
+        "z": "config_crud_flow",
+        "name": "수정 응답 + 동기화",
+        "func": "var rows = msg.payload || [];\nif (rows.length === 0) {\n    msg.payload = { success: false, error: '수정 실패' };\n    msg.statusCode = 500;\n    msg.headers = { 'Access-Control-Allow-Origin': '*' };\n    return [msg, null];\n}\nvar row = rows[0];\nvar sensors, collection, devices, crops;\ntry { sensors = JSON.parse(row.sensors || '[]'); } catch(e) { sensors = []; }\ntry { collection = JSON.parse(row.collection || '{}'); } catch(e) { collection = {}; }\ntry { devices = JSON.parse(row.devices || '[]'); } catch(e) { devices = []; }\ntry { crops = JSON.parse(row.crops || '[]'); } catch(e) { crops = []; }\n\nvar result = {\n    _id: row.id,\n    farmId: row.farm_id,\n    houseId: row.house_id,\n    houseName: row.house_name,\n    sensors: sensors,\n    collection: collection,\n    devices: devices,\n    crops: crops,\n    cropType: row.crop_type || '',\n    cropVariety: row.crop_variety || '',\n    plantingDate: row.planting_date || '',\n    deviceCount: row.device_count || 0,\n    enabled: row.enabled === 1,\n    configVersion: row.config_version || 1,\n    createdAt: row.created_at,\n    updatedAt: row.updated_at\n};\n\nmsg.payload = { success: true, data: result };\nmsg.headers = { 'Access-Control-Allow-Origin': '*' };\n\nvar syncMsg = { _farmId: row.farm_id };\nnode.warn('✏️ 하우스 수정: ' + row.house_id);\nreturn [msg, syncMsg];",
+        "outputs": 2,
+        "outputLabels": ["HTTP 응답", "글로벌 동기화"],
+        "x": 680,
+        "y": 700,
+        "wires": [["http_res_config"], ["link_out_config_sync"]]
+    },
+
+    {
+        "id": "comment_config_delete",
+        "type": "comment",
+        "z": "config_crud_flow",
+        "name": "━━━ 하우스 삭제 API ━━━",
+        "x": 170,
+        "y": 770,
+        "wires": []
+    },
+    {
+        "id": "http_config_delete",
+        "type": "http in",
+        "z": "config_crud_flow",
+        "name": "DELETE /api/config/:houseId",
+        "url": "/api/config/:houseId",
+        "method": "delete",
+        "upload": false,
+        "x": 190,
+        "y": 820,
+        "wires": [["config_delete_handler"]]
+    },
+    {
+        "id": "config_delete_handler",
+        "type": "function",
+        "z": "config_crud_flow",
+        "name": "존재 확인 쿼리",
+        "func": "var houseId = msg.req.params.houseId;\nvar farmId = msg.req.query.farmId || 'farm_001';\nmsg.topic = 'SELECT id FROM house_configs WHERE house_id = $1 AND farm_id = $2';\nmsg.payload = [houseId, farmId];\nmsg._houseId = houseId;\nmsg._farmId = farmId;\nreturn msg;",
+        "outputs": 1,
+        "x": 420,
+        "y": 820,
+        "wires": [["sqlite_config_delete"]]
+    },
+    {
+        "id": "sqlite_config_delete",
+        "type": "sqlite",
+        "z": "config_crud_flow",
+        "name": "존재 확인",
+        "mydb": "sqlite_db",
+        "sqlquery": "msg.topic",
+        "sql": "",
+        "x": 630,
+        "y": 820,
+        "wires": [["config_delete_response"]]
+    },
+    {
+        "id": "config_delete_response",
+        "type": "function",
+        "z": "config_crud_flow",
+        "name": "삭제 응답 + DELETE 실행",
+        "func": "var rows = msg.payload || [];\nif (rows.length === 0) {\n    msg.payload = { success: false, error: 'House not found' };\n    msg.statusCode = 404;\n    msg.headers = { 'Access-Control-Allow-Origin': '*' };\n    return [msg, null];\n}\n\nnode.warn('🗑️ 하우스 삭제: ' + msg._houseId);\nmsg.payload = { success: true, message: 'House deleted' };\nmsg.headers = { 'Access-Control-Allow-Origin': '*' };\n\nvar delMsg = { topic: 'DELETE FROM house_configs WHERE house_id = $1 AND farm_id = $2', payload: [msg._houseId, msg._farmId], _farmId: msg._farmId };\nreturn [msg, delMsg];",
+        "outputs": 2,
+        "outputLabels": ["HTTP 응답", "DELETE + 동기화"],
+        "x": 870,
+        "y": 820,
+        "wires": [["http_res_config"], ["sqlite_config_delete_exec"]]
+    },
+    {
+        "id": "sqlite_config_delete_exec",
+        "type": "sqlite",
+        "z": "config_crud_flow",
+        "name": "DELETE 실행",
+        "mydb": "sqlite_db",
+        "sqlquery": "msg.topic",
+        "sql": "",
+        "x": 640,
+        "y": 880,
+        "wires": [["link_out_config_sync"]]
+    },
+
+    {
+        "id": "comment_config_get",
+        "type": "comment",
+        "z": "config_crud_flow",
+        "name": "━━━ 단일 하우스 / 팜 설정 조회 API ━━━",
+        "x": 230,
+        "y": 890,
+        "wires": []
+    },
+    {
+        "id": "http_config_get_single",
+        "type": "http in",
+        "z": "config_crud_flow",
+        "name": "GET /api/config/:houseId",
+        "url": "/api/config/:houseId",
+        "method": "get",
+        "upload": false,
+        "x": 180,
+        "y": 940,
+        "wires": [["config_get_single_handler"]]
+    },
+    {
+        "id": "config_get_single_handler",
+        "type": "function",
+        "z": "config_crud_flow",
+        "name": "조회 모드 분기",
+        "func": "var id = msg.req.params.houseId;\nvar farmId = msg.req.query.farmId;\n\nif (farmId) {\n    msg.topic = 'SELECT * FROM house_configs WHERE farm_id = $1 AND house_id = $2';\n    msg.payload = [farmId, id];\n    msg._mode = 'single';\n} else {\n    msg.topic = 'SELECT * FROM house_configs WHERE farm_id = $1 ORDER BY created_at ASC';\n    msg.payload = [id];\n    msg._mode = 'farm';\n    msg._farmId = id;\n}\nreturn msg;",
+        "outputs": 1,
+        "x": 420,
+        "y": 940,
+        "wires": [["sqlite_config_get_single"]]
+    },
+    {
+        "id": "sqlite_config_get_single",
+        "type": "sqlite",
+        "z": "config_crud_flow",
+        "name": "SQLite 조회",
+        "mydb": "sqlite_db",
+        "sqlquery": "msg.topic",
+        "sql": "",
+        "x": 630,
+        "y": 940,
+        "wires": [["config_get_single_response"]]
+    },
+    {
+        "id": "config_get_single_response",
+        "type": "function",
+        "z": "config_crud_flow",
+        "name": "조회 응답 포맷",
+        "func": "var rows = msg.payload || [];\n\nfunction formatRow(row) {\n    var sensors, collection, devices, crops;\n    try { sensors = JSON.parse(row.sensors || '[]'); } catch(e) { sensors = []; }\n    try { collection = JSON.parse(row.collection || '{}'); } catch(e) { collection = {}; }\n    try { devices = JSON.parse(row.devices || '[]'); } catch(e) { devices = []; }\n    try { crops = JSON.parse(row.crops || '[]'); } catch(e) { crops = []; }\n    return {\n        _id: row.id,\n        farmId: row.farm_id,\n        houseId: row.house_id,\n        houseName: row.house_name,\n        sensors: sensors,\n        collection: collection,\n        devices: devices,\n        crops: crops,\n        cropType: row.crop_type || '',\n        cropVariety: row.crop_variety || '',\n        plantingDate: row.planting_date || '',\n        deviceCount: row.device_count || 0,\n        enabled: row.enabled === 1,\n        configVersion: row.config_version || 1,\n        createdAt: row.created_at,\n        updatedAt: row.updated_at\n    };\n}\n\nif (msg._mode === 'single') {\n    if (rows.length === 0) {\n        var cachedConfig = global.get('houseConfig');\n        if (cachedConfig) {\n            msg.payload = { success: true, data: cachedConfig, source: 'cache' };\n        } else {\n            msg.payload = { success: false, error: 'House not found' };\n            msg.statusCode = 404;\n        }\n    } else {\n        msg.payload = { success: true, data: formatRow(rows[0]) };\n    }\n} else {\n    var configData = {\n        farmId: msg._farmId,\n        farmName: '스마트팜',\n        houses: rows.map(function(h) {\n            var formatted = formatRow(h);\n            return {\n                houseId: formatted.houseId,\n                name: formatted.houseName,\n                houseName: formatted.houseName,\n                sensors: formatted.sensors,\n                collection: formatted.collection,\n                enabled: formatted.enabled,\n                devices: formatted.devices,\n                deviceCount: formatted.devices.length || formatted.deviceCount || 0\n            };\n        })\n    };\n    msg.payload = { success: true, data: configData };\n}\nmsg.headers = { 'Access-Control-Allow-Origin': '*' };\nreturn msg;",
+        "outputs": 1,
+        "x": 870,
+        "y": 940,
+        "wires": [["http_res_config"]]
+    },
+
+    {
+        "id": "comment_config_sync",
+        "type": "comment",
+        "z": "config_crud_flow",
+        "name": "━━━ 글로벌 컨텍스트 동기화 ━━━",
+        "x": 200,
+        "y": 1020,
+        "wires": []
+    },
+    {
+        "id": "link_out_config_sync",
+        "type": "link out",
+        "z": "config_crud_flow",
+        "name": "Config 동기화 →",
+        "mode": "link",
+        "links": ["link_in_config_sync"],
+        "x": 1075,
+        "y": 700,
+        "wires": []
+    },
+    {
+        "id": "link_in_config_sync",
+        "type": "link in",
+        "z": "config_crud_flow",
+        "name": "← Config 동기화",
+        "links": ["link_out_config_sync"],
+        "x": 155,
+        "y": 1080,
+        "wires": [["config_sync_query"]]
+    },
+    {
+        "id": "config_sync_query",
+        "type": "function",
+        "z": "config_crud_flow",
+        "name": "전체 설정 조회",
+        "func": "var farmId = msg._farmId || 'farm_001';\nmsg.topic = 'SELECT * FROM house_configs WHERE farm_id = $1 ORDER BY created_at ASC';\nmsg.payload = [farmId];\nmsg._syncFarmId = farmId;\nreturn msg;",
+        "outputs": 1,
+        "x": 370,
+        "y": 1080,
+        "wires": [["sqlite_config_sync_read"]]
+    },
+    {
+        "id": "sqlite_config_sync_read",
+        "type": "sqlite",
+        "z": "config_crud_flow",
+        "name": "SQLite 조회",
+        "mydb": "sqlite_db",
+        "sqlquery": "msg.topic",
+        "sql": "",
+        "x": 570,
+        "y": 1080,
+        "wires": [["config_sync_apply"]]
+    },
+    {
+        "id": "config_sync_apply",
+        "type": "function",
+        "z": "config_crud_flow",
+        "name": "global.houseConfig 갱신",
+        "func": "var rows = msg.payload || [];\nvar houses = rows.map(function(row) {\n    var sensors, collection, devices;\n    try { sensors = JSON.parse(row.sensors || '[]'); } catch(e) { sensors = []; }\n    try { collection = JSON.parse(row.collection || '{}'); } catch(e) { collection = {}; }\n    try { devices = JSON.parse(row.devices || '[]'); } catch(e) { devices = []; }\n    return {\n        houseId: row.house_id,\n        houseName: row.house_name,\n        sensors: sensors,\n        collection: collection,\n        devices: devices,\n        enabled: row.enabled === 1,\n        configVersion: row.config_version || 1\n    };\n});\n\nvar config = {\n    farmId: msg._syncFarmId,\n    farmName: '스마트팜',\n    houses: houses\n};\nglobal.set('houseConfig', config);\nnode.warn('🔄 houseConfig 동기화 완료: ' + houses.length + '개 하우스');\nreturn null;",
+        "outputs": 1,
+        "x": 810,
+        "y": 1080,
+        "wires": [[]]
+    }
+]

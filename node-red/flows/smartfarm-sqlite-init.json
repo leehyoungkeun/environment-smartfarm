@@ -4,7 +4,7 @@
         "type": "tab",
         "label": "SQLite 초기화",
         "disabled": false,
-        "info": "SmartFarm SQLite 로컬 저장소 초기화\n- sensor_data: 센서 데이터 (설정 기간 보관)\n- config_cache: 서버 설정 캐시\n- automation_rules: 자동화 규칙 캐시\n- control_logs: 제어 로그"
+        "info": "SmartFarm SQLite 로컬 저장소 초기화\n- sensor_data: 센서 데이터 (설정 기간 보관)\n- config_cache: 서버 설정 캐시\n- automation_rules: 자동화 규칙 캐시\n- control_logs: 제어 로그\n- house_configs: 하우스 설정 CRUD (팜로컬)\n- system_settings: 시스템 설정 (보관기간 등)"
     },
     {
         "id": "sqlite_db",
@@ -151,7 +151,7 @@
         "type": "function",
         "z": "sqlite_init_flow",
         "name": "automation_rules 테이블",
-        "func": "msg.topic = `\nCREATE TABLE IF NOT EXISTS automation_rules (\n  id TEXT PRIMARY KEY,\n  farm_id TEXT NOT NULL DEFAULT 'farm_001',\n  house_id TEXT NOT NULL,\n  name TEXT NOT NULL,\n  description TEXT DEFAULT '',\n  enabled INTEGER DEFAULT 1,\n  condition_logic TEXT DEFAULT 'AND',\n  conditions TEXT NOT NULL,\n  actions TEXT NOT NULL,\n  cooldown_seconds INTEGER DEFAULT 300,\n  priority INTEGER DEFAULT 10,\n  last_triggered_at TEXT,\n  trigger_count INTEGER DEFAULT 0,\n  synced INTEGER DEFAULT 0,\n  created_at TEXT NOT NULL,\n  updated_at TEXT NOT NULL\n);\nCREATE INDEX IF NOT EXISTS idx_automation_farm ON automation_rules(farm_id, house_id);\nCREATE INDEX IF NOT EXISTS idx_automation_enabled ON automation_rules(enabled);\nCREATE INDEX IF NOT EXISTS idx_automation_synced ON automation_rules(synced);\n`;\nreturn msg;",
+        "func": "msg.topic = `\nCREATE TABLE IF NOT EXISTS automation_rules (\n  id TEXT PRIMARY KEY,\n  farm_id TEXT NOT NULL DEFAULT 'farm_001',\n  house_id TEXT NOT NULL,\n  name TEXT NOT NULL,\n  description TEXT DEFAULT '',\n  enabled INTEGER DEFAULT 1,\n  condition_logic TEXT DEFAULT 'AND',\n  group_logic TEXT DEFAULT 'AND',\n  conditions TEXT NOT NULL,\n  actions TEXT NOT NULL,\n  cooldown_seconds INTEGER DEFAULT 300,\n  priority INTEGER DEFAULT 10,\n  last_triggered_at TEXT,\n  trigger_count INTEGER DEFAULT 0,\n  synced INTEGER DEFAULT 0,\n  created_at TEXT NOT NULL,\n  updated_at TEXT NOT NULL\n);\nCREATE INDEX IF NOT EXISTS idx_automation_farm ON automation_rules(farm_id, house_id);\nCREATE INDEX IF NOT EXISTS idx_automation_enabled ON automation_rules(enabled);\nCREATE INDEX IF NOT EXISTS idx_automation_synced ON automation_rules(synced);\n`;\nreturn msg;",
         "outputs": 1,
         "x": 870,
         "y": 200,
@@ -167,6 +167,53 @@
         "sql": "",
         "x": 1070,
         "y": 200,
+        "wires": [["migrate_group_logic"]]
+    },
+    {
+        "id": "migrate_group_logic",
+        "type": "function",
+        "z": "sqlite_init_flow",
+        "name": "group_logic 컬럼 마이그레이션",
+        "func": "msg.topic = \"SELECT COUNT(*) as cnt FROM pragma_table_info('automation_rules') WHERE name = 'group_logic'\";\nreturn msg;",
+        "outputs": 1,
+        "x": 470,
+        "y": 250,
+        "wires": [["sqlite_check_group_logic"]]
+    },
+    {
+        "id": "sqlite_check_group_logic",
+        "type": "sqlite",
+        "z": "sqlite_init_flow",
+        "name": "컬럼 확인",
+        "mydb": "sqlite_db",
+        "sqlquery": "msg.topic",
+        "sql": "",
+        "x": 670,
+        "y": 250,
+        "wires": [["migrate_group_logic_exec"]]
+    },
+    {
+        "id": "migrate_group_logic_exec",
+        "type": "function",
+        "z": "sqlite_init_flow",
+        "name": "ALTER TABLE (필요 시)",
+        "func": "var rows = msg.payload || [];\nvar cnt = rows[0] ? rows[0].cnt : 0;\nif (cnt === 0) {\n    msg.topic = \"ALTER TABLE automation_rules ADD COLUMN group_logic TEXT DEFAULT 'AND'\";\n    node.warn('📦 마이그레이션: automation_rules에 group_logic 컬럼 추가');\n    return [msg, null];\n}\nreturn [null, msg];",
+        "outputs": 2,
+        "outputLabels": ["ALTER 실행", "스킵"],
+        "x": 890,
+        "y": 250,
+        "wires": [["sqlite_exec_migrate_gl", "init_control_logs"], ["init_control_logs"]]
+    },
+    {
+        "id": "sqlite_exec_migrate_gl",
+        "type": "sqlite",
+        "z": "sqlite_init_flow",
+        "name": "ALTER TABLE 실행",
+        "mydb": "sqlite_db",
+        "sqlquery": "msg.topic",
+        "sql": "",
+        "x": 1100,
+        "y": 250,
         "wires": [["init_control_logs"]]
     },
     {
@@ -190,6 +237,52 @@
         "sql": "",
         "x": 650,
         "y": 290,
+        "wires": [["init_house_configs"]]
+    },
+    {
+        "id": "init_house_configs",
+        "type": "function",
+        "z": "sqlite_init_flow",
+        "name": "house_configs 테이블",
+        "func": "msg.topic = `\nCREATE TABLE IF NOT EXISTS house_configs (\n  id TEXT PRIMARY KEY,\n  farm_id TEXT NOT NULL,\n  house_id TEXT NOT NULL,\n  house_name TEXT DEFAULT '',\n  sensors TEXT DEFAULT '[]',\n  collection TEXT DEFAULT '{}',\n  devices TEXT DEFAULT '[]',\n  crops TEXT DEFAULT '[]',\n  crop_type TEXT DEFAULT '',\n  crop_variety TEXT DEFAULT '',\n  planting_date TEXT DEFAULT '',\n  device_count INTEGER DEFAULT 0,\n  enabled INTEGER DEFAULT 1,\n  config_version INTEGER DEFAULT 1,\n  created_at TEXT NOT NULL,\n  updated_at TEXT NOT NULL,\n  UNIQUE(farm_id, house_id)\n);\nCREATE INDEX IF NOT EXISTS idx_hc_farm ON house_configs(farm_id);\nCREATE INDEX IF NOT EXISTS idx_hc_farm_house ON house_configs(farm_id, house_id);\n`;\nreturn msg;",
+        "outputs": 1,
+        "x": 890,
+        "y": 290,
+        "wires": [["sqlite_exec_6"]]
+    },
+    {
+        "id": "sqlite_exec_6",
+        "type": "sqlite",
+        "z": "sqlite_init_flow",
+        "name": "house_configs 생성",
+        "mydb": "sqlite_db",
+        "sqlquery": "msg.topic",
+        "sql": "",
+        "x": 430,
+        "y": 370,
+        "wires": [["init_system_settings"]]
+    },
+    {
+        "id": "init_system_settings",
+        "type": "function",
+        "z": "sqlite_init_flow",
+        "name": "system_settings 테이블",
+        "func": "msg.topic = `\nCREATE TABLE IF NOT EXISTS system_settings (\n  id INTEGER PRIMARY KEY,\n  farm_id TEXT NOT NULL UNIQUE,\n  settings_json TEXT DEFAULT '{}',\n  updated_at TEXT NOT NULL\n);\n`;\nreturn msg;",
+        "outputs": 1,
+        "x": 670,
+        "y": 370,
+        "wires": [["sqlite_exec_7"]]
+    },
+    {
+        "id": "sqlite_exec_7",
+        "type": "sqlite",
+        "z": "sqlite_init_flow",
+        "name": "system_settings 생성",
+        "mydb": "sqlite_db",
+        "sqlquery": "msg.topic",
+        "sql": "",
+        "x": 900,
+        "y": 370,
         "wires": [["init_done"]]
     },
     {
@@ -197,10 +290,10 @@
         "type": "function",
         "z": "sqlite_init_flow",
         "name": "초기화 완료",
-        "func": "node.warn('✅ SmartFarm SQLite DB 초기화 완료');\nnode.status({ fill: 'green', shape: 'dot', text: '초기화 완료' });\nmsg.payload = 'SQLite DB 초기화 완료: sensor_data, config_cache, automation_rules, control_logs';\nreturn msg;",
+        "func": "node.warn('✅ SmartFarm SQLite DB 초기화 완료');\nnode.status({ fill: 'green', shape: 'dot', text: '초기화 완료' });\nmsg.payload = 'SQLite DB 초기화 완료: sensor_data, config_cache, automation_rules, control_logs, house_configs, system_settings';\nreturn msg;",
         "outputs": 1,
-        "x": 850,
-        "y": 290,
+        "x": 420,
+        "y": 440,
         "wires": [["debug_init"]]
     },
     {

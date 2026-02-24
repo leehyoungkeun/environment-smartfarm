@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import axios from 'axios';
-import { getApiBase, getRpiApiBase, isFarmLocalMode } from '../../services/apiSwitcher';
+import { getApiBase, getPcApiBase, getRpiApiBase, isFarmLocalMode } from '../../services/apiSwitcher';
 
 const DEFAULT_SENSOR_OPTIONS = [
   { id: 'temp_001', name: '온도', unit: '°C', icon: '🌡️' },
@@ -8,10 +8,25 @@ const DEFAULT_SENSOR_OPTIONS = [
 ];
 
 const DEVICE_TYPE_OPTIONS = [
-  { value: 'window', label: '개폐기', icon: '🪟', commands: ['open', 'stop', 'close'] },
-  { value: 'fan', label: '환풍기', icon: '🌀', commands: ['on', 'off'] },
-  { value: 'heater', label: '히터', icon: '🔥', commands: ['on', 'off'] },
-  { value: 'valve', label: '관수밸브', icon: '🚿', commands: ['open', 'stop', 'close'] },
+  { value: 'window', label: '1창', icon: '🪟', commands: ['open', 'stop', 'close'] },
+  { value: 'side_window', label: '측창', icon: '🪟', commands: ['open', 'stop', 'close'] },
+  { value: 'top_window', label: '천창', icon: '🪟', commands: ['open', 'stop', 'close'] },
+  { value: 'shade', label: '차광', icon: '🌑', commands: ['open', 'stop', 'close'] },
+  { value: 'screen', label: '스크린', icon: '🎞️', commands: ['open', 'stop', 'close'] },
+  { value: 'pump', label: '펌프', icon: '🔧', commands: ['on', 'off'] },
+  { value: 'motor', label: '모터', icon: '⚙️', commands: ['on', 'off'] },
+  { value: 'light', label: '조명', icon: '💡', commands: ['on', 'off'] },
+  { value: 'fan', label: '순환팬', icon: '🌀', commands: ['on', 'off'] },
+  { value: 'nutrient', label: '양액공급', icon: '💧', commands: ['on', 'off'] },
+  { value: 'solution', label: '배양액', icon: '🧪', commands: ['on', 'off'] },
+  { value: 'light_ctrl', label: '조명제어', icon: '🔆', commands: ['on', 'off'] },
+  { value: 'sprayer', label: '무인방제기', icon: '🚿', commands: ['on', 'off'] },
+  { value: 'heater', label: '온풍기', icon: '🔥', commands: ['on', 'off'] },
+  { value: 'cooler', label: '냉방기', icon: '❄️', commands: ['on', 'off'] },
+  { value: 'co2_supply', label: 'CO2공급기', icon: '💨', commands: ['on', 'off'] },
+  { value: 'mist', label: '분무제어', icon: '🌫️', commands: ['on', 'off'] },
+  { value: 'valve', label: '관수밸브', icon: '🚰', commands: ['open', 'stop', 'close'] },
+  { value: 'etc_device', label: '기타', icon: '🔧', commands: ['on', 'off'] },
 ];
 
 const OPERATOR_OPTIONS = [
@@ -43,19 +58,24 @@ async function rpiApi(method, path, data) {
 }
 
 // RPi → PC 전체 규칙 동기화 (백그라운드)
+// x-api-key 헤더로 인증 → JWT 없는 팜로컬 모드에서도 동작
+const SYNC_API_KEY = import.meta.env.VITE_SENSOR_API_KEY;
 function syncRulesToPC(farmId) {
   const rpiUrl = getRpiApiBase();
-  const pcUrl = getApiBase();
+  const pcUrl = getPcApiBase();
   if (rpiUrl === pcUrl) return;
 
   axios.get(`${rpiUrl}/automation/${farmId}`, { timeout: 5000 })
     .then(res => {
       if (res?.data?.success && Array.isArray(res.data.data) && res.data.data.length > 0) {
         const rules = res.data.data.map(r => ({ ...r, id: r._id || r.id }));
-        return axios.post(`${pcUrl}/automation/${farmId}/sync`, { rules }, { timeout: 10000 });
+        return axios.post(`${pcUrl}/automation/${farmId}/sync`,
+          { rules },
+          { timeout: 10000, headers: { 'x-api-key': SYNC_API_KEY } }
+        );
       }
     })
-    .catch(() => {}); // 동기화 실패는 무시
+    .catch(err => { console.warn('[RulesSync] 동기화 실패:', err.message); });
 }
 
 const TABS = [
@@ -77,27 +97,45 @@ const AutomationManager = ({ farmId }) => {
   const [activeTab, setActiveTab] = useState('sensor');
   const [showForm, setShowForm] = useState(false);
   const [editingRule, setEditingRule] = useState(null);
+  const mountedRef = useRef(true);
+  const reloadTimerRef = useRef(null);
 
-  // 데이터 로드 (RPi 우선, RPi 불가 시 PC 폴백)
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      if (reloadTimerRef.current) clearTimeout(reloadTimerRef.current);
+    };
+  }, []);
+
+  // 데이터 로드 (PC + RPi 병렬, RPi 우선 — RPi가 권한 기준)
   const loadData = useCallback(async () => {
     setLoading(true);
     try {
       const rpiUrl = getRpiApiBase();
       const pcUrl = getApiBase();
       const configCacheKey = `cachedConfig_${farmId}`;
+      const isDual = rpiUrl !== pcUrl;
 
-      // 규칙: RPi 우선 → PC 폴백
-      const [rulesRes, configRes] = await Promise.all([
-        axios.get(`${rpiUrl}/automation/${farmId}`, { timeout: 5000 })
-          .catch(() => rpiUrl !== pcUrl
-            ? axios.get(`${pcUrl}/automation/${farmId}`, { timeout: 5000 }).catch(() => null)
-            : null
-          ),
+      // PC + RPi 병렬 로드 (둘 다 동시 요청 → 지연 없음)
+      const [pcRulesRes, rpiRulesRes, configRes] = await Promise.all([
+        axios.get(`${pcUrl}/automation/${farmId}`, { timeout: 5000 }).catch(() => null),
+        isDual ? axios.get(`${rpiUrl}/automation/${farmId}`, { timeout: 5000 }).catch(() => null) : null,
         axios.get(`${pcUrl}/config/${farmId}`, { timeout: 5000 }).catch(() => null),
       ]);
 
-      if (rulesRes?.data?.success && Array.isArray(rulesRes.data.data)) {
-        setRules(rulesRes.data.data.map(r => ({ ...r, _id: r._id || r.id })));
+      if (!mountedRef.current) return;
+
+      const pcRules = pcRulesRes?.data?.success ? pcRulesRes.data.data : [];
+      const rpiRules = rpiRulesRes?.data?.success ? rpiRulesRes.data.data : [];
+
+      // RPi가 권한 기준 → RPi 데이터 있으면 우선, 없으면 PC 폴백
+      const finalRules = rpiRules.length > 0 ? rpiRules : pcRules;
+      setRules(finalRules.map(r => ({ ...r, _id: r._id || r.id })));
+
+      // RPi와 PC 불일치 시 백그라운드 sync
+      if (isDual && rpiRules.length > 0 && rpiRules.length !== pcRules.length) {
+        syncRulesToPC(farmId);
       }
 
       if (configRes?.data?.success) {
@@ -109,9 +147,10 @@ const AutomationManager = ({ farmId }) => {
         } catch {}
       }
     } catch (error) {
+      if (!mountedRef.current) return;
       console.error('로드 실패:', error);
     } finally {
-      setLoading(false);
+      if (mountedRef.current) setLoading(false);
     }
   }, [farmId]);
 
@@ -172,7 +211,9 @@ const AutomationManager = ({ farmId }) => {
       const targetTab = (hasSensor && hasTime) ? 'custom' : hasTime ? 'schedule' : 'sensor';
       setActiveTab(targetTab);
     }
-    setTimeout(() => loadData(), 800);
+    reloadTimerRef.current = setTimeout(() => {
+      if (mountedRef.current) loadData();
+    }, 800);
   };
 
   // 편집 시작
@@ -203,7 +244,7 @@ const AutomationManager = ({ farmId }) => {
   const colors = TAB_COLORS[currentTab?.color || 'violet'];
 
   return (
-    <div className="max-w-7xl mx-auto px-4 md:px-6 py-4 md:py-6">
+    <div>
       {/* 탭 네비게이션 + 새 규칙 */}
       <div className="flex items-center gap-2 mb-5 overflow-x-auto pb-1">
         {TABS.map(tab => {
@@ -388,13 +429,13 @@ const ScheduleCard = ({ rule, houses, onToggle, onEdit, onDelete }) => {
             {timeCond?.timeMode === 'interval' && (
               <span className="text-[10px] font-bold bg-amber-100 text-amber-600 px-2 py-0.5 rounded-full">반복</span>
             )}
-            {timeCond?.timeMode === 'specific' && (timeCond?.times?.length || 0) > 1 && (
+            {timeCond?.timeMode !== 'interval' && (timeCond?.times?.length || 0) > 1 && (
               <span className="text-[10px] font-bold bg-amber-100 text-amber-600 px-2 py-0.5 rounded-full">{timeCond.times.length}회</span>
             )}
           </div>
 
           {/* 지정시간 여러개인 경우 시간 목록 표시 */}
-          {timeCond?.timeMode === 'specific' && (timeCond?.times?.length || 0) > 1 && (
+          {timeCond?.timeMode !== 'interval' && (timeCond?.times?.length || 0) > 1 && (
             <div className="flex flex-wrap gap-1 mb-2">
               {timeCond.times.map((t, i) => (
                 <span key={i} className="text-xs font-bold bg-amber-50 text-amber-600 border border-amber-200 px-2 py-0.5 rounded">
@@ -530,8 +571,8 @@ const RuleCard = ({ rule, houses, tabColor = 'violet', onToggle, onEdit, onDelet
                   let timeStr;
                   if (cond.timeMode === 'interval') {
                     timeStr = `${cond.startTime || '08:00'}~${cond.endTime || '18:00'} ${cond.intervalMinutes || 30}분간격`;
-                  } else if (cond.timeMode === 'specific') {
-                    timeStr = (cond.times || []).join(', ');
+                  } else if (cond.times && cond.times.length > 0) {
+                    timeStr = cond.times.join(', ');
                   } else {
                     timeStr = cond.time || '--:--';
                   }
@@ -618,7 +659,7 @@ const RuleForm = ({ farmId, houses, rule, existingRules = [], defaultTab = 'sens
     conditionLogic: rule?.conditionLogic || 'AND',
     groupLogic: rule?.groupLogic || 'AND',
     conditions: rule?.conditions || defaultConditions[defaultTab] || defaultConditions.sensor,
-    actions: rule?.actions || [{ deviceId: 'fan1', deviceType: 'fan', deviceName: '환풍기 1', command: 'on' }],
+    actions: rule?.actions || [{ deviceId: 'fan1', deviceType: 'fan', deviceName: '환풍기 1', command: 'on', duration: 0 }],
     cooldownSeconds: rule?.cooldownSeconds || (defaultTab === 'schedule' ? 60 : 300),
     enabled: rule?.enabled !== false,
   });
@@ -668,8 +709,8 @@ const RuleForm = ({ farmId, houses, rule, existingRules = [], defaultTab = 'sens
     // 하우스에 장치가 있으면 첫 번째 장치를, 없으면 기본값
     const firstDevice = houseDevices[0];
     const newAction = firstDevice
-      ? { deviceId: firstDevice.deviceId, deviceType: firstDevice.type, deviceName: firstDevice.name, command: firstDevice.type === 'fan' || firstDevice.type === 'heater' ? 'on' : 'open' }
-      : { deviceId: 'fan1', deviceType: 'fan', deviceName: '환풍기 1', command: 'on' };
+      ? { deviceId: firstDevice.deviceId, deviceType: firstDevice.type, deviceName: firstDevice.name, command: firstDevice.type === 'fan' || firstDevice.type === 'heater' ? 'on' : 'open', duration: 0 }
+      : { deviceId: 'fan1', deviceType: 'fan', deviceName: '환풍기 1', command: 'on', duration: 0 };
     setForm({ ...form, actions: [...form.actions, newAction] });
   };
 
@@ -688,13 +729,24 @@ const RuleForm = ({ farmId, houses, rule, existingRules = [], defaultTab = 'sens
     savingRef.current = true;
     setSaving(true);
     try {
-      // 탭 유형에 맞지 않는 조건 제거
+      // 탭 유형에 맞지 않는 조건 제거 + 시간 조건 정규화
       const cleanedForm = { ...form };
       if (defaultTab === 'sensor') {
         cleanedForm.conditions = form.conditions.filter(c => c.type === 'sensor');
       } else if (defaultTab === 'schedule') {
         cleanedForm.conditions = form.conditions.filter(c => c.type === 'time');
       }
+      // 시간 조건: timeMode 누락 보정 + 레거시 time→times 변환
+      cleanedForm.conditions = cleanedForm.conditions.map(c => {
+        if (c.type !== 'time') return c;
+        const normalized = { ...c };
+        if (!normalized.timeMode) normalized.timeMode = 'specific';
+        if (normalized.timeMode === 'specific' && !normalized.times?.length) {
+          normalized.times = normalized.time ? [normalized.time] : ['08:00'];
+        }
+        delete normalized.time; // 레거시 단일 time 필드 제거
+        return normalized;
+      });
 
       let res;
       if (rule?._id) {
@@ -768,6 +820,7 @@ const RuleForm = ({ farmId, houses, rule, existingRules = [], defaultTab = 'sens
             ))}
           </select>
         </div>
+        {defaultTab !== 'schedule' && (
         <div>
           <label className="text-sm text-gray-400 font-semibold mb-1.5 block">쿨다운 (분)</label>
           <input
@@ -778,6 +831,7 @@ const RuleForm = ({ farmId, houses, rule, existingRules = [], defaultTab = 'sens
             min="1" max="1440"
           />
         </div>
+        )}
       </div>
 
       {/* ━━━ 센서 조건 ━━━ */}
@@ -879,7 +933,7 @@ const RuleForm = ({ farmId, houses, rule, existingRules = [], defaultTab = 'sens
           {timeConds.length > 0 ? timeConds.map((cond) => {
             // 기존 호환: timeMode 없고 time만 있으면 specific으로 취급
             const timeMode = cond.timeMode || 'specific';
-            const times = cond.times || (cond.time ? [cond.time] : ['08:00']);
+            const times = (cond.times && cond.times.length > 0) ? cond.times : (cond.time ? [cond.time] : ['08:00']);
 
             return (
               <div key={cond._idx} className="bg-white rounded-lg p-3 border border-amber-100 space-y-2.5">

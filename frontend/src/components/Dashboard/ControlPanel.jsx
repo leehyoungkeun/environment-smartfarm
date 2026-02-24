@@ -5,10 +5,25 @@ import { sendControlCommand } from '../../services/controlApi';
 import { getSystemMode, getApiBase, getRpiApiBase } from '../../services/apiSwitcher';
 
 const DEVICE_TYPE_INFO = {
-  window: { label: '개폐기', icon: '🪟', commands: ['open', 'stop', 'close'] },
-  fan:    { label: '환풍기', icon: '🌀', commands: ['on', 'off'] },
-  heater: { label: '히터',   icon: '🔥', commands: ['on', 'off'] },
-  valve:  { label: '관수밸브', icon: '🚿', commands: ['open', 'stop', 'close'] },
+  window:      { label: '1창', icon: '🪟', commands: ['open', 'stop', 'close'] },
+  side_window: { label: '측창', icon: '🪟', commands: ['open', 'stop', 'close'] },
+  top_window:  { label: '천창', icon: '🪟', commands: ['open', 'stop', 'close'] },
+  shade:       { label: '차광', icon: '🌑', commands: ['open', 'stop', 'close'] },
+  screen:      { label: '스크린', icon: '🎞️', commands: ['open', 'stop', 'close'] },
+  pump:        { label: '펌프', icon: '🔧', commands: ['on', 'off'] },
+  motor:       { label: '모터', icon: '⚙️', commands: ['on', 'off'] },
+  light:       { label: '조명', icon: '💡', commands: ['on', 'off'] },
+  fan:         { label: '순환팬', icon: '🌀', commands: ['on', 'off'] },
+  nutrient:    { label: '양액공급', icon: '💧', commands: ['on', 'off'] },
+  solution:    { label: '배양액', icon: '🧪', commands: ['on', 'off'] },
+  light_ctrl:  { label: '조명제어', icon: '🔆', commands: ['on', 'off'] },
+  sprayer:     { label: '무인방제기', icon: '🚿', commands: ['on', 'off'] },
+  heater:      { label: '온풍기', icon: '🔥', commands: ['on', 'off'] },
+  cooler:      { label: '냉방기', icon: '❄️', commands: ['on', 'off'] },
+  co2_supply:  { label: 'CO2공급기', icon: '💨', commands: ['on', 'off'] },
+  mist:        { label: '분무제어', icon: '🌫️', commands: ['on', 'off'] },
+  valve:       { label: '관수밸브', icon: '🚰', commands: ['open', 'stop', 'close'] },
+  etc_device:  { label: '기타', icon: '🔧', commands: ['on', 'off'] },
 };
 
 const ControlPanel = ({ farmId, houseId, houseConfig }) => {
@@ -115,6 +130,16 @@ const ControlPanel = ({ farmId, houseId, houseConfig }) => {
   }, [farmId]);
 
   useEffect(() => { loadAutoRules(); }, [loadAutoRules]);
+
+  // unmount 시 모든 타이머 정리
+  useEffect(() => {
+    const refs = timerRefs.current;
+    return () => {
+      Object.keys(refs).forEach(key => {
+        if (refs[key]) { clearTimeout(refs[key]); refs[key] = null; }
+      });
+    };
+  }, []);
 
   // 장치별 선택된 규칙 ID 목록 (localStorage 기반)
   const rulesKey = `deviceRules_${farmId}_${houseId}`;
@@ -232,29 +257,49 @@ const ControlPanel = ({ farmId, houseId, houseConfig }) => {
   const groupedDevices = {};
   devices.forEach(d => { const type = d.type || 'window'; if (!groupedDevices[type]) groupedDevices[type] = []; groupedDevices[type].push(d); });
 
-  // Bold control panel styles
-  const btnBase = { padding: '14px 0', borderRadius: '12px', fontSize: '15px', fontWeight: 800, transition: 'all 0.15s', cursor: 'pointer', textAlign: 'center', border: 'none', letterSpacing: '0.02em' };
+  // 대시보드 통일 스타일
+  const btnBase = { padding: '11px 0', borderRadius: '10px', fontSize: '14px', fontWeight: 700, transition: 'all 0.15s', cursor: 'pointer', textAlign: 'center', border: '2px solid transparent', letterSpacing: '-0.01em' };
 
-  const openActiveStyle = { background: '#059669', color: '#fff', boxShadow: '0 3px 12px rgba(5,150,105,0.4)' };
-  const openInactiveStyle = { background: '#059669', color: '#fff', boxShadow: '0 2px 8px rgba(5,150,105,0.3)' };
-  const openDisabledStyle = { background: '#d1d5db', color: '#9ca3af', cursor: 'not-allowed', boxShadow: 'none' };
+  // 장치 유형별 컬러 테마 [from, to] — 대시보드 팔레트 기반
+  const typeTheme = {
+    window:      ['#2563eb', '#60a5fa'],  // Soft Blue
+    side_window: ['#059669', '#10b981'],  // Emerald
+    top_window:  ['#0891b2', '#06b6d4'],  // Cyan
+    shade:       ['#6d28d9', '#8b5cf6'],  // Violet
+    screen:      ['#7c3aed', '#a78bfa'],  // Purple
+    pump:        ['#2563eb', '#3b82f6'],  // Royal Blue
+    motor:       ['#475569', '#64748b'],  // Slate
+    light:       ['#d97706', '#f59e0b'],  // Amber
+    fan:         ['#0891b2', '#22d3ee'],  // Teal
+    nutrient:    ['#047857', '#059669'],  // Forest
+    solution:    ['#065f46', '#047857'],  // Deep Green
+    light_ctrl:  ['#ea580c', '#f97316'],  // Orange
+    sprayer:     ['#7c3aed', '#a78bfa'],  // Lavender
+    heater:      ['#ea580c', '#fb923c'],  // Warm Orange
+    cooler:      ['#0284c7', '#38bdf8'],  // Sky
+    co2_supply:  ['#6d28d9', '#8b5cf6'],  // Indigo
+    mist:        ['#06b6d4', '#67e8f9'],  // Ice
+    valve:       ['#6366f1', '#818cf8'],  // Soft Indigo
+    etc_device:  ['#64748b', '#94a3b8'],  // Gray
+  };
 
-  const stopActiveStyle = { background: '#d97706', color: '#fff', boxShadow: '0 3px 12px rgba(217,119,6,0.4)' };
-  const stopInactiveStyle = { background: '#f3f4f6', color: '#6b7280', border: '2px solid #d1d5db' };
-  const stopUrgentStyle = { background: '#f59e0b', color: '#fff', boxShadow: '0 3px 12px rgba(245,158,11,0.5)', fontWeight: 900 };
-  const stopDisabledStyle = { background: '#e5e7eb', color: '#9ca3af', cursor: 'not-allowed', boxShadow: 'none' };
-
-  const closeActiveStyle = { background: '#4f46e5', color: '#fff', boxShadow: '0 3px 12px rgba(79,70,229,0.4)' };
-  const closeInactiveStyle = { background: '#4f46e5', color: '#fff', boxShadow: '0 2px 8px rgba(79,70,229,0.3)' };
-  const closeDisabledStyle = { background: '#d1d5db', color: '#9ca3af', cursor: 'not-allowed', boxShadow: 'none' };
-
-  const onActiveStyle = { background: '#059669', color: '#fff', boxShadow: '0 3px 12px rgba(5,150,105,0.4)' };
-  const onInactiveStyle = { background: '#059669', color: '#fff', boxShadow: '0 2px 8px rgba(5,150,105,0.3)' };
-  const offActiveStyle = { background: '#6b7280', color: '#fff', boxShadow: '0 3px 12px rgba(107,114,128,0.4)' };
-  const offInactiveStyle = { background: '#6b7280', color: '#fff', boxShadow: '0 2px 8px rgba(107,114,128,0.3)' };
-
-  // Device type accent colors
-  const typeAccent = { window: '#059669', fan: '#0891b2', heater: '#dc2626', valve: '#7c3aed' };
+  // 대시보드 스타일 동적 버튼
+  const getAccentStyles = ([from, to]) => ({
+    openActive:    { background: `linear-gradient(135deg, ${from} 0%, ${to} 100%)`, color: '#fff', boxShadow: `0 4px 12px ${from}40` },
+    openInactive:  { background: from, color: '#fff', boxShadow: `0 2px 8px ${from}35` },
+    openDisabled:  { background: '#e5e7eb', color: '#9ca3af', cursor: 'not-allowed' },
+    stopActive:    { background: 'linear-gradient(135deg, #f59e0b, #d97706)', color: '#fff', boxShadow: '0 4px 12px rgba(245,158,11,0.4)' },
+    stopInactive:  { background: '#f8fafc', color: '#6b7280', borderColor: '#e2e8f0' },
+    stopUrgent:    { background: '#f59e0b', color: '#fff', boxShadow: '0 4px 12px rgba(245,158,11,0.5)', fontWeight: 800 },
+    stopDisabled:  { background: '#f3f4f6', color: '#d1d5db', cursor: 'not-allowed' },
+    closeActive:   { background: `linear-gradient(135deg, ${to} 0%, ${from} 100%)`, color: '#fff', boxShadow: `0 4px 12px ${to}40` },
+    closeInactive: { background: to, color: '#fff', boxShadow: `0 2px 8px ${to}35` },
+    closeDisabled: { background: '#e5e7eb', color: '#9ca3af', cursor: 'not-allowed' },
+    onActive:      { background: `linear-gradient(135deg, ${from} 0%, ${to} 100%)`, color: '#fff', boxShadow: `0 4px 12px ${from}40` },
+    onInactive:    { background: from, color: '#fff', boxShadow: `0 2px 8px ${from}35` },
+    offActive:     { background: '#64748b', color: '#fff', boxShadow: '0 2px 8px rgba(100,116,139,0.35)' },
+    offInactive:   { background: '#f8fafc', color: '#6b7280', borderColor: '#e2e8f0' },
+  });
 
   if (devices.length === 0) {
     return (
@@ -275,12 +320,12 @@ const ControlPanel = ({ farmId, houseId, houseConfig }) => {
   return (
     <div className="glass-card p-4 md:p-5">
       <div className="flex items-center justify-between mb-4">
-        <h2 className="text-lg md:text-xl font-bold flex items-center gap-2" style={{color:'#111827'}}>🎛️ 제어 패널</h2>
+        <h2 style={{fontSize:18,fontWeight:800,color:'#111827',letterSpacing:'-0.01em'}} className="flex items-center gap-2">🎛️ 제어 패널</h2>
         <div className="flex items-center gap-2">
-          <span style={{fontSize:12,color:'#9ca3af',background:'#f3f4f6',padding:'3px 10px',borderRadius:6}}>{controlHouseId}</span>
+          <span style={{fontSize:12,color:'#6b7280',background:'#f3f4f6',padding:'3px 10px',borderRadius:8,fontWeight:600}}>{controlHouseId}</span>
           {/* 자동화 적용/중지 상태 표시 */}
           {automationActive && (
-            <span style={{fontSize:11,fontWeight:800,padding:'3px 10px',borderRadius:20,background:'#dcfce7',color:'#15803d',border:'1.5px solid #86efac'}}>
+            <span style={{fontSize:11,fontWeight:700,padding:'3px 10px',borderRadius:8,background:'#dcfce7',color:'#047857',border:'1px solid #bbf7d0'}}>
               자동화 작동중
             </span>
           )}
@@ -289,12 +334,12 @@ const ControlPanel = ({ farmId, houseId, houseConfig }) => {
             onClick={handleApply}
             disabled={applyLoading}
             style={{
-              padding:'6px 14px',borderRadius:10,fontSize:13,fontWeight:800,
+              padding:'6px 14px',borderRadius:10,fontSize:13,fontWeight:700,
               border:'none',cursor: applyLoading ? 'not-allowed' : 'pointer',
-              background: automationActive ? '#d1d5db' : '#059669',
+              background: automationActive ? '#e5e7eb' : '#1d4ed8',
               color: automationActive ? '#9ca3af' : '#fff',
-              boxShadow: automationActive ? 'none' : '0 2px 8px rgba(5,150,105,0.35)',
-              transition:'all 0.2s',
+              boxShadow: automationActive ? 'none' : '0 2px 8px rgba(29,78,216,0.35)',
+              transition:'all 0.15s',
             }}
           >
             {applyLoading ? '⏳' : '▶'} 자동화 적용
@@ -304,12 +349,12 @@ const ControlPanel = ({ farmId, houseId, houseConfig }) => {
             onClick={handleStop}
             disabled={applyLoading || !automationActive}
             style={{
-              padding:'6px 14px',borderRadius:10,fontSize:13,fontWeight:800,
+              padding:'6px 14px',borderRadius:10,fontSize:13,fontWeight:700,
               border:'none',cursor: (applyLoading || !automationActive) ? 'not-allowed' : 'pointer',
-              background: !automationActive ? '#e5e7eb' : '#ef4444',
-              color: !automationActive ? '#9ca3af' : '#fff',
-              boxShadow: !automationActive ? 'none' : '0 2px 8px rgba(239,68,68,0.35)',
-              transition:'all 0.2s',
+              background: !automationActive ? '#f3f4f6' : '#dc2626',
+              color: !automationActive ? '#d1d5db' : '#fff',
+              boxShadow: !automationActive ? 'none' : '0 2px 8px rgba(220,38,38,0.35)',
+              transition:'all 0.15s',
             }}
           >
             {applyLoading ? '⏳' : '⏸'} 중지
@@ -318,19 +363,21 @@ const ControlPanel = ({ farmId, houseId, houseConfig }) => {
       </div>
 
       {Object.entries(groupedDevices).map(([type, devicesInGroup]) => {
-        const typeInfo = DEVICE_TYPE_INFO[type] || DEVICE_TYPE_INFO.window;
-        const isToggleType = type === 'fan' || type === 'heater';
-        const accent = typeAccent[type] || '#059669';
+        const typeInfo = DEVICE_TYPE_INFO[type] || { label: type, icon: '🔧', commands: ['on', 'off'] };
+        const isToggleType = !typeInfo.commands.includes('stop');
+        const theme = typeTheme[type] || ['#94a3b8', '#64748b'];
+        const accent = theme[0];
+        const s = getAccentStyles(theme);
 
         return (
-          <div key={type} style={{background:'#fff',border:'1px solid #e2e8f0',borderRadius:16,marginBottom:16,overflow:'hidden',boxShadow:'0 1px 3px rgba(0,0,0,0.06)'}}>
-            {/* 장치 유형 헤더 - 컬러 바 */}
-            <div style={{background:accent,padding:'10px 18px',display:'flex',alignItems:'center',justifyContent:'space-between'}}>
-              <h3 style={{fontSize:16,fontWeight:800,color:'#fff',letterSpacing:'0.02em'}} className="flex items-center gap-2">
+          <div key={type} style={{background:'#fff',borderRadius:16,marginBottom:16,overflow:'hidden',border:'1px solid #d1d5db',boxShadow:'0 4px 12px rgba(0,0,0,0.1)'}}>
+            {/* 장치 유형 헤더 */}
+            <div style={{background:`linear-gradient(135deg, ${theme[0]} 0%, ${theme[1]} 100%)`,padding:'14px 18px',display:'flex',alignItems:'center',justifyContent:'space-between'}}>
+              <h3 style={{fontSize:16,fontWeight:800,color:'#fff',letterSpacing:'-0.01em'}} className="flex items-center gap-2">
                 <span style={{fontSize:18}}>{typeInfo.icon}</span>
                 <span>{typeInfo.label}</span>
               </h3>
-              <span style={{background:'rgba(255,255,255,0.25)',color:'#fff',fontSize:13,fontWeight:700,padding:'2px 12px',borderRadius:20}}>
+              <span style={{background:'rgba(255,255,255,0.2)',color:'#fff',fontSize:12,fontWeight:700,padding:'2px 10px',borderRadius:8}}>
                 {devicesInGroup.length}대
               </span>
             </div>
@@ -351,7 +398,7 @@ const ControlPanel = ({ farmId, houseId, houseConfig }) => {
                       <div className="flex items-center justify-between mb-3">
                         <div className="flex items-center gap-2">
                           <span style={{fontSize:20}}>{device.icon || typeInfo.icon}</span>
-                          <span style={{fontSize:17,fontWeight:800,color:'#0f172a'}}>{device.name}</span>
+                          <span style={{fontSize:16,fontWeight:800,color:'#0f172a'}}>{device.name}</span>
                         </div>
                         <div className="flex items-center gap-2">
                           {/* 수동/자동 모드 토글 */}
@@ -360,24 +407,24 @@ const ControlPanel = ({ farmId, houseId, houseConfig }) => {
                             disabled={automationActive}
                             style={{
                               display:'flex',alignItems:'center',gap:5,
-                              padding:'4px 10px',borderRadius:20,fontSize:12,fontWeight:800,
-                              border:`1.5px solid ${isAuto ? '#22c55e' : '#3b82f6'}`,
-                              background: isAuto ? '#dcfce7' : '#eff6ff',
-                              color: isAuto ? '#15803d' : '#1d4ed8',
+                              padding:'4px 10px',borderRadius:8,fontSize:12,fontWeight:700,
+                              border:`2px solid ${isAuto ? '#bbf7d0' : '#e2e8f0'}`,
+                              background: isAuto ? '#f0fdf4' : '#f8fafc',
+                              color: isAuto ? '#047857' : '#6b7280',
                               cursor: automationActive ? 'not-allowed' : 'pointer',
-                              transition:'all 0.2s',
+                              transition:'all 0.15s',
                               opacity: automationActive ? 0.6 : 1,
                             }}
                           >
                             <span style={{width:16,height:16,borderRadius:'50%',display:'flex',alignItems:'center',justifyContent:'center',fontSize:10,
-                              background: isAuto ? '#22c55e' : '#3b82f6',color:'#fff'
+                              background: isAuto ? '#059669' : '#94a3b8',color:'#fff'
                             }}>
                               {isAuto ? 'A' : 'M'}
                             </span>
                             {isAuto ? '자동' : '수동'}
                           </button>
                           {/* 상태 표시 */}
-                          <div style={{display:'flex',alignItems:'center',gap:6,background:statusDisplay.animate ? `${statusDisplay.color}15` : '#f1f5f9',padding:'4px 12px',borderRadius:20,border:`1.5px solid ${statusDisplay.animate ? statusDisplay.color : '#e2e8f0'}`}}>
+                          <div style={{display:'flex',alignItems:'center',gap:6,background:statusDisplay.animate ? `${statusDisplay.color}15` : '#f8fafc',padding:'4px 12px',borderRadius:8,border:`2px solid ${statusDisplay.animate ? statusDisplay.color : '#e2e8f0'}`}}>
                             <span style={{width:8,height:8,borderRadius:'50%',background:statusDisplay.color,display:'inline-block',boxShadow:`0 0 6px ${statusDisplay.color}`}} className={statusDisplay.animate ? 'animate-pulse' : ''} />
                             <span style={{fontSize:13,fontWeight:700,color:statusDisplay.color}}>{statusDisplay.text}</span>
                           </div>
@@ -390,7 +437,7 @@ const ControlPanel = ({ farmId, houseId, houseConfig }) => {
                             <div style={{
                               display:'flex',alignItems:'center',gap:6,
                               padding:'6px 12px',marginBottom:8,borderRadius:8,
-                              background:'#fef3c7',border:'1.5px solid #fde68a',
+                              background:'#fef3c7',border:'2px solid #fde68a',
                             }}>
                               <span style={{fontSize:13}}>⏸</span>
                               <span style={{fontSize:12,fontWeight:700,color:'#b45309'}}>자동화 중지됨 — 적용 버튼을 눌러 시작하세요</span>
@@ -410,12 +457,12 @@ const ControlPanel = ({ farmId, houseId, houseConfig }) => {
                         <div className="grid grid-cols-2 gap-3">
                           <button onClick={() => handleControl(device.deviceId, 'on')}
                             disabled={isProcessing || state.status === 'on'}
-                            style={{...btnBase, ...(state.status === 'on' || state.status === 'turning_on' ? onActiveStyle : onInactiveStyle), ...(isProcessing || state.status === 'on' ? {opacity:0.4,cursor:'not-allowed'} : {})}}>
+                            style={{...btnBase, ...(state.status === 'on' || state.status === 'turning_on' ? s.onActive : s.onInactive), ...(isProcessing || state.status === 'on' ? {opacity:0.4,cursor:'not-allowed'} : {})}}>
                             {state.status === 'turning_on' ? '⏳ 전환중...' : state.status === 'on' ? '● ON' : '◉ ON'}
                           </button>
                           <button onClick={() => handleControl(device.deviceId, 'off')}
                             disabled={isProcessing || state.status === 'off' || state.status === 'idle'}
-                            style={{...btnBase, ...(state.status === 'off' || state.status === 'idle' || state.status === 'turning_off' ? offActiveStyle : offInactiveStyle), ...(isProcessing || state.status === 'off' || state.status === 'idle' ? {opacity:0.4,cursor:'not-allowed'} : {})}}>
+                            style={{...btnBase, ...(state.status === 'off' || state.status === 'idle' || state.status === 'turning_off' ? s.offActive : s.offInactive), ...(isProcessing || state.status === 'off' || state.status === 'idle' ? {opacity:0.4,cursor:'not-allowed'} : {})}}>
                             {state.status === 'turning_off' ? '⏳ 전환중...' : '○ OFF'}
                           </button>
                         </div>
@@ -423,17 +470,17 @@ const ControlPanel = ({ farmId, houseId, houseConfig }) => {
                         <div className="grid grid-cols-3 gap-2">
                           <button onClick={() => handleControl(device.deviceId, 'open')}
                             disabled={isProcessing || state.status === 'open'}
-                            style={{...btnBase, ...(state.status === 'open' || state.status === 'opening' ? openActiveStyle : (isProcessing || state.status === 'open') ? openDisabledStyle : openInactiveStyle)}}>
+                            style={{...btnBase, ...(state.status === 'open' || state.status === 'opening' ? s.openActive : (isProcessing || state.status === 'open') ? s.openDisabled : s.openInactive)}}>
                             {state.status === 'opening' ? '⏳ 여는중...' : state.status === 'open' ? '● 열림' : '▲ 열기'}
                           </button>
                           <button onClick={() => handleControl(device.deviceId, 'stop')}
                             disabled={state.status === 'idle' || state.status === 'stopping'}
-                            style={{...btnBase, ...(state.status === 'stopping' ? stopActiveStyle : (state.status === 'opening' || state.status === 'closing') ? stopUrgentStyle : (state.status === 'idle') ? stopDisabledStyle : stopInactiveStyle)}}>
+                            style={{...btnBase, ...(state.status === 'stopping' ? s.stopActive : (state.status === 'opening' || state.status === 'closing') ? s.stopUrgent : (state.status === 'idle') ? s.stopDisabled : s.stopInactive)}}>
                             {state.status === 'stopping' ? '⏳ 정지중...' : (state.status === 'opening' || state.status === 'closing') ? '⛔ 정지' : '■ 정지'}
                           </button>
                           <button onClick={() => handleControl(device.deviceId, 'close')}
                             disabled={isProcessing || state.status === 'closed'}
-                            style={{...btnBase, ...(state.status === 'closed' || state.status === 'closing' ? closeActiveStyle : (isProcessing || state.status === 'closed') ? closeDisabledStyle : closeInactiveStyle)}}>
+                            style={{...btnBase, ...(state.status === 'closed' || state.status === 'closing' ? s.closeActive : (isProcessing || state.status === 'closed') ? s.closeDisabled : s.closeInactive)}}>
                             {state.status === 'closing' ? '⏳ 닫는중...' : state.status === 'closed' ? '● 닫힘' : '▼ 닫기'}
                           </button>
                         </div>
@@ -449,43 +496,43 @@ const ControlPanel = ({ farmId, houseId, houseConfig }) => {
                 const allAuto = manualDevices.length === 0;
                 return (
                 <div style={{marginTop:14,paddingTop:14,borderTop:'2px solid #e2e8f0'}}>
-                  <div style={{fontSize:13,fontWeight:700,color:'#64748b',marginBottom:10,display:'flex',alignItems:'center',justifyContent:'space-between'}}>
+                  <div style={{fontSize:13,fontWeight:700,color:'#374151',marginBottom:10,display:'flex',alignItems:'center',justifyContent:'space-between'}}>
                     <div className="flex items-center gap-1.5">
                       <span style={{width:4,height:14,background:accent,borderRadius:2,display:'inline-block'}}/>
                       전체제어
                     </div>
                     {manualDevices.length < devicesInGroup.length && (
-                      <span style={{fontSize:11,color:'#9ca3af'}}>수동 {manualDevices.length}대만 적용</span>
+                      <span style={{fontSize:11,color:'#9ca3af',fontWeight:600}}>수동 {manualDevices.length}대만 적용</span>
                     )}
                   </div>
                   {isToggleType ? (
-                    <div className="flex gap-3">
+                    <div className="flex gap-2">
                       <button onClick={() => manualDevices.forEach(d => handleControl(d.deviceId, 'on'))}
                         disabled={allAuto}
-                        style={{...btnBase,flex:1,background: allAuto ? '#d1d5db' : accent,color:'#fff',boxShadow: allAuto ? 'none' : `0 2px 8px ${accent}40`, cursor: allAuto ? 'not-allowed' : 'pointer'}}>
+                        style={{...btnBase,flex:1,background: allAuto ? '#e5e7eb' : accent,color: allAuto ? '#9ca3af' : '#fff',boxShadow: allAuto ? 'none' : `0 2px 8px ${accent}35`, cursor: allAuto ? 'not-allowed' : 'pointer'}}>
                         전체 ON
                       </button>
                       <button onClick={() => manualDevices.forEach(d => handleControl(d.deviceId, 'off'))}
                         disabled={allAuto}
-                        style={{...btnBase,flex:1,background: allAuto ? '#d1d5db' : '#64748b',color:'#fff',boxShadow: allAuto ? 'none' : '0 2px 8px rgba(100,116,139,0.3)', cursor: allAuto ? 'not-allowed' : 'pointer'}}>
+                        style={{...btnBase,flex:1,background: allAuto ? '#e5e7eb' : '#64748b',color: allAuto ? '#9ca3af' : '#fff',boxShadow: allAuto ? 'none' : '0 2px 8px rgba(100,116,139,0.35)', cursor: allAuto ? 'not-allowed' : 'pointer'}}>
                         전체 OFF
                       </button>
                     </div>
                   ) : (
-                    <div className="flex gap-3">
+                    <div className="flex gap-2">
                       <button onClick={() => manualDevices.forEach(d => handleControl(d.deviceId, 'open'))}
                         disabled={allAuto}
-                        style={{...btnBase,flex:1,background: allAuto ? '#d1d5db' : '#059669',color:'#fff',boxShadow: allAuto ? 'none' : '0 2px 8px rgba(5,150,105,0.35)', cursor: allAuto ? 'not-allowed' : 'pointer'}}>
+                        style={{...btnBase,flex:1,background: allAuto ? '#e5e7eb' : accent,color: allAuto ? '#9ca3af' : '#fff',boxShadow: allAuto ? 'none' : `0 2px 8px ${accent}35`, cursor: allAuto ? 'not-allowed' : 'pointer'}}>
                         ▲ 전체 열기
                       </button>
                       <button onClick={() => manualDevices.forEach(d => handleControl(d.deviceId, 'stop'))}
                         disabled={allAuto}
-                        style={{...btnBase,flex:1,background: allAuto ? '#d1d5db' : '#64748b',color:'#fff',boxShadow: allAuto ? 'none' : '0 2px 8px rgba(100,116,139,0.3)', cursor: allAuto ? 'not-allowed' : 'pointer'}}>
+                        style={{...btnBase,flex:1,background: allAuto ? '#e5e7eb' : '#d97706',color: allAuto ? '#9ca3af' : '#fff',boxShadow: allAuto ? 'none' : '0 2px 8px rgba(217,119,6,0.35)', cursor: allAuto ? 'not-allowed' : 'pointer'}}>
                         ■ 전체 정지
                       </button>
                       <button onClick={() => manualDevices.forEach(d => handleControl(d.deviceId, 'close'))}
                         disabled={allAuto}
-                        style={{...btnBase,flex:1,background: allAuto ? '#d1d5db' : '#4f46e5',color:'#fff',boxShadow: allAuto ? 'none' : '0 2px 8px rgba(79,70,229,0.35)', cursor: allAuto ? 'not-allowed' : 'pointer'}}>
+                        style={{...btnBase,flex:1,background: allAuto ? '#e5e7eb' : theme[1],color: allAuto ? '#9ca3af' : '#fff',boxShadow: allAuto ? 'none' : `0 2px 8px ${theme[1]}35`, cursor: allAuto ? 'not-allowed' : 'pointer'}}>
                         ▼ 전체 닫기
                       </button>
                     </div>
@@ -501,7 +548,7 @@ const ControlPanel = ({ farmId, houseId, houseConfig }) => {
       {/* 최근 제어 이력 */}
       {controlHistory.length > 0 && (
         <div style={{marginTop:16,paddingTop:16,borderTop:'2px solid #e5e7eb'}}>
-          <h3 style={{fontSize:13,fontWeight:700,color:'#374151',letterSpacing:'0.02em',marginBottom:8}}>최근 제어</h3>
+          <h3 style={{fontSize:13,fontWeight:800,color:'#374151',letterSpacing:'-0.01em',marginBottom:8}}>최근 제어</h3>
           <div className="space-y-1 max-h-40 overflow-y-auto">
             {controlHistory.slice(0, 5).map((log, idx) => (
               <div key={idx} style={{display:'flex',alignItems:'center',justifyContent:'space-between',fontSize:13,background:'#f9fafb',borderRadius:8,padding:'8px 12px',border:'1px solid #e5e7eb'}}>

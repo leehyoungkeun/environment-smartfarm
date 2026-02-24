@@ -4,7 +4,7 @@ import { getApiBase, getSystemMode, onModeChange, isFarmLocalMode } from '../../
 
 const PC_API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://192.168.137.1:3000/api';
 const PC_HEALTH_URL = PC_API_BASE.replace(/\/api$/, '/health');
-const RPI_API_BASE = import.meta.env.VITE_RPI_API_URL || 'http://192.168.137.86:1880/api';
+const RPI_API_BASE = import.meta.env.VITE_RPI_API_URL || 'http://192.168.137.30:1880/api';
 const RPI_HEALTH_URL = RPI_API_BASE.replace(/\/api$/, '/api/health');
 const AWS_CONTROL_ENDPOINT = import.meta.env.VITE_AWS_CONTROL_ENDPOINT || '';
 

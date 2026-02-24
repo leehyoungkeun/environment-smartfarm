@@ -2,11 +2,26 @@ import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { getControlLogs, getControlStats } from '../../services/controlApi';
 
 const DEVICE_TYPE_INFO = {
-  window: { label: '개폐기', icon: '🪟' },
-  fan:    { label: '환풍기', icon: '🌀' },
-  heater: { label: '히터',   icon: '🔥' },
-  valve:  { label: '밸브',   icon: '🚿' },
-  unknown:{ label: '기타',   icon: '🔧' },
+  window:      { label: '1창', icon: '🪟' },
+  side_window: { label: '측창', icon: '🪟' },
+  top_window:  { label: '천창', icon: '🪟' },
+  shade:       { label: '차광', icon: '🌑' },
+  screen:      { label: '스크린', icon: '🎞️' },
+  pump:        { label: '펌프', icon: '🔧' },
+  motor:       { label: '모터', icon: '⚙️' },
+  light:       { label: '조명', icon: '💡' },
+  fan:         { label: '순환팬', icon: '🌀' },
+  nutrient:    { label: '양액공급', icon: '💧' },
+  solution:    { label: '배양액', icon: '🧪' },
+  light_ctrl:  { label: '조명제어', icon: '🔆' },
+  sprayer:     { label: '무인방제기', icon: '🚿' },
+  heater:      { label: '온풍기', icon: '🔥' },
+  cooler:      { label: '냉방기', icon: '❄️' },
+  co2_supply:  { label: 'CO2공급기', icon: '💨' },
+  mist:        { label: '분무제어', icon: '🌫️' },
+  valve:       { label: '관수밸브', icon: '🚰' },
+  etc_device:  { label: '기타', icon: '🔧' },
+  unknown:     { label: '기타', icon: '🔧' },
 };
 
 const COMMAND_INFO = {
@@ -173,10 +188,9 @@ const ControlHistory = ({ farmId }) => {
                      focus:outline-none focus:border-blue-500"
           >
             <option value="">전체 장치</option>
-            <option value="window">🪟 개폐기</option>
-            <option value="fan">🌀 환풍기</option>
-            <option value="heater">🔥 히터</option>
-            <option value="valve">🚿 밸브</option>
+            {Object.entries(DEVICE_TYPE_INFO).filter(([k]) => k !== 'unknown').map(([value, info]) => (
+              <option key={value} value={value}>{info.icon} {info.label}</option>
+            ))}
           </select>
 
           <span className="text-xs text-gray-400 ml-auto">

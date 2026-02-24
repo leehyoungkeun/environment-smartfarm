@@ -233,6 +233,96 @@ router.delete("/:houseId", async (req, res) => {
 });
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// POST /api/config/:farmId/sync - RPi → PC 설정 동기화
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+router.post("/:farmId/sync", async (req, res) => {
+  try {
+    const { farmId } = req.params;
+    const { configs } = req.body;
+
+    if (!Array.isArray(configs)) {
+      return res.status(400).json({ success: false, error: "configs 배열 필수" });
+    }
+
+    const results = { created: 0, updated: 0, skipped: 0, deleted: 0 };
+
+    // 안전장치: 빈 배열이면 전체 삭제 방지
+    if (configs.length === 0) {
+      logger.warn("⚠️ config sync: 빈 배열 - 전체 삭제 방지를 위해 건너뜀");
+      return res.json({ success: true, data: { ...results, note: "empty configs - skip delete phase" } });
+    }
+
+    const rpiHouseIds = new Set(configs.map((c) => c.houseId).filter(Boolean));
+
+    // 1) upsert: RPi 설정을 PC에 반영
+    for (const cfg of configs) {
+      if (!cfg.houseId) continue;
+      const existing = await Config.findOne({ farmId, houseId: cfg.houseId });
+
+      if (existing) {
+        const existingTime = new Date(existing.updatedAt).getTime();
+        const incomingTime = new Date(cfg.updatedAt).getTime();
+
+        if (incomingTime > existingTime) {
+          await Config.findOneAndUpdate(
+            { farmId, houseId: cfg.houseId },
+            {
+              houseName: cfg.houseName,
+              sensors: cfg.sensors || [],
+              collection: cfg.collection || {},
+              devices: cfg.devices || [],
+              deviceCount: cfg.deviceCount || cfg.devices?.length || 0,
+              enabled: cfg.enabled !== undefined ? cfg.enabled : true,
+              crops: cfg.crops || [],
+              cropType: cfg.cropType || "",
+              cropVariety: cfg.cropVariety || "",
+              plantingDate: cfg.plantingDate || "",
+            },
+            { new: true }
+          );
+          results.updated++;
+        } else {
+          results.skipped++;
+        }
+      } else {
+        await Config.create({
+          farmId,
+          houseId: cfg.houseId,
+          houseName: cfg.houseName || cfg.houseId,
+          sensors: cfg.sensors || [],
+          collection: cfg.collection || {},
+          devices: cfg.devices || [],
+          deviceCount: cfg.deviceCount || cfg.devices?.length || 0,
+          enabled: cfg.enabled !== undefined ? cfg.enabled : true,
+          crops: cfg.crops || [],
+          cropType: cfg.cropType || "",
+          cropVariety: cfg.cropVariety || "",
+          plantingDate: cfg.plantingDate || "",
+        });
+        results.created++;
+      }
+    }
+
+    // 2) PC에만 있고 RPi에 없는 하우스 삭제 (RPi가 권한 기준)
+    const pcHouses = await Config.find({ farmId });
+    for (const pc of pcHouses) {
+      if (!rpiHouseIds.has(pc.houseId)) {
+        await Config.deleteOne({ farmId, houseId: pc.houseId });
+        results.deleted++;
+      }
+    }
+
+    logger.info(
+      `🔄 설정 동기화: 생성 ${results.created}, 업데이트 ${results.updated}, 스킵 ${results.skipped}, 삭제 ${results.deleted}`
+    );
+    res.json({ success: true, data: results });
+  } catch (error) {
+    logger.error("설정 동기화 실패:", error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // GET /api/config/system-settings/:farmId - 시스템 설정 조회
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 router.get("/system-settings/:farmId", async (req, res) => {

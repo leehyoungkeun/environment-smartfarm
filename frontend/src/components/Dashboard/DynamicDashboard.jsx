@@ -7,6 +7,135 @@ import TodaySummaryWidget from './TodaySummaryWidget';
 import SensorChart from './SensorChart';
 import { getApiBase, getSystemMode, setManualMode, onModeChange, getServerTimeoutSec, getConfigCache, setConfigCache } from '../../services/apiSwitcher';
 
+/** 하우스 탭 가로 스크롤 (좌/우 화살표 + 균등 버튼 크기) */
+const GAP = 8;
+const MAX_VISIBLE = 6; // 한 화면에 보이는 최대 버튼 수
+
+const HouseTabScroller = ({ houses, selectedHouse, onSelect, headerState, theme = 'dark' }) => {
+  const isLight = theme === 'light';
+  const scrollRef = useRef(null);
+  const [canScrollLeft, setCanScrollLeft] = useState(false);
+  const [canScrollRight, setCanScrollRight] = useState(false);
+  const [btnWidth, setBtnWidth] = useState(0);
+
+  const visibleCount = Math.min(houses.length, MAX_VISIBLE);
+
+  const checkScroll = useCallback(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    setCanScrollLeft(el.scrollLeft > 2);
+    setCanScrollRight(el.scrollLeft + el.clientWidth < el.scrollWidth - 2);
+  }, []);
+
+  // 컨테이너 크기 변화에 따라 버튼 너비 재계산
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el || !houses.length) return;
+    const calc = () => {
+      const available = el.clientWidth;
+      const w = (available - (visibleCount - 1) * GAP) / visibleCount;
+      setBtnWidth(Math.floor(w));
+      checkScroll();
+    };
+    calc();
+    const ro = new ResizeObserver(calc);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [houses, visibleCount, checkScroll]);
+
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (el) el.addEventListener('scroll', checkScroll, { passive: true });
+    return () => { if (el) el.removeEventListener('scroll', checkScroll); };
+  }, [checkScroll]);
+
+  const scroll = (dir) => {
+    const el = scrollRef.current;
+    if (!el) return;
+    el.scrollBy({ left: dir * (btnWidth + GAP), behavior: 'smooth' });
+  };
+
+  const chevronBox = (visible) => ({
+    width: 44, height: 44, borderRadius: 12, flexShrink: 0,
+    background: isLight ? '#2563eb' : 'rgba(255,255,255,0.35)',
+    backdropFilter: isLight ? 'none' : 'blur(8px)',
+    border: isLight ? 'none' : '1.5px solid rgba(255,255,255,0.5)',
+    color: '#fff',
+    display: 'flex', alignItems: 'center', justifyContent: 'center',
+    boxShadow: isLight ? '0 2px 8px rgba(37,99,235,0.35)' : '0 2px 10px rgba(0,0,0,0.3)',
+    cursor: visible ? 'pointer' : 'default',
+    opacity: visible ? 1 : 0.25, pointerEvents: visible ? 'auto' : 'none',
+    transition: 'all 0.2s',
+    marginTop: -2,
+  });
+
+  const btnBase = (isSelected) => ({
+    width: btnWidth || 'auto',
+    minWidth: 0,
+    padding: '10px 8px',
+    borderRadius: 12,
+    fontSize: 14,
+    fontWeight: isSelected ? 800 : 600,
+    border: isSelected
+      ? (isLight ? 'none' : 'none')
+      : (isLight ? '1px solid #d1d5db' : '1.5px solid rgba(255,255,255,0.25)'),
+    cursor: 'pointer',
+    whiteSpace: 'nowrap',
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+    boxShadow: isSelected
+      ? (isLight ? '0 2px 8px rgba(37,99,235,0.25)' : '0 2px 10px rgba(0,0,0,0.15)')
+      : (isLight ? '0 1px 2px rgba(0,0,0,0.05)' : 'none'),
+    transition: 'all 0.2s',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    flexShrink: 0,
+    scrollSnapAlign: 'start',
+    background: isSelected
+      ? (isLight ? '#2563eb' : '#fff')
+      : (isLight ? '#fff' : 'rgba(255,255,255,0.15)'),
+    color: isSelected
+      ? (isLight ? '#fff' : (headerState === 'farm-local' ? '#065f46' : headerState === 'online' || headerState === 'control' ? '#1e40af' : headerState === 'manual' ? '#b45309' : '#991b1b'))
+      : (isLight ? '#4b5563' : '#fff'),
+  });
+
+  const badgeStyle = (isSelected) => ({
+    background: isSelected
+      ? (isLight ? 'rgba(255,255,255,0.25)' : (headerState === 'farm-local' ? '#d1fae5' : headerState === 'online' || headerState === 'control' ? '#dbeafe' : headerState === 'manual' ? '#fef3c7' : '#fee2e2'))
+      : (isLight ? '#f3f4f6' : 'rgba(255,255,255,0.2)'),
+    color: isSelected
+      ? (isLight ? '#fff' : (headerState === 'farm-local' ? '#065f46' : headerState === 'online' || headerState === 'control' ? '#1e40af' : headerState === 'manual' ? '#b45309' : '#991b1b'))
+      : (isLight ? '#6b7280' : undefined),
+    fontSize: 12, fontWeight: 700, padding: '2px 8px', borderRadius: 8, flexShrink: 0,
+  });
+
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 16 }}>
+      <div onClick={() => scroll(-1)} style={chevronBox(canScrollLeft)}>
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
+      </div>
+
+      <div
+        ref={scrollRef}
+        style={{ flex: 1, minWidth: 0, overflowX: 'auto', scrollbarWidth: 'none', display: 'flex', gap: GAP, scrollSnapType: 'x mandatory' }}
+      >
+        {houses.map((house) => (
+          <button key={house.houseId} onClick={() => onSelect(house.houseId)} style={btnBase(selectedHouse === house.houseId)}>
+            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{house.name}</span>
+            <span style={badgeStyle(selectedHouse === house.houseId)}>{house.sensors?.length || 0}</span>
+          </button>
+        ))}
+      </div>
+
+      <div onClick={() => scroll(1)} style={chevronBox(canScrollRight)}>
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
+      </div>
+    </div>
+  );
+};
+
 const DynamicDashboard = ({ farmId }) => {
   const [config, setConfig] = useState(null);
   const [selectedHouse, setSelectedHouse] = useState(null);
@@ -136,14 +265,22 @@ const DynamicDashboard = ({ farmId }) => {
   const loadConfig = async () => {
     setLoadError(null);
 
-    // 팜로컬 모드: 서버 config API 없음 → 캐시에서 즉시 로드
+    // 팜로컬 모드: Node-RED Config API 사용 (클라우드 모드와 동일 방식)
     if (getSystemMode().isFarmLocal) {
-      if (tryLoadFromCache()) {
+      const { data: cached, fresh } = getConfigCache(farmId);
+      if (cached && fresh) {
+        setConfig(cached);
+        if (cached.houses?.length > 0) setSelectedHouse(cached.houses[0].houseId);
         setLoading(false);
+        fetchConfigFromServer(false);
         return;
       }
-      setLoadError('network');
-      setLoading(false);
+      if (cached) {
+        setConfig(cached);
+        if (cached.houses?.length > 0) setSelectedHouse(cached.houses[0].houseId);
+        setLoading(false);
+      }
+      await fetchConfigFromServer(!cached);
       return;
     }
 
@@ -395,28 +532,13 @@ const DynamicDashboard = ({ farmId }) => {
           </div>
         </div>
 
-        {/* 하우스 선택 탭 - 헤더 내부 */}
-        <div className="flex gap-2 overflow-x-auto mt-4 pb-1" style={{scrollbarWidth:'none'}}>
-          {config.houses.map((house) => (
-            <button
-              key={house.houseId}
-              onClick={() => setSelectedHouse(house.houseId)}
-              style={selectedHouse === house.houseId
-                ? {background:'#fff',color: headerState === 'farm-local' ? '#065f46' : headerState === 'online' ? '#1e40af' : headerState === 'manual' ? '#b45309' : '#991b1b',padding:'10px 20px',borderRadius:12,fontSize:14,fontWeight:800,border:'none',cursor:'pointer',whiteSpace:'nowrap',boxShadow:'0 2px 10px rgba(0,0,0,0.15)',transition:'all 0.2s',display:'flex',alignItems:'center',gap:8,flexShrink:0}
-                : {background:'rgba(255,255,255,0.15)',color:'#fff',padding:'10px 20px',borderRadius:12,fontSize:14,fontWeight:600,border:'1.5px solid rgba(255,255,255,0.25)',cursor:'pointer',whiteSpace:'nowrap',transition:'all 0.2s',display:'flex',alignItems:'center',gap:8,flexShrink:0}
-              }
-            >
-              <span>🏠</span>
-              <span>{house.name}</span>
-              <span style={selectedHouse === house.houseId
-                ? {background: headerState === 'farm-local' ? '#d1fae5' : headerState === 'online' ? '#dbeafe' : headerState === 'manual' ? '#fef3c7' : '#fee2e2',color: headerState === 'farm-local' ? '#065f46' : headerState === 'online' ? '#1e40af' : headerState === 'manual' ? '#b45309' : '#991b1b',fontSize:12,fontWeight:700,padding:'2px 8px',borderRadius:8}
-                : {background:'rgba(255,255,255,0.2)',fontSize:12,padding:'2px 8px',borderRadius:8}
-              }>
-                {house.sensors?.length || 0}
-              </span>
-            </button>
-          ))}
-        </div>
+        {/* 하우스 선택 탭 - 스크롤 가능 */}
+        <HouseTabScroller
+          houses={config.houses}
+          selectedHouse={selectedHouse}
+          onSelect={setSelectedHouse}
+          headerState={headerState}
+        />
       </div>
 
       {/* 서버 연결 타임아웃 경고 배너 (팜로컬에서는 숨김) */}
@@ -533,3 +655,4 @@ const DynamicDashboard = ({ farmId }) => {
 };
 
 export default DynamicDashboard;
+export { HouseTabScroller };

@@ -92,7 +92,6 @@ const TAB_COLORS = {
 
 const AutomationManager = ({ farmId }) => {
   const [rules, setRules] = useState([]);
-  const [houses, setHouses] = useState([]);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState('sensor');
   const [showForm, setShowForm] = useState(false);
@@ -114,14 +113,12 @@ const AutomationManager = ({ farmId }) => {
     try {
       const rpiUrl = getRpiApiBase();
       const pcUrl = getApiBase();
-      const configCacheKey = `cachedConfig_${farmId}`;
       const isDual = rpiUrl !== pcUrl;
 
       // PC + RPi 병렬 로드 (둘 다 동시 요청 → 지연 없음)
-      const [pcRulesRes, rpiRulesRes, configRes] = await Promise.all([
+      const [pcRulesRes, rpiRulesRes] = await Promise.all([
         axios.get(`${pcUrl}/automation/${farmId}`, { timeout: 5000 }).catch(() => null),
         isDual ? axios.get(`${rpiUrl}/automation/${farmId}`, { timeout: 5000 }).catch(() => null) : null,
-        axios.get(`${pcUrl}/config/${farmId}`, { timeout: 5000 }).catch(() => null),
       ]);
 
       if (!mountedRef.current) return;
@@ -138,14 +135,6 @@ const AutomationManager = ({ farmId }) => {
         syncRulesToPC(farmId);
       }
 
-      if (configRes?.data?.success) {
-        setHouses(configRes.data.data.houses || []);
-      } else {
-        try {
-          const cached = JSON.parse(localStorage.getItem(configCacheKey));
-          if (cached?.houses) setHouses(cached.houses);
-        } catch {}
-      }
     } catch (error) {
       if (!mountedRef.current) return;
       console.error('로드 실패:', error);
@@ -166,17 +155,6 @@ const AutomationManager = ({ farmId }) => {
       return true;
     }
     return false;
-  };
-
-  // 규칙 토글 (RPi Primary → PC 동기화)
-  const toggleRule = async (ruleId) => {
-    if (isEditing()) return;
-    try {
-      await rpiApi('patch', `/automation/${farmId}/${ruleId}/toggle`);
-      loadData();
-    } catch (error) {
-      alert('토글 실패: ' + error.message);
-    }
   };
 
   // 규칙 삭제 (RPi Primary → PC 동기화)
@@ -287,7 +265,6 @@ const AutomationManager = ({ farmId }) => {
       {showForm && !editingRule && (
         <RuleForm
           farmId={farmId}
-          houses={houses}
           rule={null}
           existingRules={rules}
           defaultTab={activeTab}
@@ -312,7 +289,6 @@ const AutomationManager = ({ farmId }) => {
                 <RuleForm
                   key={`edit-${rule._id}`}
                   farmId={farmId}
-                  houses={houses}
                   rule={editingRule}
                   existingRules={rules}
                   defaultTab={activeTab}
@@ -326,8 +302,6 @@ const AutomationManager = ({ farmId }) => {
               <ScheduleCard
                 key={rule._id}
                 rule={rule}
-                houses={houses}
-                onToggle={() => toggleRule(rule._id)}
                 onEdit={() => startEdit(rule)}
                 onDelete={() => deleteRule(rule._id)}
               />
@@ -335,9 +309,7 @@ const AutomationManager = ({ farmId }) => {
               <RuleCard
                 key={rule._id}
                 rule={rule}
-                houses={houses}
                 tabColor={currentTab?.color || 'violet'}
-                onToggle={() => toggleRule(rule._id)}
                 onEdit={() => startEdit(rule)}
                 onDelete={() => deleteRule(rule._id)}
               />
@@ -378,10 +350,7 @@ const EmptyState = ({ tab, onAdd }) => {
 /**
  * 시간대별 스케줄 카드 (타임라인 UI)
  */
-const ScheduleCard = ({ rule, houses, onToggle, onEdit, onDelete }) => {
-  const house = houses.find(h => h.houseId === rule.houseId);
-  const houseName = house?.houseName || house?.name || rule.houseId;
-
+const ScheduleCard = ({ rule, onEdit, onDelete }) => {
   // 시간 조건 추출
   const timeCond = rule.conditions?.find(c => c.type === 'time');
   const activeDays = timeCond?.days || [];
@@ -411,7 +380,7 @@ const ScheduleCard = ({ rule, houses, onToggle, onEdit, onDelete }) => {
   };
 
   return (
-    <div className={`glass-card p-4 md:p-5 transition-all ${!rule.enabled ? 'opacity-50' : ''}`}>
+    <div className="glass-card p-4 md:p-5 transition-all">
       <div className="flex items-start gap-4">
         {/* 시간 표시 (좌측 큰 시계) */}
         <div className="flex-shrink-0 w-24 h-24 rounded-2xl bg-amber-50 border border-amber-200 flex flex-col items-center justify-center">
@@ -424,7 +393,6 @@ const ScheduleCard = ({ rule, houses, onToggle, onEdit, onDelete }) => {
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 mb-2">
             <h3 className="text-lg font-extrabold text-gray-800 truncate">{rule.name}</h3>
-            <span className="text-sm text-gray-500 bg-gray-100 px-2.5 py-1 rounded font-semibold">{houseName}</span>
             {/* 모드 뱃지 */}
             {timeCond?.timeMode === 'interval' && (
               <span className="text-[10px] font-bold bg-amber-100 text-amber-600 px-2 py-0.5 rounded-full">반복</span>
@@ -491,21 +459,9 @@ const ScheduleCard = ({ rule, houses, onToggle, onEdit, onDelete }) => {
         </div>
 
         {/* 액션 버튼 */}
-        <div className="flex flex-col items-end gap-2 flex-shrink-0">
-          <button
-            onClick={onToggle}
-            className={`w-14 h-7 rounded-full transition-all relative ${
-              rule.enabled ? 'bg-amber-500' : 'bg-gray-600'
-            }`}
-          >
-            <div className={`absolute top-0.5 w-6 h-6 bg-white rounded-full shadow transition-all ${
-              rule.enabled ? 'left-7' : 'left-0.5'
-            }`} />
-          </button>
-          <div className="flex gap-1">
-            <button onClick={onEdit} className="p-2 rounded-lg text-gray-500 hover:text-amber-400 hover:bg-amber-500/10 text-base transition-all">✏️</button>
-            <button onClick={onDelete} className="p-2 rounded-lg text-gray-500 hover:text-rose-400 hover:bg-rose-500/10 text-base transition-all">🗑️</button>
-          </div>
+        <div className="flex items-center gap-1 flex-shrink-0">
+          <button onClick={onEdit} className="p-2 rounded-lg text-gray-500 hover:text-amber-400 hover:bg-amber-500/10 text-base transition-all">✏️</button>
+          <button onClick={onDelete} className="p-2 rounded-lg text-gray-500 hover:text-rose-400 hover:bg-rose-500/10 text-base transition-all">🗑️</button>
         </div>
       </div>
     </div>
@@ -516,9 +472,7 @@ const ScheduleCard = ({ rule, houses, onToggle, onEdit, onDelete }) => {
 /**
  * 규칙 카드
  */
-const RuleCard = ({ rule, houses, tabColor = 'violet', onToggle, onEdit, onDelete }) => {
-  const house = houses.find(h => h.houseId === rule.houseId);
-  const houseName = house?.houseName || house?.name || rule.houseId;
+const RuleCard = ({ rule, tabColor = 'violet', onEdit, onDelete }) => {
   const icon = tabColor === 'emerald' ? '⚙️' : '🤖';
 
   // 조건 그룹 분리
@@ -526,16 +480,13 @@ const RuleCard = ({ rule, houses, tabColor = 'violet', onToggle, onEdit, onDelet
   const timeConds = (rule.conditions || []).filter(c => c.type === 'time');
 
   return (
-    <div className={`glass-card p-4 md:p-5 transition-all ${!rule.enabled ? 'opacity-50' : ''}`}>
+    <div className="glass-card p-4 md:p-5 transition-all">
       <div className="flex items-start justify-between gap-3">
         <div className="flex-1 min-w-0">
-          {/* 제목 + 하우스 */}
+          {/* 제목 */}
           <div className="flex items-center gap-2 mb-2">
             <span className="text-2xl">{icon}</span>
             <h3 className="text-lg font-extrabold text-gray-800 truncate">{rule.name}</h3>
-            <span className="text-sm text-gray-500 bg-gray-100 px-2.5 py-1 rounded font-semibold">
-              {houseName}
-            </span>
           </div>
 
           {/* 조건 - 그룹별 분리 표시 */}
@@ -617,21 +568,9 @@ const RuleCard = ({ rule, houses, tabColor = 'violet', onToggle, onEdit, onDelet
         </div>
 
         {/* 액션 버튼 */}
-        <div className="flex flex-col items-end gap-2">
-          <button
-            onClick={onToggle}
-            className={`w-14 h-7 rounded-full transition-all relative ${
-              rule.enabled ? 'bg-emerald-500' : 'bg-gray-600'
-            }`}
-          >
-            <div className={`absolute top-0.5 w-6 h-6 bg-white rounded-full shadow transition-all ${
-              rule.enabled ? 'left-7' : 'left-0.5'
-            }`} />
-          </button>
-          <div className="flex gap-1">
-            <button onClick={onEdit} className="p-2 rounded-lg text-gray-500 hover:text-blue-400 hover:bg-blue-500/10 text-base transition-all">✏️</button>
-            <button onClick={onDelete} className="p-2 rounded-lg text-gray-500 hover:text-rose-400 hover:bg-rose-500/10 text-base transition-all">🗑️</button>
-          </div>
+        <div className="flex items-center gap-1">
+          <button onClick={onEdit} className="p-2 rounded-lg text-gray-500 hover:text-blue-400 hover:bg-blue-500/10 text-base transition-all">✏️</button>
+          <button onClick={onDelete} className="p-2 rounded-lg text-gray-500 hover:text-rose-400 hover:bg-rose-500/10 text-base transition-all">🗑️</button>
         </div>
       </div>
     </div>
@@ -642,7 +581,7 @@ const RuleCard = ({ rule, houses, tabColor = 'violet', onToggle, onEdit, onDelet
 /**
  * 규칙 생성/편집 폼
  */
-const RuleForm = ({ farmId, houses, rule, existingRules = [], defaultTab = 'sensor', onSave, onCancel }) => {
+const RuleForm = ({ farmId, rule, existingRules = [], defaultTab = 'sensor', onSave, onCancel }) => {
   const defaultConditions = {
     sensor: [{ type: 'sensor', sensorId: 'temp_001', sensorName: '온도', operator: '>', value: 30 }],
     schedule: [{ type: 'time', timeMode: 'specific', times: ['08:00'], days: [1, 2, 3, 4, 5] }],
@@ -655,13 +594,11 @@ const RuleForm = ({ farmId, houses, rule, existingRules = [], defaultTab = 'sens
 
   const [form, setForm] = useState({
     name: rule?.name || defaultNames[defaultTab] || '',
-    houseId: rule?.houseId || (houses[0]?.houseId || ''),
     conditionLogic: rule?.conditionLogic || 'AND',
     groupLogic: rule?.groupLogic || 'AND',
     conditions: rule?.conditions || defaultConditions[defaultTab] || defaultConditions.sensor,
     actions: rule?.actions || [{ deviceId: 'fan1', deviceType: 'fan', deviceName: '환풍기 1', command: 'on', duration: 0 }],
     cooldownSeconds: rule?.cooldownSeconds || (defaultTab === 'schedule' ? 60 : 300),
-    enabled: rule?.enabled !== false,
   });
   const [saving, setSaving] = useState(false);
   const savingRef = useRef(false);
@@ -766,14 +703,9 @@ const RuleForm = ({ farmId, houses, rule, existingRules = [], defaultTab = 'sens
     }
   };
 
-  // 선택된 하우스의 장치/센서 목록
-  const selectedHouse = houses.find(h => h.houseId === form.houseId);
-  const houseDevices = selectedHouse?.devices || [];
-  const sensorOptions = (selectedHouse?.sensors?.length > 0)
-    ? selectedHouse.sensors
-        .filter(s => s.enabled !== false)
-        .map(s => ({ id: s.sensorId, name: s.name, unit: s.unit || '', icon: s.icon || '📊' }))
-    : DEFAULT_SENSOR_OPTIONS;
+  // 장치/센서 옵션 (하우스 무관 — 일반 규칙)
+  const houseDevices = [];
+  const sensorOptions = DEFAULT_SENSOR_OPTIONS;
 
   // 탭별 섹션 표시 제어
   const showSensorSection = defaultTab !== 'schedule';
@@ -795,7 +727,7 @@ const RuleForm = ({ farmId, houses, rule, existingRules = [], defaultTab = 'sens
       </h2>
 
       {/* 기본 정보 */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-5">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-5">
         <div>
           <label className="text-sm text-gray-400 font-semibold mb-1.5 block">규칙 이름</label>
           <input
@@ -805,20 +737,6 @@ const RuleForm = ({ farmId, houses, rule, existingRules = [], defaultTab = 'sens
             onChange={(e) => setForm({ ...form, name: e.target.value })}
             className="input-field text-sm"
           />
-        </div>
-        <div>
-          <label className="text-sm text-gray-400 font-semibold mb-1.5 block">대상 하우스</label>
-          <select
-            value={form.houseId}
-            onChange={(e) => setForm({ ...form, houseId: e.target.value })}
-            className="input-field text-sm"
-          >
-            {houses.map(h => (
-              <option key={h.houseId} value={h.houseId} className="bg-slate-800">
-                {h.houseName || h.name}
-              </option>
-            ))}
-          </select>
         </div>
         {defaultTab !== 'schedule' && (
         <div>

@@ -10,7 +10,7 @@ if (!document.getElementById("journal-select-fix")) {
 }
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL || "http://localhost:3000/api";
-const FarmIdCtx = createContext("farm_001");
+const FarmIdCtx = createContext(import.meta.env.VITE_FARM_ID || "farm_001");
 const WORK_TYPES = ["파종","정식","관수","시비","방제","수확","관리","기타"];
 const GROWTH_STAGES = ["발아기","생장기","개화기","착과기","수확기"];
 const WEATHER_OPTIONS = ["맑음","구름많음","흐림","비","눈","안개"];
@@ -291,7 +291,7 @@ function ExportButtons({onPrint,onCSV,onPDF}){
 }
 
 // ━━━ 메인 ━━━
-export default function JournalManager({ farmId = "farm_001" }){
+export default function JournalManager({ farmId = import.meta.env.VITE_FARM_ID || "farm_001" }){
   const[activeTab,setActiveTab]=useState("journal");
   const[summary,setSummary]=useState(null);
   const tabs=[{key:"journal",label:"영농일지",icon:"📝"},{key:"harvest",label:"수확 기록",icon:"🌾"},{key:"input",label:"투입물 기록",icon:"💊"},{key:"summary",label:"통계",icon:"📊"}];

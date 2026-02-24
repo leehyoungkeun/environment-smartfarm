@@ -43,7 +43,7 @@ async function rpiApi(method, path, data) {
   return await axiosBase({ method, url: rpiUrl, data, timeout: 8000 });
 }
 
-const ConfigurationManager = ({ farmId = 'farm_001' }) => {
+const ConfigurationManager = ({ farmId = import.meta.env.VITE_FARM_ID || 'farm_001' }) => {
   const [activeTab, setActiveTab] = useState('houses');
   const [selectedHouse, setSelectedHouse] = useState(null);
 
@@ -1072,10 +1072,10 @@ const SystemSettings = () => {
       // PC 우선 → RPi 폴백
       let res;
       try {
-        res = await axios.get(`${pcUrl}/config/system-settings/farm_001`, { timeout: 5000 });
+        res = await axios.get(`${pcUrl}/config/system-settings/${farmId}`, { timeout: 5000 });
       } catch {
         if (rpiUrl !== pcUrl) {
-          res = await axiosBase.get(`${rpiUrl}/config/system-settings/farm_001`, { timeout: 5000 });
+          res = await axiosBase.get(`${rpiUrl}/config/system-settings/${farmId}`, { timeout: 5000 });
         } else {
           throw new Error('서버 연결 불가');
         }
@@ -1123,7 +1123,7 @@ const SystemSettings = () => {
     // 서버에 보관 기간 저장
     if (retentionDays !== serverRetention) {
       try {
-        const res = await rpiApi('put', '/config/system-settings/farm_001', {
+        const res = await rpiApi('put', `/config/system-settings/${farmId}`, {
           retentionDays,
         });
         if (res.data.success) {

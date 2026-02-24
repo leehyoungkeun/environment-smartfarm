@@ -233,7 +233,7 @@ async function ensureAdmin() {
           password: hash,
           name: "관리자",
           role: "admin",
-          farmId: "farm_001",
+          farmId: process.env.FARM_ID || "farm_001",
           allowedHouses: [],
           enabled: true,
         },

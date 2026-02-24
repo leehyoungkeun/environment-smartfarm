@@ -176,7 +176,7 @@ function AppContent() {
     window.addEventListener('hashchange', onHashChange);
     return () => window.removeEventListener('hashchange', onHashChange);
   }, []);
-  const farmId = user?.farmId || 'farm_001';
+  const farmId = user?.farmId || import.meta.env.VITE_FARM_ID || 'farm_001';
   const [showAlertPanel, setShowAlertPanel] = useState(false);
   const [showUserMenu, setShowUserMenu] = useState(false);
   const [deferredPrompt, setDeferredPrompt] = useState(null);

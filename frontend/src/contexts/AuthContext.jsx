@@ -116,7 +116,7 @@ export const AuthProvider = ({ children }) => {
           username: 'farmer',
           name: '농장관리자',
           role: 'admin',
-          farmId: 'farm_001',
+          farmId: import.meta.env.VITE_FARM_ID || 'farm_001',
         };
         setUser(farmLocalUser);
         cacheUser(farmLocalUser);

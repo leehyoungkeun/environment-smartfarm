@@ -161,7 +161,7 @@ router.post("/setup", async (req, res) => {
       password,
       name,
       role: "admin",
-      farmId: "farm_001",
+      farmId: process.env.FARM_ID || "farm_001",
     });
 
     const { accessToken, refreshToken } = generateTokens(admin);

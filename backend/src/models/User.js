@@ -17,7 +17,7 @@ const User = {
         password: hashedPassword,
         name: data.name,
         role: data.role || "worker",
-        farmId: data.farmId || "farm_001",
+        farmId: data.farmId || process.env.FARM_ID || "farm_001",
         allowedHouses: data.allowedHouses || [],
         enabled: data.enabled !== undefined ? data.enabled : true,
       },

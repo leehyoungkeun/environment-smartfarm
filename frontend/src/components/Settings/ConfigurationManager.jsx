@@ -120,7 +120,7 @@ const ConfigurationManager = ({ farmId = 'farm_001' }) => {
 
   const tabs = [
     { id: 'houses', label: '하우스/센서', icon: '🏠' },
-    { id: 'automation', label: '자동화', icon: '🤖' },
+    { id: 'automation', label: '자동화규칙', icon: '🤖' },
     { id: 'system', label: '시스템', icon: '⚙️' },
   ];
 

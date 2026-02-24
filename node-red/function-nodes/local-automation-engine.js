@@ -2,7 +2,8 @@
  * Node-RED Function 노드
  * 로컬 자동화 엔진 - 오프라인 시 서버 없이 자동화 규칙 평가
  *
- * 서버의 automation.routes.js (228-278줄) 로직을 Node-RED용으로 포팅
+ * 서버의 automation.routes.js 로직을 Node-RED용으로 포팅
+ * v2: timeMode (specific/interval) + duration (역방향 명령) + groupLogic 지원
  *
  * 플로우 구성:
  * [센서 수집 완료] → [모드 확인] → online: 서버 /evaluate
@@ -59,7 +60,7 @@ if (mode === 'online') {
  * 입력: 센서 데이터 msg
  * 출력: 실행할 액션 목록
  *
- * 서버의 evaluateOperator, evaluateTimeCondition, buildReasonText를 포팅
+ * v2: timeMode (specific/interval) + groupLogic + duration 지원
  */
 
 const sensorData = msg.payload.data;
@@ -73,7 +74,7 @@ if (rules.length === 0) {
     return null;
 }
 
-// ── 헬퍼 함수 (서버 코드 포팅) ──
+// ── 헬퍼 함수 ──
 
 function evaluateOperator(sensorValue, operator, threshold) {
     if (sensorValue === null || sensorValue === undefined) return false;
@@ -95,11 +96,34 @@ function evaluateTimeCondition(cond) {
         return false;
     }
 
-    if (cond.time) {
+    const nowMinutes = now.getHours() * 60 + now.getMinutes();
+
+    // legacy: timeMode 없고 time 필드만 있으면 단일 시간
+    if (!cond.timeMode && cond.time) {
         const [hour, minute] = cond.time.split(':').map(Number);
-        const nowMinutes = now.getHours() * 60 + now.getMinutes();
-        const targetMinutes = hour * 60 + minute;
-        return Math.abs(nowMinutes - targetMinutes) <= 2;
+        return Math.abs(nowMinutes - (hour * 60 + minute)) <= 2;
+    }
+
+    // 지정 시간 모드: times 배열 중 하나라도 매칭
+    if (cond.timeMode === 'specific') {
+        return (cond.times || []).some(t => {
+            const [h, m] = t.split(':').map(Number);
+            return Math.abs(nowMinutes - (h * 60 + m)) <= 2;
+        });
+    }
+
+    // 반복 모드: startTime~endTime 범위에서 interval 간격
+    if (cond.timeMode === 'interval') {
+        const [sh, sm] = (cond.startTime || '00:00').split(':').map(Number);
+        const [eh, em] = (cond.endTime || '23:59').split(':').map(Number);
+        const start = sh * 60 + sm;
+        const end = eh * 60 + em;
+        const interval = cond.intervalMinutes || 30;
+        if (nowMinutes < start - 2 || nowMinutes > end + 2) return false;
+        for (let t = start; t <= end; t += interval) {
+            if (Math.abs(nowMinutes - t) <= 2) return true;
+        }
+        return false;
     }
 
     return false;
@@ -113,14 +137,20 @@ function buildReasonText(rule, sensorData) {
                 return `${cond.sensorName || cond.sensorId} ${val}${cond.operator}${cond.value}`;
             }
             if (cond.type === 'time') {
-                return `시간 ${cond.time}`;
+                if (cond.timeMode === 'interval') return `시간 ${cond.startTime}~${cond.endTime} ${cond.intervalMinutes}분간격`;
+                if (cond.timeMode === 'specific') return `시간 ${(cond.times || []).join(',')}`;
+                return `시간 ${cond.time || ''}`;
             }
             return '';
         })
         .filter(Boolean);
 
-    return `${rule.name}: ${parts.join(rule.conditionLogic === 'AND' ? ' AND ' : ' OR ')}`;
+    const groupLogic = rule.groupLogic || 'AND';
+    return `${rule.name}: ${parts.join(groupLogic === 'AND' ? ' AND ' : ' OR ')}`;
 }
+
+// 역방향 명령 매핑
+const REVERSE_CMD = { 'open': 'close', 'close': 'open', 'on': 'off', 'off': 'on' };
 
 // ── 규칙 평가 ──
 
@@ -138,21 +168,38 @@ for (const rule of rules) {
     const cooldown = (rule.cooldownSeconds || 300) * 1000;
     if (Date.now() - lastTriggered < cooldown) continue;
 
-    // 조건 평가
-    const results = rule.conditions.map(cond => {
-        if (cond.type === 'sensor') {
-            return evaluateOperator(sensorData[cond.sensorId], cond.operator, cond.value);
-        }
-        if (cond.type === 'time') {
-            return evaluateTimeCondition(cond);
-        }
-        return false;
-    });
+    // 조건 평가 (그룹별 분리 + groupLogic)
+    const sensorConds = rule.conditions.filter(c => c.type === 'sensor');
+    const timeConds = rule.conditions.filter(c => c.type === 'time');
 
-    // AND/OR 로직
-    const triggered = rule.conditionLogic === 'AND'
-        ? results.every(Boolean)
-        : results.some(Boolean);
+    let sensorResult = true;
+    let timeResult = true;
+
+    if (sensorConds.length > 0) {
+        const sensorResults = sensorConds.map(cond =>
+            evaluateOperator(sensorData[cond.sensorId], cond.operator, cond.value)
+        );
+        sensorResult = (rule.conditionLogic === 'OR')
+            ? sensorResults.some(Boolean)
+            : sensorResults.every(Boolean);
+    }
+
+    if (timeConds.length > 0) {
+        const timeResults = timeConds.map(c => evaluateTimeCondition(c));
+        timeResult = timeResults.some(Boolean); // 시간 조건은 OR
+    }
+
+    // groupLogic: 센서 그룹 ↔ 시간 그룹 간 AND/OR
+    let triggered = false;
+    const groupLogic = rule.groupLogic || 'AND';
+
+    if (sensorConds.length > 0 && timeConds.length > 0) {
+        triggered = (groupLogic === 'OR') ? (sensorResult || timeResult) : (sensorResult && timeResult);
+    } else if (sensorConds.length > 0) {
+        triggered = sensorResult;
+    } else if (timeConds.length > 0) {
+        triggered = timeResult;
+    }
 
     if (triggered) {
         // 쿨다운 타이머 설정
@@ -160,7 +207,7 @@ for (const rule of rules) {
 
         const reason = buildReasonText(rule, sensorData);
 
-        // 액션 수집
+        // 액션 수집 (duration 포함)
         for (const action of rule.actions) {
             actions.push({
                 ruleId: rule.id,
@@ -169,12 +216,17 @@ for (const rule of rules) {
                 deviceId: action.deviceId,
                 deviceType: action.deviceType,
                 command: action.command,
+                duration: action.duration || 0,
                 reason: reason,
                 source: 'automation'
             });
         }
 
-        node.warn(`🤖 자동화 트리거: ${rule.name} → ${rule.actions.map(a => `${a.deviceId} ${a.command}`).join(', ')}`);
+        const durInfo = rule.actions.map(a => {
+            const ds = a.duration ? ` (${Math.floor(a.duration/60)}분${a.duration%60}초)` : '';
+            return `${a.deviceId} ${a.command}${ds}`;
+        }).join(', ');
+        node.warn(`🤖 자동화 트리거: ${rule.name} → ${durInfo}`);
     }
 }
 
@@ -198,9 +250,14 @@ return msg;
  * 입력: 액션 목록 msg
  * 출력 1: GPIO 제어 (Link Out → 제어 실행 플로우)
  * 출력 2: SQLite 제어 로그 저장
+ *
+ * v2: duration 기반 역방향 명령 자동 스케줄링
  */
 
 const actionsToExecute = msg.payload.actions || [];
+
+// 역방향 명령 매핑
+const REVERSE_CMD_3 = { 'open': 'close', 'close': 'open', 'on': 'off', 'off': 'on' };
 
 // GPIO 핀 매핑 (aws-iot-control-receiver.js와 동일)
 const GPIO_MAP = {
@@ -218,7 +275,6 @@ for (const action of actionsToExecute) {
     const pins = GPIO_MAP[action.deviceId];
 
     if (pins) {
-        // GPIO 제어 (시뮬레이션)
         node.warn(`🤖 자동화 제어: ${action.deviceId} ${action.command} (${action.reason})`);
     } else {
         node.warn(`⚠️ ${action.deviceId}: GPIO 매핑 없음 (시뮬레이션)`);
@@ -236,10 +292,48 @@ for (const action of actionsToExecute) {
             deviceType: action.deviceType,
             command: action.command,
             operator: 'automation',
-            requestId: `auto_${Date.now()}`,
+            requestId: `auto_${Date.now()}_${Math.random().toString(36).substr(2, 4)}`,
             timestamp: ts
         }
     });
+
+    // ── Duration 기반 역방향 명령 스케줄링 ──
+    if (action.duration > 0) {
+        const reverseCmd = REVERSE_CMD_3[action.command];
+        if (reverseCmd) {
+            const timerKey = `dur_${action.deviceId}`;
+            // 기존 타이머 취소
+            const existingTimer = context.get(timerKey);
+            if (existingTimer) clearTimeout(existingTimer);
+
+            const capturedAction = { ...action };
+            const timer = setTimeout(function() {
+                const rts = new Date().toISOString();
+                // 역방향 제어 메시지
+                const reverseMsg = {
+                    control: {
+                        houseId: capturedAction.houseId,
+                        deviceId: capturedAction.deviceId,
+                        deviceType: capturedAction.deviceType,
+                        command: reverseCmd,
+                        operator: 'automation_duration',
+                        requestId: `auto_dur_${Date.now()}`,
+                        timestamp: rts
+                    }
+                };
+                // 역방향 로그
+                const logMsg = {
+                    topic: `INSERT INTO control_logs (timestamp, device_id, command, source, synced) VALUES ('${rts}', '${capturedAction.deviceId}', '${reverseCmd}', 'automation_duration', 0)`
+                };
+                node.send([reverseMsg, logMsg]);
+                node.warn(`⏱️ Duration 종료: ${capturedAction.deviceId} → ${reverseCmd}`);
+                context.set(timerKey, null);
+            }, action.duration * 1000);
+
+            context.set(timerKey, timer);
+            node.warn(`⏱️ Duration 설정: ${action.deviceId} ${action.duration}초 후 → ${reverseCmd}`);
+        }
+    }
 }
 
 // SQLite 로그 저장

@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import axios from 'axios';
 import { useAuth } from '../../contexts/AuthContext';
 import { sendControlCommand } from '../../services/controlApi';
-import { getSystemMode, getApiBase } from '../../services/apiSwitcher';
+import { getSystemMode, getApiBase, getRpiApiBase } from '../../services/apiSwitcher';
 
 const DEVICE_TYPE_INFO = {
   window: { label: '개폐기', icon: '🪟', commands: ['open', 'stop', 'close'] },
@@ -24,6 +24,132 @@ const ControlPanel = ({ farmId, houseId, houseConfig }) => {
   const [controlHistory, setControlHistory] = useState([]);
   const [loading, setLoading] = useState({});
   const timerRefs = React.useRef({});
+
+  // 자동화 적용/중지 상태 (localStorage 기반)
+  const activeKey = `automationActive_${farmId}_${houseId}`;
+  const [automationActive, setAutomationActive] = useState(() => {
+    try { return localStorage.getItem(activeKey) === 'true'; }
+    catch { return false; }
+  });
+  const [applyLoading, setApplyLoading] = useState(false);
+
+  const handleApply = async () => {
+    setApplyLoading(true);
+    try {
+      // auto 모드 장치에 연결된 규칙들의 enabled 상태를 활성화
+      const rpiUrl = getRpiApiBase();
+      const ruleIdsToEnable = new Set();
+      devices.forEach(d => {
+        if (getDeviceMode(d.deviceId) === 'auto') {
+          (selectedRuleMap[d.deviceId] || []).forEach(id => ruleIdsToEnable.add(id));
+        }
+      });
+      for (const ruleId of ruleIdsToEnable) {
+        await axios.put(`${rpiUrl}/automation/${farmId}/${ruleId}`, { enabled: true }, { timeout: 5000 }).catch(() => {});
+      }
+      setAutomationActive(true);
+      localStorage.setItem(activeKey, 'true');
+      loadAutoRules(); // 규칙 상태 새로고침
+    } catch {} finally { setApplyLoading(false); }
+  };
+
+  const handleStop = async () => {
+    setApplyLoading(true);
+    try {
+      // auto 모드 장치에 연결된 규칙들을 비활성화 (설정은 유지)
+      const rpiUrl = getRpiApiBase();
+      const ruleIdsToDisable = new Set();
+      devices.forEach(d => {
+        if (getDeviceMode(d.deviceId) === 'auto') {
+          (selectedRuleMap[d.deviceId] || []).forEach(id => ruleIdsToDisable.add(id));
+        }
+      });
+      for (const ruleId of ruleIdsToDisable) {
+        await axios.put(`${rpiUrl}/automation/${farmId}/${ruleId}`, { enabled: false }, { timeout: 5000 }).catch(() => {});
+      }
+      setAutomationActive(false);
+      localStorage.setItem(activeKey, 'false');
+      loadAutoRules(); // 규칙 상태 새로고침
+    } catch {} finally { setApplyLoading(false); }
+  };
+
+  // 장치별 수동/자동 모드 (localStorage 기반)
+  const modeKey = `deviceModes_${farmId}_${houseId}`;
+  const [deviceModes, setDeviceModes] = useState(() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem(modeKey));
+      return saved || {};
+    } catch { return {}; }
+  });
+
+  const getDeviceMode = (deviceId) => deviceModes[deviceId] || 'manual';
+
+  const toggleDeviceMode = (deviceId) => {
+    setDeviceModes(prev => {
+      const current = prev[deviceId] || 'manual';
+      const next = current === 'manual' ? 'auto' : 'manual';
+      const updated = { ...prev, [deviceId]: next };
+      localStorage.setItem(modeKey, JSON.stringify(updated));
+      return updated;
+    });
+  };
+
+  // 자동화 규칙 로드 (RPi 우선 → PC 폴백)
+  const [autoRules, setAutoRules] = useState([]);
+  const [expandedRuleId, setExpandedRuleId] = useState(null);
+  const [rulePickerDevice, setRulePickerDevice] = useState(null); // 규칙 선택 팝업 대상 장치
+
+  const loadAutoRules = useCallback(async () => {
+    try {
+      const rpiUrl = getRpiApiBase();
+      const pcUrl = getApiBase();
+      const res = await axios.get(`${rpiUrl}/automation/${farmId}`, { timeout: 5000 })
+        .catch(() => rpiUrl !== pcUrl
+          ? axios.get(`${pcUrl}/automation/${farmId}`, { timeout: 5000 }).catch(() => null)
+          : null
+        );
+      if (res?.data?.success && Array.isArray(res.data.data)) {
+        setAutoRules(res.data.data.map(r => ({ ...r, _id: r._id || r.id })));
+      }
+    } catch {}
+  }, [farmId]);
+
+  useEffect(() => { loadAutoRules(); }, [loadAutoRules]);
+
+  // 장치별 선택된 규칙 ID 목록 (localStorage 기반)
+  const rulesKey = `deviceRules_${farmId}_${houseId}`;
+  const [selectedRuleMap, setSelectedRuleMap] = useState(() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem(rulesKey));
+      return saved || {};
+    } catch { return {}; }
+  });
+
+  const getDeviceRules = (deviceId) => {
+    const selectedIds = selectedRuleMap[deviceId] || [];
+    return autoRules.filter(r => selectedIds.includes(r._id));
+  };
+
+  const toggleRuleSelection = (deviceId, ruleId) => {
+    setSelectedRuleMap(prev => {
+      const current = prev[deviceId] || [];
+      const updated = current.includes(ruleId)
+        ? current.filter(id => id !== ruleId)
+        : [...current, ruleId];
+      const next = { ...prev, [deviceId]: updated };
+      localStorage.setItem(rulesKey, JSON.stringify(next));
+      return next;
+    });
+  };
+
+  const removeRuleFromDevice = (deviceId, ruleId) => {
+    setSelectedRuleMap(prev => {
+      const current = prev[deviceId] || [];
+      const next = { ...prev, [deviceId]: current.filter(id => id !== ruleId) };
+      localStorage.setItem(rulesKey, JSON.stringify(next));
+      return next;
+    });
+  };
 
   useEffect(() => {
     const states = {};
@@ -150,7 +276,45 @@ const ControlPanel = ({ farmId, houseId, houseConfig }) => {
     <div className="glass-card p-4 md:p-5">
       <div className="flex items-center justify-between mb-4">
         <h2 className="text-lg md:text-xl font-bold flex items-center gap-2" style={{color:'#111827'}}>🎛️ 제어 패널</h2>
-        <span style={{fontSize:12,color:'#9ca3af',background:'#f3f4f6',padding:'3px 10px',borderRadius:6}}>{controlHouseId}</span>
+        <div className="flex items-center gap-2">
+          <span style={{fontSize:12,color:'#9ca3af',background:'#f3f4f6',padding:'3px 10px',borderRadius:6}}>{controlHouseId}</span>
+          {/* 자동화 적용/중지 상태 표시 */}
+          {automationActive && (
+            <span style={{fontSize:11,fontWeight:800,padding:'3px 10px',borderRadius:20,background:'#dcfce7',color:'#15803d',border:'1.5px solid #86efac'}}>
+              자동화 작동중
+            </span>
+          )}
+          {/* 적용 버튼 */}
+          <button
+            onClick={handleApply}
+            disabled={applyLoading}
+            style={{
+              padding:'6px 14px',borderRadius:10,fontSize:13,fontWeight:800,
+              border:'none',cursor: applyLoading ? 'not-allowed' : 'pointer',
+              background: automationActive ? '#d1d5db' : '#059669',
+              color: automationActive ? '#9ca3af' : '#fff',
+              boxShadow: automationActive ? 'none' : '0 2px 8px rgba(5,150,105,0.35)',
+              transition:'all 0.2s',
+            }}
+          >
+            {applyLoading ? '⏳' : '▶'} 자동화 적용
+          </button>
+          {/* 중지 버튼 */}
+          <button
+            onClick={handleStop}
+            disabled={applyLoading || !automationActive}
+            style={{
+              padding:'6px 14px',borderRadius:10,fontSize:13,fontWeight:800,
+              border:'none',cursor: (applyLoading || !automationActive) ? 'not-allowed' : 'pointer',
+              background: !automationActive ? '#e5e7eb' : '#ef4444',
+              color: !automationActive ? '#9ca3af' : '#fff',
+              boxShadow: !automationActive ? 'none' : '0 2px 8px rgba(239,68,68,0.35)',
+              transition:'all 0.2s',
+            }}
+          >
+            {applyLoading ? '⏳' : '⏸'} 중지
+          </button>
+        </div>
       </div>
 
       {Object.entries(groupedDevices).map(([type, devicesInGroup]) => {
@@ -178,22 +342,71 @@ const ControlPanel = ({ farmId, houseId, houseConfig }) => {
                   const state = deviceStates[device.deviceId] || { status: 'idle' };
                   const statusDisplay = getStatusDisplay(state.status);
                   const isProcessing = ['opening', 'closing', 'stopping', 'turning_on', 'turning_off'].includes(state.status);
+                  const mode = getDeviceMode(device.deviceId);
+                  const isAuto = mode === 'auto';
 
                   return (
                     <div key={device.deviceId}
-                      style={{background:'#f8fafc',border:'2px solid #e2e8f0',borderRadius:14,padding:'14px 16px',transition:'all 0.2s'}}>
+                      style={{background: isAuto ? '#f0fdf4' : '#f8fafc',border:`2px solid ${isAuto ? '#bbf7d0' : '#e2e8f0'}`,borderRadius:14,padding:'14px 16px',transition:'all 0.2s'}}>
                       <div className="flex items-center justify-between mb-3">
                         <div className="flex items-center gap-2">
                           <span style={{fontSize:20}}>{device.icon || typeInfo.icon}</span>
                           <span style={{fontSize:17,fontWeight:800,color:'#0f172a'}}>{device.name}</span>
                         </div>
-                        <div style={{display:'flex',alignItems:'center',gap:6,background:statusDisplay.animate ? `${statusDisplay.color}15` : '#f1f5f9',padding:'4px 12px',borderRadius:20,border:`1.5px solid ${statusDisplay.animate ? statusDisplay.color : '#e2e8f0'}`}}>
-                          <span style={{width:8,height:8,borderRadius:'50%',background:statusDisplay.color,display:'inline-block',boxShadow:`0 0 6px ${statusDisplay.color}`}} className={statusDisplay.animate ? 'animate-pulse' : ''} />
-                          <span style={{fontSize:13,fontWeight:700,color:statusDisplay.color}}>{statusDisplay.text}</span>
+                        <div className="flex items-center gap-2">
+                          {/* 수동/자동 모드 토글 */}
+                          <button
+                            onClick={() => !automationActive && toggleDeviceMode(device.deviceId)}
+                            disabled={automationActive}
+                            style={{
+                              display:'flex',alignItems:'center',gap:5,
+                              padding:'4px 10px',borderRadius:20,fontSize:12,fontWeight:800,
+                              border:`1.5px solid ${isAuto ? '#22c55e' : '#3b82f6'}`,
+                              background: isAuto ? '#dcfce7' : '#eff6ff',
+                              color: isAuto ? '#15803d' : '#1d4ed8',
+                              cursor: automationActive ? 'not-allowed' : 'pointer',
+                              transition:'all 0.2s',
+                              opacity: automationActive ? 0.6 : 1,
+                            }}
+                          >
+                            <span style={{width:16,height:16,borderRadius:'50%',display:'flex',alignItems:'center',justifyContent:'center',fontSize:10,
+                              background: isAuto ? '#22c55e' : '#3b82f6',color:'#fff'
+                            }}>
+                              {isAuto ? 'A' : 'M'}
+                            </span>
+                            {isAuto ? '자동' : '수동'}
+                          </button>
+                          {/* 상태 표시 */}
+                          <div style={{display:'flex',alignItems:'center',gap:6,background:statusDisplay.animate ? `${statusDisplay.color}15` : '#f1f5f9',padding:'4px 12px',borderRadius:20,border:`1.5px solid ${statusDisplay.animate ? statusDisplay.color : '#e2e8f0'}`}}>
+                            <span style={{width:8,height:8,borderRadius:'50%',background:statusDisplay.color,display:'inline-block',boxShadow:`0 0 6px ${statusDisplay.color}`}} className={statusDisplay.animate ? 'animate-pulse' : ''} />
+                            <span style={{fontSize:13,fontWeight:700,color:statusDisplay.color}}>{statusDisplay.text}</span>
+                          </div>
                         </div>
                       </div>
 
-                      {isToggleType ? (
+                      {isAuto ? (
+                        <div>
+                          {!automationActive && getDeviceRules(device.deviceId).length > 0 && (
+                            <div style={{
+                              display:'flex',alignItems:'center',gap:6,
+                              padding:'6px 12px',marginBottom:8,borderRadius:8,
+                              background:'#fef3c7',border:'1.5px solid #fde68a',
+                            }}>
+                              <span style={{fontSize:13}}>⏸</span>
+                              <span style={{fontSize:12,fontWeight:700,color:'#b45309'}}>자동화 중지됨 — 적용 버튼을 눌러 시작하세요</span>
+                            </div>
+                          )}
+                          <DeviceAutoRules
+                            deviceId={device.deviceId}
+                            rules={getDeviceRules(device.deviceId)}
+                            expandedRuleId={expandedRuleId}
+                            onToggleExpand={(id) => setExpandedRuleId(prev => prev === id ? null : id)}
+                            onRemove={(ruleId) => removeRuleFromDevice(device.deviceId, ruleId)}
+                            onOpenPicker={() => setRulePickerDevice(device.deviceId)}
+                            locked={automationActive}
+                          />
+                        </div>
+                      ) : isToggleType ? (
                         <div className="grid grid-cols-2 gap-3">
                           <button onClick={() => handleControl(device.deviceId, 'on')}
                             disabled={isProcessing || state.status === 'on'}
@@ -230,42 +443,56 @@ const ControlPanel = ({ farmId, houseId, houseConfig }) => {
                 })}
               </div>
 
-              {/* 전체 제어 (아래) */}
-              {devicesInGroup.length >= 2 && (
+              {/* 전체 제어 (아래) - 수동 모드 장치만 대상 */}
+              {devicesInGroup.length >= 2 && (() => {
+                const manualDevices = devicesInGroup.filter(d => getDeviceMode(d.deviceId) !== 'auto');
+                const allAuto = manualDevices.length === 0;
+                return (
                 <div style={{marginTop:14,paddingTop:14,borderTop:'2px solid #e2e8f0'}}>
-                  <div style={{fontSize:13,fontWeight:700,color:'#64748b',marginBottom:10,display:'flex',alignItems:'center',gap:6}}>
-                    <span style={{width:4,height:14,background:accent,borderRadius:2,display:'inline-block'}}/>
-                    전체제어
+                  <div style={{fontSize:13,fontWeight:700,color:'#64748b',marginBottom:10,display:'flex',alignItems:'center',justifyContent:'space-between'}}>
+                    <div className="flex items-center gap-1.5">
+                      <span style={{width:4,height:14,background:accent,borderRadius:2,display:'inline-block'}}/>
+                      전체제어
+                    </div>
+                    {manualDevices.length < devicesInGroup.length && (
+                      <span style={{fontSize:11,color:'#9ca3af'}}>수동 {manualDevices.length}대만 적용</span>
+                    )}
                   </div>
                   {isToggleType ? (
                     <div className="flex gap-3">
-                      <button onClick={() => devicesInGroup.forEach(d => handleControl(d.deviceId, 'on'))}
-                        style={{...btnBase,flex:1,background:accent,color:'#fff',boxShadow:`0 2px 8px ${accent}40`}}>
+                      <button onClick={() => manualDevices.forEach(d => handleControl(d.deviceId, 'on'))}
+                        disabled={allAuto}
+                        style={{...btnBase,flex:1,background: allAuto ? '#d1d5db' : accent,color:'#fff',boxShadow: allAuto ? 'none' : `0 2px 8px ${accent}40`, cursor: allAuto ? 'not-allowed' : 'pointer'}}>
                         전체 ON
                       </button>
-                      <button onClick={() => devicesInGroup.forEach(d => handleControl(d.deviceId, 'off'))}
-                        style={{...btnBase,flex:1,background:'#64748b',color:'#fff',boxShadow:'0 2px 8px rgba(100,116,139,0.3)'}}>
+                      <button onClick={() => manualDevices.forEach(d => handleControl(d.deviceId, 'off'))}
+                        disabled={allAuto}
+                        style={{...btnBase,flex:1,background: allAuto ? '#d1d5db' : '#64748b',color:'#fff',boxShadow: allAuto ? 'none' : '0 2px 8px rgba(100,116,139,0.3)', cursor: allAuto ? 'not-allowed' : 'pointer'}}>
                         전체 OFF
                       </button>
                     </div>
                   ) : (
                     <div className="flex gap-3">
-                      <button onClick={() => devicesInGroup.forEach(d => handleControl(d.deviceId, 'open'))}
-                        style={{...btnBase,flex:1,background:'#059669',color:'#fff',boxShadow:'0 2px 8px rgba(5,150,105,0.35)'}}>
+                      <button onClick={() => manualDevices.forEach(d => handleControl(d.deviceId, 'open'))}
+                        disabled={allAuto}
+                        style={{...btnBase,flex:1,background: allAuto ? '#d1d5db' : '#059669',color:'#fff',boxShadow: allAuto ? 'none' : '0 2px 8px rgba(5,150,105,0.35)', cursor: allAuto ? 'not-allowed' : 'pointer'}}>
                         ▲ 전체 열기
                       </button>
-                      <button onClick={() => devicesInGroup.forEach(d => handleControl(d.deviceId, 'stop'))}
-                        style={{...btnBase,flex:1,background:'#64748b',color:'#fff',boxShadow:'0 2px 8px rgba(100,116,139,0.3)'}}>
+                      <button onClick={() => manualDevices.forEach(d => handleControl(d.deviceId, 'stop'))}
+                        disabled={allAuto}
+                        style={{...btnBase,flex:1,background: allAuto ? '#d1d5db' : '#64748b',color:'#fff',boxShadow: allAuto ? 'none' : '0 2px 8px rgba(100,116,139,0.3)', cursor: allAuto ? 'not-allowed' : 'pointer'}}>
                         ■ 전체 정지
                       </button>
-                      <button onClick={() => devicesInGroup.forEach(d => handleControl(d.deviceId, 'close'))}
-                        style={{...btnBase,flex:1,background:'#4f46e5',color:'#fff',boxShadow:'0 2px 8px rgba(79,70,229,0.35)'}}>
+                      <button onClick={() => manualDevices.forEach(d => handleControl(d.deviceId, 'close'))}
+                        disabled={allAuto}
+                        style={{...btnBase,flex:1,background: allAuto ? '#d1d5db' : '#4f46e5',color:'#fff',boxShadow: allAuto ? 'none' : '0 2px 8px rgba(79,70,229,0.35)', cursor: allAuto ? 'not-allowed' : 'pointer'}}>
                         ▼ 전체 닫기
                       </button>
                     </div>
                   )}
                 </div>
-              )}
+                );
+              })()}
             </div>
           </div>
         );
@@ -294,6 +521,264 @@ const ControlPanel = ({ farmId, houseId, houseConfig }) => {
           </div>
         </div>
       )}
+
+      {/* 자동화 규칙 선택 팝업 */}
+      {rulePickerDevice && (
+        <RulePickerModal
+          allRules={autoRules}
+          selectedIds={selectedRuleMap[rulePickerDevice] || []}
+          onToggle={(ruleId) => toggleRuleSelection(rulePickerDevice, ruleId)}
+          onClose={() => setRulePickerDevice(null)}
+        />
+      )}
+    </div>
+  );
+};
+
+const OPERATOR_LABELS = { '>': '초과', '>=': '이상', '<': '미만', '<=': '이하' };
+const COMMAND_LABELS = { open: '열기', close: '닫기', stop: '정지', on: 'ON', off: 'OFF' };
+const DAYS_LABELS = { 1: '월', 2: '화', 3: '수', 4: '목', 5: '금', 6: '토', 0: '일' };
+
+/** 장치 자동 모드 - 선택된 규칙 목록 표시 */
+const DeviceAutoRules = ({ deviceId, rules, expandedRuleId, onToggleExpand, onRemove, onOpenPicker, locked }) => {
+  return (
+    <div style={{display:'flex',flexDirection:'column',gap:6}}>
+      {rules.length === 0 && (
+        <div style={{textAlign:'center',color:'#9ca3af',fontSize:13,padding:'4px 0'}}>
+          선택된 규칙이 없습니다
+        </div>
+      )}
+      {rules.map(rule => {
+        const isExpanded = expandedRuleId === rule._id;
+        const sensorConds = (rule.conditions || []).filter(c => c.type === 'sensor');
+        const timeConds = (rule.conditions || []).filter(c => c.type === 'time');
+
+        return (
+          <div key={rule._id} style={{borderRadius:10,border:'1.5px solid #bbf7d0',background:'#fff',overflow:'hidden'}}>
+            {/* 규칙 헤더 */}
+            <div
+              onClick={() => onToggleExpand(rule._id)}
+              style={{display:'flex',alignItems:'center',justifyContent:'space-between',padding:'10px 12px',cursor:'pointer',background: isExpanded ? '#f0fdf4' : '#fff'}}
+            >
+              <div style={{display:'flex',alignItems:'center',gap:8,flex:1,minWidth:0}}>
+                <span style={{fontSize:14}}>🤖</span>
+                <span style={{fontSize:14,fontWeight:700,color:'#0f172a',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{rule.name}</span>
+                <span style={{fontSize:11,fontWeight:700,padding:'2px 8px',borderRadius:12,
+                  background: rule.enabled ? '#dcfce7' : '#fee2e2',
+                  color: rule.enabled ? '#15803d' : '#dc2626',
+                }}>{rule.enabled ? '활성' : '비활성'}</span>
+              </div>
+              <div style={{display:'flex',alignItems:'center',gap:4,flexShrink:0}}>
+                {!locked && (
+                  <button onClick={(e) => { e.stopPropagation(); onRemove(rule._id); }}
+                    style={{padding:'4px 6px',border:'none',background:'transparent',cursor:'pointer',fontSize:12,borderRadius:6,color:'#9ca3af'}}
+                    title="해제">✕</button>
+                )}
+                <span style={{fontSize:12,color:'#9ca3af'}}>{isExpanded ? '▲' : '▼'}</span>
+              </div>
+            </div>
+
+            {/* 규칙 상세 */}
+            {isExpanded && (
+              <div style={{padding:'0 12px 12px',borderTop:'1px solid #e5e7eb'}}>
+                {sensorConds.length > 0 && (
+                  <div style={{marginTop:8}}>
+                    <div style={{fontSize:11,fontWeight:700,color:'#7c3aed',marginBottom:4}}>센서 조건</div>
+                    <div style={{display:'flex',flexWrap:'wrap',gap:4}}>
+                      {sensorConds.map((c, i) => (
+                        <React.Fragment key={i}>
+                          {i > 0 && <span style={{fontSize:11,fontWeight:800,color:'#6b7280',alignSelf:'center'}}>{c.logic || 'AND'}</span>}
+                          <span style={{fontSize:12,fontWeight:600,padding:'3px 8px',borderRadius:8,background:'#f5f3ff',color:'#6d28d9',border:'1px solid #ddd6fe'}}>
+                            {c.sensorName || c.sensorId} {OPERATOR_LABELS[c.operator] || c.operator} {c.value}
+                          </span>
+                        </React.Fragment>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                {sensorConds.length > 0 && timeConds.length > 0 && (
+                  <div style={{textAlign:'center',margin:'4px 0'}}>
+                    <span style={{fontSize:11,fontWeight:800,padding:'2px 10px',borderRadius:10,
+                      background: (rule.groupLogic || 'AND') === 'AND' ? '#eef2ff' : '#fff7ed',
+                      color: (rule.groupLogic || 'AND') === 'AND' ? '#4f46e5' : '#ea580c'
+                    }}>{rule.groupLogic || 'AND'}</span>
+                  </div>
+                )}
+                {timeConds.length > 0 && (
+                  <div style={{marginTop: sensorConds.length > 0 ? 0 : 8}}>
+                    <div style={{fontSize:11,fontWeight:700,color:'#d97706',marginBottom:4}}>시간 조건</div>
+                    <div style={{display:'flex',flexWrap:'wrap',gap:4}}>
+                      {timeConds.map((c, i) => {
+                        const daysStr = (c.days || []).sort((a, b) => (a || 7) - (b || 7)).map(d => DAYS_LABELS[d]).join(',');
+                        let timeStr;
+                        if (c.timeMode === 'interval') {
+                          timeStr = `${c.startTime || '08:00'}~${c.endTime || '18:00'} ${c.intervalMinutes || 30}분간격`;
+                        } else if (c.timeMode === 'specific') {
+                          timeStr = (c.times || []).join(', ');
+                        } else {
+                          timeStr = c.time || '--:--';
+                        }
+                        return (
+                          <span key={i} style={{fontSize:12,fontWeight:600,padding:'3px 8px',borderRadius:8,background:'#fffbeb',color:'#b45309',border:'1px solid #fde68a'}}>
+                            ⏰ {timeStr} ({daysStr})
+                          </span>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+                <div style={{marginTop:8}}>
+                  <div style={{fontSize:11,fontWeight:700,color:'#0369a1',marginBottom:4}}>실행 동작</div>
+                  <div style={{display:'flex',flexWrap:'wrap',gap:4}}>
+                    {(rule.actions || []).map((a, i) => {
+                      const durStr = (() => {
+                        if (!a.duration) return '';
+                        const m = Math.floor(a.duration / 60), s = a.duration % 60;
+                        if (m > 0 && s > 0) return ` ${m}분${s}초간`;
+                        if (m > 0) return ` ${m}분간`;
+                        return ` ${s}초간`;
+                      })();
+                      return (
+                        <span key={i} style={{fontSize:12,fontWeight:600,padding:'3px 8px',borderRadius:8,background:'#f1f5f9',color:'#64748b',border:'1px solid #e2e8f0'}}>
+                          {a.deviceName || a.deviceId} → {COMMAND_LABELS[a.command] || a.command}{durStr}
+                        </span>
+                      );
+                    })}
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        );
+      })}
+      {!locked && (
+        <button onClick={onOpenPicker}
+          style={{width:'100%',padding:'8px',borderRadius:8,border:'1.5px dashed #86efac',background:'transparent',color:'#22c55e',fontSize:13,fontWeight:700,cursor:'pointer'}}>
+          + 규칙 선택
+        </button>
+      )}
+    </div>
+  );
+};
+
+/** 자동화 규칙 선택 팝업 */
+const RulePickerModal = ({ allRules, selectedIds, onToggle, onClose }) => {
+  const sensorIcon = { sensor: '🌡️', schedule: '⏰', custom: '⚙️' };
+  const categorize = (rule) => {
+    const hasSensor = rule.conditions?.some(c => c.type === 'sensor');
+    const hasTime = rule.conditions?.some(c => c.type === 'time');
+    if (hasSensor && hasTime) return 'custom';
+    if (hasTime) return 'schedule';
+    return 'sensor';
+  };
+
+  return (
+    <div style={{position:'fixed',inset:0,zIndex:9999,display:'flex',alignItems:'center',justifyContent:'center',background:'rgba(0,0,0,0.5)'}}
+      onClick={onClose}>
+      <div style={{background:'#fff',borderRadius:16,width:'90%',maxWidth:480,maxHeight:'70vh',display:'flex',flexDirection:'column',boxShadow:'0 20px 60px rgba(0,0,0,0.3)'}}
+        onClick={e => e.stopPropagation()}>
+        {/* 헤더 */}
+        <div style={{padding:'16px 20px',borderBottom:'2px solid #e5e7eb',display:'flex',alignItems:'center',justifyContent:'space-between'}}>
+          <h3 style={{fontSize:16,fontWeight:800,color:'#0f172a'}}>자동화 규칙 선택</h3>
+          <button onClick={onClose} style={{border:'none',background:'transparent',fontSize:20,cursor:'pointer',color:'#9ca3af',padding:'4px'}}>✕</button>
+        </div>
+
+        {/* 규칙 목록 */}
+        <div style={{flex:1,overflowY:'auto',padding:'12px 16px'}}>
+          {allRules.length === 0 ? (
+            <div style={{textAlign:'center',padding:'32px 0',color:'#9ca3af',fontSize:14}}>
+              등록된 자동화 규칙이 없습니다.<br/>설정에서 먼저 규칙을 만들어주세요.
+            </div>
+          ) : allRules.map(rule => {
+            const isSelected = selectedIds.includes(rule._id);
+            const cat = categorize(rule);
+            const sensorConds = (rule.conditions || []).filter(c => c.type === 'sensor');
+            const timeConds = (rule.conditions || []).filter(c => c.type === 'time');
+
+            return (
+              <div key={rule._id}
+                onClick={() => onToggle(rule._id)}
+                style={{
+                  display:'flex',alignItems:'flex-start',gap:12,
+                  padding:'12px 14px',marginBottom:8,borderRadius:12,cursor:'pointer',
+                  border: isSelected ? '2px solid #22c55e' : '2px solid #e5e7eb',
+                  background: isSelected ? '#f0fdf4' : '#fff',
+                  transition:'all 0.15s',
+                }}>
+                {/* 체크박스 */}
+                <div style={{
+                  width:22,height:22,borderRadius:6,flexShrink:0,marginTop:1,
+                  display:'flex',alignItems:'center',justifyContent:'center',
+                  border: isSelected ? '2px solid #22c55e' : '2px solid #d1d5db',
+                  background: isSelected ? '#22c55e' : '#fff',
+                  color:'#fff',fontSize:14,fontWeight:900,
+                }}>
+                  {isSelected && '✓'}
+                </div>
+                {/* 규칙 정보 */}
+                <div style={{flex:1,minWidth:0}}>
+                  <div style={{display:'flex',alignItems:'center',gap:6,marginBottom:4}}>
+                    <span style={{fontSize:14}}>{sensorIcon[cat]}</span>
+                    <span style={{fontSize:14,fontWeight:700,color:'#0f172a'}}>{rule.name}</span>
+                    <span style={{fontSize:11,fontWeight:700,padding:'1px 8px',borderRadius:10,
+                      background: rule.enabled ? '#dcfce7' : '#fee2e2',
+                      color: rule.enabled ? '#15803d' : '#dc2626',
+                    }}>{rule.enabled ? '활성' : '비활성'}</span>
+                  </div>
+                  {/* 조건 요약 */}
+                  <div style={{display:'flex',flexWrap:'wrap',gap:4}}>
+                    {sensorConds.map((c, i) => (
+                      <span key={`s${i}`} style={{fontSize:11,padding:'2px 6px',borderRadius:6,background:'#f5f3ff',color:'#7c3aed',border:'1px solid #ede9fe'}}>
+                        {c.sensorName || c.sensorId} {c.operator} {c.value}
+                      </span>
+                    ))}
+                    {timeConds.map((c, i) => {
+                      let tStr;
+                      if (c.timeMode === 'interval') tStr = `${c.startTime}~${c.endTime} ${c.intervalMinutes}분`;
+                      else if (c.timeMode === 'specific') tStr = (c.times || []).join(',');
+                      else tStr = c.time || '--:--';
+                      return (
+                        <span key={`t${i}`} style={{fontSize:11,padding:'2px 6px',borderRadius:6,background:'#fffbeb',color:'#b45309',border:'1px solid #fef3c7'}}>
+                          ⏰ {tStr}
+                        </span>
+                      );
+                    })}
+                  </div>
+                  {/* 동작 요약 */}
+                  <div style={{display:'flex',flexWrap:'wrap',gap:4,marginTop:4}}>
+                    <span style={{fontSize:11,color:'#64748b'}}>→</span>
+                    {(rule.actions || []).map((a, i) => {
+                      const durStr = (() => {
+                        if (!a.duration) return '';
+                        const m = Math.floor(a.duration / 60), s = a.duration % 60;
+                        if (m > 0 && s > 0) return ` ${m}분${s}초간`;
+                        if (m > 0) return ` ${m}분간`;
+                        return ` ${s}초간`;
+                      })();
+                      return (
+                        <span key={i} style={{fontSize:11,padding:'2px 6px',borderRadius:6,background:'#eff6ff',color:'#1d4ed8',border:'1px solid #dbeafe'}}>
+                          {a.deviceName || a.deviceId} {COMMAND_LABELS[a.command] || a.command}{durStr}
+                        </span>
+                      );
+                    })}
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+
+        {/* 푸터 */}
+        <div style={{padding:'12px 16px',borderTop:'2px solid #e5e7eb',display:'flex',alignItems:'center',justifyContent:'space-between'}}>
+          <span style={{fontSize:13,color:'#64748b',fontWeight:600}}>
+            {selectedIds.length}개 선택됨
+          </span>
+          <button onClick={onClose}
+            style={{padding:'8px 24px',borderRadius:10,border:'none',background:'#22c55e',color:'#fff',fontSize:14,fontWeight:700,cursor:'pointer'}}>
+            완료
+          </button>
+        </div>
+      </div>
     </div>
   );
 };

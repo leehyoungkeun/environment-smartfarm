@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import axios from 'axios';
 import { getApiBase, getRpiApiBase, isFarmLocalMode } from '../../services/apiSwitcher';
 
@@ -22,39 +22,40 @@ const OPERATOR_OPTIONS = [
 ];
 
 const DAYS_OPTIONS = [
-  { value: 0, label: '일' },
   { value: 1, label: '월' },
   { value: 2, label: '화' },
   { value: 3, label: '수' },
   { value: 4, label: '목' },
   { value: 5, label: '금' },
   { value: 6, label: '토' },
+  { value: 0, label: '일' },
 ];
 
 const COMMAND_LABELS = {
   open: '열기', close: '닫기', stop: '정지', on: 'ON', off: 'OFF',
 };
 
-// 자동화 API 호출 (RPi 우선 → PC 폴백)
-async function autoApi(method, path, data) {
+// RPi-Primary API: 쓰기는 RPi에만 (PC 폴백 없음 → 중복 방지)
+// PC 동기화는 syncRulesToPC()로 별도 처리
+async function rpiApi(method, path, data) {
   const rpiUrl = getRpiApiBase() + path;
-  const pcUrl = getApiBase() + path;
+  return await axios({ method, url: rpiUrl, data, timeout: 8000 });
+}
 
-  try {
-    const res = await axios({ method, url: rpiUrl, data, timeout: 5000 });
-    return res;
-  } catch (rpiErr) {
-    // RPi 실패 → PC 서버 폴백 (같은 URL이면 스킵)
-    if (rpiUrl !== pcUrl) {
-      try {
-        const res = await axios({ method, url: pcUrl, data, timeout: 5000 });
-        return res;
-      } catch (pcErr) {
-        throw pcErr;
+// RPi → PC 전체 규칙 동기화 (백그라운드)
+function syncRulesToPC(farmId) {
+  const rpiUrl = getRpiApiBase();
+  const pcUrl = getApiBase();
+  if (rpiUrl === pcUrl) return;
+
+  axios.get(`${rpiUrl}/automation/${farmId}`, { timeout: 5000 })
+    .then(res => {
+      if (res?.data?.success && Array.isArray(res.data.data) && res.data.data.length > 0) {
+        const rules = res.data.data.map(r => ({ ...r, id: r._id || r.id }));
+        return axios.post(`${pcUrl}/automation/${farmId}/sync`, { rules }, { timeout: 10000 });
       }
-    }
-    throw rpiErr;
-  }
+    })
+    .catch(() => {}); // 동기화 실패는 무시
 }
 
 const TABS = [
@@ -64,9 +65,9 @@ const TABS = [
 ];
 
 const TAB_COLORS = {
-  violet: { bg: 'bg-violet-500', ring: 'ring-violet-500/30', text: 'text-violet-400', light: 'bg-violet-500/10', border: 'border-violet-500/20' },
-  amber: { bg: 'bg-amber-500', ring: 'ring-amber-500/30', text: 'text-amber-400', light: 'bg-amber-500/10', border: 'border-amber-500/20' },
-  emerald: { bg: 'bg-emerald-500', ring: 'ring-emerald-500/30', text: 'text-emerald-400', light: 'bg-emerald-500/10', border: 'border-emerald-500/20' },
+  violet: { bg: 'bg-violet-500', ring: 'ring-violet-500/30', text: 'text-violet-600', light: 'bg-violet-50', border: 'border-violet-200' },
+  amber: { bg: 'bg-amber-500', ring: 'ring-amber-500/30', text: 'text-amber-600', light: 'bg-amber-50', border: 'border-amber-200' },
+  emerald: { bg: 'bg-emerald-500', ring: 'ring-emerald-500/30', text: 'text-emerald-600', light: 'bg-emerald-50', border: 'border-emerald-200' },
 };
 
 const AutomationManager = ({ farmId }) => {
@@ -77,28 +78,31 @@ const AutomationManager = ({ farmId }) => {
   const [showForm, setShowForm] = useState(false);
   const [editingRule, setEditingRule] = useState(null);
 
-  // 데이터 로드 (개별 실패 허용)
+  // 데이터 로드 (RPi 우선, RPi 불가 시 PC 폴백)
   const loadData = useCallback(async () => {
     setLoading(true);
     try {
-      // 팜로컬: config는 localStorage 캐시에서, 일반: 서버에서
+      const rpiUrl = getRpiApiBase();
+      const pcUrl = getApiBase();
       const configCacheKey = `cachedConfig_${farmId}`;
-      const promises = [autoApi('get', `/automation/${farmId}`)];
 
-      if (!isFarmLocalMode()) {
-        promises.push(axios.get(`${getApiBase()}/config/${farmId}`, { timeout: 5000 }));
+      // 규칙: RPi 우선 → PC 폴백
+      const [rulesRes, configRes] = await Promise.all([
+        axios.get(`${rpiUrl}/automation/${farmId}`, { timeout: 5000 })
+          .catch(() => rpiUrl !== pcUrl
+            ? axios.get(`${pcUrl}/automation/${farmId}`, { timeout: 5000 }).catch(() => null)
+            : null
+          ),
+        axios.get(`${pcUrl}/config/${farmId}`, { timeout: 5000 }).catch(() => null),
+      ]);
+
+      if (rulesRes?.data?.success && Array.isArray(rulesRes.data.data)) {
+        setRules(rulesRes.data.data.map(r => ({ ...r, _id: r._id || r.id })));
       }
 
-      const results = await Promise.allSettled(promises);
-
-      if (results[0].status === 'fulfilled' && results[0].value.data.success) {
-        setRules(results[0].value.data.data);
-      }
-
-      if (!isFarmLocalMode() && results[1]?.status === 'fulfilled' && results[1].value.data.success) {
-        setHouses(results[1].value.data.data.houses || []);
+      if (configRes?.data?.success) {
+        setHouses(configRes.data.data.houses || []);
       } else {
-        // 팜로컬 or config 실패 → localStorage 캐시에서 복원
         try {
           const cached = JSON.parse(localStorage.getItem(configCacheKey));
           if (cached?.houses) setHouses(cached.houses);
@@ -113,35 +117,74 @@ const AutomationManager = ({ farmId }) => {
 
   useEffect(() => { loadData(); }, [loadData]);
 
-  // 규칙 토글
+  // 편집 중 다른 동작 차단 체크
+  const isEditing = () => {
+    if (showForm) {
+      alert(editingRule
+        ? `현재 "${editingRule.name}" 규칙을 편집중입니다. 먼저 저장하거나 취소해주세요.`
+        : '현재 새 규칙을 작성중입니다. 먼저 저장하거나 취소해주세요.'
+      );
+      return true;
+    }
+    return false;
+  };
+
+  // 규칙 토글 (RPi Primary → PC 동기화)
   const toggleRule = async (ruleId) => {
+    if (isEditing()) return;
     try {
-      await autoApi('patch', `/automation/${farmId}/${ruleId}/toggle`);
+      await rpiApi('patch', `/automation/${farmId}/${ruleId}/toggle`);
       loadData();
     } catch (error) {
       alert('토글 실패: ' + error.message);
     }
   };
 
-  // 규칙 삭제
+  // 규칙 삭제 (RPi Primary → PC 동기화)
   const deleteRule = async (ruleId) => {
+    if (isEditing()) return;
     if (!confirm('이 자동화 규칙을 삭제하시겠습니까?')) return;
     try {
-      await autoApi('delete', `/automation/${farmId}/${ruleId}`);
-      loadData();
+      await rpiApi('delete', `/automation/${farmId}/${ruleId}`);
+      setRules(prev => prev.filter(r => r._id !== ruleId));
+      // 삭제 후 RPi 전체 규칙을 PC에 동기화 (PC에 남은 규칙도 정리)
+      syncRulesToPC(farmId);
     } catch (error) {
       alert('삭제 실패: ' + error.message);
+      loadData();
     }
+  };
+
+  // 폼 저장 완료 콜백
+  const handleFormSave = (savedRule) => {
+    setShowForm(false);
+    setEditingRule(null);
+    if (savedRule) {
+      setRules(prev => {
+        const exists = prev.find(r => r._id === savedRule._id);
+        if (exists) {
+          return prev.map(r => r._id === savedRule._id ? savedRule : r);
+        }
+        return [savedRule, ...prev];
+      });
+      const hasSensor = savedRule.conditions?.some(c => c.type === 'sensor');
+      const hasTime = savedRule.conditions?.some(c => c.type === 'time');
+      const targetTab = (hasSensor && hasTime) ? 'custom' : hasTime ? 'schedule' : 'sensor';
+      setActiveTab(targetTab);
+    }
+    setTimeout(() => loadData(), 800);
   };
 
   // 편집 시작
   const startEdit = (rule) => {
+    if (isEditing()) return;
     setEditingRule(rule);
     setShowForm(true);
   };
 
   // 새 규칙
   const startNew = () => {
+    if (isEditing()) return;
     setEditingRule(null);
     setShowForm(true);
   };
@@ -161,19 +204,8 @@ const AutomationManager = ({ farmId }) => {
 
   return (
     <div className="max-w-7xl mx-auto px-4 md:px-6 py-4 md:py-6">
-      {/* 헤더 */}
-      <div className="flex items-center justify-between mb-5">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-800 tracking-tight">자동화 규칙</h1>
-          <p className="text-gray-500 text-sm md:text-base mt-0.5">장치 자동 제어 설정</p>
-        </div>
-        <button onClick={startNew} className="btn-primary">
-          + 새 규칙
-        </button>
-      </div>
-
-      {/* 탭 네비게이션 */}
-      <div className="flex gap-2 mb-5 overflow-x-auto pb-1">
+      {/* 탭 네비게이션 + 새 규칙 */}
+      <div className="flex items-center gap-2 mb-5 overflow-x-auto pb-1">
         {TABS.map(tab => {
           const tc = TAB_COLORS[tab.color];
           const count = rules.filter(r => categorizeRule(r) === tab.id).length;
@@ -185,14 +217,14 @@ const AutomationManager = ({ farmId }) => {
               className={`flex items-center gap-2 px-5 py-3 rounded-xl text-base font-extrabold transition-all whitespace-nowrap border-2 ${
                 isActive
                   ? `${tc.light} ${tc.text} ${tc.border} shadow-lg`
-                  : 'bg-white/[0.03] text-gray-500 border-transparent hover:bg-white/[0.06]'
+                  : 'bg-gray-50 text-gray-500 border-transparent hover:bg-gray-100'
               }`}
             >
               <span className="text-lg">{tab.icon}</span>
               {tab.label}
               {count > 0 && (
                 <span className={`text-xs px-2 py-0.5 rounded-full font-bold ${
-                  isActive ? `${tc.bg} text-white` : 'bg-white/[0.08] text-gray-500'
+                  isActive ? `${tc.bg} text-white` : 'bg-gray-200 text-gray-500'
                 }`}>
                   {count}
                 </span>
@@ -200,6 +232,9 @@ const AutomationManager = ({ farmId }) => {
             </button>
           );
         })}
+        <button onClick={startNew} className="btn-primary ml-auto flex-shrink-0">
+          + 새 규칙
+        </button>
       </div>
 
       {/* 탭 설명 */}
@@ -207,49 +242,46 @@ const AutomationManager = ({ farmId }) => {
         {currentTab?.icon} {currentTab?.desc}
       </p>
 
-      {/* 규칙 생성/편집 폼 */}
-      {showForm && (
+      {/* 새 규칙 폼 (상단) - 새 규칙일 때만 */}
+      {showForm && !editingRule && (
         <RuleForm
           farmId={farmId}
           houses={houses}
-          rule={editingRule}
+          rule={null}
+          existingRules={rules}
           defaultTab={activeTab}
-          onSave={(savedRule) => {
-            setShowForm(false);
-            setEditingRule(null);
-            if (savedRule) {
-              // 낙관적 업데이트: 서버 응답 데이터로 즉시 state 반영
-              setRules(prev => {
-                const exists = prev.find(r => r._id === savedRule._id);
-                if (exists) {
-                  return prev.map(r => r._id === savedRule._id ? savedRule : r);
-                }
-                return [savedRule, ...prev];
-              });
-              // 저장된 규칙의 탭으로 자동 전환
-              const hasSensor = savedRule.conditions?.some(c => c.type === 'sensor');
-              const hasTime = savedRule.conditions?.some(c => c.type === 'time');
-              const targetTab = (hasSensor && hasTime) ? 'custom' : hasTime ? 'schedule' : 'sensor';
-              setActiveTab(targetTab);
-            }
-            // 서버 동기화 (백그라운드)
-            setTimeout(() => loadData(), 800);
-          }}
+          onSave={handleFormSave}
           onCancel={() => { setShowForm(false); setEditingRule(null); }}
         />
       )}
 
-      {/* 규칙 목록 */}
+      {/* 규칙 목록 (편집 시 해당 위치에 폼 인라인 표시) */}
       {loading ? (
         <div className="flex items-center justify-center py-16">
           <div className="w-8 h-8 border-2 border-blue-500/30 border-t-blue-500 rounded-full animate-spin" />
         </div>
-      ) : filteredRules.length === 0 ? (
+      ) : filteredRules.length === 0 && !(showForm && !editingRule) ? (
         <EmptyState tab={activeTab} onAdd={startNew} />
       ) : (
         <div className="space-y-3">
-          {activeTab === 'schedule' ? (
-            filteredRules.map(rule => (
+          {filteredRules.map(rule => {
+            // 편집 중인 규칙이면 폼을 인라인으로 표시
+            if (showForm && editingRule && rule._id === editingRule._id) {
+              return (
+                <RuleForm
+                  key={`edit-${rule._id}`}
+                  farmId={farmId}
+                  houses={houses}
+                  rule={editingRule}
+                  existingRules={rules}
+                  defaultTab={activeTab}
+                  onSave={handleFormSave}
+                  onCancel={() => { setShowForm(false); setEditingRule(null); }}
+                />
+              );
+            }
+            // 일반 카드
+            return activeTab === 'schedule' ? (
               <ScheduleCard
                 key={rule._id}
                 rule={rule}
@@ -258,9 +290,7 @@ const AutomationManager = ({ farmId }) => {
                 onEdit={() => startEdit(rule)}
                 onDelete={() => deleteRule(rule._id)}
               />
-            ))
-          ) : (
-            filteredRules.map(rule => (
+            ) : (
               <RuleCard
                 key={rule._id}
                 rule={rule}
@@ -270,8 +300,8 @@ const AutomationManager = ({ farmId }) => {
                 onEdit={() => startEdit(rule)}
                 onDelete={() => deleteRule(rule._id)}
               />
-            ))
-          )}
+            );
+          })}
         </div>
       )}
     </div>
@@ -293,10 +323,10 @@ const EmptyState = ({ tab, onAdd }) => {
   return (
     <div className="glass-card p-12 text-center">
       <div className="text-5xl mb-4 opacity-30">{cfg.icon}</div>
-      <p className="text-gray-400 text-lg font-bold">{cfg.title}</p>
-      <p className="text-gray-500 text-base mt-1.5">{cfg.desc}</p>
-      <p className="text-gray-600 text-sm mt-2 italic">{cfg.example}</p>
-      <button onClick={onAdd} className="mt-5 px-6 py-2.5 rounded-lg bg-white/[0.06] text-gray-400 text-base font-semibold hover:bg-white/[0.1] transition-all">
+      <p className="text-gray-500 text-lg font-bold">{cfg.title}</p>
+      <p className="text-gray-400 text-base mt-1.5">{cfg.desc}</p>
+      <p className="text-gray-400 text-sm mt-2 italic">{cfg.example}</p>
+      <button onClick={onAdd} className="mt-5 px-6 py-2.5 rounded-lg bg-gray-100 text-gray-600 text-base font-semibold hover:bg-gray-200 transition-all">
         + 규칙 추가
       </button>
     </div>
@@ -313,24 +343,73 @@ const ScheduleCard = ({ rule, houses, onToggle, onEdit, onDelete }) => {
 
   // 시간 조건 추출
   const timeCond = rule.conditions?.find(c => c.type === 'time');
-  const timeStr = timeCond?.time || '--:--';
   const activeDays = timeCond?.days || [];
+
+  // 시간 표시 문자열 생성
+  const getTimeDisplay = (cond) => {
+    if (!cond) return { main: '--:--', sub: '' };
+    const mode = cond.timeMode || 'specific';
+    if (mode === 'interval') {
+      return { main: `${cond.startTime || '08:00'}`, sub: `~${cond.endTime || '18:00'} (${cond.intervalMinutes || 30}분)` };
+    }
+    const times = cond.times || (cond.time ? [cond.time] : ['--:--']);
+    if (times.length === 1) return { main: times[0], sub: '' };
+    return { main: times[0], sub: `외 ${times.length - 1}건` };
+  };
+  const timeDisplay = getTimeDisplay(timeCond);
+
+  // 동작 duration 표시
+  const formatDuration = (action) => {
+    if (!action.duration) return '';
+    const totalSec = action.duration;
+    const m = Math.floor(totalSec / 60);
+    const s = totalSec % 60;
+    if (m > 0 && s > 0) return ` ${m}분${s}초간`;
+    if (m > 0) return ` ${m}분간`;
+    return ` ${s}초간`;
+  };
 
   return (
     <div className={`glass-card p-4 md:p-5 transition-all ${!rule.enabled ? 'opacity-50' : ''}`}>
       <div className="flex items-start gap-4">
         {/* 시간 표시 (좌측 큰 시계) */}
-        <div className="flex-shrink-0 w-24 h-24 rounded-2xl bg-amber-500/10 border border-amber-500/20 flex flex-col items-center justify-center">
-          <span className="text-3xl font-black text-amber-400 font-mono leading-none">{timeStr.split(':')[0]}</span>
-          <span className="text-sm text-amber-500/60 font-bold">: {timeStr.split(':')[1]}</span>
+        <div className="flex-shrink-0 w-24 h-24 rounded-2xl bg-amber-50 border border-amber-200 flex flex-col items-center justify-center">
+          <span className="text-3xl font-black text-amber-600 font-mono leading-none">{timeDisplay.main.split(':')[0]}</span>
+          <span className="text-sm text-amber-500 font-bold">: {timeDisplay.main.split(':')[1]}</span>
+          {timeDisplay.sub && <span className="text-[10px] text-amber-400 font-bold mt-0.5">{timeDisplay.sub}</span>}
         </div>
 
         {/* 내용 */}
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 mb-2">
-            <h3 className="text-lg font-extrabold text-white truncate">{rule.name}</h3>
-            <span className="text-sm text-gray-400 bg-white/[0.06] px-2.5 py-1 rounded font-semibold">{houseName}</span>
+            <h3 className="text-lg font-extrabold text-gray-800 truncate">{rule.name}</h3>
+            <span className="text-sm text-gray-500 bg-gray-100 px-2.5 py-1 rounded font-semibold">{houseName}</span>
+            {/* 모드 뱃지 */}
+            {timeCond?.timeMode === 'interval' && (
+              <span className="text-[10px] font-bold bg-amber-100 text-amber-600 px-2 py-0.5 rounded-full">반복</span>
+            )}
+            {timeCond?.timeMode === 'specific' && (timeCond?.times?.length || 0) > 1 && (
+              <span className="text-[10px] font-bold bg-amber-100 text-amber-600 px-2 py-0.5 rounded-full">{timeCond.times.length}회</span>
+            )}
           </div>
+
+          {/* 지정시간 여러개인 경우 시간 목록 표시 */}
+          {timeCond?.timeMode === 'specific' && (timeCond?.times?.length || 0) > 1 && (
+            <div className="flex flex-wrap gap-1 mb-2">
+              {timeCond.times.map((t, i) => (
+                <span key={i} className="text-xs font-bold bg-amber-50 text-amber-600 border border-amber-200 px-2 py-0.5 rounded">
+                  {t}
+                </span>
+              ))}
+            </div>
+          )}
+
+          {/* 반복 모드 상세 표시 */}
+          {timeCond?.timeMode === 'interval' && (
+            <div className="text-xs font-semibold text-amber-500 mb-2">
+              {timeCond.startTime} ~ {timeCond.endTime} / {timeCond.intervalMinutes}분 간격
+            </div>
+          )}
 
           {/* 요일 표시 */}
           <div className="flex gap-1.5 mb-2.5">
@@ -339,8 +418,8 @@ const ScheduleCard = ({ rule, houses, onToggle, onEdit, onDelete }) => {
                 key={d.value}
                 className={`w-8 h-8 rounded text-xs font-bold flex items-center justify-center ${
                   activeDays.includes(d.value)
-                    ? 'bg-amber-500/80 text-white'
-                    : 'bg-white/[0.04] text-gray-600'
+                    ? 'bg-amber-500 text-white'
+                    : 'bg-gray-100 text-gray-500'
                 }`}
               >
                 {d.label}
@@ -354,8 +433,8 @@ const ScheduleCard = ({ rule, houses, onToggle, onEdit, onDelete }) => {
             {rule.actions.map((action, i) => {
               const dt = DEVICE_TYPE_OPTIONS.find(d => d.value === action.deviceType);
               return (
-                <span key={i} className="text-base font-semibold bg-amber-500/10 text-amber-300 border border-amber-500/20 px-3 py-1 rounded-lg">
-                  {dt?.icon} {action.deviceName || action.deviceId} {COMMAND_LABELS[action.command] || action.command}
+                <span key={i} className="text-base font-semibold bg-amber-50 text-amber-700 border border-amber-200 px-3 py-1 rounded-lg">
+                  {dt?.icon} {action.deviceName || action.deviceId} {COMMAND_LABELS[action.command] || action.command}{formatDuration(action)}
                 </span>
               );
             })}
@@ -399,9 +478,11 @@ const ScheduleCard = ({ rule, houses, onToggle, onEdit, onDelete }) => {
 const RuleCard = ({ rule, houses, tabColor = 'violet', onToggle, onEdit, onDelete }) => {
   const house = houses.find(h => h.houseId === rule.houseId);
   const houseName = house?.houseName || house?.name || rule.houseId;
-  const colors = TAB_COLORS[tabColor] || TAB_COLORS.violet;
-  const iconMap = { sensor: '🌡️', schedule: '⏰', custom: '⚙️', violet: '🤖', emerald: '⚙️' };
   const icon = tabColor === 'emerald' ? '⚙️' : '🤖';
+
+  // 조건 그룹 분리
+  const sensorConds = (rule.conditions || []).filter(c => c.type === 'sensor');
+  const timeConds = (rule.conditions || []).filter(c => c.type === 'time');
 
   return (
     <div className={`glass-card p-4 md:p-5 transition-all ${!rule.enabled ? 'opacity-50' : ''}`}>
@@ -410,35 +491,75 @@ const RuleCard = ({ rule, houses, tabColor = 'violet', onToggle, onEdit, onDelet
           {/* 제목 + 하우스 */}
           <div className="flex items-center gap-2 mb-2">
             <span className="text-2xl">{icon}</span>
-            <h3 className="text-lg font-extrabold text-white truncate">{rule.name}</h3>
-            <span className="text-sm text-gray-400 bg-white/[0.06] px-2.5 py-1 rounded font-semibold">
+            <h3 className="text-lg font-extrabold text-gray-800 truncate">{rule.name}</h3>
+            <span className="text-sm text-gray-500 bg-gray-100 px-2.5 py-1 rounded font-semibold">
               {houseName}
             </span>
           </div>
 
-          {/* 조건 */}
+          {/* 조건 - 그룹별 분리 표시 */}
           <div className="mb-2.5">
-            <span className="text-sm text-gray-400 font-bold uppercase">조건 ({rule.conditionLogic})</span>
-            <div className="flex flex-wrap gap-2 mt-1.5">
-              {rule.conditions.map((cond, i) => (
-                <span key={i} className="text-base font-semibold bg-violet-500/10 text-violet-300 border border-violet-500/20 px-3 py-1 rounded-lg">
-                  {cond.type === 'sensor'
-                    ? `${cond.sensorName || cond.sensorId} ${cond.operator} ${cond.value}`
-                    : `⏰ ${cond.time} (${cond.days?.map(d => DAYS_OPTIONS[d]?.label).join(',')})`
+            {/* 센서 조건 */}
+            {sensorConds.length > 0 && (
+              <div className="flex flex-wrap items-center gap-1.5 mb-1">
+                {sensorConds.map((cond, i) => (
+                  <React.Fragment key={i}>
+                    {i > 0 && <span className="text-xs font-bold text-violet-500">{cond.logic || rule.conditionLogic || 'AND'}</span>}
+                    <span className="text-sm font-semibold bg-violet-50 text-violet-700 border border-violet-200 px-2.5 py-0.5 rounded-lg">
+                      {cond.sensorName || cond.sensorId} {cond.operator} {cond.value}
+                    </span>
+                  </React.Fragment>
+                ))}
+              </div>
+            )}
+            {/* 그룹 연결 */}
+            {sensorConds.length > 0 && timeConds.length > 0 && (
+              <div className="my-1">
+                <span className={`text-xs font-extrabold px-2.5 py-0.5 rounded-full ${
+                  (rule.groupLogic || 'AND') === 'AND'
+                    ? 'bg-indigo-100 text-indigo-600 border border-indigo-200'
+                    : 'bg-orange-100 text-orange-600 border border-orange-200'
+                }`}>{rule.groupLogic || 'AND'}</span>
+              </div>
+            )}
+            {/* 시간 조건 */}
+            {timeConds.length > 0 && (
+              <div className="flex flex-wrap items-center gap-1.5">
+                {timeConds.map((cond, i) => {
+                  const daysStr = DAYS_OPTIONS.filter(o => cond.days?.includes(o.value)).map(o => o.label).join(',');
+                  let timeStr;
+                  if (cond.timeMode === 'interval') {
+                    timeStr = `${cond.startTime || '08:00'}~${cond.endTime || '18:00'} ${cond.intervalMinutes || 30}분간격`;
+                  } else if (cond.timeMode === 'specific') {
+                    timeStr = (cond.times || []).join(', ');
+                  } else {
+                    timeStr = cond.time || '--:--';
                   }
-                </span>
-              ))}
-            </div>
+                  return (
+                    <span key={i} className="text-sm font-semibold bg-amber-50 text-amber-700 border border-amber-200 px-2.5 py-0.5 rounded-lg">
+                      ⏰ {timeStr} ({daysStr})
+                    </span>
+                  );
+                })}
+              </div>
+            )}
           </div>
 
           {/* 동작 */}
           <div className="flex flex-wrap items-center gap-2">
-            <span className="text-sm text-gray-400 font-bold uppercase mr-1">→</span>
+            <span className="text-sm text-gray-500 font-bold mr-1">→</span>
             {rule.actions.map((action, i) => {
               const dt = DEVICE_TYPE_OPTIONS.find(d => d.value === action.deviceType);
+              const durStr = (() => {
+                if (!action.duration) return '';
+                const m = Math.floor(action.duration / 60), s = action.duration % 60;
+                if (m > 0 && s > 0) return ` ${m}분${s}초간`;
+                if (m > 0) return ` ${m}분간`;
+                return ` ${s}초간`;
+              })();
               return (
-                <span key={i} className="text-base font-semibold bg-blue-500/10 text-blue-300 border border-blue-500/20 px-3 py-1 rounded-lg">
-                  {dt?.icon} {action.deviceName || action.deviceId} {COMMAND_LABELS[action.command] || action.command}
+                <span key={i} className="text-sm font-semibold bg-blue-50 text-blue-700 border border-blue-200 px-2.5 py-0.5 rounded-lg">
+                  {dt?.icon} {action.deviceName || action.deviceId} {COMMAND_LABELS[action.command] || action.command}{durStr}
                 </span>
               );
             })}
@@ -480,13 +601,13 @@ const RuleCard = ({ rule, houses, tabColor = 'violet', onToggle, onEdit, onDelet
 /**
  * 규칙 생성/편집 폼
  */
-const RuleForm = ({ farmId, houses, rule, defaultTab = 'sensor', onSave, onCancel }) => {
+const RuleForm = ({ farmId, houses, rule, existingRules = [], defaultTab = 'sensor', onSave, onCancel }) => {
   const defaultConditions = {
     sensor: [{ type: 'sensor', sensorId: 'temp_001', sensorName: '온도', operator: '>', value: 30 }],
-    schedule: [{ type: 'time', time: '08:00', days: [1, 2, 3, 4, 5] }],
+    schedule: [{ type: 'time', timeMode: 'specific', times: ['08:00'], days: [1, 2, 3, 4, 5] }],
     custom: [
       { type: 'sensor', sensorId: 'temp_001', sensorName: '온도', operator: '>', value: 28 },
-      { type: 'time', time: '08:00', days: [1, 2, 3, 4, 5] },
+      { type: 'time', timeMode: 'specific', times: ['08:00'], days: [1, 2, 3, 4, 5] },
     ],
   };
   const defaultNames = { sensor: '', schedule: '', custom: '' };
@@ -494,13 +615,15 @@ const RuleForm = ({ farmId, houses, rule, defaultTab = 'sensor', onSave, onCance
   const [form, setForm] = useState({
     name: rule?.name || defaultNames[defaultTab] || '',
     houseId: rule?.houseId || (houses[0]?.houseId || ''),
-    conditionLogic: rule?.conditionLogic || (defaultTab === 'custom' ? 'AND' : 'AND'),
+    conditionLogic: rule?.conditionLogic || 'AND',
+    groupLogic: rule?.groupLogic || 'AND',
     conditions: rule?.conditions || defaultConditions[defaultTab] || defaultConditions.sensor,
     actions: rule?.actions || [{ deviceId: 'fan1', deviceType: 'fan', deviceName: '환풍기 1', command: 'on' }],
     cooldownSeconds: rule?.cooldownSeconds || (defaultTab === 'schedule' ? 60 : 300),
     enabled: rule?.enabled !== false,
   });
   const [saving, setSaving] = useState(false);
+  const savingRef = useRef(false);
 
   const updateCondition = (idx, field, value) => {
     const updated = [...form.conditions];
@@ -516,8 +639,8 @@ const RuleForm = ({ farmId, houses, rule, defaultTab = 'sensor', onSave, onCance
   const addCondition = (type) => {
     const firstSensor = sensorOptions[0] || { id: 'temp_001', name: '온도' };
     const newCond = type === 'sensor'
-      ? { type: 'sensor', sensorId: firstSensor.id, sensorName: firstSensor.name, operator: '>', value: 30 }
-      : { type: 'time', time: '08:00', days: [1, 2, 3, 4, 5] };
+      ? { type: 'sensor', sensorId: firstSensor.id, sensorName: firstSensor.name, operator: '>', value: 30, logic: 'AND' }
+      : { type: 'time', timeMode: 'specific', times: ['08:00'], days: [1, 2, 3, 4, 5] };
     setForm({ ...form, conditions: [...form.conditions, newCond] });
   };
 
@@ -556,19 +679,37 @@ const RuleForm = ({ farmId, houses, rule, defaultTab = 'sensor', onSave, onCance
 
   const handleSave = async () => {
     if (!form.name.trim()) return alert('규칙 이름을 입력하세요');
+    // 동일 이름 중복 검사 (수정 시 자기 자신은 제외)
+    const duplicate = existingRules.find(r =>
+      r.name.trim() === form.name.trim() && r._id !== rule?._id
+    );
+    if (duplicate) return alert(`"${form.name}" 이름의 규칙이 이미 존재합니다.`);
+    if (savingRef.current) return; // 더블클릭 방지
+    savingRef.current = true;
     setSaving(true);
     try {
+      // 탭 유형에 맞지 않는 조건 제거
+      const cleanedForm = { ...form };
+      if (defaultTab === 'sensor') {
+        cleanedForm.conditions = form.conditions.filter(c => c.type === 'sensor');
+      } else if (defaultTab === 'schedule') {
+        cleanedForm.conditions = form.conditions.filter(c => c.type === 'time');
+      }
+
       let res;
       if (rule?._id) {
-        res = await autoApi('put', `/automation/${farmId}/${rule._id}`, form);
+        res = await rpiApi('put', `/automation/${farmId}/${rule._id}`, cleanedForm);
       } else {
-        res = await autoApi('post', `/automation/${farmId}`, form);
+        res = await rpiApi('post', `/automation/${farmId}`, cleanedForm);
       }
       const savedRule = res?.data?.data;
       onSave(savedRule || null);
+      // 저장 후 RPi → PC 전체 동기화
+      syncRulesToPC(farmId);
     } catch (error) {
       alert('저장 실패: ' + (error.response?.data?.error || error.message));
     } finally {
+      savingRef.current = false;
       setSaving(false);
     }
   };
@@ -582,9 +723,18 @@ const RuleForm = ({ farmId, houses, rule, defaultTab = 'sensor', onSave, onCance
         .map(s => ({ id: s.sensorId, name: s.name, unit: s.unit || '', icon: s.icon || '📊' }))
     : DEFAULT_SENSOR_OPTIONS;
 
+  // 탭별 섹션 표시 제어
+  const showSensorSection = defaultTab !== 'schedule';
+  const showTimeSection = defaultTab !== 'sensor';
+
+  // 조건 그룹 분리 (원래 인덱스 유지)
+  const sensorConds = form.conditions.map((c, i) => ({ ...c, _idx: i })).filter(c => c.type === 'sensor');
+  const timeConds = form.conditions.map((c, i) => ({ ...c, _idx: i })).filter(c => c.type === 'time');
+  const hasBothTypes = sensorConds.length > 0 && timeConds.length > 0;
+
   return (
-    <div className="glass-card p-4 md:p-6 mb-5 border border-violet-500/20 animate-fade-in-up">
-      <h2 className="text-lg font-extrabold text-violet-300 mb-5">
+    <div className="glass-card p-4 md:p-6 mb-5 border border-violet-200 animate-fade-in-up">
+      <h2 className="text-lg font-extrabold text-violet-600 mb-5">
         {rule ? '✏️ 규칙 수정' : (
           defaultTab === 'schedule' ? '⏰ 새 시간대별 스케줄' :
           defaultTab === 'custom' ? '⚙️ 새 사용자 정의 규칙' :
@@ -630,191 +780,377 @@ const RuleForm = ({ farmId, houses, rule, defaultTab = 'sensor', onSave, onCance
         </div>
       </div>
 
-      {/* 조건 */}
-      <div className="mb-5">
-        <div className="flex items-center gap-2 mb-3">
-          <span className="text-sm font-bold text-violet-300">조건</span>
-          <div className="flex gap-1 bg-white/[0.04] rounded-md p-0.5">
+      {/* ━━━ 센서 조건 ━━━ */}
+      {showSensorSection && <div className="mb-3">
+        <div className="flex items-center justify-between mb-2">
+          <span className="text-sm font-bold text-violet-600">🌡️ 센서 조건</span>
+          <button onClick={() => addCondition('sensor')} className="text-xs text-violet-600 font-semibold bg-violet-50 px-2.5 py-1 rounded-lg hover:bg-violet-100 transition-all">+ 센서 추가</button>
+        </div>
+        <div className="border-l-4 border-violet-300 bg-violet-50/50 rounded-r-lg p-3 space-y-2">
+          {sensorConds.length > 0 ? sensorConds.map((cond, i) => (
+            <React.Fragment key={cond._idx}>
+              {i > 0 && (
+                <div className="flex items-center justify-center gap-3 py-1">
+                  <div className="flex-1 border-t border-dashed border-violet-200" />
+                  <div className="flex gap-0.5 bg-white rounded-full p-0.5 shadow-sm border border-gray-200">
+                    {['AND', 'OR'].map(logic => (
+                      <button
+                        key={logic}
+                        onClick={() => updateCondition(cond._idx, 'logic', logic)}
+                        className={`px-3.5 py-1 rounded-full text-xs font-extrabold transition-all ${
+                          (cond.logic || 'AND') === logic
+                            ? (logic === 'AND' ? 'bg-violet-500 text-white shadow' : 'bg-orange-500 text-white shadow')
+                            : 'text-gray-300 hover:text-gray-500'
+                        }`}
+                      >
+                        {logic}
+                      </button>
+                    ))}
+                  </div>
+                  <div className="flex-1 border-t border-dashed border-violet-200" />
+                </div>
+              )}
+            <div className="flex items-center gap-2 bg-white rounded-lg p-2.5 border border-violet-100">
+              <span className="text-sm text-violet-600 font-bold w-8 flex-shrink-0">IF</span>
+              <select
+                value={cond.sensorId}
+                onChange={(e) => updateCondition(cond._idx, 'sensorId', e.target.value)}
+                className="input-field flex-1 text-sm"
+              >
+                {sensorOptions.map(s => (
+                  <option key={s.id} value={s.id} className="bg-slate-800">{s.icon} {s.name}</option>
+                ))}
+              </select>
+              <select
+                value={cond.operator}
+                onChange={(e) => updateCondition(cond._idx, 'operator', e.target.value)}
+                className="input-field w-28 text-sm"
+              >
+                {OPERATOR_OPTIONS.map(o => (
+                  <option key={o.value} value={o.value} className="bg-slate-800">{o.label}</option>
+                ))}
+              </select>
+              <input
+                type="number"
+                value={cond.value}
+                onChange={(e) => updateCondition(cond._idx, 'value', parseFloat(e.target.value))}
+                className="input-field w-24 text-sm"
+                step="0.1"
+              />
+              <button onClick={() => removeCondition(cond._idx)} className="p-1.5 text-gray-400 hover:text-rose-500 text-sm flex-shrink-0">✕</button>
+            </div>
+            </React.Fragment>
+          )) : (
+            <p className="text-sm text-violet-400 text-center py-2">센서 조건이 없습니다</p>
+          )}
+        </div>
+      </div>}
+
+      {/* ━━━ 그룹 연결 (AND / OR) ━━━ */}
+      {showSensorSection && showTimeSection && hasBothTypes && (
+        <div className="flex items-center justify-center gap-3 my-3">
+          <div className="flex-1 border-t-2 border-dashed border-violet-200" />
+          <div className="flex gap-0.5 bg-white rounded-full p-1 shadow-sm border-2 border-gray-200">
             {['AND', 'OR'].map(logic => (
               <button
                 key={logic}
-                onClick={() => setForm({ ...form, conditionLogic: logic })}
-                className={`px-3 py-1 rounded text-xs font-bold transition-all ${
-                  form.conditionLogic === logic ? 'bg-violet-500/80 text-white' : 'text-gray-500'
+                onClick={() => setForm({ ...form, groupLogic: logic })}
+                className={`px-5 py-1.5 rounded-full text-xs font-extrabold transition-all ${
+                  form.groupLogic === logic
+                    ? (logic === 'AND' ? 'bg-indigo-500 text-white shadow' : 'bg-orange-500 text-white shadow')
+                    : 'text-gray-300 hover:text-gray-500'
                 }`}
               >
                 {logic}
               </button>
             ))}
           </div>
-          <div className="flex gap-2 ml-auto">
-            <button onClick={() => addCondition('sensor')} className="text-sm text-violet-400 hover:text-violet-300 font-semibold">+ 센서 조건</button>
-            <button onClick={() => addCondition('time')} className="text-sm text-amber-400 hover:text-amber-300 font-semibold ml-2">+ 시간 조건</button>
-          </div>
+          <div className="flex-1 border-t-2 border-dashed border-amber-200" />
         </div>
+      )}
 
-        <div className="space-y-2">
-          {form.conditions.map((cond, idx) => (
-            <div key={idx} className="flex items-center gap-2 bg-white/[0.03] rounded-lg p-3">
-              {cond.type === 'sensor' ? (
-                <>
-                  <span className="text-sm text-violet-400 font-bold w-10">IF</span>
-                  <select
-                    value={cond.sensorId}
-                    onChange={(e) => updateCondition(idx, 'sensorId', e.target.value)}
-                    className="input-field flex-1 text-sm"
-                  >
-                    {sensorOptions.map(s => (
-                      <option key={s.id} value={s.id} className="bg-slate-800">{s.icon} {s.name}</option>
-                    ))}
-                  </select>
-                  <select
-                    value={cond.operator}
-                    onChange={(e) => updateCondition(idx, 'operator', e.target.value)}
-                    className="input-field w-28 text-sm"
-                  >
-                    {OPERATOR_OPTIONS.map(o => (
-                      <option key={o.value} value={o.value} className="bg-slate-800">{o.label}</option>
-                    ))}
-                  </select>
-                  <input
-                    type="number"
-                    value={cond.value}
-                    onChange={(e) => updateCondition(idx, 'value', parseFloat(e.target.value))}
-                    className="input-field w-24 text-sm"
-                    step="0.1"
-                  />
-                </>
-              ) : (
-                <>
-                  <span className="text-sm text-amber-400 font-bold w-10">⏰</span>
-                  <input
-                    type="time"
-                    value={cond.time || '08:00'}
-                    onChange={(e) => updateCondition(idx, 'time', e.target.value)}
-                    className="input-field w-32 text-sm"
-                  />
-                  <div className="flex gap-1 flex-wrap">
-                    {DAYS_OPTIONS.map(d => (
-                      <button
-                        key={d.value}
-                        onClick={() => {
-                          const days = cond.days || [];
-                          const updated = days.includes(d.value) ? days.filter(v => v !== d.value) : [...days, d.value];
-                          updateCondition(idx, 'days', updated);
-                        }}
-                        className={`w-8 h-8 rounded text-xs font-bold transition-all ${
-                          (cond.days || []).includes(d.value)
-                            ? 'bg-amber-500/80 text-white'
-                            : 'bg-white/[0.06] text-gray-500'
-                        }`}
-                      >
-                        {d.label}
-                      </button>
-                    ))}
-                  </div>
-                </>
-              )}
-              <button
-                onClick={() => removeCondition(idx)}
-                className="p-1.5 text-gray-600 hover:text-rose-400 text-sm"
-              >
-                ✕
-              </button>
-            </div>
-          ))}
+      {/* ━━━ 시간 조건 ━━━ */}
+      {showTimeSection && <div className="mb-3">
+        <div className="flex items-center justify-between mb-2">
+          <span className="text-sm font-bold text-amber-600">⏰ 시간 조건</span>
+          <button onClick={() => addCondition('time')} className="text-xs text-amber-600 font-semibold bg-amber-50 px-2.5 py-1 rounded-lg hover:bg-amber-100 transition-all">+ 시간 조건 추가</button>
         </div>
+        <div className="border-l-4 border-amber-300 bg-amber-50/50 rounded-r-lg p-3 space-y-3">
+          {timeConds.length > 0 ? timeConds.map((cond) => {
+            // 기존 호환: timeMode 없고 time만 있으면 specific으로 취급
+            const timeMode = cond.timeMode || 'specific';
+            const times = cond.times || (cond.time ? [cond.time] : ['08:00']);
+
+            return (
+              <div key={cond._idx} className="bg-white rounded-lg p-3 border border-amber-100 space-y-2.5">
+                {/* 모드 선택 + 삭제 */}
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm text-amber-600 font-bold">⏰</span>
+                    <select
+                      value={timeMode}
+                      onChange={(e) => {
+                        const mode = e.target.value;
+                        if (mode === 'interval') {
+                          updateCondition(cond._idx, 'timeMode', 'interval');
+                          // interval 필드 기본값 설정
+                          const updated = [...form.conditions];
+                          updated[cond._idx] = { ...updated[cond._idx], timeMode: 'interval', startTime: cond.startTime || '08:00', endTime: cond.endTime || '18:00', intervalMinutes: cond.intervalMinutes || 30 };
+                          delete updated[cond._idx].time;
+                          delete updated[cond._idx].times;
+                          setForm({ ...form, conditions: updated });
+                        } else {
+                          const updated = [...form.conditions];
+                          updated[cond._idx] = { ...updated[cond._idx], timeMode: 'specific', times: times };
+                          delete updated[cond._idx].time;
+                          delete updated[cond._idx].startTime;
+                          delete updated[cond._idx].endTime;
+                          delete updated[cond._idx].intervalMinutes;
+                          setForm({ ...form, conditions: updated });
+                        }
+                      }}
+                      className="input-field text-sm py-1"
+                    >
+                      <option value="specific">지정 시간</option>
+                      <option value="interval">반복 (시작~종료, 간격)</option>
+                    </select>
+                  </div>
+                  <button onClick={() => removeCondition(cond._idx)} className="p-1.5 text-gray-400 hover:text-rose-500 text-sm flex-shrink-0">✕</button>
+                </div>
+
+                {/* 반복 모드 UI */}
+                {timeMode === 'interval' && (
+                  <div className="flex flex-wrap items-center gap-3">
+                    <div className="flex items-center gap-2 bg-amber-50 border border-amber-200 rounded-lg px-2.5 py-1.5">
+                      <span style={{fontSize:13,fontWeight:700,color:'#92400e'}}>시작</span>
+                      <input type="time" value={cond.startTime || '08:00'}
+                        onChange={(e) => updateCondition(cond._idx, 'startTime', e.target.value)}
+                        style={{width:'7rem',fontSize:'15px',fontWeight:700,border:'none',background:'transparent',padding:0,color:'#92400e'}} />
+                    </div>
+                    <span style={{fontSize:16,fontWeight:800,color:'#d97706'}}>~</span>
+                    <div className="flex items-center gap-2 bg-amber-50 border border-amber-200 rounded-lg px-2.5 py-1.5">
+                      <span style={{fontSize:13,fontWeight:700,color:'#92400e'}}>종료</span>
+                      <input type="time" value={cond.endTime || '18:00'}
+                        onChange={(e) => updateCondition(cond._idx, 'endTime', e.target.value)}
+                        style={{width:'7rem',fontSize:'15px',fontWeight:700,border:'none',background:'transparent',padding:0,color:'#92400e'}} />
+                    </div>
+                    <div className="flex items-center gap-2 bg-amber-50 border border-amber-200 rounded-lg px-2.5 py-1.5">
+                      <span style={{fontSize:13,fontWeight:700,color:'#92400e'}}>간격</span>
+                      <input type="number" min={1} max={720} value={cond.intervalMinutes || 30}
+                        onChange={(e) => updateCondition(cond._idx, 'intervalMinutes', parseInt(e.target.value) || 30)}
+                        style={{width:'3.5rem',fontSize:'15px',fontWeight:700,border:'none',background:'transparent',padding:0,color:'#92400e',textAlign:'center'}} />
+                      <span style={{fontSize:13,fontWeight:700,color:'#92400e'}}>분</span>
+                    </div>
+                  </div>
+                )}
+
+                {/* 지정 시간 모드 UI - 가로 배치, 줄바꿈 */}
+                {timeMode === 'specific' && (
+                  <div className="flex flex-wrap items-center gap-2">
+                    {times.map((t, ti) => (
+                      <div key={ti} className="flex items-center gap-1.5 bg-amber-50 border border-amber-200 rounded-lg pl-2 pr-1 py-1">
+                        <input type="time" value={t}
+                          onChange={(e) => {
+                            const val = e.target.value;
+                            if (times.some((existing, idx) => idx !== ti && existing === val)) return;
+                            const newTimes = [...times];
+                            newTimes[ti] = val;
+                            updateCondition(cond._idx, 'times', newTimes);
+                          }}
+                          style={{width:'7rem',fontSize:'15px',fontWeight:700,border:'none',background:'transparent',padding:0,color:'#92400e'}} />
+                        {times.length > 1 && (
+                          <button onClick={() => {
+                            const newTimes = times.filter((_, i) => i !== ti);
+                            updateCondition(cond._idx, 'times', newTimes);
+                          }} className="text-gray-400 hover:text-rose-500 text-base leading-none px-1">✕</button>
+                        )}
+                      </div>
+                    ))}
+                    <button onClick={() => {
+                        // 중복되지 않는 새 시간 찾기
+                        let newTime = '08:00';
+                        for (let h = 0; h < 24; h++) {
+                          for (let m = 0; m < 60; m += 30) {
+                            const t = `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}`;
+                            if (!times.includes(t)) { newTime = t; h = 24; break; }
+                          }
+                        }
+                        if (times.includes(newTime)) return alert('더 이상 추가할 수 없습니다');
+                        updateCondition(cond._idx, 'times', [...times, newTime]);
+                      }}
+                      className="text-sm text-amber-600 font-bold border-2 border-dashed border-amber-300 px-3 py-1.5 rounded-lg hover:bg-amber-100 transition-all">
+                      + 추가
+                    </button>
+                  </div>
+                )}
+
+                {/* 요일 선택 (공통) */}
+                <div className="flex gap-1 flex-wrap">
+                  {DAYS_OPTIONS.map(d => (
+                    <button
+                      key={d.value}
+                      onClick={() => {
+                        const days = cond.days || [];
+                        const updated = days.includes(d.value) ? days.filter(v => v !== d.value) : [...days, d.value];
+                        updateCondition(cond._idx, 'days', updated);
+                      }}
+                      className={`w-8 h-8 rounded text-xs font-bold transition-all ${
+                        (cond.days || []).includes(d.value)
+                          ? 'bg-amber-500 text-white'
+                          : 'bg-gray-100 text-gray-500'
+                      }`}
+                    >
+                      {d.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            );
+          }) : (
+            <p className="text-sm text-amber-400 text-center py-2">시간 조건이 없습니다</p>
+          )}
+        </div>
+      </div>}
+
+      {/* ━━━ 실행 동작 연결 ━━━ */}
+      <div className="flex items-center justify-center my-3">
+        <div className="w-8 h-8 rounded-full bg-gray-100 flex items-center justify-center text-gray-400 text-lg font-bold">↓</div>
       </div>
 
-      {/* 동작 */}
+      {/* ━━━ 실행 동작 ━━━ */}
       <div className="mb-5">
-        <div className="flex items-center justify-between mb-3">
-          <span className="text-sm font-bold text-blue-300">→ 실행 동작 ({form.actions.length}개)</span>
+        <div className="flex items-center justify-between mb-2">
+          <span className="text-sm font-bold text-blue-600">🔧 실행 동작 ({form.actions.length}개)</span>
         </div>
-
-        <div className="space-y-2">
+        <div className="border-l-4 border-blue-300 bg-blue-50/50 rounded-r-lg p-3 space-y-2">
           {form.actions.map((action, idx) => {
             const dt = DEVICE_TYPE_OPTIONS.find(d => d.value === action.deviceType);
             const commands = dt?.commands || ['on', 'off'];
-
+            const isTimed = action.duration > 0;
+            const durationUnit = action.durationUnit || 'minutes';
             return (
-              <div key={idx} className="flex items-center gap-2 bg-white/[0.03] rounded-lg p-3">
-                <span className="text-sm text-blue-400 font-bold w-14 flex-shrink-0">
-                  {idx === 0 ? 'THEN' : `+${idx + 1}`}
-                </span>
-
-                {/* 하우스에 등록된 장치가 있으면 드롭다운, 없으면 수동입력 */}
-                {houseDevices.length > 0 ? (
-                  <select
-                    value={action.deviceId}
-                    onChange={(e) => {
-                      const dev = houseDevices.find(d => d.deviceId === e.target.value);
-                      if (dev) {
-                        const devDt = DEVICE_TYPE_OPTIONS.find(d => d.value === dev.type);
-                        updateAction(idx, {
-                          deviceId: dev.deviceId,
-                          deviceType: dev.type,
-                          deviceName: dev.name,
-                          command: devDt?.commands[0] || 'on',
-                        });
-                      }
-                    }}
-                    className="input-field flex-1 text-sm"
-                  >
-                    {houseDevices.map(d => (
-                      <option key={d.deviceId} value={d.deviceId} className="bg-slate-800">
-                        {d.icon || ''} {d.name} ({d.deviceId})
-                      </option>
-                    ))}
-                  </select>
-                ) : (
-                  <>
+              <div key={idx} className="bg-white rounded-xl border border-blue-100 overflow-hidden">
+                {/* 1행: 장치 + 명령 + 삭제 */}
+                <div className="flex items-center gap-2 px-3 py-2.5">
+                  <span style={{fontSize:13,fontWeight:800,color:'#2563eb',minWidth:40}}>
+                    {idx === 0 ? 'THEN' : `+${idx + 1}`}
+                  </span>
+                  {houseDevices.length > 0 ? (
                     <select
-                      value={action.deviceType}
-                      onChange={(e) => updateAction(idx, { deviceType: e.target.value })}
-                      className="input-field w-32 text-sm"
+                      value={action.deviceId}
+                      onChange={(e) => {
+                        const dev = houseDevices.find(d => d.deviceId === e.target.value);
+                        if (dev) {
+                          const devDt = DEVICE_TYPE_OPTIONS.find(d => d.value === dev.type);
+                          updateAction(idx, {
+                            deviceId: dev.deviceId,
+                            deviceType: dev.type,
+                            deviceName: dev.name,
+                            command: devDt?.commands[0] || 'on',
+                          });
+                        }
+                      }}
+                      className="input-field flex-1 text-sm"
                     >
-                      {DEVICE_TYPE_OPTIONS.map(d => (
-                        <option key={d.value} value={d.value} className="bg-slate-800">{d.icon} {d.label}</option>
+                      {houseDevices.map(d => (
+                        <option key={d.deviceId} value={d.deviceId} className="bg-slate-800">
+                          {d.icon || ''} {d.name} ({d.deviceId})
+                        </option>
                       ))}
                     </select>
-                    <input
-                      type="text"
-                      value={action.deviceId}
-                      onChange={(e) => updateAction(idx, { deviceId: e.target.value })}
-                      className="input-field w-28 text-sm"
-                      placeholder="fan1"
-                    />
-                  </>
-                )}
-
-                <select
-                  value={action.command}
-                  onChange={(e) => updateAction(idx, { command: e.target.value })}
-                  className="input-field w-24 text-sm"
-                >
-                  {commands.map(c => (
-                    <option key={c} value={c} className="bg-slate-800">{COMMAND_LABELS[c]}</option>
-                  ))}
-                </select>
-
-                <button
-                  onClick={() => removeAction(idx)}
-                  className="p-1.5 text-gray-600 hover:text-rose-400 text-sm flex-shrink-0"
-                  title="동작 삭제"
-                >
-                  ✕
-                </button>
+                  ) : (
+                    <>
+                      <select
+                        value={action.deviceType}
+                        onChange={(e) => updateAction(idx, { deviceType: e.target.value })}
+                        className="input-field w-32 text-sm"
+                      >
+                        {DEVICE_TYPE_OPTIONS.map(d => (
+                          <option key={d.value} value={d.value} className="bg-slate-800">{d.icon} {d.label}</option>
+                        ))}
+                      </select>
+                      <input
+                        type="text"
+                        value={action.deviceId}
+                        onChange={(e) => updateAction(idx, { deviceId: e.target.value })}
+                        className="input-field w-28 text-sm"
+                        placeholder="fan1"
+                      />
+                    </>
+                  )}
+                  <select
+                    value={action.command}
+                    onChange={(e) => updateAction(idx, { command: e.target.value })}
+                    className="input-field w-24 text-sm"
+                  >
+                    {commands.map(c => (
+                      <option key={c} value={c} className="bg-slate-800">{COMMAND_LABELS[c]}</option>
+                    ))}
+                  </select>
+                  <button
+                    onClick={() => removeAction(idx)}
+                    className="p-1.5 text-gray-400 hover:text-rose-500 text-sm flex-shrink-0"
+                    title="동작 삭제"
+                  >✕</button>
+                </div>
+                {/* 2행: 동작 지속시간 */}
+                <div style={{display:'flex',alignItems:'center',gap:12,padding:'10px 14px',background: isTimed ? '#eff6ff' : '#f8fafc',borderTop:'1px solid #e2e8f0'}}>
+                  {/* 계속 / 동작시간 세그먼트 */}
+                  <div style={{display:'inline-flex',borderRadius:12,background:'#e2e8f0',padding:3,flexShrink:0}}>
+                    <button type="button"
+                      onClick={() => updateAction(idx, { duration: 0, durationUnit: 'minutes' })}
+                      style={{
+                        width:72,padding:'8px 0',fontSize:13,fontWeight:800,border:'none',cursor:'pointer',borderRadius:10,
+                        background: !isTimed ? '#fff' : 'transparent',
+                        color: !isTimed ? '#1e40af' : '#94a3b8',
+                        boxShadow: !isTimed ? '0 1px 4px rgba(0,0,0,0.12)' : 'none',
+                        transition:'all 0.2s',
+                      }}
+                    >계속</button>
+                    <button type="button"
+                      onClick={() => { if (!isTimed) updateAction(idx, { duration: 60, durationUnit: 'minutes' }); }}
+                      style={{
+                        width:72,padding:'8px 0',fontSize:13,fontWeight:800,border:'none',cursor:'pointer',borderRadius:10,
+                        background: isTimed ? '#fff' : 'transparent',
+                        color: isTimed ? '#1e40af' : '#94a3b8',
+                        boxShadow: isTimed ? '0 1px 4px rgba(0,0,0,0.12)' : 'none',
+                        transition:'all 0.2s',
+                      }}
+                    >동작시간</button>
+                  </div>
+                  {isTimed && (() => {
+                    const totalSec = action.duration || 60;
+                    const mins = Math.floor(totalSec / 60);
+                    const secs = totalSec % 60;
+                    const setDuration = (m, s) => {
+                      const total = Math.max(1, (m || 0) * 60 + (s || 0));
+                      updateAction(idx, { duration: total, durationUnit: 'minutes' });
+                    };
+                    return (
+                      <div style={{display:'flex',alignItems:'center',gap:6,background:'#fff',borderRadius:10,padding:'4px 10px',border:'1.5px solid #bfdbfe'}}>
+                        <input type="number" min={0} max={999} value={mins}
+                          onChange={(e) => setDuration(parseInt(e.target.value) || 0, secs)}
+                          style={{width:'3rem',fontSize:16,fontWeight:800,textAlign:'center',padding:'4px 0',border:'none',background:'transparent',color:'#1e40af',outline:'none'}}
+                        />
+                        <span style={{fontSize:13,fontWeight:700,color:'#64748b'}}>분</span>
+                        <div style={{width:1,height:18,background:'#cbd5e1'}} />
+                        <input type="number" min={0} max={59} value={secs}
+                          onChange={(e) => setDuration(mins, parseInt(e.target.value) || 0)}
+                          style={{width:'3rem',fontSize:16,fontWeight:800,textAlign:'center',padding:'4px 0',border:'none',background:'transparent',color:'#1e40af',outline:'none'}}
+                        />
+                        <span style={{fontSize:13,fontWeight:700,color:'#64748b'}}>초</span>
+                      </div>
+                    );
+                  })()}
+                </div>
               </div>
             );
           })}
-
-          {/* 동작 추가 버튼 */}
           <button
             onClick={addAction}
-            className="w-full flex items-center justify-center gap-1.5 py-3 rounded-lg
-                       border-2 border-dashed border-blue-500/30 text-blue-400 text-sm font-semibold
-                       hover:border-blue-500/50 hover:bg-blue-500/5 transition-all"
+            className="w-full flex items-center justify-center gap-1.5 py-2.5 rounded-lg
+                       border-2 border-dashed border-blue-200 text-blue-500 text-sm font-semibold
+                       hover:border-blue-300 hover:bg-white transition-all"
           >
             + 실행 동작 추가
           </button>

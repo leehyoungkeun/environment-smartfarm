@@ -20,6 +20,7 @@ import alertsRoutes from "./routes/alerts.js";
 import controlLogRoutes from "./routes/control-logs.js";
 import automationRoutes from "./routes/automation.routes.js";
 import authRoutes from "./routes/auth.routes.js";
+import internalRoutes from "./routes/internal.routes.js";
 import {
   authenticate,
   authenticateApiKey,
@@ -78,6 +79,10 @@ const authLimiter = rateLimit({
 const apiLimiter = rateLimit({
   windowMs: parseInt(process.env.RATE_LIMIT_WINDOW_MS) || 60000,
   max: parseInt(process.env.RATE_LIMIT_MAX) || 300,
+  skip: (req) => {
+    // RPi 센서 수집/동기화/내부통신은 rate limit 제외
+    return req.path.startsWith("/sensors") || req.path.startsWith("/config");
+  },
   message: {
     success: false,
     error: "Too many requests from this IP",
@@ -146,6 +151,9 @@ app.get("/health", async (req, res) => {
 
 // 공개 API (인증 불필요)
 app.use("/api/auth", authRoutes);
+
+// Node-RED 내부 통신 (로컬 네트워크 전용, 인증 불필요)
+app.use("/internal", internalRoutes);
 
 // 센서 + 설정 API (API 키 또는 JWT - Node-RED 접근 필요)
 app.use("/api/sensors", authenticateApiKey, sensorsRoutes);

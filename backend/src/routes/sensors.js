@@ -6,6 +6,7 @@ import express from "express";
 import Config from "../models/Config.js";
 import SensorData from "../models/SensorData.js";
 import Alert from "../models/Alert.js";
+import { pool } from "../db.js";
 import logger from "../utils/logger.js";
 
 const router = express.Router();
@@ -150,6 +151,60 @@ router.post("/batch", async (req, res, next) => {
         totalRecords: dataArray.length,
         inserted: result.length,
       },
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+/**
+ * POST /api/sensors/offline-summary
+ * 오프라인 기간 요약 데이터 수신 (RPi 재연결 시)
+ * 전체 데이터 대신 센서별 min/avg/max만 전송
+ */
+router.post("/offline-summary", async (req, res, next) => {
+  try {
+    const { farmId, houseId, periodStart, periodEnd, sensors } = req.body;
+
+    if (!farmId || !houseId || !sensors) {
+      return res.status(400).json({
+        success: false,
+        error: "farmId, houseId, sensors are required",
+      });
+    }
+
+    // 요약 데이터를 sensor_data에 1건으로 저장
+    const summaryData = {};
+    for (const [sensorId, stats] of Object.entries(sensors)) {
+      summaryData[sensorId] = stats.avg;
+    }
+
+    await pool.query(
+      `INSERT INTO sensor_data (farm_id, house_id, timestamp, data, metadata)
+       VALUES ($1, $2, $3, $4, $5)`,
+      [
+        farmId,
+        houseId,
+        new Date(periodEnd || Date.now()),
+        JSON.stringify(summaryData),
+        JSON.stringify({
+          type: "offline_summary",
+          periodStart,
+          periodEnd,
+          sensors,
+          collectionMethod: "offline_sync",
+        }),
+      ]
+    );
+
+    logger.info(
+      `Offline summary received: ${farmId}/${houseId} (${periodStart} ~ ${periodEnd}, ${Object.keys(sensors).length} sensors)`
+    );
+
+    res.status(201).json({
+      success: true,
+      message: "Offline summary stored",
+      data: { farmId, houseId, periodStart, periodEnd, sensorCount: Object.keys(sensors).length },
     });
   } catch (error) {
     next(error);

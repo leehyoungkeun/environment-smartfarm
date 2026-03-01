@@ -194,7 +194,7 @@ const ControlPanel = ({ farmId, houseId, houseConfig }) => {
       setDeviceStates(prev => ({ ...prev, [deviceId]: { ...prev[deviceId], status: statusMap[command] || 'idle', lastCommand: command, lastCommandTime: new Date().toISOString() } }));
     }
     try {
-      const operatorName = user?.role === 'admin'
+      const operatorName = ['superadmin', 'manager'].includes(user?.role)
         ? '관리자'
         : `${user?.name || user?.username || '알 수 없음'}`;
       const mode = getSystemMode();

@@ -11,6 +11,10 @@ import AlertPanel from './components/Dashboard/AlertPanel';
 import JournalManager from './components/Journal/JournalManager';
 import AIManager from './components/AI/AIManager';
 import ServerStatus from './components/Dashboard/ServerStatus';
+import FarmSelector from './components/Dashboard/FarmSelector';
+import FarmManager from './components/Settings/FarmManager';
+import FarmOverviewWidget from './components/Dashboard/FarmOverviewWidget';
+import ReportPage from './components/Dashboard/ReportPage';
 import { getApiBase, isFarmLocalMode } from './services/apiSwitcher';
 
 /**
@@ -159,7 +163,7 @@ const ControlPage = ({ farmId }) => {
 };
 
 function AppContent() {
-  const { user, logout, hasPermission, loading: authLoading, needsSetup } = useAuth();
+  const { user, logout, hasPermission, roleLabel, loading: authLoading, needsSetup, farms, selectedFarmId, selectedFarmInfo, selectFarm, isSystemWide } = useAuth();
   const getPageFromHash = () => {
     const hash = window.location.hash.replace('#', '');
     return hash || 'dashboard';
@@ -176,7 +180,8 @@ function AppContent() {
     window.addEventListener('hashchange', onHashChange);
     return () => window.removeEventListener('hashchange', onHashChange);
   }, []);
-  const farmId = user?.farmId || import.meta.env.VITE_FARM_ID || 'farm_001';
+  const farmId = selectedFarmId || (isSystemWide ? null : user?.farmId) || import.meta.env.VITE_FARM_ID || 'farm_0001';
+  const needsFarmSelect = isSystemWide && !selectedFarmId;
   const [showAlertPanel, setShowAlertPanel] = useState(false);
   const [showUserMenu, setShowUserMenu] = useState(false);
   const [deferredPrompt, setDeferredPrompt] = useState(null);
@@ -194,16 +199,17 @@ function AppContent() {
     return () => window.removeEventListener('beforeinstallprompt', handler);
   }, []);
 
+  const VALID_PAGES = ['dashboard','control','history','journal','report','ai','farms','server','settings','users'];
   useEffect(() => {
-    if (user && currentPage !== 'users') {
-      const permissions = {
-        admin: ['dashboard', 'control', 'history', 'settings', 'journal', 'ai', 'server'],
-        worker: ['dashboard', 'control', 'history', 'journal', 'ai'],
-      };
-      const allowed = permissions[user.role] || ['dashboard'];
-      if (!allowed.includes(currentPage)) {
-        setCurrentPage('dashboard');
-      }
+    if (!user) return;
+    // 유효하지 않은 페이지 → 대시보드로 리다이렉트
+    if (!VALID_PAGES.includes(currentPage)) {
+      setCurrentPage('dashboard');
+      return;
+    }
+    // 권한 없는 페이지 → 대시보드로 리다이렉트
+    if (currentPage !== 'dashboard' && !hasPermission(currentPage)) {
+      setCurrentPage('dashboard');
     }
   }, [user, currentPage]);
 
@@ -244,12 +250,14 @@ function AppContent() {
         { id: 'settings', label: '설정', icon: '⚙️', permission: 'settings' },
       ]
     : [
+        { id: 'farms', label: '농장관리', icon: '🏭', permission: 'farms' },
         { id: 'dashboard', label: '대시보드', icon: '📊', permission: 'dashboard' },
         { id: 'control', label: '제어', icon: '🎛️', permission: 'control' },
         { id: 'history', label: '이력', icon: '📋', permission: 'history' },
         { id: 'journal', label: '영농일지', icon: '📝', permission: 'journal' },
+        { id: 'report', label: '보고서', icon: '📄', permission: 'report' },
         { id: 'ai', label: 'AI도우미', icon: '🤖', permission: 'ai' },
-        { id: 'server', label: '서버', icon: '🖥️', permission: 'settings' },
+        { id: 'server', label: '서버', icon: '🖥️', permission: 'server' },
         { id: 'settings', label: '설정', icon: '⚙️', permission: 'settings' },
       ];
   const navItems = allNavItems.filter(item => hasPermission(item.permission));
@@ -300,6 +308,9 @@ function AppContent() {
                 SmartFarm
                 {farmLocal && <span className="text-xs text-emerald-600 font-bold ml-1.5 bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-200">팜로컬</span>}
               </span>
+              {!farmLocal && !isSystemWide && farms.length > 1 && (
+                <FarmSelector farms={farms} selectedFarmId={selectedFarmId} onSelect={selectFarm} />
+              )}
             </div>
 
             <div className="flex items-center gap-1.5">
@@ -343,7 +354,7 @@ function AppContent() {
                     <div className="absolute right-0 top-12 w-52 bg-white border border-gray-200 rounded-2xl p-2 z-[100] animate-fade-in-up shadow-xl">
                       <div className="px-3 py-2 border-b border-gray-100 mb-1">
                         <p className="text-sm font-semibold text-gray-800">{user.name}</p>
-                        <p className="text-xs text-gray-500">{user.username} · {user.role === 'admin' ? '관리자' : '작업자'}</p>
+                        <p className="text-xs text-gray-500">{user.username} · {roleLabel}</p>
                       </div>
                       {hasPermission('users') && (
                         <button
@@ -394,8 +405,35 @@ function AppContent() {
 
       {/* 메인 콘텐츠 */}
       <main className="relative z-10 pb-24 md:pb-8">
+        {/* 선택된 농장 정보 배너 (superadmin/manager는 FarmSelector 사용하므로 숨김) */}
+        {selectedFarmInfo && currentPage !== 'farms' && !isSystemWide && (
+          <div className="max-w-7xl mx-auto px-4 md:px-6 pt-3 md:pt-4">
+            <div className="flex items-center gap-3 text-lg">
+              <span className="text-emerald-600 font-bold">{selectedFarmInfo.name}</span>
+              {selectedFarmInfo.location && (
+                <>
+                  <span className="text-gray-300">|</span>
+                  <span className="text-gray-500">{selectedFarmInfo.location}</span>
+                </>
+              )}
+            </div>
+          </div>
+        )}
+
         {currentPage === 'dashboard' && (
-          <DynamicDashboard farmId={farmId} />
+          needsFarmSelect ? (
+            <div className="max-w-7xl mx-auto px-4 md:px-6 py-16 text-center">
+              <div className="text-5xl mb-4 opacity-50">🏠</div>
+              <h2 className="text-xl font-bold text-gray-700 mb-2">농장을 선택해주세요</h2>
+              <p className="text-gray-500 mb-6">상단의 농장 선택 드롭다운에서 조회할 농장을 선택하거나,<br />농장관리 페이지에서 농장을 관리할 수 있습니다.</p>
+              <button onClick={() => setCurrentPage('farms')}
+                className="px-5 py-2.5 bg-indigo-600 text-white rounded-lg text-sm font-medium hover:bg-indigo-700 active:scale-95 transition-all">
+                농장관리로 이동
+              </button>
+            </div>
+          ) : (
+            <DynamicDashboard farmId={farmId} />
+          )
         )}
         {currentPage === 'control' && hasPermission('control') && (
           <ControlPage farmId={farmId} />
@@ -408,12 +446,22 @@ function AppContent() {
             <JournalManager farmId={farmId} />
           </div>
         )}
+        {currentPage === 'report' && hasPermission('report') && (
+          <div className="max-w-7xl mx-auto px-4 md:px-6 py-4 md:py-6">
+            <ReportPage farmId={farmId} />
+          </div>
+        )}
         {currentPage === 'ai' && hasPermission('ai') && (
           <div className="max-w-7xl mx-auto px-4 md:px-6 py-4 md:py-6">
             <AIManager farmId={farmId} />
           </div>
         )}
-        {currentPage === 'server' && hasPermission('settings') && (
+        {currentPage === 'farms' && hasPermission('farms') && (
+          <div className="max-w-7xl mx-auto px-4 md:px-6 py-4 md:py-6">
+            <FarmManager onNavigateFarm={(farmId, farmInfo) => { selectFarm(farmId, farmInfo); setCurrentPage('dashboard'); }} />
+          </div>
+        )}
+        {currentPage === 'server' && hasPermission('server') && (
           <ServerStatus />
         )}
         {currentPage === 'settings' && hasPermission('settings') && (
@@ -426,7 +474,7 @@ function AppContent() {
 
       {/* 모바일 하단 네비게이션 */}
       <nav className="md:hidden fixed bottom-0 left-0 right-0 glass-nav z-50 safe-bottom">
-        <div className={`grid ${farmLocal ? 'grid-cols-4' : 'grid-cols-8'} h-16`}>
+        <div className={`grid h-16 overflow-x-auto`} style={{ gridTemplateColumns: `repeat(${navItems.length + 1}, minmax(0, 1fr))` }}>
           {navItems.map((item) => (
             <button
               key={item.id}

@@ -43,7 +43,7 @@ async function rpiApi(method, path, data) {
   return await axiosBase({ method, url: rpiUrl, data, timeout: 8000 });
 }
 
-const ConfigurationManager = ({ farmId = import.meta.env.VITE_FARM_ID || 'farm_001' }) => {
+const ConfigurationManager = ({ farmId = import.meta.env.VITE_FARM_ID || 'farm_0001' }) => {
   const [activeTab, setActiveTab] = useState('houses');
   const [selectedHouse, setSelectedHouse] = useState(null);
 
@@ -157,19 +157,23 @@ const ConfigurationManager = ({ farmId = import.meta.env.VITE_FARM_ID || 'farm_0
     }
   };
 
-  const deleteHouse = async (houseId, houseName) => {
-    if (!confirm(`"${houseName}"을(를) 삭제하시겠습니까?\n\n모든 센서 설정이 삭제됩니다.`)) return;
+  const [deleteConfirm, setDeleteConfirm] = useState(null);
+
+  const deleteHouse = async (houseId) => {
+    console.log('[Config] deleteHouse called:', houseId);
     try {
       const response = await rpiApi('delete', `/config/${houseId}?farmId=${farmId}`);
+      console.log('[Config] deleteHouse response:', response.data);
       if (response.data.success) {
-        alert('✅ 하우스가 삭제되었습니다!');
-        // 즉시 UI 반영 (PC sync 전에 loadHouses가 PC 데이터 표시하는 문제 방지)
         setHouses(prev => prev.filter(h => h.houseId !== houseId));
         if (selectedHouse?.houseId === houseId) setSelectedHouse(null);
         syncConfigToPC(farmId);
       }
     } catch (error) {
+      console.error('[Config] deleteHouse error:', error);
       alert('❌ 삭제 실패: ' + (error.response?.data?.error || error.message));
+    } finally {
+      setDeleteConfirm(null);
     }
   };
 
@@ -256,7 +260,7 @@ const ConfigurationManager = ({ farmId = import.meta.env.VITE_FARM_ID || 'farm_0
                         </p>
                       </button>
                       <button
-                        onClick={(e) => { e.stopPropagation(); deleteHouse(house.houseId, house.houseName); }}
+                        onClick={(e) => { e.stopPropagation(); setDeleteConfirm(house); }}
                         className="p-2 rounded-lg text-gray-400 hover:text-rose-500 hover:bg-rose-50
                                  transition-all text-base"
                         title="삭제"
@@ -294,6 +298,29 @@ const ConfigurationManager = ({ farmId = import.meta.env.VITE_FARM_ID || 'farm_0
       {/* 시스템 설정 탭 */}
       {activeTab === 'system' && (
         <SystemSettings />
+      )}
+
+      {/* 삭제 확인 모달 */}
+      {deleteConfirm && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50" onClick={() => setDeleteConfirm(null)}>
+          <div className="bg-white rounded-xl p-6 max-w-sm mx-4 shadow-2xl" onClick={e => e.stopPropagation()}>
+            <h3 className="text-lg font-bold text-gray-800 mb-2">하우스 삭제</h3>
+            <p className="text-sm text-gray-600 mb-4">
+              <span className="font-semibold text-rose-600">"{deleteConfirm.houseName}"</span>을(를) 삭제하시겠습니까?<br/>
+              모든 센서 설정이 삭제됩니다.
+            </p>
+            <div className="flex gap-2 justify-end">
+              <button onClick={() => setDeleteConfirm(null)}
+                className="px-4 py-2 text-sm text-gray-600 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors">
+                취소
+              </button>
+              <button onClick={() => deleteHouse(deleteConfirm.houseId)}
+                className="px-4 py-2 text-sm text-white bg-rose-600 hover:bg-rose-700 rounded-lg transition-colors">
+                삭제
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

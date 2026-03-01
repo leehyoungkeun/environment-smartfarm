@@ -27,7 +27,7 @@ const mode = global.get('operationMode') || 'online';
 if (mode === 'online') {
     // 서버에 자동화 평가 요청
     const SERVER_URL = env.get('SERVER_URL') || 'http://192.168.137.1:3000';
-    const FARM_ID = env.get('FARM_ID') || 'farm_001';
+    const FARM_ID = env.get('FARM_ID') || 'farm_0001';
     const API_KEY = env.get('SENSOR_API_KEY') || '';
 
     msg.url = `${SERVER_URL}/api/automation/${FARM_ID}/evaluate`;
@@ -384,7 +384,7 @@ if (mode4 !== 'online') {
 }
 
 const SERVER_URL_4 = env.get('SERVER_URL') || 'http://192.168.137.1:3000';
-const FARM_ID_4 = env.get('FARM_ID') || 'farm_001';
+const FARM_ID_4 = env.get('FARM_ID') || 'farm_0001';
 const API_KEY_4 = env.get('SENSOR_API_KEY') || '';
 
 msg.url = `${SERVER_URL_4}/api/automation/${FARM_ID_4}`;

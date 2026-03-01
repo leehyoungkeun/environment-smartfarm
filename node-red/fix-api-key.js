@@ -24,7 +24,7 @@ const serverUrlEntry = {
 
 const farmIdEntry = {
   name: 'FARM_ID',
-  value: 'farm_001',
+  value: 'farm_0001',
   type: 'str'
 };
 

@@ -17,6 +17,16 @@ export const AuthProvider = ({ children }) => {
   const [loading, setLoading] = useState(true);
   const [needsSetup, setNeedsSetup] = useState(false);
   const [offlineMode, setOfflineMode] = useState(false);
+  const [farms, setFarms] = useState([]);
+  const [selectedFarmId, setSelectedFarmId] = useState(
+    () => localStorage.getItem('selectedFarmId') || ''
+  );
+  const [selectedFarmInfo, setSelectedFarmInfo] = useState(() => {
+    try {
+      const cached = localStorage.getItem('selectedFarmInfo');
+      return cached ? JSON.parse(cached) : null;
+    } catch { return null; }
+  });
 
   const getTokens = () => ({
     accessToken: localStorage.getItem('accessToken'),
@@ -115,8 +125,8 @@ export const AuthProvider = ({ children }) => {
           id: 'farm-local',
           username: 'farmer',
           name: '농장관리자',
-          role: 'admin',
-          farmId: import.meta.env.VITE_FARM_ID || 'farm_001',
+          role: 'owner',
+          farmId: import.meta.env.VITE_FARM_ID || 'farm_0001',
         };
         setUser(farmLocalUser);
         cacheUser(farmLocalUser);
@@ -145,9 +155,23 @@ export const AuthProvider = ({ children }) => {
         });
 
         if (response.data.success) {
-          setUser(response.data.data);
-          cacheUser(response.data.data);
+          const userData = response.data.data;
+          setUser(userData);
+          cacheUser(userData);
           setOfflineMode(false);
+
+          // farms 데이터가 있으면 설정 (새로고침 시 농장 정보 복원)
+          if (userData.farms && userData.farms.length > 0) {
+            setFarms(userData.farms);
+            // 이전에 선택했던 farmId가 유효하면 유지, 아니면 첫 번째 농장
+            const saved = localStorage.getItem('selectedFarmId');
+            const matched = saved && userData.farms.find(f => f.farmId === saved);
+            if (matched) {
+              selectFarm(matched.farmId, matched);
+            } else {
+              selectFarm(userData.farms[0].farmId, userData.farms[0]);
+            }
+          }
         }
       } catch (error) {
         const status = error.response?.status;
@@ -167,8 +191,16 @@ export const AuthProvider = ({ children }) => {
                 timeout: 5000,
               });
               if (meRes.data.success) {
-                setUser(meRes.data.data);
-                cacheUser(meRes.data.data);
+                const ud = meRes.data.data;
+                setUser(ud);
+                cacheUser(ud);
+                if (ud.farms && ud.farms.length > 0) {
+                  setFarms(ud.farms);
+                  const saved = localStorage.getItem('selectedFarmId');
+                  const matched = saved && ud.farms.find(f => f.farmId === saved);
+                  if (matched) selectFarm(matched.farmId, matched);
+                  else selectFarm(ud.farms[0].farmId, ud.farms[0]);
+                }
               }
             } else {
               clearTokens();
@@ -200,6 +232,24 @@ export const AuthProvider = ({ children }) => {
     initAuth();
   }, []);
 
+  const selectFarm = useCallback((farmId, farmInfo) => {
+    setSelectedFarmId(farmId);
+    localStorage.setItem('selectedFarmId', farmId);
+    if (farmInfo) {
+      const info = { name: farmInfo.name, location: farmInfo.location };
+      setSelectedFarmInfo(info);
+      localStorage.setItem('selectedFarmInfo', JSON.stringify(info));
+    } else {
+      // farms 배열에서 찾기 시도
+      const found = farms.find(f => f.farmId === farmId);
+      if (found) {
+        const info = { name: found.name, location: found.location };
+        setSelectedFarmInfo(info);
+        localStorage.setItem('selectedFarmInfo', JSON.stringify(info));
+      }
+    }
+  }, [farms]);
+
   const login = async (username, password) => {
     const response = await axios.post(`${API_BASE_URL}/auth/login`, { username, password });
     const { user: userData, accessToken, refreshToken } = response.data.data;
@@ -207,6 +257,27 @@ export const AuthProvider = ({ children }) => {
     cacheUser(userData);
     setUser(userData);
     setOfflineMode(false);
+
+    // 농장 목록 설정 (서버에서 실제 농장 정보 포함)
+    const userFarms = (userData.farms && userData.farms.length > 0)
+      ? userData.farms
+      : [{ farmId: userData.farmId, name: userData.farmId }];
+    setFarms(userFarms);
+
+    const isSysWide = ['superadmin', 'manager'].includes(userData.role);
+    if (isSysWide) {
+      // superadmin/manager: 특정 농장 선택하지 않음 → 농장관리 페이지로 이동
+      setSelectedFarmId(null);
+      setSelectedFarmInfo(null);
+      localStorage.removeItem('selectedFarmId');
+      localStorage.removeItem('selectedFarmInfo');
+      window.location.hash = 'farms';
+    } else {
+      // owner/worker: 첫 번째 농장 선택 → 대시보드로 이동
+      selectFarm(userFarms[0].farmId, userFarms[0]);
+      window.location.hash = 'dashboard';
+    }
+
     return userData;
   };
 
@@ -218,6 +289,7 @@ export const AuthProvider = ({ children }) => {
     setUser(userData);
     setNeedsSetup(false);
     setOfflineMode(false);
+    window.location.hash = 'dashboard';
     return userData;
   };
 
@@ -241,22 +313,54 @@ export const AuthProvider = ({ children }) => {
     }
   };
 
+  // ── 4단계 역할 계층 ──
+  const ROLE_HIERARCHY = {
+    superadmin: { level: 0, canCreate: ['manager', 'owner', 'worker'], label: '최고관리자' },
+    manager:    { level: 1, canCreate: ['owner', 'worker'],            label: '관리직원' },
+    owner:      { level: 2, canCreate: ['worker'],                     label: '농장대표' },
+    worker:     { level: 3, canCreate: [],                             label: '작업자' },
+  };
+
+  const ROLE_PERMISSIONS = {
+    superadmin: ['dashboard', 'control', 'automation', 'history', 'journal', 'report', 'ai', 'settings', 'users', 'farms', 'server'],
+    manager:    ['dashboard', 'control', 'automation', 'history', 'journal', 'report', 'ai', 'settings', 'users', 'farms'],
+    owner:      ['dashboard', 'control', 'automation', 'history', 'journal', 'report', 'ai', 'settings', 'users'],
+    worker:     ['dashboard', 'control', 'automation', 'history', 'journal', 'report', 'ai'],
+  };
+
+  const SYSTEM_WIDE_ROLES = ['superadmin', 'manager'];
+
   // 권한 체크
   const hasPermission = (action) => {
     if (!user) return false;
-    const permissions = {
-      admin: ['dashboard', 'control', 'history', 'settings', 'users', 'journal', 'ai'],
-      worker: ['dashboard', 'control', 'history', 'journal', 'ai'],
-    };
-    return (permissions[user.role] || []).includes(action);
+    return (ROLE_PERMISSIONS[user.role] || []).includes(action);
   };
 
-  const isAdmin = user?.role === 'admin';
+  // 역할 계층 비교
+  const canManageRole = (targetRole) => {
+    if (!user) return false;
+    const myLevel = ROLE_HIERARCHY[user.role]?.level;
+    const tgtLevel = ROLE_HIERARCHY[targetRole]?.level;
+    if (myLevel === undefined || tgtLevel === undefined) return false;
+    return myLevel < tgtLevel;
+  };
+
+  const canCreateRole = (targetRole) => {
+    if (!user) return false;
+    return ROLE_HIERARCHY[user.role]?.canCreate?.includes(targetRole) || false;
+  };
+
+  const isSystemWide = user ? SYSTEM_WIDE_ROLES.includes(user.role) : false;
+  const isAdmin = user ? (ROLE_HIERARCHY[user.role]?.level ?? 99) <= 1 : false; // superadmin/manager
+  const roleLabel = user ? (ROLE_HIERARCHY[user.role]?.label || user.role) : '';
 
   return (
     <AuthContext.Provider value={{
-      user, loading, needsSetup, isAdmin, offlineMode,
+      user, loading, needsSetup, isAdmin, isSystemWide, offlineMode,
+      farms, selectedFarmId, selectedFarmInfo, selectFarm,
       login, logout, setup, hasPermission,
+      canManageRole, canCreateRole, roleLabel,
+      ROLE_HIERARCHY, ROLE_PERMISSIONS, SYSTEM_WIDE_ROLES,
     }}>
       {children}
     </AuthContext.Provider>

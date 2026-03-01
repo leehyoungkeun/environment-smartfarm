@@ -1,5 +1,6 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import axios from 'axios';
+import { useAuth } from '../../contexts/AuthContext';
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3000/api';
 
@@ -7,6 +8,32 @@ const AlertPanel = ({ farmId, houseId, showPanel, setShowPanel, isMobile = false
   const [alerts, setAlerts] = useState([]);
   const [unacknowledgedCount, setUnacknowledgedCount] = useState(0);
   const [loading, setLoading] = useState(false);
+  const panelRef = useRef(null);
+  const buttonRef = useRef(null);
+  const [panelPos, setPanelPos] = useState({ top: 0, right: 0 });
+  const { user, roleLabel } = useAuth();
+  const userName = `${roleLabel || ''} ${user?.name || user?.username || 'unknown'}`.trim();
+
+  // 드롭다운 위치 계산
+  useEffect(() => {
+    if (showPanel && buttonRef.current) {
+      const rect = buttonRef.current.getBoundingClientRect();
+      setPanelPos({ top: rect.bottom + 8, right: window.innerWidth - rect.right });
+    }
+  }, [showPanel]);
+
+  // 외부 클릭 감지 (오버레이 대신)
+  useEffect(() => {
+    if (!showPanel) return;
+    const handleClickOutside = (e) => {
+      if (panelRef.current && !panelRef.current.contains(e.target) &&
+          buttonRef.current && !buttonRef.current.contains(e.target)) {
+        setShowPanel(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [showPanel, setShowPanel]);
 
   useEffect(() => {
     loadAlerts();
@@ -35,7 +62,7 @@ const AlertPanel = ({ farmId, houseId, showPanel, setShowPanel, isMobile = false
 
   const acknowledgeAlert = async (alertId) => {
     try {
-      await axios.put(`${API_BASE_URL}/alerts/${alertId}/acknowledge`);
+      await axios.put(`${API_BASE_URL}/alerts/${alertId}/acknowledge`, { source: userName });
       loadAlerts();
     } catch (error) {
       console.error('Failed to acknowledge alert:', error);
@@ -49,7 +76,7 @@ const AlertPanel = ({ farmId, houseId, showPanel, setShowPanel, isMobile = false
       if (houseId) {
         url += `?houseId=${houseId}`;
       }
-      await axios.put(url);
+      await axios.put(url, { source: userName });
       loadAlerts();
     } catch (error) {
       console.error('Failed to acknowledge all alerts:', error);
@@ -58,30 +85,21 @@ const AlertPanel = ({ farmId, houseId, showPanel, setShowPanel, isMobile = false
     }
   };
 
-  const deleteAlert = async (alertId, alertMessage) => {
-    if (!confirm(`이 알림을 삭제하시겠습니까?\n\n"${alertMessage}"`)) {
-      return;
-    }
-
+  const deleteAlert = async (alertId) => {
     try {
-      await axios.delete(`${API_BASE_URL}/alerts/${alertId}`);
-      loadAlerts();
+      await axios.delete(`${API_BASE_URL}/alerts/${alertId}?source=${encodeURIComponent(userName)}`);
+      setAlerts(prev => prev.filter(a => a._id !== alertId));
     } catch (error) {
       console.error('Failed to delete alert:', error);
     }
   };
 
   const deleteAllAlerts = async () => {
-    if (!confirm(`⚠️ 모든 알림을 삭제하시겠습니까?\n\n총 ${alerts.length}개의 알림이 영구적으로 삭제됩니다.`)) {
-      return;
-    }
-
     try {
       setLoading(true);
-      for (const alert of alerts) {
-        await axios.delete(`${API_BASE_URL}/alerts/${alert._id}`);
-      }
-      loadAlerts();
+      await axios.delete(`${API_BASE_URL}/alerts/${farmId}/all?source=${encodeURIComponent(userName)}${houseId ? `&houseId=${houseId}` : ''}`);
+      setAlerts([]);
+      setUnacknowledgedCount(0);
     } catch (error) {
       console.error('Failed to delete all alerts:', error);
     } finally {
@@ -238,14 +256,14 @@ const AlertPanel = ({ farmId, houseId, showPanel, setShowPanel, isMobile = false
               <div className="flex gap-1.5">
                 {!alert.acknowledged && (
                   <button
-                    onClick={() => acknowledgeAlert(alert._id)}
+                    onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); acknowledgeAlert(alert._id); }}
                     className="px-2.5 py-1 bg-emerald-100 hover:bg-emerald-200 text-emerald-700 text-xs rounded-lg transition-all font-medium"
                   >
                     ✓ 확인
                   </button>
                 )}
                 <button
-                  onClick={() => deleteAlert(alert._id, alert.message)}
+                  onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); deleteAlert(alert._id); }}
                   className="px-2.5 py-1 bg-gray-100 hover:bg-rose-100 text-gray-500 hover:text-rose-600 text-xs rounded-lg transition-all font-medium"
                 >
                   삭제
@@ -258,11 +276,13 @@ const AlertPanel = ({ farmId, houseId, showPanel, setShowPanel, isMobile = false
     );
   }
 
+
   // 데스크톱: 버튼 + 드롭다운 패널
   return (
     <div className="relative">
       {/* 알림 버튼 (항상 표시) */}
       <button
+        ref={buttonRef}
         onClick={() => setShowPanel(!showPanel)}
         className={`relative py-2 rounded-xl font-medium transition-all duration-200 flex items-center justify-center gap-1 whitespace-nowrap ${
           showPanel
@@ -282,24 +302,18 @@ const AlertPanel = ({ farmId, houseId, showPanel, setShowPanel, isMobile = false
         )}
       </button>
 
-      {/* 드롭다운 패널 */}
+      {/* 드롭다운 패널 (fixed로 nav 스태킹 컨텍스트 탈출) */}
       {showPanel && (
-        <>
           <div
-            className="fixed inset-0"
-            style={{ zIndex: 90 }}
-            onClick={() => setShowPanel(false)}
-          />
-
-          <div
-            className="absolute bg-white rounded-2xl border border-gray-200 flex flex-col overflow-hidden animate-fade-in-up"
+            ref={panelRef}
+            className="fixed bg-white rounded-2xl border border-gray-200 flex flex-col overflow-hidden animate-fade-in-up"
             style={{
-              right: 0,
-              top: 'calc(100% + 8px)',
+              top: panelPos.top,
+              right: panelPos.right,
               width: '400px',
               maxWidth: 'calc(100vw - 32px)',
               maxHeight: 'calc(100vh - 100px)',
-              zIndex: 100,
+              zIndex: 9999,
               boxShadow: '0 20px 40px -8px rgba(0,0,0,0.12), 0 8px 16px -4px rgba(0,0,0,0.08)'
             }}
           >
@@ -317,7 +331,7 @@ const AlertPanel = ({ farmId, houseId, showPanel, setShowPanel, isMobile = false
                   <>
                     {unacknowledgedCount > 0 && (
                       <button
-                        onClick={acknowledgeAll}
+                        onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); acknowledgeAll(); }}
                         disabled={loading}
                         className="px-2.5 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 text-xs rounded-lg transition-all disabled:opacity-50 font-medium border border-emerald-200"
                       >
@@ -325,7 +339,7 @@ const AlertPanel = ({ farmId, houseId, showPanel, setShowPanel, isMobile = false
                       </button>
                     )}
                     <button
-                      onClick={deleteAllAlerts}
+                      onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); deleteAllAlerts(); }}
                       disabled={loading}
                       className="px-2.5 py-1.5 bg-gray-50 hover:bg-rose-50 text-gray-500 hover:text-rose-600 text-xs rounded-lg transition-all disabled:opacity-50 font-medium border border-gray-200 hover:border-rose-200"
                     >
@@ -359,7 +373,6 @@ const AlertPanel = ({ farmId, houseId, showPanel, setShowPanel, isMobile = false
               )}
             </div>
           </div>
-        </>
       )}
     </div>
   );

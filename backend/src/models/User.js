@@ -2,6 +2,36 @@
 import bcrypt from "bcryptjs";
 import { prisma } from "../db.js";
 
+/* ── 4단계 역할 계층 ── */
+export const ROLE_HIERARCHY = {
+  superadmin: { level: 0, canCreate: ['manager', 'owner', 'worker'], label: '최고관리자' },
+  manager:    { level: 1, canCreate: ['owner', 'worker'],            label: '관리직원' },
+  owner:      { level: 2, canCreate: ['worker'],                     label: '농장대표' },
+  worker:     { level: 3, canCreate: [],                             label: '작업자' },
+};
+export const VALID_ROLES = Object.keys(ROLE_HIERARCHY);
+export const SYSTEM_WIDE_ROLES = ['superadmin', 'manager']; // 모든 농장 접근
+
+export function canManageRole(myRole, targetRole) {
+  const my = ROLE_HIERARCHY[myRole];
+  const tgt = ROLE_HIERARCHY[targetRole];
+  if (!my || !tgt) return false;
+  return my.level < tgt.level;
+}
+
+export function canCreateRole(myRole, targetRole) {
+  const my = ROLE_HIERARCHY[myRole];
+  if (!my) return false;
+  return my.canCreate.includes(targetRole);
+}
+
+export const ROLE_PERMISSIONS = {
+  superadmin: ['dashboard', 'control', 'automation', 'history', 'journal', 'ai', 'settings', 'users', 'farms', 'server'],
+  manager:    ['dashboard', 'control', 'automation', 'history', 'journal', 'ai', 'settings', 'users', 'farms'],
+  owner:      ['dashboard', 'control', 'automation', 'history', 'journal', 'ai', 'settings', 'users'],
+  worker:     ['dashboard', 'control', 'automation', 'history', 'journal', 'ai'],
+};
+
 function formatUser(user) {
   if (!user) return null;
   const { id, password, refreshToken, ...rest } = user;
@@ -17,7 +47,7 @@ const User = {
         password: hashedPassword,
         name: data.name,
         role: data.role || "worker",
-        farmId: data.farmId || process.env.FARM_ID || "farm_001",
+        farmId: data.farmId || process.env.FARM_ID || "farm_0001",
         allowedHouses: data.allowedHouses || [],
         enabled: data.enabled !== undefined ? data.enabled : true,
       },
@@ -140,11 +170,7 @@ class UserDocument {
   }
 
   hasPermission(action) {
-    const permissions = {
-      admin: ["dashboard", "control", "automation", "history", "journal", "ai", "settings", "users"],
-      worker: ["dashboard", "control", "automation", "history", "journal", "ai"],
-    };
-    return (permissions[this.role] || []).includes(action);
+    return (ROLE_PERMISSIONS[this.role] || []).includes(action);
   }
 }
 

@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef, useCallback, createContext, useContext } from "react";
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL || "http://localhost:3000/api";
-const FarmIdCtx = createContext(import.meta.env.VITE_FARM_ID || "farm_001");
+const FarmIdCtx = createContext(import.meta.env.VITE_FARM_ID || "farm_0001");
 
 function getToken() { return localStorage.getItem("accessToken"); }
 async function api(path, options = {}) {
@@ -17,7 +17,7 @@ async function api(path, options = {}) {
 }
 
 // ━━━ 메인 ━━━
-export default function AIManager({ farmId = import.meta.env.VITE_FARM_ID || "farm_001" }) {
+export default function AIManager({ farmId = import.meta.env.VITE_FARM_ID || "farm_0001" }) {
   const [activeTab, setActiveTab] = useState("pest");
   const tabs = [
     { key: "pest", label: "병해충 진단", icon: "🔬" },

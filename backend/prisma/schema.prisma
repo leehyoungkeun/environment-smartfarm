@@ -1,6 +1,3 @@
-// prisma/schema.prisma
-// SmartFarm - PostgreSQL + TimescaleDB + 영농일지
-
 generator client {
   provider = "prisma-client-js"
 }
@@ -10,139 +7,339 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 기존 관계형 테이블
-// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+/// This table has subclasses and requires additional setup for migrations. Visit https://pris.ly/d/table-inheritance for more info.
+model alerts {
+  id              String    @default(dbgenerated("(gen_random_uuid())::text"))
+  timestamp       DateTime  @default(now()) @db.Timestamptz(6)
+  farm_id         String
+  house_id        String
+  sensor_id       String?
+  alert_type      String
+  severity        String?   @default("WARNING")
+  message         String?
+  value           Float?
+  threshold       Float?
+  metadata        Json?     @default("{}")
+  acknowledged    Boolean?  @default(false)
+  acknowledged_at DateTime? @db.Timestamptz(6)
 
-model User {
-  id           String   @id @default(uuid())
-  username     String   @unique
-  password     String
-  name         String
-  role         String   @default("worker")
-  farmId       String   @default("farm_001") @map("farm_id")
-  allowedHouses String[] @default([]) @map("allowed_houses")
-  enabled      Boolean  @default(true)
-  lastLoginAt  DateTime? @map("last_login_at")
-  refreshToken String?  @map("refresh_token")
-  createdAt    DateTime @default(now()) @map("created_at")
-  updatedAt    DateTime @updatedAt @map("updated_at")
-
-  @@map("users")
+  @@id([timestamp, id])
+  @@index([timestamp(sort: Desc)])
+  @@index([farm_id, house_id, timestamp(sort: Desc)], map: "idx_alerts_farm_house")
 }
 
-model HouseConfig {
-  id             String   @id @default(uuid())
-  farmId         String   @map("farm_id")
-  houseId        String   @map("house_id")
-  houseName      String   @default("") @map("house_name")
-  sensors        Json     @default("[]")
-  collection     Json     @default("{}")
-  crops          Json     @default("[]")
-  cropType       String   @default("") @map("crop_type")
-  cropVariety    String   @default("") @map("crop_variety")
-  plantingDate   String   @default("") @map("planting_date")
-  devices        Json     @default("[]")
-  deviceCount    Int      @default(0) @map("device_count")
-  enabled        Boolean  @default(true)
-  configVersion  Int      @default(1) @map("config_version")
-  createdAt      DateTime @default(now()) @map("created_at")
-  updatedAt      DateTime @updatedAt @map("updated_at")
+model audit_logs {
+  id          String   @id @default(dbgenerated("(gen_random_uuid())::text"))
+  farm_id     String?
+  user_id     String?
+  user_name   String?
+  action      String
+  target_type String
+  target_id   String?
+  details     Json?    @default("{}")
+  created_at  DateTime @default(now())
 
-  @@unique([farmId, houseId])
-  @@map("house_configs")
+  @@index([farm_id, created_at(sort: Desc)], map: "idx_audit_logs_farm")
+  @@index([created_at(sort: Desc)], map: "idx_audit_logs_time")
 }
 
-model AutomationRule {
-  id              String   @id @default(uuid())
-  farmId          String   @map("farm_id")
-  houseId         String   @map("house_id")
-  name            String
-  description     String   @default("")
-  enabled         Boolean  @default(true)
-  conditionLogic  String   @default("AND") @map("condition_logic")
-  groupLogic      String   @default("AND") @map("group_logic")
-  conditions      Json
-  actions         Json
-  cooldownSeconds Int      @default(300) @map("cooldown_seconds")
-  lastTriggeredAt DateTime? @map("last_triggered_at")
-  triggerCount    Int      @default(0) @map("trigger_count")
-  priority        Int      @default(10)
-  createdAt       DateTime @default(now()) @map("created_at")
-  updatedAt       DateTime @updatedAt @map("updated_at")
+model automation_rules {
+  id                String    @id
+  farm_id           String
+  house_id          String
+  name              String
+  description       String    @default("")
+  enabled           Boolean   @default(true)
+  condition_logic   String    @default("AND")
+  conditions        Json
+  actions           Json
+  cooldown_seconds  Int       @default(300)
+  last_triggered_at DateTime?
+  trigger_count     Int       @default(0)
+  priority          Int       @default(10)
+  created_at        DateTime  @default(now())
+  updated_at        DateTime
+  group_logic       String    @default("AND")
 
-  @@index([farmId, houseId, enabled])
-  @@map("automation_rules")
+  @@index([farm_id, house_id, enabled])
 }
 
-// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 영농일지 테이블
-// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+model business_projects {
+  id         String   @id @default(dbgenerated("(gen_random_uuid())::text"))
+  name       String   @unique
+  created_at DateTime @default(now()) @db.Timestamptz(6)
+  updated_at DateTime @default(now()) @db.Timestamptz(6)
+  farms      farms[]
+}
 
-model FarmJournal {
-  id            String   @id @default(uuid())
-  farmId        String   @map("farm_id")
-  houseId       String?  @map("house_id")
+/// This table has subclasses and requires additional setup for migrations. Visit https://pris.ly/d/table-inheritance for more info.
+model control_logs {
+  id                 String   @default(dbgenerated("(gen_random_uuid())::text"))
+  timestamp          DateTime @default(now()) @db.Timestamptz(6)
+  farm_id            String
+  house_id           String
+  control_house_id   String?
+  device_id          String
+  device_type        String?  @default("unknown")
+  device_name        String?
+  command            String
+  success            Boolean  @default(true)
+  error              String?
+  request_id         String?
+  operator           String?  @default("web_dashboard")
+  operator_name      String?
+  lambda_response    Json?
+  is_automatic       Boolean? @default(false)
+  automation_rule_id String?
+  automation_reason  String?
+  created_at         DateTime @default(now()) @db.Timestamptz(6)
+
+  @@id([timestamp, id])
+  @@index([timestamp(sort: Desc)])
+  @@index([farm_id, device_id, timestamp(sort: Desc)], map: "idx_control_logs_farm_device")
+  @@index([farm_id, house_id, timestamp(sort: Desc)], map: "idx_control_logs_farm_house")
+  @@index([request_id], map: "idx_control_logs_request_id")
+}
+
+model farm_documents {
+  id            String   @id @default(dbgenerated("(gen_random_uuid())::text"))
+  farm_id       String
+  file_name     String
+  original_name String
+  file_path     String
+  file_size     Int      @default(0)
+  mime_type     String?
+  category      String   @default("other")
+  description   String?
+  uploaded_by   String?
+  uploader_id   String?
+  created_at    DateTime @default(now()) @db.Timestamptz(6)
+  updated_at    DateTime @default(now()) @db.Timestamptz(6)
+  farms         farms    @relation(fields: [farm_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([farm_id, created_at(sort: Desc)], map: "idx_farm_documents_created")
+  @@index([farm_id, category], map: "idx_farm_documents_farm")
+}
+
+model farm_journals {
+  id           String   @id
+  farm_id      String
+  house_id     String?
+  date         DateTime @db.Date
+  weather      String?
+  temp_min     Float?
+  temp_max     Float?
+  humidity     Float?
+  work_type    String
+  growth_stage String?
+  content      String
+  pest         String?
+  notes        String?
+  photos       Json     @default("[]")
+  created_by   String
+  created_at   DateTime @default(now())
+  updated_at   DateTime
+
+  @@index([farm_id, date])
+  @@index([farm_id, house_id, date])
+}
+
+model farm_notes {
+  id         String    @id @default(dbgenerated("(gen_random_uuid())::text"))
+  farm_id    String
+  content    String
+  author     String?
+  author_id  String?
+  created_at DateTime? @default(now()) @db.Timestamptz(6)
+  updated_at DateTime? @default(now()) @db.Timestamptz(6)
+  farms      farms     @relation(fields: [farm_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([farm_id, created_at(sort: Desc)], map: "idx_farm_notes_farm_created")
+}
+
+model farm_schedules {
+  id           String    @id @default(dbgenerated("(gen_random_uuid())::text"))
+  farm_id      String
+  title        String
+  description  String?
+  type         String    @default("general")
+  start_date   DateTime  @db.Date
+  end_date     DateTime? @db.Date
+  all_day      Boolean   @default(true)
+  completed    Boolean   @default(false)
+  completed_at DateTime? @db.Timestamptz(6)
+  assigned_to  String?
+  house_id     String?
+  priority     String    @default("normal")
+  color        String?
+  recurrence   Json?
+  created_by   String?
+  created_at   DateTime  @default(now()) @db.Timestamptz(6)
+  updated_at   DateTime  @default(now()) @db.Timestamptz(6)
+  farms        farms     @relation(fields: [farm_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([farm_id, completed, start_date], map: "idx_farm_schedules_completed")
+  @@index([farm_id, start_date], map: "idx_farm_schedules_farm_date")
+}
+
+model farms {
+  id                   String             @id @default(dbgenerated("(gen_random_uuid())::text"))
+  farm_id              String             @unique
+  name                 String
+  location             String?
+  owner_name           String?
+  owner_phone          String?
+  api_key              String             @unique
+  status               String?            @default("active")
+  last_seen_at         DateTime?          @db.Timestamptz(6)
+  memo                 String?
+  created_at           DateTime           @default(now())
+  updated_at           DateTime           @default(now())
+  managers             Json?              @default("[]")
+  registered_at        DateTime?          @default(dbgenerated("CURRENT_DATE")) @db.Date
+  maintenance_months   Int?               @default(12)
+  maintenance_start_at DateTime?          @default(dbgenerated("CURRENT_DATE")) @db.Date
+  system_type          String?
+  farm_type            String?
+  farm_area            String?
+  tags                 String[]           @default([])
+  deleted_at           DateTime?          @db.Timestamptz(6)
+  business_project_id  String?
+  total_cost           BigInt?
+  subsidy_amount       BigInt?
+  self_funding         BigInt?
+  business_type        String?
+  farm_documents       farm_documents[]
+  farm_notes           farm_notes[]
+  farm_schedules       farm_schedules[]
+  business_projects    business_projects? @relation(fields: [business_project_id], references: [id], onUpdate: NoAction)
+  maintenance_logs     maintenance_logs[]
+  user_farms           user_farms[]
+}
+
+model harvest_records {
+  id            String   @id
+  farm_id       String
+  house_id      String?
   date          DateTime @db.Date
-  weather       String?
-  tempMin       Float?   @map("temp_min")
-  tempMax       Float?   @map("temp_max")
-  humidity      Float?
-  workType      String   @map("work_type")
-  growthStage   String?  @map("growth_stage")
-  content       String
-  pest          String?
-  notes         String?
-  photos        Json     @default("[]")
-  createdBy     String   @map("created_by")
-  createdAt     DateTime @default(now()) @map("created_at")
-  updatedAt     DateTime @updatedAt @map("updated_at")
-
-  @@index([farmId, date])
-  @@index([farmId, houseId, date])
-  @@map("farm_journals")
-}
-
-model HarvestRecord {
-  id            String   @id @default(uuid())
-  farmId        String   @map("farm_id")
-  houseId       String?  @map("house_id")
-  date          DateTime @db.Date
-  cropName      String   @map("crop_name")
+  crop_name     String
   quantity      Float
   unit          String   @default("kg")
   grade         String?
   destination   String?
-  unitPrice     Float?   @map("unit_price")
-  totalRevenue  Float?   @map("total_revenue")
+  unit_price    Float?
+  total_revenue Float?
   notes         String?
   photos        Json     @default("[]")
-  createdBy     String   @map("created_by")
-  createdAt     DateTime @default(now()) @map("created_at")
-  updatedAt     DateTime @updatedAt @map("updated_at")
+  created_by    String
+  created_at    DateTime @default(now())
+  updated_at    DateTime
 
-  @@index([farmId, date])
-  @@map("harvest_records")
+  @@index([farm_id, date])
 }
 
-model InputRecord {
-  id            String   @id @default(uuid())
-  farmId        String   @map("farm_id")
-  houseId       String?  @map("house_id")
-  date          DateTime @db.Date
-  inputType     String   @map("input_type")
-  productName   String   @map("product_name")
-  manufacturer  String?
-  quantity      Float
-  unit          String
-  cost          Float?
-  targetArea    Float?   @map("target_area")
-  method        String?
-  notes         String?
-  createdBy     String   @map("created_by")
-  createdAt     DateTime @default(now()) @map("created_at")
-  updatedAt     DateTime @updatedAt @map("updated_at")
+model house_configs {
+  id             String   @id
+  farm_id        String
+  house_id       String
+  house_name     String   @default("")
+  sensors        Json     @default("[]")
+  collection     Json     @default("{}")
+  devices        Json     @default("[]")
+  device_count   Int      @default(0)
+  enabled        Boolean  @default(true)
+  config_version Int      @default(1)
+  created_at     DateTime @default(now())
+  updated_at     DateTime
+  crops          Json     @default("[]")
+  crop_type      String   @default("")
+  crop_variety   String   @default("")
+  planting_date  String   @default("")
 
-  @@index([farmId, date])
-  @@map("input_records")
+  @@unique([farm_id, house_id])
+}
+
+model input_records {
+  id           String   @id
+  farm_id      String
+  house_id     String?
+  date         DateTime @db.Date
+  input_type   String
+  product_name String
+  manufacturer String?
+  quantity     Float
+  unit         String
+  cost         Float?
+  target_area  Float?
+  method       String?
+  notes        String?
+  created_by   String
+  created_at   DateTime @default(now())
+  updated_at   DateTime
+
+  @@index([farm_id, date])
+}
+
+model maintenance_logs {
+  id          String   @id @default(dbgenerated("(gen_random_uuid())::text"))
+  farm_id     String
+  date        DateTime @db.Date
+  type        String
+  title       String
+  description String?
+  cost        Int?
+  technician  String?
+  status      String   @default("completed")
+  created_at  DateTime @default(now())
+  updated_at  DateTime @default(now())
+  farms       farms    @relation(fields: [farm_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([farm_id, date], map: "idx_maintenance_logs_farm_date")
+}
+
+/// This table has subclasses and requires additional setup for migrations. Visit https://pris.ly/d/table-inheritance for more info.
+model sensor_data {
+  timestamp DateTime @db.Timestamptz(6)
+  farm_id   String
+  house_id  String
+  data      Json     @default("{}")
+  metadata  Json?    @default("{}")
+
+  @@id([timestamp, farm_id, house_id])
+  @@index([farm_id, house_id, timestamp(sort: Desc)], map: "idx_sensor_data_farm_house")
+  @@index([timestamp(sort: Desc)])
+}
+
+model system_settings {
+  farm_id    String   @id
+  settings   Json     @default("{}")
+  updated_at DateTime @default(now()) @db.Timestamptz(6)
+}
+
+model user_farms {
+  id          String  @id @default(dbgenerated("(gen_random_uuid())::text"))
+  user_id     String
+  farm_id     String
+  role        String? @default("viewer")
+  permissions Json    @default("{}")
+  farms       farms   @relation(fields: [farm_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  users       users   @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@unique([user_id, farm_id])
+}
+
+model users {
+  id             String       @id
+  username       String       @unique
+  password       String
+  name           String
+  role           String       @default("worker")
+  farm_id        String       @default("farm_001")
+  allowed_houses String[]     @default([])
+  enabled        Boolean      @default(true)
+  last_login_at  DateTime?
+  refresh_token  String?
+  created_at     DateTime     @default(now())
+  updated_at     DateTime
+  user_farms     user_farms[]
 }

@@ -18,7 +18,7 @@
 
 // 환경변수 또는 하드코딩
 const SERVER_URL = env.get('SERVER_URL') || 'http://192.168.1.101:3000';
-const FARM_ID = env.get('FARM_ID') || 'farm_001';
+const FARM_ID = env.get('FARM_ID') || 'farm_0001';
 const HOUSE_ID = env.get('HOUSE_ID') || 'house_001';
 const API_KEY = env.get('SENSOR_API_KEY') || '';
 
@@ -314,7 +314,7 @@ if (buffer.length === 0) {
 }
 
 const SERVER_URL_6 = env.get('SERVER_URL') || 'http://192.168.1.101:3000';
-const FARM_ID_6 = env.get('FARM_ID') || 'farm_001';
+const FARM_ID_6 = env.get('FARM_ID') || 'farm_0001';
 const HOUSE_ID_6 = env.get('HOUSE_ID') || 'house_001';
 const API_KEY_6 = env.get('SENSOR_API_KEY') || '';
 

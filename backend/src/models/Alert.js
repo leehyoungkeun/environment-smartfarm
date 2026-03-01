@@ -5,6 +5,7 @@ import { pool } from "../db.js";
 
 function formatAlert(row) {
   if (!row) return null;
+  const meta = row.metadata || {};
   return {
     _id: row.id,
     farmId: row.farm_id,
@@ -15,9 +16,13 @@ function formatAlert(row) {
     message: row.message,
     value: row.value,
     threshold: row.threshold,
-    metadata: row.metadata || {},
+    metadata: meta,
     acknowledged: row.acknowledged,
     acknowledgedAt: row.acknowledged_at,
+    acknowledgedBy: meta.acknowledgedBy || null,
+    deleted: !!meta.deleted,
+    deletedAt: meta.deletedAt || null,
+    deletedBy: meta.deletedBy || null,
     createdAt: row.timestamp,
     timestamp: row.timestamp,
   };
@@ -46,10 +51,15 @@ const Alert = {
     return formatAlert(result.rows[0]);
   },
 
-  async find(query = {}, { sort, limit, skip } = {}) {
+  async find(query = {}, { sort, limit, skip, includeDeleted } = {}) {
     let sql = "SELECT * FROM alerts WHERE 1=1";
     const params = [];
     let idx = 1;
+
+    // 기본적으로 soft-delete된 알림 제외
+    if (!includeDeleted) {
+      sql += ` AND (metadata->>'deleted' IS NULL OR metadata->>'deleted' != 'true')`;
+    }
 
     if (query.farmId) {
       sql += ` AND farm_id = $${idx++}`;
@@ -87,25 +97,58 @@ const Alert = {
     return formatAlert(result.rows[0]);
   },
 
-  async acknowledge(id) {
+  async acknowledge(id, resolution, source) {
+    const meta = {};
+    if (resolution) { meta.resolution = resolution; meta.resolvedAt = new Date().toISOString(); }
+    if (source) { meta.acknowledgedBy = source; }
+
+    let sql, params;
+    if (Object.keys(meta).length > 0) {
+      sql = `UPDATE alerts
+               SET acknowledged = TRUE, acknowledged_at = NOW(),
+                   metadata = COALESCE(metadata, '{}'::jsonb) || $2::jsonb
+             WHERE id = $1 RETURNING *`;
+      params = [id, JSON.stringify(meta)];
+    } else {
+      sql = `UPDATE alerts
+               SET acknowledged = TRUE, acknowledged_at = NOW()
+             WHERE id = $1 RETURNING *`;
+      params = [id];
+    }
+    const result = await pool.query(sql, params);
+    return formatAlert(result.rows[0]);
+  },
+
+  async updateResolution(id, resolution) {
     const result = await pool.query(
       `UPDATE alerts
-         SET acknowledged = TRUE, acknowledged_at = NOW()
-       WHERE id = $1
-       RETURNING *`,
-      [id]
+         SET metadata = COALESCE(metadata, '{}'::jsonb) || jsonb_build_object('resolution', $2::text, 'resolvedAt', NOW()::text)
+       WHERE id = $1 RETURNING *`,
+      [id, resolution]
     );
     return formatAlert(result.rows[0]);
   },
 
-  async acknowledgeAll(farmId, houseId) {
+  async acknowledgeAll(farmId, houseId, source) {
+    const meta = source ? JSON.stringify({ acknowledgedBy: source }) : null;
+    let idx = 1;
     let sql = `UPDATE alerts
-                 SET acknowledged = TRUE, acknowledged_at = NOW()
-               WHERE farm_id = $1 AND acknowledged = FALSE`;
-    const params = [farmId];
+                 SET acknowledged = TRUE, acknowledged_at = NOW()`;
+    const params = [];
+
+    if (meta) {
+      sql += `, metadata = COALESCE(metadata, '{}'::jsonb) || $${idx++}::jsonb`;
+      params.push(meta);
+    }
+
+    sql += ` WHERE farm_id = $${idx++} AND acknowledged = FALSE`;
+    params.push(farmId);
+
+    // soft-delete된 건 제외
+    sql += ` AND (metadata->>'deleted' IS NULL OR metadata->>'deleted' != 'true')`;
 
     if (houseId) {
-      sql += " AND house_id = $2";
+      sql += ` AND house_id = $${idx++}`;
       params.push(houseId);
     }
 
@@ -114,18 +157,56 @@ const Alert = {
     return result.rows.map(formatAlert);
   },
 
-  async deleteById(id) {
+  // soft-delete: DB에서 지우지 않고 metadata에 삭제 표시
+  async deleteById(id, source) {
+    const meta = {
+      deleted: true,
+      deletedAt: new Date().toISOString(),
+      deletedBy: source || 'unknown',
+    };
     const result = await pool.query(
-      "DELETE FROM alerts WHERE id = $1 RETURNING *",
-      [id]
+      `UPDATE alerts
+         SET metadata = COALESCE(metadata, '{}'::jsonb) || $2::jsonb
+       WHERE id = $1 RETURNING *`,
+      [id, JSON.stringify(meta)]
     );
     return formatAlert(result.rows[0]);
   },
 
-  async countDocuments(query = {}) {
+  // 농장 전체 알림 soft-delete
+  async deleteAllByFarm(farmId, houseId, source) {
+    const meta = JSON.stringify({
+      deleted: true,
+      deletedAt: new Date().toISOString(),
+      deletedBy: source || 'unknown',
+    });
+    let idx = 1;
+    let sql = `UPDATE alerts
+                 SET metadata = COALESCE(metadata, '{}'::jsonb) || $${idx++}::jsonb
+               WHERE farm_id = $${idx++}`;
+    const params = [meta, farmId];
+
+    // 이미 삭제된 건 제외
+    sql += ` AND (metadata->>'deleted' IS NULL OR metadata->>'deleted' != 'true')`;
+
+    if (houseId) {
+      sql += ` AND house_id = $${idx++}`;
+      params.push(houseId);
+    }
+
+    sql += " RETURNING *";
+    const result = await pool.query(sql, params);
+    return result.rows.map(formatAlert);
+  },
+
+  async countDocuments(query = {}, { includeDeleted } = {}) {
     let sql = "SELECT COUNT(*)::int as count FROM alerts WHERE 1=1";
     const params = [];
     let idx = 1;
+
+    if (!includeDeleted) {
+      sql += ` AND (metadata->>'deleted' IS NULL OR metadata->>'deleted' != 'true')`;
+    }
 
     if (query.farmId) {
       sql += ` AND farm_id = $${idx++}`;

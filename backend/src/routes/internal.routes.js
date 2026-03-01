@@ -11,8 +11,15 @@ import logger from "../utils/logger.js";
 
 const router = express.Router();
 
-const FARM_ID = process.env.FARM_ID || "farm_001";
-const HOUSE_ID = process.env.HOUSE_ID || "house_001";
+const DEFAULT_FARM_ID = process.env.FARM_ID || "farm_0001";
+const DEFAULT_HOUSE_ID = process.env.HOUSE_ID || "house_001";
+
+function resolveFarmHouse(req) {
+  return {
+    farmId: req.body?.farmId || req.query?.farmId || DEFAULT_FARM_ID,
+    houseId: req.body?.houseId || req.query?.houseId || DEFAULT_HOUSE_ID,
+  };
+}
 
 /**
  * POST /internal/status-update
@@ -21,6 +28,7 @@ const HOUSE_ID = process.env.HOUSE_ID || "house_001";
  */
 router.post("/status-update", async (req, res) => {
   try {
+    const { farmId, houseId } = resolveFarmHouse(req);
     const status = req.body;
     logger.info("장비 상태 수신:", JSON.stringify(status).slice(0, 200));
 
@@ -30,8 +38,8 @@ router.post("/status-update", async (req, res) => {
         `INSERT INTO control_logs (farm_id, house_id, device_id, device_type, command, success, created_at)
          VALUES ($1, $2, $3, $4, $5, $6, NOW())`,
         [
-          FARM_ID,
-          HOUSE_ID,
+          farmId,
+          houseId,
           "system",
           "status_update",
           JSON.stringify(status),
@@ -54,11 +62,12 @@ router.post("/status-update", async (req, res) => {
  */
 router.get("/programs", async (req, res) => {
   try {
+    const { farmId } = resolveFarmHouse(req);
     const { rows } = await pool.query(
       `SELECT * FROM automation_rules
        WHERE farm_id = $1 AND enabled = true
        ORDER BY created_at`,
-      [FARM_ID]
+      [farmId]
     );
 
     // Node-RED 관수 스케줄러 호환 형태로 변환
@@ -84,7 +93,8 @@ router.get("/programs", async (req, res) => {
  */
 router.get("/config", async (req, res) => {
   try {
-    const config = await Config.findOne({ farmId: FARM_ID, houseId: HOUSE_ID });
+    const { farmId, houseId } = resolveFarmHouse(req);
+    const config = await Config.findOne({ farmId, houseId });
 
     if (!config) {
       // 기본 임계값 반환
@@ -127,12 +137,13 @@ router.get("/config", async (req, res) => {
  */
 router.post("/alarm", async (req, res) => {
   try {
+    const { farmId, houseId } = resolveFarmHouse(req);
     const alarm = req.body;
     logger.warn("경보 수신:", alarm.alarm_type, alarm.message);
 
     const alert = await Alert.create({
-      farmId: FARM_ID,
-      houseId: HOUSE_ID,
+      farmId,
+      houseId,
       alertType: alarm.alarm_type,
       severity: "warning",
       message: alarm.message,
@@ -154,6 +165,7 @@ router.post("/alarm", async (req, res) => {
  */
 router.get("/daily-summary-data", async (req, res) => {
   try {
+    const { farmId, houseId } = resolveFarmHouse(req);
     const yesterday = new Date();
     yesterday.setDate(yesterday.getDate() - 1);
     const dateStr = yesterday.toISOString().slice(0, 10);
@@ -164,7 +176,7 @@ router.get("/daily-summary-data", async (req, res) => {
        FROM sensor_data
        WHERE farm_id = $1 AND house_id = $2
          AND timestamp >= $3::date AND timestamp < ($3::date + interval '1 day')`,
-      [FARM_ID, HOUSE_ID, dateStr]
+      [farmId, houseId, dateStr]
     );
 
     // JSONB data에서 센서별 통계 계산
@@ -203,6 +215,7 @@ router.get("/daily-summary-data", async (req, res) => {
  */
 router.post("/daily-summary", async (req, res) => {
   try {
+    const { farmId, houseId } = resolveFarmHouse(req);
     const summary = req.body;
     logger.info("일일 집계 수신:", summary.date);
 
@@ -210,7 +223,7 @@ router.post("/daily-summary", async (req, res) => {
       `INSERT INTO daily_summaries (farm_id, house_id, date, summary_data, created_at)
        VALUES ($1, $2, $3, $4, NOW())
        ON CONFLICT (farm_id, house_id, date) DO UPDATE SET summary_data = $4`,
-      [FARM_ID, HOUSE_ID, summary.date, JSON.stringify(summary)]
+      [farmId, houseId, summary.date, JSON.stringify(summary)]
     );
 
     res.json({ success: true, message: "일일 집계 저장 완료" });

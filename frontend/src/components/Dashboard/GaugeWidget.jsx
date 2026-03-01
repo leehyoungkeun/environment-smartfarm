@@ -27,11 +27,11 @@ const GaugeWidget = ({ sensors, latestData }) => {
           <span style={{fontSize:14,fontWeight:800,color:'#0f172a'}}>{sensor.name}</span>
         </div>
 
-        <div className="relative w-full h-28 md:h-32 mb-2">
-          <svg viewBox="0 0 200 120" className="w-full h-full">
+        <div className="w-full mb-2">
+          <svg viewBox="0 0 200 110" className="w-full" style={{display:'block'}}>
             {/* 배경 호 */}
             <path
-              d="M 20 100 A 80 80 0 0 1 180 100"
+              d="M 20 90 A 80 80 0 0 1 180 90"
               fill="none"
               stroke="#e5e7eb"
               strokeWidth="10"
@@ -39,39 +39,38 @@ const GaugeWidget = ({ sensors, latestData }) => {
             />
             {/* 값 호 */}
             <path
-              d="M 20 100 A 80 80 0 0 1 180 100"
+              d="M 20 90 A 80 80 0 0 1 180 90"
               fill="none"
               stroke={color}
               strokeWidth="10"
               strokeLinecap="round"
               strokeDasharray={`${strokeDash} 251`}
-              style={{ 
+              style={{
                 filter: `drop-shadow(0 0 4px ${color}30)`,
                 transition: 'stroke-dasharray 0.8s ease-out'
               }}
             />
             {/* 바늘 */}
             <line
-              x1="100" y1="100"
-              x2="100" y2="35"
+              x1="100" y1="90"
+              x2="100" y2="25"
               stroke={color}
               strokeWidth="2.5"
               strokeLinecap="round"
-              transform={`rotate(${rotation} 100 100)`}
+              transform={`rotate(${rotation} 100 90)`}
               style={{ transition: 'transform 0.8s ease-out' }}
             />
             {/* 중심점 */}
-            <circle cx="100" cy="100" r="5" fill={color} />
-            <circle cx="100" cy="100" r="2.5" fill="white" opacity="0.6" />
+            <circle cx="100" cy="90" r="5" fill={color} />
+            <circle cx="100" cy="90" r="2.5" fill="white" opacity="0.6" />
           </svg>
-
-          <div className="absolute bottom-0 left-0 right-0 text-center">
-            <div style={{fontSize:26,fontWeight:900,fontFamily:'monospace',color,letterSpacing:'-0.02em'}}>
+          <div className="text-center" style={{marginTop:-24}}>
+            <span style={{fontSize:26,fontWeight:900,fontFamily:'monospace',color,letterSpacing:'-0.02em'}}>
               {value !== null && value !== undefined
                 ? `${typeof value === 'number' ? value.toFixed(sensor.precision || 1) : value}`
                 : '—'}
-              <span style={{fontSize:12,color:'#94a3b8',marginLeft:4}}>{sensor.unit}</span>
-            </div>
+            </span>
+            <span style={{fontSize:12,color:'#94a3b8',marginLeft:4}}>{sensor.unit}</span>
           </div>
         </div>
 

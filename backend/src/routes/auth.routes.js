@@ -4,7 +4,14 @@
 
 import express from "express";
 import jwt from "jsonwebtoken";
-import User from "../models/User.js";
+import User, {
+  VALID_ROLES,
+  ROLE_HIERARCHY,
+  SYSTEM_WIDE_ROLES,
+  canCreateRole,
+  canManageRole,
+} from "../models/User.js";
+import { prisma } from "../db.js";
 import {
   generateTokens,
   authenticate,
@@ -68,10 +75,48 @@ router.post("/login", async (req, res) => {
 
     logger.info(`✅ 로그인 성공: ${user.username} (${user.role})`);
 
+    // 유저가 접근 가능한 농장 목록 조회
+    let farms = [];
+    try {
+      if (SYSTEM_WIDE_ROLES.includes(user.role)) {
+        // superadmin/manager: 전체 농장 목록
+        const allFarms = await prisma.farm.findMany({
+          where: { deletedAt: null },
+          select: { farmId: true, name: true, location: true, status: true },
+          orderBy: { farmId: "asc" },
+        });
+        farms = allFarms.map((f) => ({ farmId: f.farmId, name: f.name, location: f.location, status: f.status, role: "admin" }));
+      } else {
+        const userFarms = await prisma.userFarm.findMany({
+          where: { userId: user.id },
+          include: { farm: { select: { farmId: true, name: true, location: true, status: true } } },
+        });
+        farms = userFarms.map((uf) => ({
+          farmId: uf.farm.farmId,
+          name: uf.farm.name,
+          location: uf.farm.location,
+          status: uf.farm.status,
+          role: uf.role,
+        }));
+      }
+    } catch {
+      // Farm 테이블 없으면 기본값 폴백
+    }
+    if (farms.length === 0) {
+      // user_farms에 할당이 없는 경우: farmId로 직접 조회
+      try {
+        const farm = await prisma.farm.findFirst({ where: { farmId: user.farmId }, select: { farmId: true, name: true, location: true, status: true } });
+        if (farm) farms = [{ farmId: farm.farmId, name: farm.name, location: farm.location, status: farm.status, role: "viewer" }];
+      } catch {}
+    }
+    if (farms.length === 0) {
+      farms = [{ farmId: user.farmId, name: user.farmId, status: "active", role: "viewer" }];
+    }
+
     res.json({
       success: true,
       data: {
-        user: user.toJSON(),
+        user: { ...user.toJSON(), farms },
         accessToken,
         refreshToken,
       },
@@ -160,8 +205,8 @@ router.post("/setup", async (req, res) => {
       username,
       password,
       name,
-      role: "admin",
-      farmId: process.env.FARM_ID || "farm_001",
+      role: "superadmin",
+      farmId: process.env.FARM_ID || "farm_0001",
     });
 
     const { accessToken, refreshToken } = generateTokens(admin);
@@ -203,8 +248,30 @@ router.get("/check-setup", async (req, res) => {
 /**
  * GET /api/auth/me
  */
-router.get("/me", authenticate, (req, res) => {
-  res.json({ success: true, data: req.user.toJSON() });
+router.get("/me", authenticate, async (req, res) => {
+  try {
+    // 유저가 접근 가능한 농장 목록 조회 (login과 동일)
+    let farms = [];
+    if (SYSTEM_WIDE_ROLES.includes(req.user.role)) {
+      // superadmin/manager: 전체 농장 목록
+      const allFarms = await prisma.farm.findMany({
+        where: { deletedAt: null },
+        select: { farmId: true, name: true, location: true, status: true },
+        orderBy: { farmId: "asc" },
+      });
+      farms = allFarms.map((f) => ({ farmId: f.farmId, name: f.name, location: f.location, status: f.status, role: "admin" }));
+    } else {
+      const userFarms = await prisma.userFarm.findMany({
+        where: { userId: req.user.id },
+        include: { farm: { select: { farmId: true, name: true, location: true, status: true } } },
+      });
+      farms = userFarms.map((uf) => ({ farmId: uf.farm.farmId, name: uf.farm.name, location: uf.farm.location, status: uf.farm.status, role: uf.role }));
+    }
+
+    res.json({ success: true, data: { ...req.user.toJSON(), farms } });
+  } catch (error) {
+    res.json({ success: true, data: req.user.toJSON() });
+  }
 });
 
 /**
@@ -262,10 +329,28 @@ router.put("/change-password", authenticate, async (req, res) => {
 
 /**
  * GET /api/auth/users
+ * owner 이상 접근 가능
+ * - superadmin/manager: 전체 사용자 목록
+ * - owner: 자기 농장의 하위 역할(worker)만
  */
-router.get("/users", authenticate, authorize("admin"), async (req, res) => {
+router.get("/users", authenticate, authorize("owner"), async (req, res) => {
   try {
-    const users = await User.find();
+    const myRole = req.user.role;
+    let users;
+
+    if (SYSTEM_WIDE_ROLES.includes(myRole)) {
+      // superadmin/manager: 전체 사용자 조회
+      users = await User.find();
+    } else {
+      // owner: 자기 농장 사용자만 (하위 역할)
+      users = await User.find({ farmId: req.user.farmId });
+      const myLevel = ROLE_HIERARCHY[myRole]?.level ?? 99;
+      users = users.filter((u) => {
+        const uLevel = ROLE_HIERARCHY[u.role]?.level ?? 0;
+        return uLevel > myLevel || u.id === req.user.id;
+      });
+    }
+
     res.json({ success: true, data: users.map((u) => u.toJSON()) });
   } catch (error) {
     res.status(500).json({ success: false, error: error.message });
@@ -274,8 +359,9 @@ router.get("/users", authenticate, authorize("admin"), async (req, res) => {
 
 /**
  * POST /api/auth/users
+ * owner 이상 접근 가능 — canCreate 검증
  */
-router.post("/users", authenticate, authorize("admin"), async (req, res) => {
+router.post("/users", authenticate, authorize("owner"), async (req, res) => {
   try {
     const { username, password, name, role, farmId, allowedHouses } = req.body;
 
@@ -286,16 +372,32 @@ router.post("/users", authenticate, authorize("admin"), async (req, res) => {
       });
     }
 
-    // 허용된 역할만 허용
-    const VALID_ROLES = ["admin", "worker"];
-    const validatedRole = VALID_ROLES.includes(role) ? role : "worker";
+    // 역할 검증: VALID_ROLES에 포함 + 요청자가 생성 가능한 역할인지
+    const targetRole = VALID_ROLES.includes(role) ? role : "worker";
+    if (!canCreateRole(req.user.role, targetRole)) {
+      return res.status(403).json({
+        success: false,
+        error: `${ROLE_HIERARCHY[req.user.role]?.label || req.user.role}은(는) ${ROLE_HIERARCHY[targetRole]?.label || targetRole} 역할을 생성할 수 없습니다`,
+        code: "ROLE_CREATE_DENIED",
+      });
+    }
+
+    // owner는 자기 농장에만 사용자 생성 가능
+    const targetFarmId = farmId || req.user.farmId;
+    if (!SYSTEM_WIDE_ROLES.includes(req.user.role) && targetFarmId !== req.user.farmId) {
+      return res.status(403).json({
+        success: false,
+        error: "다른 농장에 사용자를 생성할 수 없습니다",
+        code: "FARM_CREATE_DENIED",
+      });
+    }
 
     const user = await User.create({
       username,
       password,
       name,
-      role: validatedRole,
-      farmId: farmId || req.user.farmId,
+      role: targetRole,
+      farmId: targetFarmId,
       allowedHouses: allowedHouses || [],
     });
 
@@ -315,16 +417,101 @@ router.post("/users", authenticate, authorize("admin"), async (req, res) => {
 });
 
 /**
+ * PUT /api/auth/users/batch
+ * manager 이상 — 일괄 역할변경 / 활성화 / 비활성화
+ */
+router.put(
+  "/users/batch",
+  authenticate,
+  authorize("manager"),
+  async (req, res) => {
+    try {
+      const { userIds, action, role } = req.body;
+      if (!Array.isArray(userIds) || userIds.length === 0) {
+        return res.status(400).json({ success: false, error: "userIds 배열 필요" });
+      }
+      if (!["changeRole", "enable", "disable"].includes(action)) {
+        return res.status(400).json({ success: false, error: "action: changeRole|enable|disable" });
+      }
+      if (action === "changeRole" && (!role || !VALID_ROLES.includes(role))) {
+        return res.status(400).json({ success: false, error: "유효한 role 필요" });
+      }
+
+      const currentId = (req.user._id || req.user.id).toString();
+      let updated = 0, skipped = 0;
+
+      for (const uid of userIds) {
+        if (uid === currentId) { skipped++; continue; }
+        const target = await User.findById(uid);
+        if (!target) { skipped++; continue; }
+        if (!canManageRole(req.user.role, target.role)) { skipped++; continue; }
+
+        if (action === "changeRole") {
+          if (!canCreateRole(req.user.role, role)) { skipped++; continue; }
+          await prisma.users.update({ where: { id: uid }, data: { role } });
+        } else if (action === "enable") {
+          await prisma.users.update({ where: { id: uid }, data: { enabled: true } });
+        } else {
+          await prisma.users.update({ where: { id: uid }, data: { enabled: false } });
+        }
+        updated++;
+      }
+
+      logger.info(`일괄 ${action}: ${updated}건 처리, ${skipped}건 건너뜀 by ${req.user.username}`);
+      res.json({ success: true, data: { updated, skipped } });
+    } catch (error) {
+      res.status(500).json({ success: false, error: error.message });
+    }
+  }
+);
+
+/**
+ * DELETE /api/auth/users/batch
+ * manager 이상 — 일괄 삭제
+ */
+router.delete(
+  "/users/batch",
+  authenticate,
+  authorize("manager"),
+  async (req, res) => {
+    try {
+      const { userIds } = req.body;
+      if (!Array.isArray(userIds) || userIds.length === 0) {
+        return res.status(400).json({ success: false, error: "userIds 배열 필요" });
+      }
+
+      const currentId = (req.user._id || req.user.id).toString();
+      let deleted = 0, skipped = 0;
+
+      for (const uid of userIds) {
+        if (uid === currentId) { skipped++; continue; }
+        const target = await User.findById(uid);
+        if (!target) { skipped++; continue; }
+        if (!canManageRole(req.user.role, target.role)) { skipped++; continue; }
+        await User.findByIdAndDelete(uid);
+        deleted++;
+      }
+
+      logger.info(`일괄 삭제: ${deleted}건 처리, ${skipped}건 건너뜀 by ${req.user.username}`);
+      res.json({ success: true, data: { deleted, skipped } });
+    } catch (error) {
+      res.status(500).json({ success: false, error: error.message });
+    }
+  }
+);
+
+/**
  * PUT /api/auth/users/:userId
+ * owner 이상 — 하위 역할만 수정 가능
  */
 router.put(
   "/users/:userId",
   authenticate,
-  authorize("admin"),
+  authorize("owner"),
   async (req, res) => {
     try {
       const { userId } = req.params;
-      const { name, role, enabled, allowedHouses, password } = req.body;
+      const { name, role, enabled, allowedHouses, password, farmId } = req.body;
 
       const user = await User.findById(userId);
       if (!user) {
@@ -333,12 +520,49 @@ router.put(
           .json({ success: false, error: "사용자를 찾을 수 없습니다" });
       }
 
-      const VALID_ROLES = ["admin", "worker"];
+      // 자기 자신은 이름/비밀번호만 수정 가능
+      const isSelf = userId === (req.user._id || req.user.id);
+      if (isSelf) {
+        if (name !== undefined) user.name = name;
+        if (password) user.password = password;
+        await user.save();
+        return res.json({ success: true, data: user.toJSON() });
+      }
+
+      // 하위 역할만 수정 가능
+      if (!canManageRole(req.user.role, user.role)) {
+        return res.status(403).json({
+          success: false,
+          error: "상위 또는 동급 역할의 사용자를 수정할 수 없습니다",
+          code: "ROLE_MANAGE_DENIED",
+        });
+      }
+
+      // owner는 자기 농장 사용자만 수정 가능
+      if (!SYSTEM_WIDE_ROLES.includes(req.user.role) && user.farmId !== req.user.farmId) {
+        return res.status(403).json({
+          success: false,
+          error: "다른 농장의 사용자를 수정할 수 없습니다",
+          code: "FARM_MANAGE_DENIED",
+        });
+      }
+
       if (name !== undefined) user.name = name;
-      if (role !== undefined && VALID_ROLES.includes(role)) user.role = role;
+      if (role !== undefined && VALID_ROLES.includes(role)) {
+        // 변경 대상 역할도 생성 가능한 범위인지 확인
+        if (!canCreateRole(req.user.role, role)) {
+          return res.status(403).json({
+            success: false,
+            error: "해당 역할로 변경할 권한이 없습니다",
+            code: "ROLE_CHANGE_DENIED",
+          });
+        }
+        user.role = role;
+      }
       if (enabled !== undefined) user.enabled = enabled;
       if (allowedHouses !== undefined) user.allowedHouses = allowedHouses;
       if (password) user.password = password;
+      if (farmId && SYSTEM_WIDE_ROLES.includes(req.user.role)) user.farmId = farmId;
 
       await user.save();
 
@@ -354,11 +578,12 @@ router.put(
 
 /**
  * DELETE /api/auth/users/:userId
+ * owner 이상 — 하위 역할만 삭제 가능
  */
 router.delete(
   "/users/:userId",
   authenticate,
-  authorize("admin"),
+  authorize("owner"),
   async (req, res) => {
     try {
       const { userId } = req.params;
@@ -371,13 +596,33 @@ router.delete(
           .json({ success: false, error: "자신의 계정은 삭제할 수 없습니다" });
       }
 
-      const user = await User.findByIdAndDelete(userId);
-      if (!user) {
+      // 대상 사용자 조회
+      const targetUser = await User.findById(userId);
+      if (!targetUser) {
         return res
           .status(404)
           .json({ success: false, error: "사용자를 찾을 수 없습니다" });
       }
 
+      // 하위 역할만 삭제 가능
+      if (!canManageRole(req.user.role, targetUser.role)) {
+        return res.status(403).json({
+          success: false,
+          error: "상위 또는 동급 역할의 사용자를 삭제할 수 없습니다",
+          code: "ROLE_DELETE_DENIED",
+        });
+      }
+
+      // owner는 자기 농장 사용자만 삭제 가능
+      if (!SYSTEM_WIDE_ROLES.includes(req.user.role) && targetUser.farmId !== req.user.farmId) {
+        return res.status(403).json({
+          success: false,
+          error: "다른 농장의 사용자를 삭제할 수 없습니다",
+          code: "FARM_DELETE_DENIED",
+        });
+      }
+
+      const user = await User.findByIdAndDelete(userId);
       logger.info(
         `🗑️ 사용자 삭제: ${user.username} by ${req.user.username}`
       );

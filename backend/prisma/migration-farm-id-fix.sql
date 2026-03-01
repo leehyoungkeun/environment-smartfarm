@@ -1,0 +1,12 @@
+BEGIN;
+UPDATE control_logs SET farm_id = 'farm_0001' WHERE farm_id = 'farm_001';
+UPDATE sensor_data SET farm_id = 'farm_0001' WHERE farm_id = 'farm_001';
+UPDATE users SET farm_id = 'farm_0002' WHERE farm_id = 'farm_002';
+UPDATE user_farms SET farm_id = 'farm_0002' WHERE farm_id = 'farm_002';
+UPDATE house_configs SET farm_id = 'farm_0002' WHERE farm_id = 'farm_002';
+UPDATE alerts SET farm_id = 'farm_0002' WHERE farm_id = 'farm_002';
+UPDATE sensor_data SET farm_id = 'farm_0002' WHERE farm_id = 'farm_002';
+UPDATE audit_logs SET farm_id = 'farm_0002' WHERE farm_id = 'farm_002';
+UPDATE automation_rules SET farm_id = 'farm_0002' WHERE farm_id = 'farm_002';
+UPDATE control_logs SET farm_id = 'farm_0002' WHERE farm_id = 'farm_002';
+COMMIT;

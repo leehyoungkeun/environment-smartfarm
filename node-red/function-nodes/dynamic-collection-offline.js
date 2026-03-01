@@ -26,7 +26,7 @@
  */
 
 const SERVER_URL = env.get('SERVER_URL') || 'http://192.168.137.1:3000';
-const FARM_ID = env.get('FARM_ID') || 'farm_001';
+const FARM_ID = env.get('FARM_ID') || 'farm_0001';
 const HOUSE_ID = env.get('HOUSE_ID') || 'house_001';
 const API_KEY = env.get('SENSOR_API_KEY') || '';
 

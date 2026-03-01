@@ -8,7 +8,7 @@
         "env": [
             { "name": "SENSOR_API_KEY", "value": "smartfarm-sensor-key", "type": "str" },
             { "name": "SERVER_URL", "value": "http://192.168.137.1:3000", "type": "str" },
-            { "name": "FARM_ID", "value": "farm_001", "type": "str" },
+            { "name": "FARM_ID", "value": "farm_0001", "type": "str" },
             { "name": "HOUSE_ID", "value": "house_001", "type": "str" }
         ]
     },

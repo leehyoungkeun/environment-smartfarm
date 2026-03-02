@@ -28,6 +28,7 @@ const Config = {
   async create(data) {
     const config = await prisma.houseConfig.create({
       data: {
+        id: data.id || crypto.randomUUID(),
         farmId: data.farmId,
         houseId: data.houseId,
         houseName: data.houseName || "",

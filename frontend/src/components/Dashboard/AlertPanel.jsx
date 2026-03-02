@@ -7,6 +7,7 @@ const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3000
 const AlertPanel = ({ farmId, houseId, showPanel, setShowPanel, isMobile = false }) => {
   const [alerts, setAlerts] = useState([]);
   const [unacknowledgedCount, setUnacknowledgedCount] = useState(0);
+  const [totalCount, setTotalCount] = useState(0);
   const [loading, setLoading] = useState(false);
   const panelRef = useRef(null);
   const buttonRef = useRef(null);
@@ -52,7 +53,9 @@ const AlertPanel = ({ farmId, houseId, showPanel, setShowPanel, isMobile = false
 
       if (response.data.success) {
         setAlerts(response.data.data);
-        const unack = response.data.data.filter(a => !a.acknowledged && a.alertType !== 'NORMAL');
+        const allAlerts = response.data.data.filter(a => a.alertType !== 'NORMAL');
+        const unack = allAlerts.filter(a => !a.acknowledged);
+        setTotalCount(allAlerts.length);
         setUnacknowledgedCount(unack.length);
       }
     } catch (error) {
@@ -100,6 +103,7 @@ const AlertPanel = ({ farmId, houseId, showPanel, setShowPanel, isMobile = false
       await axios.delete(`${API_BASE_URL}/alerts/${farmId}/all?source=${encodeURIComponent(userName)}${houseId ? `&houseId=${houseId}` : ''}`);
       setAlerts([]);
       setUnacknowledgedCount(0);
+      setTotalCount(0);
     } catch (error) {
       console.error('Failed to delete all alerts:', error);
     } finally {
@@ -289,17 +293,23 @@ const AlertPanel = ({ farmId, houseId, showPanel, setShowPanel, isMobile = false
             ? 'tab-active'
             : unacknowledgedCount > 0
               ? 'bg-red-500 text-white shadow-lg shadow-red-500/25'
-              : 'tab-inactive'
+              : totalCount > 0
+                ? 'bg-amber-50 text-amber-700 border border-amber-200'
+                : 'tab-inactive'
         }`}
         style={{ width: 96, paddingLeft: 4, paddingRight: 4, fontSize: 13 }}
       >
         <span>🔔</span>
         알림
-        {unacknowledgedCount > 0 && (
+        {unacknowledgedCount > 0 ? (
           <span className="absolute -top-1.5 -right-1.5 bg-red-600 text-white text-xs rounded-full w-5 h-5 flex items-center justify-center font-bold shadow-md animate-pulse">
             {unacknowledgedCount}
           </span>
-        )}
+        ) : totalCount > 0 ? (
+          <span className="absolute -top-1.5 -right-1.5 bg-amber-500 text-white text-xs rounded-full w-5 h-5 flex items-center justify-center font-bold shadow-md">
+            {totalCount}
+          </span>
+        ) : null}
       </button>
 
       {/* 드롭다운 패널 (fixed로 nav 스태킹 컨텍스트 탈출) */}

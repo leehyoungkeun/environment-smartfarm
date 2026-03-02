@@ -27,6 +27,7 @@ import {
   authenticateApiKey,
   enforceTenant,
 } from "./middleware/auth.middleware.js";
+import { normalizeIds } from "./middleware/normalizeIds.js";
 import { getAlertHealth } from "./routes/sensors.js";
 import logger from "./utils/logger.js";
 import { startMaintenanceAlertScheduler } from "./schedulers/maintenanceAlert.js";
@@ -153,6 +154,9 @@ app.get("/health", async (req, res) => {
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // API 라우트 (경로 동일 유지)
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+// farmId/houseId 정규화 (farm_001 → farm_0001)
+app.use(normalizeIds);
 
 // 공개 API (인증 불필요)
 app.use("/api/auth", authRoutes);

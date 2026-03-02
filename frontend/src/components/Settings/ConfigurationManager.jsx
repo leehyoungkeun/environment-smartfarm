@@ -43,9 +43,35 @@ async function rpiApi(method, path, data) {
   return await axiosBase({ method, url: rpiUrl, data, timeout: 8000 });
 }
 
+// 통일 서브탭 바 (모든 탭에서 재사용)
+export const SubTabBar = ({ tabs, activeTab, onChange, trailing }) => (
+  <div className="flex items-center gap-2 mb-4">
+    {tabs.map(tab => (
+      <button key={tab.id} onClick={() => onChange(tab.id)}
+        className={`flex items-center gap-1.5 px-4 py-2.5 rounded-lg text-sm font-bold transition-all ${
+          activeTab === tab.id
+            ? 'bg-blue-600 text-white shadow-md shadow-blue-600/25'
+            : 'bg-gray-100 text-gray-500 hover:bg-gray-200'
+        }`}>
+        <span>{tab.icon}</span> {tab.label}
+        {tab.count != null && tab.count > 0 && (
+          <span className={`text-xs px-1.5 py-0.5 rounded-full font-bold ${
+            activeTab === tab.id ? 'bg-white/25 text-white' : 'bg-gray-300 text-gray-600'
+          }`}>{tab.count}</span>
+        )}
+      </button>
+    ))}
+    {trailing && <div className="ml-auto">{trailing}</div>}
+  </div>
+);
+
 const ConfigurationManager = ({ farmId = import.meta.env.VITE_FARM_ID || 'farm_0001' }) => {
-  const [activeTab, setActiveTab] = useState('houses');
+  const [activeTab, setActiveTab] = useState(() => {
+    const saved = localStorage.getItem('settings_activeTab');
+    return ['houses', 'automation', 'alerts', 'system'].includes(saved) ? saved : 'houses';
+  });
   const [selectedHouse, setSelectedHouse] = useState(null);
+  const [housesSubTab, setHousesSubTab] = useState('list');
 
   // 캐시에서 즉시 로드 → API는 백그라운드 갱신
   const loadHousesFromCache = () => {
@@ -93,8 +119,8 @@ const ConfigurationManager = ({ farmId = import.meta.env.VITE_FARM_ID || 'farm_0
           if (!prev) return null;
           return finalHouses.find(h => h.houseId === prev.houseId) || null;
         });
-        // RPi와 PC 불일치 시 백그라운드 sync
-        if (isDual && rpiHouses.length > 0 && rpiHouses.length !== pcHouses.length) {
+        // RPi와 PC 불일치 시 백그라운드 sync (RPi가 PC보다 적으면 스킵 — 잘못된 삭제 방지)
+        if (isDual && rpiHouses.length > 0 && rpiHouses.length > pcHouses.length) {
           syncConfigToPC(farmId);
         }
       } else if (!hadCache) {
@@ -121,7 +147,7 @@ const ConfigurationManager = ({ farmId = import.meta.env.VITE_FARM_ID || 'farm_0
       return match ? parseInt(match[1]) : 0;
     });
     const nextNumber = existingNumbers.length > 0 ? Math.max(...existingNumbers) + 1 : 1;
-    const newHouseId = `house_${String(nextNumber).padStart(3, '0')}`;
+    const newHouseId = `house_${String(nextNumber).padStart(4, '0')}`;
 
     try {
       const response = await rpiApi('post', '/config', {
@@ -209,7 +235,7 @@ const ConfigurationManager = ({ farmId = import.meta.env.VITE_FARM_ID || 'farm_0
         {tabs.map(tab => (
           <button
             key={tab.id}
-            onClick={() => setActiveTab(tab.id)}
+            onClick={() => { setActiveTab(tab.id); localStorage.setItem('settings_activeTab', tab.id); }}
             className={`flex items-center gap-2 px-5 py-2.5 rounded-xl text-base font-bold
                        whitespace-nowrap transition-all active:scale-[0.97] ${
               activeTab === tab.id
@@ -221,27 +247,31 @@ const ConfigurationManager = ({ farmId = import.meta.env.VITE_FARM_ID || 'farm_0
             {tab.label}
           </button>
         ))}
-        {activeTab === 'houses' && (
-          <button onClick={createNewHouse} className="btn-success ml-auto flex-shrink-0">
-            + 하우스 추가
-          </button>
-        )}
       </div>
 
       {/* 하우스/센서 탭 */}
       {activeTab === 'houses' && (
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
-          {/* 하우스 목록 */}
-          <div className="lg:col-span-1 animate-fade-in-up stagger-1">
-            <div className="glass-card p-4 md:p-5">
-              <h2 className="text-base font-bold text-gray-700 mb-3">하우스 목록</h2>
+        <div className="animate-fade-in-up">
+          <SubTabBar
+            tabs={[
+              { id: 'list', label: '하우스 목록', icon: '📋' },
+              { id: 'detail', label: '하우스 상세', icon: '🔧' },
+            ]}
+            activeTab={housesSubTab}
+            onChange={setHousesSubTab}
+            trailing={housesSubTab === 'list' && (
+              <button onClick={createNewHouse} className="btn-success flex-shrink-0">+ 하우스 추가</button>
+            )}
+          />
 
+          {housesSubTab === 'list' && (
+            <div className="glass-card p-4 md:p-5">
               {houses.length === 0 ? (
                 <div className="text-center py-8">
                   <p className="text-gray-600 text-base">하우스가 없습니다</p>
                 </div>
               ) : (
-                <div className="space-y-2">
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
                   {houses.map(house => (
                     <div
                       key={house.houseId}
@@ -252,18 +282,17 @@ const ConfigurationManager = ({ farmId = import.meta.env.VITE_FARM_ID || 'farm_0
                         }`}
                     >
                       <button
-                        onClick={() => setSelectedHouse(house)}
+                        onClick={() => { setSelectedHouse(house); setHousesSubTab('detail'); }}
                         className="flex-1 text-left"
                       >
                         <p className="text-base font-bold text-gray-800">{house.houseName}</p>
                         <p className="text-xs text-gray-500 mt-0.5">
-                          {house.sensors.length}개 센서 · 🎛️ {house.devices?.length || 0}개 장치 · {house.collection.intervalSeconds}초
+                          {house.sensors.length}개 센서 · {house.devices?.length || 0}개 장치
                         </p>
                       </button>
                       <button
                         onClick={(e) => { e.stopPropagation(); setDeleteConfirm(house); }}
-                        className="p-2 rounded-lg text-gray-400 hover:text-rose-500 hover:bg-rose-50
-                                 transition-all text-base"
+                        className="p-2 rounded-lg text-gray-400 hover:text-rose-500 hover:bg-rose-50 transition-all text-base"
                         title="삭제"
                       >
                         🗑️
@@ -273,19 +302,18 @@ const ConfigurationManager = ({ farmId = import.meta.env.VITE_FARM_ID || 'farm_0
                 </div>
               )}
             </div>
-          </div>
+          )}
 
-          {/* 하우스 상세 편집 */}
-          <div className="lg:col-span-2 animate-fade-in-up stagger-2">
-            {selectedHouse ? (
+          {housesSubTab === 'detail' && (
+            selectedHouse ? (
               <HouseDetailEditor house={selectedHouse} onUpdate={() => { loadHouses(); syncConfigToPC(farmId); }} />
             ) : (
               <div className="glass-card p-12 text-center">
                 <div className="text-4xl mb-4 opacity-30">⚙️</div>
-                <p className="text-gray-500 text-base">왼쪽에서 하우스를 선택하세요</p>
+                <p className="text-gray-500 text-base">하우스 목록에서 하우스를 선택하세요</p>
               </div>
-            )}
-          </div>
+            )
+          )}
         </div>
       )}
 
@@ -303,7 +331,7 @@ const ConfigurationManager = ({ farmId = import.meta.env.VITE_FARM_ID || 'farm_0
 
       {/* 시스템 설정 탭 */}
       {activeTab === 'system' && (
-        <SystemSettings />
+        <SystemSettings farmId={farmId} />
       )}
 
       {/* 삭제 확인 모달 */}
@@ -332,24 +360,14 @@ const ConfigurationManager = ({ farmId = import.meta.env.VITE_FARM_ID || 'farm_0
   );
 };
 
-const INTERVAL_PRESETS = [
-  { value: 10, label: '10초', desc: '테스트용' },
-  { value: 30, label: '30초', desc: '빠른 모니터링' },
-  { value: 60, label: '1분', desc: '일반 (기본)' },
-  { value: 300, label: '5분', desc: '저전력' },
-  { value: 600, label: '10분', desc: '장기 모니터링' },
-];
-
 const HouseDetailEditor = ({ house, onUpdate }) => {
   const [editedHouse, setEditedHouse] = useState(house);
   const [editingSensor, setEditingSensor] = useState(null);
   const [showAddSensor, setShowAddSensor] = useState(false);
-  const [showNodeRedGuide, setShowNodeRedGuide] = useState(false);
   const [saving, setSaving] = useState(false);
 
   // 섹션별 변경 감지
-  const isBasicDirty = house.houseName !== editedHouse.houseName
-    || JSON.stringify(house.collection) !== JSON.stringify(editedHouse.collection);
+  const isBasicDirty = house.houseName !== editedHouse.houseName;
   const isCropsDirty = JSON.stringify(house.crops || []) !== JSON.stringify(editedHouse.crops || []);
   const isSensorsDirty = JSON.stringify(house.sensors) !== JSON.stringify(editedHouse.sensors);
   const isDevicesDirty = JSON.stringify(house.devices || []) !== JSON.stringify(editedHouse.devices || []);
@@ -452,112 +470,6 @@ const HouseDetailEditor = ({ house, onUpdate }) => {
             onChange={(e) => setEditedHouse({ ...editedHouse, houseName: e.target.value })}
             className="input-field"
           />
-        </div>
-
-        {/* 수집 주기 */}
-        <div className="mb-4">
-          <label className="text-sm text-gray-600 font-semibold mb-1.5 block">수집 주기</label>
-          <div className="flex flex-wrap gap-2 mb-2">
-            {INTERVAL_PRESETS.map(preset => (
-              <button
-                key={preset.value}
-                onClick={() => setEditedHouse({
-                  ...editedHouse,
-                  collection: { ...editedHouse.collection, intervalSeconds: preset.value }
-                })}
-                className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-all border
-                  ${editedHouse.collection.intervalSeconds === preset.value
-                    ? 'bg-blue-600 text-white border-blue-600 shadow-sm'
-                    : 'bg-white text-gray-600 border-gray-200 hover:border-blue-300 hover:bg-blue-50'
-                  }`}
-              >
-                {preset.label}
-              </button>
-            ))}
-          </div>
-          <div className="flex items-center gap-3">
-            <input
-              type="number"
-              value={editedHouse.collection.intervalSeconds}
-              onChange={(e) => {
-                const val = parseInt(e.target.value);
-                if (!isNaN(val)) setEditedHouse({
-                  ...editedHouse,
-                  collection: { ...editedHouse.collection, intervalSeconds: Math.max(10, Math.min(3600, val)) }
-                });
-              }}
-              className="input-field w-28"
-              min="10" max="3600"
-            />
-            <span className="text-sm text-gray-500">초 (10~3600)</span>
-          </div>
-          <p className="text-xs text-gray-400 mt-1.5">
-            {INTERVAL_PRESETS.find(p => p.value === editedHouse.collection.intervalSeconds)?.desc
-              || `${editedHouse.collection.intervalSeconds}초 간격`}
-            {' · '}하루 약 {Math.floor(86400 / (editedHouse.collection.intervalSeconds || 60)).toLocaleString()}건 수집
-          </p>
-        </div>
-
-        {/* Node-RED 연동 안내 */}
-        <div className="bg-orange-50 border border-orange-200 rounded-xl p-3.5 mb-4">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <span className="text-lg">🔴</span>
-              <div>
-                <p className="text-sm font-bold text-orange-700">Node-RED 자동 동기화</p>
-                <p className="text-xs text-orange-600">
-                  Node-RED가 이 설정을 자동으로 가져가 수집 주기를 맞춥니다
-                </p>
-              </div>
-            </div>
-            <button
-              onClick={() => setShowNodeRedGuide(!showNodeRedGuide)}
-              className="text-xs text-orange-500 hover:text-orange-700 underline whitespace-nowrap ml-2"
-            >
-              {showNodeRedGuide ? '접기' : '설정 가이드'}
-            </button>
-          </div>
-
-          {showNodeRedGuide && (
-            <div className="mt-3 pt-3 border-t border-orange-200 space-y-2.5">
-              <div>
-                <p className="text-xs font-semibold text-gray-600 mb-1">Node-RED 설정 조회 API</p>
-                <code className="block text-xs bg-white border border-orange-100 rounded-lg px-3 py-2 font-mono text-gray-700 break-all">
-                  GET {getApiBase()}/config/node-red/{house.farmId}/{house.houseId}
-                </code>
-              </div>
-              <div>
-                <p className="text-xs font-semibold text-gray-600 mb-1">응답 예시</p>
-                <pre className="text-[11px] bg-white border border-orange-100 rounded-lg px-3 py-2 font-mono text-gray-600 overflow-x-auto">
-{JSON.stringify({
-  success: true,
-  data: {
-    farmId: house.farmId,
-    houseId: house.houseId,
-    intervalSeconds: editedHouse.collection.intervalSeconds,
-    sensors: (editedHouse.sensors || []).slice(0, 2).map(s => ({
-      sensorId: s.sensorId, name: s.name, unit: s.unit
-    }))
-  }
-}, null, 2)}
-                </pre>
-              </div>
-              <div>
-                <p className="text-xs font-semibold text-gray-600 mb-1">Node-RED Flow 구성</p>
-                <div className="text-xs text-gray-600 bg-white border border-orange-100 rounded-lg px-3 py-2 space-y-1">
-                  <p><span className="font-mono bg-gray-100 px-1 rounded">Inject</span> (5분 반복) →
-                     <span className="font-mono bg-gray-100 px-1 rounded">HTTP Request</span> (위 API 호출) →
-                     <span className="font-mono bg-gray-100 px-1 rounded">Function</span> (아래 코드)</p>
-                  <pre className="mt-1.5 text-[10px] bg-gray-50 rounded p-2 font-mono overflow-x-auto whitespace-pre">{`var data = msg.payload.data;
-flow.set('intervalSeconds', data.intervalSeconds);
-flow.set('sensors', data.sensors);
-node.status({text: data.intervalSeconds + "초"});
-return msg;`}</pre>
-                  <p className="text-gray-400 mt-1">센서 수집 Inject 노드에서 <code className="bg-gray-100 px-1 rounded">flow.get('intervalSeconds')</code>를 반복 주기로 사용</p>
-                </div>
-              </div>
-            </div>
-          )}
         </div>
 
         <button onClick={updateHouse} disabled={!isBasicDirty || saving}
@@ -683,7 +595,7 @@ return msg;`}</pre>
                         const nextNum = existing.length > 0
                           ? Math.max(...existing.map(s => { const m = s.sensorId.match(/_(\d+)$/); return m ? parseInt(m[1]) : 1; })) + 1
                           : 1;
-                        const sensorId = `${preset.id}_${String(nextNum).padStart(3, '0')}`;
+                        const sensorId = `${preset.id}_${String(nextNum).padStart(4, '0')}`;
                         setNewSensor({
                           sensorId, name: existing.length > 0 ? `${preset.name} ${nextNum}` : preset.name,
                           unit: preset.unit, type: 'number', min: preset.min, max: preset.max,
@@ -1058,7 +970,15 @@ const RETENTION_PRESETS = [
   { value: 180, label: '6개월', desc: '장기 보관' },
 ];
 
-const SystemSettings = () => {
+const INTERVAL_PRESETS = [
+  { value: 10, label: '10초', desc: '테스트용' },
+  { value: 30, label: '30초', desc: '빠른 모니터링' },
+  { value: 60, label: '1분', desc: '일반 (기본)' },
+  { value: 300, label: '5분', desc: '저전력' },
+  { value: 600, label: '10분', desc: '장기 모니터링' },
+];
+
+const SystemSettings = ({ farmId }) => {
   const [farmLocal, setFarmLocal] = useState(isFarmLocalMode());
 
   const handleFarmLocalToggle = () => {
@@ -1088,21 +1008,23 @@ const SystemSettings = () => {
   const [pollingSec, setPollingSec] = useState(getSavedPolling);
   const [retentionDays, setRetentionDays] = useState(60);
   const [serverRetention, setServerRetention] = useState(60); // 서버에 저장된 값
+  const [intervalSec, setIntervalSec] = useState(60);
+  const [serverInterval, setServerInterval] = useState(60); // 서버에 저장된 값
+  const [intervalSyncStatus, setIntervalSyncStatus] = useState(null); // { status, appliedAt, intervalSeconds }
   const [retentionLoading, setRetentionLoading] = useState(true);
   const [saved, setSaved] = useState(true);
 
-  // 서버에서 보관 기간 설정 로드
+  // 서버에서 시스템 설정 로드 (보관 기간 + 수집 주기)
   useEffect(() => {
-    loadRetentionSetting();
+    loadSystemSettings();
   }, []);
 
-  const loadRetentionSetting = async () => {
+  const loadSystemSettings = async () => {
     try {
       setRetentionLoading(true);
       const rpiUrl = getRpiApiBase();
       const pcUrl = getApiBase();
 
-      // PC 우선 → RPi 폴백
       let res;
       try {
         res = await axios.get(`${pcUrl}/config/system-settings/${farmId}`, { timeout: 5000 });
@@ -1115,9 +1037,26 @@ const SystemSettings = () => {
       }
 
       if (res.data.success) {
-        const days = res.data.data.retentionDays || 60;
+        const data = res.data.data;
+        const days = data.retentionDays || 60;
         setRetentionDays(days);
         setServerRetention(days);
+        const interval = data.collectionConfig?.intervalSeconds || 60;
+        setIntervalSec(interval);
+        setServerInterval(interval);
+        // RPi 동기화 상태
+        const rpiSync = data.rpiSync;
+        if (rpiSync) {
+          const anyAck = rpiSync.houses?.[0];
+          const appliedInterval = anyAck?.intervalSeconds;
+          if (appliedInterval != null && appliedInterval === interval) {
+            setIntervalSyncStatus({ status: 'applied', appliedAt: rpiSync.appliedAt, intervalSeconds: appliedInterval });
+          } else {
+            setIntervalSyncStatus({ status: 'pending' });
+          }
+        } else {
+          setIntervalSyncStatus({ status: 'disconnected' });
+        }
       }
     } catch (err) {
       console.warn('시스템 설정 로드 실패 (기본값 사용):', err.message);
@@ -1126,26 +1065,32 @@ const SystemSettings = () => {
     }
   };
 
-  const checkSaved = (timeout, polling, retention) => {
-    return timeout === getSavedTimeout() && polling === getSavedPolling() && retention === serverRetention;
+  const checkSaved = (timeout, polling, retention, interval) => {
+    return timeout === getSavedTimeout() && polling === getSavedPolling() && retention === serverRetention && interval === serverInterval;
   };
 
   const handleChange = (val) => {
     const clamped = Math.max(30, Math.min(1800, val));
     setTimeoutSec(clamped);
-    setSaved(checkSaved(clamped, pollingSec, retentionDays));
+    setSaved(checkSaved(clamped, pollingSec, retentionDays, intervalSec));
   };
 
   const handlePollingChange = (val) => {
     const clamped = Math.max(3, Math.min(300, val));
     setPollingSec(clamped);
-    setSaved(checkSaved(timeoutSec, clamped, retentionDays));
+    setSaved(checkSaved(timeoutSec, clamped, retentionDays, intervalSec));
   };
 
   const handleRetentionChange = (val) => {
     const clamped = Math.max(7, Math.min(365, val));
     setRetentionDays(clamped);
-    setSaved(checkSaved(timeoutSec, pollingSec, clamped));
+    setSaved(checkSaved(timeoutSec, pollingSec, clamped, intervalSec));
+  };
+
+  const handleIntervalChange = (val) => {
+    const clamped = Math.max(10, Math.min(3600, val));
+    setIntervalSec(clamped);
+    setSaved(checkSaved(timeoutSec, pollingSec, retentionDays, clamped));
   };
 
   const handleSave = async () => {
@@ -1153,17 +1098,23 @@ const SystemSettings = () => {
     localStorage.setItem('smartfarm_serverTimeout', String(timeoutSec));
     localStorage.setItem('smartfarm_pollingInterval', String(pollingSec));
 
-    // 서버에 보관 기간 저장
-    if (retentionDays !== serverRetention) {
+    // 서버에 보관 기간 + 수집 주기 저장
+    const serverPayload = {};
+    if (retentionDays !== serverRetention) serverPayload.retentionDays = retentionDays;
+    if (intervalSec !== serverInterval) serverPayload.collectionConfig = { intervalSeconds: intervalSec };
+
+    if (Object.keys(serverPayload).length > 0) {
       try {
-        const res = await rpiApi('put', `/config/system-settings/${farmId}`, {
-          retentionDays,
-        });
+        const res = await rpiApi('put', `/config/system-settings/${farmId}`, serverPayload);
         if (res.data.success) {
-          setServerRetention(retentionDays);
+          if (serverPayload.retentionDays) setServerRetention(retentionDays);
+          if (serverPayload.collectionConfig) {
+            setServerInterval(intervalSec);
+            setIntervalSyncStatus({ status: 'pending' });
+          }
         }
       } catch (err) {
-        alert('보관 기간 저장 실패: ' + (err.response?.data?.error || err.message));
+        alert('설정 저장 실패: ' + (err.response?.data?.error || err.message));
         return;
       }
     }
@@ -1171,6 +1122,50 @@ const SystemSettings = () => {
     setSaved(true);
     alert('저장되었습니다!');
   };
+
+  // RPi 동기화 상태 폴링 (15초, 즉시 1회 실행)
+  useEffect(() => {
+    if (retentionLoading) return;
+    let cancelled = false;
+    const apiKeyHeader = { 'x-api-key': import.meta.env.VITE_SENSOR_API_KEY || 'smartfarm-sensor-key' };
+    const poll = async () => {
+      try {
+        const pcUrl = getApiBase();
+        const rpiUrl = getRpiApiBase();
+        let res;
+        try {
+          res = await axios.get(`${pcUrl}/config/system-settings/${farmId}`, {
+            timeout: 5000, headers: apiKeyHeader,
+          });
+        } catch {
+          if (rpiUrl !== pcUrl) {
+            res = await axiosBase.get(`${rpiUrl}/config/system-settings/${farmId}`, {
+              timeout: 5000, headers: apiKeyHeader,
+            });
+          } else throw new Error('unreachable');
+        }
+        if (cancelled) return;
+        const data = res.data?.data;
+        const rpiSync = data?.rpiSync;
+        const farmInterval = data?.collectionConfig?.intervalSeconds || serverInterval;
+        if (!rpiSync) { setIntervalSyncStatus({ status: 'disconnected' }); return; }
+        // 모든 하우스가 동일 주기인지 확인
+        const ackIntervals = (rpiSync.houses || []).map(h => h.intervalSeconds);
+        const allMatch = ackIntervals.length > 0 && ackIntervals.every(v => v === farmInterval);
+        if (allMatch) {
+          setIntervalSyncStatus({ status: 'applied', appliedAt: rpiSync.appliedAt, intervalSeconds: farmInterval });
+        } else {
+          setIntervalSyncStatus({ status: 'pending' });
+        }
+      } catch (err) {
+        console.warn('[SystemSettings] sync poll failed:', err.message);
+        if (!cancelled) setIntervalSyncStatus({ status: 'disconnected' });
+      }
+    };
+    poll(); // 즉시 1회
+    const id = setInterval(poll, 15000);
+    return () => { cancelled = true; clearInterval(id); };
+  }, [retentionLoading, serverInterval]);
 
   const formatTime = (sec) => {
     if (sec >= 60) {
@@ -1190,9 +1185,23 @@ const SystemSettings = () => {
     return `${days}일`;
   };
 
+  const [systemSubTab, setSystemSubTab] = useState('farmlocal');
+
   return (
-    <div className="max-w-2xl space-y-4 animate-fade-in-up">
+    <div className="animate-fade-in-up">
+      <SubTabBar
+        tabs={[
+          { id: 'farmlocal', label: '팜로컬', icon: '🌿' },
+          { id: 'server', label: '서버 연결', icon: '🖥️' },
+          { id: 'collection', label: '수집 주기', icon: '📡' },
+          { id: 'retention', label: '보관 기간', icon: '💾' },
+        ]}
+        activeTab={systemSubTab}
+        onChange={setSystemSubTab}
+      />
+
       {/* 팜로컬 모드 */}
+      {systemSubTab === 'farmlocal' && <div className="max-w-2xl">
       <div className="glass-card p-4 md:p-5">
         <h2 className="text-lg font-bold text-gray-800 mb-2">팜로컬 모드</h2>
         <p className="text-xs text-gray-400 mb-3">
@@ -1248,9 +1257,11 @@ const SystemSettings = () => {
           </div>
         )}
       </div>
+      </div>}
 
-      {/* 서버 연결 설정 (팜로컬에서는 숨김) */}
-      {!farmLocal && <div className="glass-card p-4 md:p-5">
+      {/* 서버 연결 설정 */}
+      {systemSubTab === 'server' && !farmLocal && <div className="max-w-2xl">
+      <div className="glass-card p-4 md:p-5">
         <h2 className="text-lg font-bold text-gray-800 mb-4">서버 연결 설정</h2>
 
         {/* 서버 연결 타임아웃 */}
@@ -1355,9 +1366,107 @@ const SystemSettings = () => {
             </div>
           </div>
         </div>
+      </div>
+      </div>}
+
+      {systemSubTab === 'server' && farmLocal && (
+        <div className="max-w-2xl glass-card p-8 text-center">
+          <div className="text-4xl mb-4 opacity-30">🖥️</div>
+          <p className="text-gray-400 text-base">팜로컬 모드에서는 서버 연결 설정을 사용하지 않습니다</p>
+        </div>
+      )}
+
+      {/* 데이터 수집 주기 (농장 전체) */}
+      {systemSubTab === 'collection' && <div className="max-w-2xl">
+      <div className="glass-card p-4 md:p-5">
+        <h2 className="text-lg font-bold text-gray-800 mb-2">데이터 수집 주기</h2>
+        <p className="text-xs text-gray-400 mb-3">
+          농장 전체 하우스에 동일하게 적용됩니다.
+          RPi(라즈베리파이)가 이 주기마다 모든 하우스의 센서 데이터를 수집합니다.
+        </p>
+
+        {retentionLoading ? (
+          <div className="text-sm text-gray-400 py-2">서버 설정 불러오는 중...</div>
+        ) : (
+          <>
+            <div className="flex flex-wrap gap-2 mb-2">
+              {INTERVAL_PRESETS.map(preset => (
+                <button
+                  key={preset.value}
+                  onClick={() => handleIntervalChange(preset.value)}
+                  className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-all border
+                    ${intervalSec === preset.value
+                      ? 'bg-blue-600 text-white border-blue-600 shadow-sm'
+                      : 'bg-white text-gray-600 border-gray-200 hover:border-blue-300 hover:bg-blue-50'
+                    }`}
+                >
+                  {preset.label}
+                </button>
+              ))}
+            </div>
+
+            <div className="flex items-center gap-3">
+              <input
+                type="number"
+                value={intervalSec}
+                onChange={(e) => {
+                  const val = parseInt(e.target.value);
+                  if (!isNaN(val)) handleIntervalChange(val);
+                }}
+                className="input-field w-28"
+                min="10" max="3600"
+              />
+              <span className="text-sm text-gray-500">초 (10~3600)</span>
+            </div>
+            <p className="text-xs text-gray-400 mt-1.5">
+              {INTERVAL_PRESETS.find(p => p.value === intervalSec)?.desc
+                || `${intervalSec}초 간격`}
+              {' · '}하루 약 {Math.floor(86400 / (intervalSec || 60)).toLocaleString()}건 수집
+            </p>
+          </>
+        )}
+
+        {/* RPi 동기화 상태 */}
+        {intervalSyncStatus && (
+          <div className={`mt-3 border rounded-xl p-3 ${
+            intervalSyncStatus.status === 'applied'
+              ? 'bg-green-50 border-green-200'
+              : intervalSyncStatus.status === 'pending'
+              ? 'bg-yellow-50 border-yellow-200'
+              : 'bg-orange-50 border-orange-200'
+          }`}>
+            <div className="flex items-center gap-2">
+              <span className="text-base">
+                {intervalSyncStatus.status === 'applied' ? '🟢'
+                  : intervalSyncStatus.status === 'pending' ? '🟡'
+                  : '🔴'}
+              </span>
+              <div>
+                <p className={`text-sm font-bold ${
+                  intervalSyncStatus.status === 'applied' ? 'text-green-700'
+                    : intervalSyncStatus.status === 'pending' ? 'text-yellow-700'
+                    : 'text-orange-700'
+                }`}>
+                  {intervalSyncStatus.status === 'applied'
+                    ? `RPi 반영됨 (${intervalSyncStatus.intervalSeconds}초 주기)`
+                    : intervalSyncStatus.status === 'pending'
+                    ? '대기중 — RPi가 다음 틱에 반영합니다'
+                    : 'RPi 미연결'}
+                </p>
+                {intervalSyncStatus.status === 'applied' && intervalSyncStatus.appliedAt && (
+                  <p className="text-xs text-green-600">
+                    반영 시각: {new Date(intervalSyncStatus.appliedAt).toLocaleString('ko-KR')}
+                  </p>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
       </div>}
 
       {/* 로컬 데이터 보관 설정 */}
+      {systemSubTab === 'retention' && <div className="max-w-2xl space-y-4">
       <div className="glass-card p-4 md:p-5">
         <h2 className="text-lg font-bold text-gray-800 mb-4">로컬 데이터 보관 설정</h2>
 
@@ -1439,6 +1548,7 @@ const SystemSettings = () => {
       >
         {saved ? '저장 완료' : '저장'}
       </button>
+      </div>}
     </div>
   );
 };
@@ -1543,11 +1653,21 @@ const AlertSettingsTab = ({ farmId, houses, onHousesUpdate }) => {
     </div>
   );
 
+  const [alertSubTab, setAlertSubTab] = useState('farm');
+
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-3 gap-5 animate-fade-in-up">
-      {/* 좌측: 농장 설정 + 하우스 목록 */}
-      <div className="lg:col-span-1 space-y-4">
-        <div className="glass-card p-4 md:p-5">
+    <div className="animate-fade-in-up">
+      <SubTabBar
+        tabs={[
+          { id: 'farm', label: '농장 설정', icon: '🏭' },
+          { id: 'sensors', label: '센서 임계값', icon: '📊' },
+        ]}
+        activeTab={alertSubTab}
+        onChange={setAlertSubTab}
+      />
+
+      {alertSubTab === 'farm' && (
+        <div className="max-w-2xl glass-card p-4 md:p-5">
           <h2 className="text-lg font-bold text-gray-800 mb-4">농장 알림 설정</h2>
           {configLoading ? (
             <div className="space-y-3">{[...Array(3)].map((_, i) => <div key={i} className="skeleton h-12 rounded-xl" />)}</div>
@@ -1606,9 +1726,12 @@ const AlertSettingsTab = ({ farmId, houses, onHousesUpdate }) => {
             </>
           )}
         </div>
+      )}
 
+      {alertSubTab === 'sensors' && (
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
         {/* 하우스 목록 */}
-        <div className="glass-card p-4 md:p-5">
+        <div className="lg:col-span-1 glass-card p-4 md:p-5">
           <h2 className="text-base font-bold text-gray-700 mb-3">하우스별 센서 임계값</h2>
           {houses.length === 0 ? (
             <p className="text-sm text-gray-400 text-center py-4">하우스가 없습니다</p>
@@ -1628,10 +1751,9 @@ const AlertSettingsTab = ({ farmId, houses, onHousesUpdate }) => {
             </div>
           )}
         </div>
-      </div>
 
-      {/* 우측: 센서별 임계값 편집 */}
-      <div className="lg:col-span-2">
+        {/* 우측: 센서별 임계값 편집 */}
+        <div className="lg:col-span-2">
         {selectedHouseId ? (
           <div className="glass-card p-4 md:p-5 animate-fade-in-up">
             <h2 className="text-lg font-bold text-gray-800 mb-4">
@@ -1695,6 +1817,8 @@ const AlertSettingsTab = ({ farmId, houses, onHousesUpdate }) => {
           </div>
         )}
       </div>
+      </div>
+      )}
     </div>
   );
 };

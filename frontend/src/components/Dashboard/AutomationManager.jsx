@@ -84,11 +84,6 @@ const TABS = [
   { id: 'custom', label: '사용자 정의', icon: '⚙️', color: 'emerald', desc: '센서 + 시간 복합 조건' },
 ];
 
-const TAB_COLORS = {
-  violet: { bg: 'bg-violet-500', ring: 'ring-violet-500/30', text: 'text-violet-600', light: 'bg-violet-50', border: 'border-violet-200' },
-  amber: { bg: 'bg-amber-500', ring: 'ring-amber-500/30', text: 'text-amber-600', light: 'bg-amber-50', border: 'border-amber-200' },
-  emerald: { bg: 'bg-emerald-500', ring: 'ring-emerald-500/30', text: 'text-emerald-600', light: 'bg-emerald-50', border: 'border-emerald-200' },
-};
 
 const AutomationManager = ({ farmId }) => {
   const [rules, setRules] = useState([]);
@@ -219,31 +214,29 @@ const AutomationManager = ({ farmId }) => {
 
   const filteredRules = rules.filter(r => categorizeRule(r) === activeTab);
   const currentTab = TABS.find(t => t.id === activeTab);
-  const colors = TAB_COLORS[currentTab?.color || 'violet'];
 
   return (
     <div>
       {/* 탭 네비게이션 + 새 규칙 */}
-      <div className="flex items-center gap-2 mb-5 overflow-x-auto pb-1">
+      <div className="flex items-center gap-2 mb-4">
         {TABS.map(tab => {
-          const tc = TAB_COLORS[tab.color];
           const count = rules.filter(r => categorizeRule(r) === tab.id).length;
           const isActive = activeTab === tab.id;
           return (
             <button
               key={tab.id}
               onClick={() => setActiveTab(tab.id)}
-              className={`flex items-center gap-2 px-5 py-3 rounded-xl text-base font-extrabold transition-all whitespace-nowrap border-2 ${
+              className={`flex items-center gap-1.5 px-4 py-2.5 rounded-lg text-sm font-bold transition-all ${
                 isActive
-                  ? `${tc.light} ${tc.text} ${tc.border} shadow-lg`
-                  : 'bg-gray-50 text-gray-500 border-transparent hover:bg-gray-100'
+                  ? 'bg-blue-600 text-white shadow-md shadow-blue-600/25'
+                  : 'bg-gray-100 text-gray-500 hover:bg-gray-200'
               }`}
             >
-              <span className="text-lg">{tab.icon}</span>
+              <span>{tab.icon}</span>
               {tab.label}
               {count > 0 && (
-                <span className={`text-xs px-2 py-0.5 rounded-full font-bold ${
-                  isActive ? `${tc.bg} text-white` : 'bg-gray-200 text-gray-500'
+                <span className={`text-xs px-1.5 py-0.5 rounded-full font-bold ${
+                  isActive ? 'bg-white/25 text-white' : 'bg-gray-300 text-gray-600'
                 }`}>
                   {count}
                 </span>
@@ -257,7 +250,7 @@ const AutomationManager = ({ farmId }) => {
       </div>
 
       {/* 탭 설명 */}
-      <p className={`text-sm ${colors.text} mb-4 font-semibold`}>
+      <p className="text-sm text-gray-500 mb-4 font-semibold">
         {currentTab?.icon} {currentTab?.desc}
       </p>
 

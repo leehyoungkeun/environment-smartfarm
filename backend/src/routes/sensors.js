@@ -353,7 +353,8 @@ router.get("/:farmId/:houseId/count", async (req, res, next) => {
  */
 router.get("/:farmId/:houseId/stats/:sensorId", async (req, res, next) => {
   try {
-    const { farmId, houseId, sensorId } = req.params;
+    const { farmId, houseId } = req.params;
+    const { sensorId } = req.params;
     const { startDate, endDate, interval = "hour" } = req.query;
 
     const stats = await SensorData.getAggregated(

@@ -4,37 +4,43 @@
         "type": "tab",
         "label": "센서 수집 (오프라인)",
         "disabled": false,
-        "info": "센서 데이터 수집 → SQLite 항상 저장\n온라인: SQLite + 서버 전송\n오프라인: SQLite만 저장\n\n수집 주기: 10분 (600초)"
+        "info": "센서 데이터 수집 → SQLite 항상 저장\n온라인: SQLite + 서버 전송\n오프라인: SQLite만 저장\n\n수집 주기: 동적 (houseConfig.collection.intervalSeconds)",
+        "env": [
+            {"name": "SENSOR_API_KEY", "value": "smartfarm-sensor-key", "type": "str"},
+            {"name": "SERVER_URL", "value": "http://192.168.137.1:3000", "type": "str"},
+            {"name": "FARM_ID", "value": "farm_0001", "type": "str"},
+            {"name": "HOUSE_ID", "value": "house_0001", "type": "str"}
+        ]
     },
     {
         "id": "inject_collect",
         "type": "inject",
         "z": "collection_offline_flow",
-        "name": "10분 간격 수집",
+        "name": "60초 틱 (동적 주기)",
         "props": [],
-        "repeat": "600",
+        "repeat": "60",
         "crontab": "",
         "once": true,
         "onceDelay": "10",
         "topic": "",
         "x": 170,
         "y": 80,
-        "wires": [["fn_load_config"]]
+        "wires": [["fn_interval_gate"]]
     },
     {
         "id": "inject_collect_manual",
         "type": "inject",
         "z": "collection_offline_flow",
         "name": "수동 수집 (테스트)",
-        "props": [],
+        "props": [{"p": "topic", "vt": "str", "v": "manual"}],
         "repeat": "",
         "crontab": "",
         "once": false,
         "onceDelay": "",
-        "topic": "",
+        "topic": "manual",
         "x": 170,
         "y": 140,
-        "wires": [["fn_load_config"]]
+        "wires": [["fn_interval_gate"]]
     },
     {
         "id": "comment_phase1",
@@ -46,6 +52,18 @@
         "wires": []
     },
     {
+        "id": "fn_interval_gate",
+        "type": "function",
+        "z": "collection_offline_flow",
+        "name": "⓪ 주기 게이팅",
+        "func": "// 수동 수집은 즉시 통과\nif (msg.topic === 'manual') return msg;\n\nconst now = Date.now();\nconst nextCollectAt = global.get('nextCollectAt') || 0;\n\nif (now < nextCollectAt) {\n    const remain = Math.round((nextCollectAt - now) / 1000);\n    node.status({ fill: 'blue', shape: 'ring', text: '대기 (' + remain + '초 후)' });\n    return null; // 스킵\n}\n\n// houseConfig에서 최소 intervalSeconds 읽기\nconst config = global.get('houseConfig');\nconst houses = config && config.houses ? config.houses : [];\nlet interval = 600; // 기본 10분\nfor (const h of houses) {\n    const hi = (h.collection && h.collection.intervalSeconds) || 600;\n    if (hi < interval) interval = hi;\n}\nif (interval < 10) interval = 10; // 최소 10초 보장\n\nglobal.set('nextCollectAt', now + interval * 1000);\nglobal.set('appliedIntervalSeconds', interval);\nnode.status({ fill: 'green', shape: 'dot', text: '수집 (' + interval + '초 주기)' });\nreturn msg;",
+        "outputs": 1,
+        "outputLabels": ["수집 진행"],
+        "x": 310,
+        "y": 80,
+        "wires": [["fn_load_config"]]
+    },
+    {
         "id": "fn_load_config",
         "type": "function",
         "z": "collection_offline_flow",
@@ -53,7 +71,7 @@
         "func": "const SERVER_URL = env.get('SERVER_URL') || 'http://192.168.137.1:3000';\nconst FARM_ID = env.get('FARM_ID') || 'farm_0001';\nconst HOUSE_ID = env.get('HOUSE_ID') || 'house_0001';\nconst API_KEY = env.get('SENSOR_API_KEY') || 'smartfarm-sensor-key';\n\n// operationMode가 아직 설정 안 된 경우 (재시작 직후)\n// serverOnline도 체크하여 기본값 결정\nconst serverOnline = global.get('serverOnline');\nconst operationMode = global.get('operationMode') || (serverOnline === true ? 'online' : 'offline');\n\nif (operationMode === 'online') {\n    // 온라인: 서버에서 설정 가져오기\n    msg.url = `${SERVER_URL}/api/config/farm/${FARM_ID}`;\n    msg.method = 'GET';\n    msg.headers = { 'Content-Type': 'application/json', 'x-api-key': API_KEY };\n    node.status({ fill: 'blue', shape: 'dot', text: '온라인: 서버 config 요청' });\n    return [msg, null, null]; // 출력1: HTTP Request\n} else {\n    // 오프라인: global 캐시 → SQLite 캐시\n    const cachedConfig = global.get('houseConfig');\n    if (cachedConfig) {\n        msg.config = cachedConfig;\n        node.status({ fill: 'yellow', shape: 'dot', text: '오프라인: global 캐시 사용' });\n        return [null, msg, null]; // 출력2: 센서 수집으로\n    } else {\n        // SQLite config_cache에서 로드\n        msg.topic = 'SELECT config_json FROM config_cache ORDER BY version DESC LIMIT 1';\n        node.status({ fill: 'yellow', shape: 'ring', text: '오프라인: SQLite 캐시 조회' });\n        return [null, null, msg]; // 출력3: SQLite 조회\n    }\n}",
         "outputs": 3,
         "outputLabels": ["서버 요청 (온라인)", "센서 수집 (캐시 있음)", "SQLite 캐시 조회"],
-        "x": 430,
+        "x": 490,
         "y": 100,
         "wires": [["http_get_config"], ["fn_collect_sensors"], ["sqlite_config_cache"]]
     },
@@ -73,7 +91,7 @@
         "authType": "",
         "senderr": true,
         "headers": [],
-        "x": 690,
+        "x": 750,
         "y": 60,
         "wires": [["fn_process_config_response"]]
     },
@@ -81,13 +99,58 @@
         "id": "fn_process_config_response",
         "type": "function",
         "z": "collection_offline_flow",
-        "name": "② 설정 응답 처리",
-        "func": "if (msg.statusCode !== 200) {\n    const cachedConfig = global.get('houseConfig');\n    if (cachedConfig) {\n        node.warn('⚠️ 서버 응답 실패, 캐시된 설정 사용');\n        msg.config = cachedConfig;\n        return [msg, null];\n    }\n    node.error('❌ 서버 응답 실패, 캐시도 없음');\n    return [null, null];\n}\n\nconst response = msg.payload;\nif (!response.success) {\n    node.error('설정 오류: ' + (response.error || 'unknown'));\n    return [null, null];\n}\n\nconst config = response.data;\n\n// global 캐시 갱신\nconst cachedConfig = global.get('houseConfig');\nconst cachedVersion = cachedConfig ? cachedConfig.configVersion : 0;\n\nif (!cachedConfig || config.configVersion > cachedVersion) {\n    node.warn('📋 설정 업데이트: v' + cachedVersion + ' → v' + config.configVersion);\n    global.set('houseConfig', config);\n\n    // SQLite에도 캐시 저장 (위치 파라미터)\n    const cacheMsg = {\n        topic: 'INSERT OR REPLACE INTO config_cache (id, farm_id, house_id, config_json, version, updated_at) VALUES (1, $1, $2, $3, $4, $5)',\n        payload: [\n            config.farmId || 'farm_0001',\n            config.houseId || (config.houses && config.houses[0] ? config.houses[0].houseId : 'house_0001'),\n            JSON.stringify(config),\n            config.configVersion || 1,\n            new Date().toISOString()\n        ]\n    };\n    msg.config = config;\n    return [msg, cacheMsg];\n}\n\nmsg.config = config;\nreturn [msg, null];",
-        "outputs": 2,
-        "outputLabels": ["센서 수집으로", "SQLite 캐시 저장"],
-        "x": 920,
+        "name": "② 설정 응답 처리 + ACK",
+        "func": "// 서버 응답 실패 → 캐시 폴백\nif (msg.statusCode !== 200) {\n    var cached = global.get('houseConfig');\n    if (cached) {\n        node.warn('⚠️ 서버 응답 실패 (status=' + msg.statusCode + '), 캐시 사용');\n        msg.config = cached;\n        return [msg, null, null];\n    }\n    node.error('❌ 서버 응답 실패, 캐시도 없음');\n    return [null, null, null];\n}\n\nvar response = msg.payload;\nif (!response || !response.success) {\n    node.error('설정 오류: ' + (response ? response.error || 'success=false' : 'payload null'));\n    return [null, null, null];\n}\n\nvar rawData = response.data;\nvar config;\n\n// GET /api/config/farm/:farmId → data가 배열(하우스 목록)\nif (Array.isArray(rawData)) {\n    var FARM_ID = env.get('FARM_ID') || 'farm_0001';\n    var enabledHouses = rawData.filter(function(h) { return h.enabled !== false; });\n    var maxVersion = 0;\n    rawData.forEach(function(h) {\n        var v = h.configVersion || 0;\n        if (v > maxVersion) maxVersion = v;\n    });\n    config = { farmId: FARM_ID, houses: enabledHouses, configVersion: maxVersion };\n} else if (rawData && rawData.houses) {\n    config = rawData;\n} else {\n    node.warn('⚠️ 예상 외 data 형식: ' + JSON.stringify(rawData).substring(0, 200));\n    config = rawData;\n}\n\nif (!config || !config.houses) {\n    node.error('❌ config 파싱 실패');\n    var fb = global.get('houseConfig');\n    if (fb) { msg.config = fb; return [msg, null, null]; }\n    return [null, null, null];\n}\n\n// 항상 global 갱신 (최신 하우스 목록 반영)\nglobal.set('houseConfig', config);\nmsg.config = config;\n\n// configVersion 변경 감지 → ACK + SQLite 캐시 + 즉시 재수집\nvar cachedVersion = flow.get('lastConfigVersion') || 0;\nif (config.configVersion > cachedVersion) {\n    flow.set('lastConfigVersion', config.configVersion);\n    node.warn('📋 설정 업데이트: v' + cachedVersion + ' → v' + config.configVersion + ' (' + config.houses.length + '개 하우스)');\n    global.set('nextCollectAt', 0); // 즉시 재수집\n\n    var cacheMsg = {\n        topic: 'INSERT OR REPLACE INTO config_cache (id, farm_id, house_id, config_json, version, updated_at) VALUES (1, $1, $2, $3, $4, $5)',\n        payload: [\n            config.farmId || 'farm_0001',\n            config.houses[0] ? config.houses[0].houseId : 'house_0001',\n            JSON.stringify(config),\n            config.configVersion || 1,\n            new Date().toISOString()\n        ]\n    };\n\n    var SERVER_URL = env.get('SERVER_URL') || 'http://192.168.137.1:3000';\n    var API_KEY = env.get('SENSOR_API_KEY') || 'smartfarm-sensor-key';\n    var ackMsg = {\n        url: SERVER_URL + '/api/config/' + config.farmId + '/rpi-ack',\n        method: 'POST',\n        headers: { 'Content-Type': 'application/json', 'x-api-key': API_KEY },\n        payload: {\n            configVersion: config.configVersion,\n            appliedAt: new Date().toISOString(),\n            houses: config.houses.map(function(h) {\n                return {\n                    houseId: h.houseId,\n                    intervalSeconds: (h.collection && h.collection.intervalSeconds) || 60\n                };\n            })\n        }\n    };\n    node.warn('📤 RPi ACK 전송: v' + config.configVersion);\n    return [msg, cacheMsg, ackMsg];\n}\n\nreturn [msg, null, null];",
+        "outputs": 3,
+        "outputLabels": ["센서 수집으로", "SQLite 캐시 저장", "RPi ACK 전송"],
+        "x": 990,
         "y": 60,
-        "wires": [["fn_collect_sensors"], ["sqlite_save_config_cache"]]
+        "wires": [["fn_collect_sensors"], ["sqlite_save_config_cache"], ["http_post_ack"]]
+    },
+    {
+        "id": "http_post_ack",
+        "type": "http request",
+        "z": "collection_offline_flow",
+        "name": "RPi ACK 전송",
+        "method": "use",
+        "ret": "txt",
+        "paytoqs": "ignore",
+        "url": "",
+        "tls": "",
+        "persist": false,
+        "proxy": "",
+        "insecureHTTPParser": false,
+        "authType": "",
+        "senderr": true,
+        "headers": [],
+        "x": 1240,
+        "y": 60,
+        "wires": [["debug_ack_result"]]
+    },
+    {
+        "id": "debug_ack_result",
+        "type": "debug",
+        "z": "collection_offline_flow",
+        "name": "ACK 결과",
+        "active": true,
+        "tosidebar": true,
+        "console": false,
+        "tostatus": false,
+        "complete": "payload",
+        "x": 1420,
+        "y": 60,
+        "wires": []
+    },
+    {
+        "id": "catch_ack_error",
+        "type": "catch",
+        "z": "collection_offline_flow",
+        "name": "ACK 에러 캐치",
+        "scope": ["http_post_ack"],
+        "uncaught": false,
+        "x": 1240,
+        "y": 110,
+        "wires": [["debug_ack_result"]]
     },
     {
         "id": "sqlite_config_cache",
@@ -97,7 +160,7 @@
         "mydb": "sqlite_db",
         "sqlquery": "msg.topic",
         "sql": "",
-        "x": 690,
+        "x": 750,
         "y": 140,
         "wires": [["fn_sqlite_config_handler"]]
     },
@@ -108,7 +171,7 @@
         "name": "SQLite config → global",
         "func": "const rows = msg.payload || [];\n\nif (rows.length > 0 && rows[0].config_json) {\n    try {\n        const config = JSON.parse(rows[0].config_json);\n        global.set('houseConfig', config);\n        msg.config = config;\n        node.warn('📋 SQLite에서 config 복원 완료');\n        node.status({ fill: 'green', shape: 'dot', text: 'SQLite config 복원' });\n        return msg;\n    } catch (e) {\n        node.error('❌ config JSON 파싱 실패: ' + e.message);\n    }\n}\n\nnode.error('❌ SQLite config_cache도 비어있음 - 서버에 1회 접속 필요');\nnode.status({ fill: 'red', shape: 'dot', text: 'config 없음!' });\nreturn null;",
         "outputs": 1,
-        "x": 920,
+        "x": 990,
         "y": 140,
         "wires": [["fn_collect_sensors"]]
     },
@@ -120,7 +183,7 @@
         "mydb": "sqlite_db",
         "sqlquery": "msg.topic",
         "sql": "",
-        "x": 1150,
+        "x": 1240,
         "y": 100,
         "wires": [[]]
     },
@@ -140,7 +203,7 @@
         "name": "③ 센서 데이터 수집",
         "func": "const config = msg.config || global.get('houseConfig');\n\nif (!config) {\n    node.error('❌ config 없음, 수집 중단');\n    return null;\n}\n\n// 모든 하우스의 센서 수집 (멀티하우스 지원)\nlet housesToCollect = [];\n\nif (config.houses && config.houses.length > 0) {\n    housesToCollect = config.houses.filter(h => h.enabled !== false);\n} else if (config.sensors) {\n    // 단일 하우스 config (레거시 호환)\n    housesToCollect = [{ houseId: config.houseId, sensors: config.sensors }];\n}\n\nif (housesToCollect.length === 0) {\n    node.error('❌ 활성 하우스 없음');\n    return null;\n}\n\nconst farmId = config.farmId;\nconst messages = [];\n\nfor (const house of housesToCollect) {\n    const sensors = house.sensors || [];\n    const houseId = house.houseId;\n    const enabledSensors = sensors.filter(s => s.enabled);\n\n    if (enabledSensors.length === 0) {\n        continue;\n    }\n\n    // 센서 데이터 읽기 (시뮬레이션 - 실제 GPIO 연결 시 여기를 수정)\n    const sensorData = {};\n    for (const sensor of enabledSensors) {\n        try {\n            let value;\n            switch (sensor.sensorId) {\n                case 'temp_0001':\n                    value = parseFloat((Math.random() * 10 + 20).toFixed(1));\n                    break;\n                case 'humidity_0001':\n                    value = parseFloat((Math.random() * 20 + 50).toFixed(1));\n                    break;\n                case 'co2_0001':\n                    value = parseInt(Math.random() * 200 + 400);\n                    break;\n                default:\n                    if (sensor.type === 'number') {\n                        const min = sensor.min !== null ? sensor.min : 0;\n                        const max = sensor.max !== null ? sensor.max : 100;\n                        value = parseFloat((Math.random() * (max - min) + min).toFixed(sensor.precision || 1));\n                    } else if (sensor.type === 'boolean') {\n                        value = Math.random() > 0.5;\n                    } else {\n                        value = 'OK';\n                    }\n            }\n            sensorData[sensor.sensorId] = value;\n        } catch (e) {\n            node.error('센서 읽기 실패: ' + sensor.sensorId + ' - ' + e.message);\n            sensorData[sensor.sensorId] = null;\n        }\n    }\n\n    messages.push({\n        payload: {\n            farmId: farmId,\n            houseId: houseId,\n            data: sensorData,\n            timestamp: new Date().toISOString(),\n            deviceInfo: {\n                deviceId: env.get('DEVICE_ID') || 'rpi_0001',\n                ip: '192.168.137.30',\n                version: '2.0.0-offline'\n            }\n        }\n    });\n}\n\nif (messages.length === 0) {\n    node.warn('⚠️ 모든 하우스에 활성 센서 없음');\n    return null;\n}\n\nconst totalSensors = messages.reduce((sum, m) => sum + Object.keys(m.payload.data).length, 0);\nnode.warn('📡 ' + messages.length + '개 하우스, 총 ' + totalSensors + '개 센서 수집');\nnode.status({ fill: 'green', shape: 'dot', text: messages.length + '개 하우스 ' + totalSensors + '개 센서' });\n\nreturn [messages];",
         "outputs": 1,
-        "x": 430,
+        "x": 490,
         "y": 260,
         "wires": [["fn_sqlite_insert"]]
     },
@@ -151,7 +214,7 @@
         "name": "④ SQLite INSERT 준비",
         "func": "const { farmId, houseId, data, timestamp } = msg.payload;\nconst ts = timestamp || new Date().toISOString();\n\n// 센서 데이터 수집\nconst entries = Object.entries(data).filter(([k, v]) => v !== null && v !== undefined);\n\nif (entries.length === 0) {\n    node.warn('⚠️ 저장할 데이터 없음');\n    return null;\n}\n\n// 위치 파라미터 쿼리로 개별 INSERT (센서별 msg 배열)\n// node-red-node-sqlite msg.topic 모드: msg.payload 배열 + $N 파라미터 사용\nconst messages = entries.map(([sensorId, value]) => ({\n    topic: 'INSERT INTO sensor_data (timestamp, farm_id, house_id, sensor_id, value, synced) VALUES ($1, $2, $3, $4, $5, 0)',\n    payload: [ts, farmId, houseId, sensorId, value],\n    _insertTimestamp: ts,\n    _sensorCount: entries.length,\n    _isLast: false,\n    _originalPayload: msg.payload,\n    _houseId: houseId\n}));\n\n// 마지막 메시지에 표시 (모드 분기용)\nconst srvOnline = global.get('serverOnline');\nconst opMode = global.get('operationMode') || (srvOnline === true ? 'online' : 'offline');\nmessages[messages.length - 1]._isLast = true;\nmessages[messages.length - 1]._operationMode = opMode;\n\nnode.warn('💾 SQLite INSERT: ' + houseId + ' ' + entries.length + '건');\nreturn [messages];",
         "outputs": 1,
-        "x": 700,
+        "x": 760,
         "y": 260,
         "wires": [["sqlite_insert_data"]]
     },
@@ -163,7 +226,7 @@
         "mydb": "sqlite_db",
         "sqlquery": "msg.topic",
         "sql": "",
-        "x": 950,
+        "x": 1010,
         "y": 260,
         "wires": [["fn_mode_branch"]]
     },
@@ -184,7 +247,7 @@
         "func": "// 마지막 INSERT 메시지만 처리 (나머지는 통과)\nif (!msg._isLast) { return null; }\n\nconst serverOnline = global.get('serverOnline');\nconst mode = msg._operationMode || global.get('operationMode') || (serverOnline === true ? 'online' : 'offline');\n\n// 자동화 평가용 메시지 (모드와 무관하게 항상 실행)\nvar evalMsg = null;\nif (msg._originalPayload) {\n    evalMsg = {\n        sensorData: {\n            farmId: msg._originalPayload.farmId,\n            houseId: msg._originalPayload.houseId,\n            data: msg._originalPayload.data\n        }\n    };\n}\n\n// 원본 payload 복원 (서버 전송용)\nif (msg._originalPayload) { msg.payload = msg._originalPayload; }\n\nif (mode === 'online') {\n    const SERVER_URL = env.get('SERVER_URL') || 'http://192.168.137.1:3000';\n    const API_KEY = env.get('SENSOR_API_KEY') || 'smartfarm-sensor-key';\n\n    msg.url = SERVER_URL + '/api/sensors/collect';\n    msg.method = 'POST';\n    msg.headers = { 'Content-Type': 'application/json', 'x-api-key': API_KEY };\n    msg.requestTimeout = 10000;\n\n    node.status({ fill: 'green', shape: 'dot', text: '온라인: SQLite ✓ + 서버 전송' });\n    return [msg, null, evalMsg];\n} else {\n    node.warn('📴 오프라인: SQLite만 저장 (synced=0)');\n    node.status({ fill: 'yellow', shape: 'dot', text: '오프라인: SQLite ✓ (' + msg._sensorCount + '건)' });\n    msg.payload = '오프라인 저장 완료: ' + msg._sensorCount + '건';\n    return [null, msg, evalMsg];\n}",
         "outputs": 3,
         "outputLabels": ["서버 전송 (온라인)", "완료 (오프라인)", "자동화 평가"],
-        "x": 430,
+        "x": 490,
         "y": 380,
         "wires": [["http_send_server"], ["debug_offline_done"], ["link_out_to_evaluate"]]
     },
@@ -204,7 +267,7 @@
         "authType": "",
         "senderr": true,
         "headers": [],
-        "x": 680,
+        "x": 740,
         "y": 370,
         "wires": [["fn_send_result"]]
     },
@@ -216,7 +279,7 @@
         "func": "if (msg.statusCode === 201 || msg.statusCode === 200) {\n    node.warn('✅ 서버 전송 성공 → synced=1');\n    \n    const syncMsg = {\n        topic: 'UPDATE sensor_data SET synced = 1 WHERE timestamp = $1 AND house_id = $2 AND synced = 0',\n        payload: [msg._insertTimestamp, msg._houseId]\n    };\n\n    node.status({ fill: 'green', shape: 'dot', text: '서버 전송 ✓ + synced' });\n    return [syncMsg, msg];\n} else {\n    node.warn('⚠️ 서버 전송 실패 (' + msg.statusCode + '): synced=0 유지');\n    node.status({ fill: 'yellow', shape: 'ring', text: '전송 실패 (synced=0)' });\n    return [null, msg];\n}",
         "outputs": 2,
         "outputLabels": ["synced 업데이트", "Debug"],
-        "x": 900,
+        "x": 960,
         "y": 370,
         "wires": [["sqlite_update_synced"], ["debug_send_result"]]
     },
@@ -228,7 +291,7 @@
         "mydb": "sqlite_db",
         "sqlquery": "msg.topic",
         "sql": "",
-        "x": 1120,
+        "x": 1180,
         "y": 350,
         "wires": [[]]
     },
@@ -242,7 +305,7 @@
         "console": false,
         "tostatus": false,
         "complete": "payload",
-        "x": 710,
+        "x": 770,
         "y": 420,
         "wires": []
     },
@@ -256,7 +319,7 @@
         "console": false,
         "tostatus": false,
         "complete": "payload",
-        "x": 1120,
+        "x": 1180,
         "y": 400,
         "wires": []
     },
@@ -267,7 +330,7 @@
         "name": "Config HTTP 에러 캐치",
         "scope": ["http_get_config"],
         "uncaught": false,
-        "x": 720,
+        "x": 780,
         "y": 110,
         "wires": [["fn_process_config_response"]]
     },
@@ -278,7 +341,7 @@
         "name": "서버 전송 에러 캐치",
         "scope": ["http_send_server"],
         "uncaught": false,
-        "x": 710,
+        "x": 770,
         "y": 460,
         "wires": [["fn_send_result"]]
     },
@@ -289,7 +352,7 @@
         "name": "자동화 평가 →",
         "mode": "link",
         "links": ["link_in_evaluate"],
-        "x": 680,
+        "x": 740,
         "y": 500,
         "wires": []
     },
@@ -300,7 +363,7 @@
         "name": "SQLite 쓰기 에러 캐치",
         "scope": ["sqlite_insert_data", "sqlite_update_synced"],
         "uncaught": false,
-        "x": 720,
+        "x": 780,
         "y": 540,
         "wires": [["fn_sqlite_error_handler"]]
     },
@@ -311,7 +374,7 @@
         "name": "SQLite 에러 로그",
         "func": "var errMsg = msg.error ? msg.error.message : 'unknown';\nnode.warn('❌ SQLite 쓰기 에러: ' + errMsg);\nnode.status({fill:'red',shape:'dot',text:'SQLite 에러: ' + errMsg.substring(0,30)});\n\n// 에러 카운트 (모니터링용)\nvar count = global.get('sqliteErrorCount') || 0;\nglobal.set('sqliteErrorCount', count + 1);\nglobal.set('lastSqliteError', {message: errMsg, timestamp: new Date().toISOString()});\n\nreturn null;",
         "outputs": 1,
-        "x": 950,
+        "x": 1010,
         "y": 540,
         "wires": [[]]
     }

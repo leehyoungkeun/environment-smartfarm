@@ -153,6 +153,7 @@ const DynamicDashboard = ({ farmId }) => {
   const intervalRef = useRef(null);
   const bannerTimerRef = useRef(null);
   const abortRef = useRef(null); // API 요청 취소용
+  const lastDataTimestampRef = useRef(null); // 마지막 센서 데이터 타임스탬프 (재렌더링 방지용)
 
   // API 전환 모드 감지 + 서버 복구 시 config 재조회
   useEffect(() => {
@@ -329,18 +330,38 @@ const DynamicDashboard = ({ farmId }) => {
       // 취소된 요청의 응답은 무시
       if (controller.signal.aborted) return;
 
+      // ref 기반 비교로 동일 데이터 스킵 (setState 콜백 타이밍 문제 회피)
+      let anyChanged = false;
+
       if (latestRes.status === 'fulfilled' && latestRes.value.data.success) {
-        setLatestData(latestRes.value.data.data || {});
+        const newData = latestRes.value.data.data || {};
+        if (newData.timestamp !== lastDataTimestampRef.current) {
+          lastDataTimestampRef.current = newData.timestamp;
+          setLatestData(newData);
+          anyChanged = true;
+        }
       }
       if (historyRes.status === 'fulfilled' && historyRes.value.data.success) {
-        setHistoryData(historyRes.value.data.data || []);
+        const newHistory = historyRes.value.data.data || [];
+        if (anyChanged || newHistory.length > 0) {
+          setHistoryData(prev => {
+            if (prev.length === newHistory.length && prev[0]?.timestamp === newHistory[0]?.timestamp) return prev;
+            return newHistory;
+          });
+        }
       }
       if (alertsRes.status === 'fulfilled' && alertsRes.value.data.success) {
-        setAlerts(alertsRes.value.data.data || []);
+        const newAlerts = alertsRes.value.data.data || [];
+        setAlerts(prev => {
+          if (prev.length === newAlerts.length && prev[0]?.id === newAlerts[0]?.id && prev[0]?.acknowledged === newAlerts[0]?.acknowledged) return prev;
+          return newAlerts;
+        });
       }
 
-      setLastUpdated(new Date());
-      setDataVersion(prev => prev + 1);
+      if (anyChanged) {
+        setLastUpdated(new Date());
+        setDataVersion(prev => prev + 1);
+      }
     } catch (e) {
       if (e.name !== 'CanceledError' && e.name !== 'AbortError') {
         console.error('[Dashboard] loadLatestData error:', e.message);

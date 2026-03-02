@@ -189,6 +189,14 @@ router.put("/:houseId", async (req, res) => {
     if (farmId) updateData.farmId = farmId;
     updateData.houseId = houseId;
 
+    // configVersion: 전체 max + 1 (RPi는 max로 변경 감지)
+    const allHouses = await Config.find({ farmId: farmId || query.farmId });
+    let maxVer = 0;
+    for (const h of allHouses) {
+      if ((h.configVersion || 0) > maxVer) maxVer = h.configVersion || 0;
+    }
+    updateData.configVersion = maxVer + 1;
+
     const config = await Config.findOneAndUpdate(query, updateData, {
       new: true,
       upsert: true,
@@ -255,16 +263,25 @@ router.post("/:farmId/sync", async (req, res) => {
 
     const rpiHouseIds = new Set(configs.map((c) => c.houseId).filter(Boolean));
 
+    // maxVersion 산출: 모든 기존 하우스 중 최대 configVersion
+    const allExisting = await Config.find({ farmId });
+    let maxVersion = 0;
+    for (const e of allExisting) {
+      if ((e.configVersion || 0) > maxVersion) maxVersion = e.configVersion || 0;
+    }
+
     // 1) upsert: RPi 설정을 PC에 반영
+    let hasUpdate = false;
     for (const cfg of configs) {
       if (!cfg.houseId) continue;
-      const existing = await Config.findOne({ farmId, houseId: cfg.houseId });
+      const existing = allExisting.find(e => e.houseId === cfg.houseId);
 
       if (existing) {
         const existingTime = new Date(existing.updatedAt).getTime();
         const incomingTime = new Date(cfg.updatedAt).getTime();
 
         if (incomingTime > existingTime) {
+          hasUpdate = true;
           await Config.findOneAndUpdate(
             { farmId, houseId: cfg.houseId },
             {
@@ -278,6 +295,7 @@ router.post("/:farmId/sync", async (req, res) => {
               cropType: cfg.cropType || "",
               cropVariety: cfg.cropVariety || "",
               plantingDate: cfg.plantingDate || "",
+              configVersion: maxVersion + 1,
             },
             { new: true }
           );
@@ -305,11 +323,21 @@ router.post("/:farmId/sync", async (req, res) => {
     }
 
     // 2) PC에만 있고 RPi에 없는 하우스 삭제 (RPi가 권한 기준)
+    // 안전장치: RPi 하우스가 PC보다 훨씬 적으면 삭제 스킵 (잘못된 동기화 방지)
     const pcHouses = await Config.find({ farmId });
-    for (const pc of pcHouses) {
-      if (!rpiHouseIds.has(pc.houseId)) {
-        await Config.deleteOne({ farmId, houseId: pc.houseId });
-        results.deleted++;
+    const deleteThreshold = Math.max(pcHouses.length * 0.5, 2);
+    const toDelete = pcHouses.filter(pc => !rpiHouseIds.has(pc.houseId));
+    if (toDelete.length > deleteThreshold) {
+      logger.warn(`⚠️ 동기화 삭제 스킵: RPi ${configs.length}개 vs PC ${pcHouses.length}개, 삭제 대상 ${toDelete.length}개 > 임계값 ${deleteThreshold}`);
+      results.deleteSkipped = toDelete.length;
+    } else {
+      for (const pc of toDelete) {
+        try {
+          await Config.deleteOne({ farmId, houseId: pc.houseId });
+          results.deleted++;
+        } catch (e) {
+          logger.warn(`⚠️ 삭제 실패: ${pc.houseId} - ${e.message}`);
+        }
       }
     }
 
@@ -337,12 +365,15 @@ router.get("/system-settings/:farmId", async (req, res) => {
     const defaults = {
       retentionDays: 60,
       alertConfig: { enabled: true, checkIntervalMinutes: 5, cooldownMinutes: 15, criticalRatio: 0.5 },
+      collectionConfig: { intervalSeconds: 60 },
+      rpiSync: null,
     };
     const raw = result.rows[0]?.settings || {};
     const settings = {
       ...defaults,
       ...raw,
       alertConfig: { ...defaults.alertConfig, ...(raw.alertConfig || {}) },
+      collectionConfig: { ...defaults.collectionConfig, ...(raw.collectionConfig || {}) },
     };
 
     res.json({ success: true, data: settings });
@@ -396,6 +427,18 @@ router.put("/system-settings/:farmId", async (req, res) => {
       if (Object.keys(cfg).length > 0) settings.alertConfig = cfg;
     }
 
+    // collectionConfig 처리
+    const { collectionConfig } = req.body;
+    if (collectionConfig !== undefined) {
+      if (collectionConfig.intervalSeconds !== undefined) {
+        const v = parseInt(collectionConfig.intervalSeconds);
+        if (isNaN(v) || v < 10 || v > 3600) {
+          return res.status(400).json({ success: false, error: "intervalSeconds는 10~3600 범위여야 합니다." });
+        }
+        settings.collectionConfig = { intervalSeconds: v };
+      }
+    }
+
     await pool.query(
       `INSERT INTO system_settings (farm_id, settings, updated_at)
        VALUES ($1, $2, NOW())
@@ -405,10 +448,75 @@ router.put("/system-settings/:farmId", async (req, res) => {
       [farmId, JSON.stringify(settings)]
     );
 
+    // collectionConfig 저장 시 모든 하우스의 collection.intervalSeconds 전파
+    if (settings.collectionConfig?.intervalSeconds) {
+      const newInterval = settings.collectionConfig.intervalSeconds;
+      const allHouses = await Config.find({ farmId });
+      for (const h of allHouses) {
+        const updatedCollection = { ...(h.collection || {}), intervalSeconds: newInterval };
+        await Config.findOneAndUpdate(
+          { farmId, houseId: h.houseId },
+          { collection: updatedCollection }
+        );
+      }
+      // configVersion 증가 (RPi가 변경 감지하도록)
+      const allUpdated = await Config.find({ farmId });
+      let maxVer = 0;
+      for (const h of allUpdated) {
+        if ((h.configVersion || 0) > maxVer) maxVer = h.configVersion || 0;
+      }
+      // 첫 번째 하우스의 configVersion만 max+1로 올려서 RPi 감지 트리거
+      if (allUpdated.length > 0) {
+        await Config.findOneAndUpdate(
+          { farmId, houseId: allUpdated[0].houseId },
+          { configVersion: maxVer + 1 }
+        );
+      }
+      logger.info(`⚙️ 수집 주기 전파: ${farmId} - 모든 하우스 ${newInterval}초, configVersion=${maxVer + 1}`);
+    }
+
     logger.info(`⚙️ 시스템 설정 저장: ${farmId} - ${JSON.stringify(settings)}`);
     res.json({ success: true, data: settings });
   } catch (error) {
     logger.error("❌ 시스템 설정 저장 실패:", error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// POST /api/config/:farmId/rpi-ack - RPi가 설정 적용 확인(ACK) 전송
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+router.post("/:farmId/rpi-ack", async (req, res) => {
+  try {
+    const { farmId } = req.params;
+    const { configVersion, appliedAt, houses } = req.body;
+
+    if (!configVersion) {
+      return res.status(400).json({ success: false, error: "configVersion 필수" });
+    }
+
+    const ackData = {
+      rpiSync: {
+        configVersion,
+        appliedAt: appliedAt || new Date().toISOString(),
+        houses: houses || [],
+        receivedAt: new Date().toISOString(),
+      },
+    };
+
+    await pool.query(
+      `INSERT INTO system_settings (farm_id, settings, updated_at)
+       VALUES ($1, $2::jsonb, NOW())
+       ON CONFLICT (farm_id) DO UPDATE
+         SET settings = system_settings.settings || $2::jsonb,
+             updated_at = NOW()`,
+      [farmId, JSON.stringify(ackData)]
+    );
+
+    logger.info(`✅ RPi ACK: farmId=${farmId} v${configVersion} houses=${(houses || []).map(h => h.houseId + ':' + h.intervalSeconds + 's').join(',')}`);
+    res.json({ success: true, data: ackData.rpiSync });
+  } catch (error) {
+    logger.error("❌ RPi ACK 저장 실패:", error);
     res.status(500).json({ success: false, error: error.message });
   }
 });

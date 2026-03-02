@@ -4,7 +4,13 @@
         "type": "tab",
         "label": "온/오프라인 감지",
         "disabled": false,
-        "info": "PC 서버 헬스체크 (30초 간격)\n- 서버 응답 시: online 모드\n- 서버 미응답 시: offline 모드\n- 수동 전환 시: 강제 offline\n\nglobal.operationMode = 'online' | 'offline'\nglobal.serverOnline = true | false\nglobal.manualOverride = true | false"
+        "info": "PC 서버 헬스체크 (30초 간격)\n- 서버 응답 시: online 모드\n- 서버 미응답 시: offline 모드\n- 수동 전환 시: 강제 offline\n\nglobal.operationMode = 'online' | 'offline'\nglobal.serverOnline = true | false\nglobal.manualOverride = true | false",
+        "env": [
+            {"name": "SENSOR_API_KEY", "value": "smartfarm-sensor-key", "type": "str"},
+            {"name": "SERVER_URL", "value": "http://192.168.137.1:3000", "type": "str"},
+            {"name": "FARM_ID", "value": "farm_0001", "type": "str"},
+            {"name": "HOUSE_ID", "value": "house_0001", "type": "str"}
+        ]
     },
     {
         "id": "inject_health",
@@ -19,6 +25,17 @@
         "topic": "",
         "x": 180,
         "y": 80,
+        "wires": [["fn_set_health_url"]]
+    },
+    {
+        "id": "fn_set_health_url",
+        "type": "function",
+        "z": "health_monitor_flow",
+        "name": "URL 설정",
+        "func": "const SERVER_URL = env.get('SERVER_URL') || 'http://192.168.137.1:3000';\nmsg.url = SERVER_URL + '/health';\nmsg.method = 'GET';\nreturn msg;",
+        "outputs": 1,
+        "x": 300,
+        "y": 80,
         "wires": [["health_request"]]
     },
     {
@@ -26,10 +43,10 @@
         "type": "http request",
         "z": "health_monitor_flow",
         "name": "서버 /health",
-        "method": "GET",
+        "method": "use",
         "ret": "obj",
         "paytoqs": "ignore",
-        "url": "http://192.168.137.1:3000/health",
+        "url": "",
         "tls": "",
         "persist": false,
         "proxy": "",
@@ -46,7 +63,7 @@
         "type": "function",
         "z": "health_monitor_flow",
         "name": "모드 결정",
-        "func": "const manualOverride = global.get('manualOverride') || false;\nconst prevMode = global.get('operationMode') || 'unknown';\nconst prevServerOnline = global.get('serverOnline');\n\n// 서버 응답 확인\nlet serverOnline = false;\nif (msg.statusCode === 200 && msg.payload && (msg.payload.success === true || msg.payload.status === 'ok')) {\n    serverOnline = true;\n}\n\nglobal.set('serverOnline', serverOnline);\n\n// 모드 결정: 수동 스위치 ON → 강제 오프라인\nconst operationMode = manualOverride ? 'offline' : (serverOnline ? 'online' : 'offline');\nglobal.set('operationMode', operationMode);\n\nlet syncMsg = null;\nlet configMsg = null;\n\n// 상태 변경 감지\nif (prevMode !== operationMode) {\n    node.warn(`🔄 모드 변경: ${prevMode} → ${operationMode}`);\n    \n    // 온라인 전환 시 동기화 트리거 (unknown/offline → online 모두 포함)\n    if (prevMode !== 'online' && operationMode === 'online') {\n        node.warn('🔄 온라인 복귀! 데이터 동기화 시작...');\n        syncMsg = { payload: 'sync_trigger' };\n    }\n}\n\n// 서버 온라인 + config 미캐시 → config 가져오기 (API 키 포함)\nif (serverOnline && !global.get('houseConfig')) {\n    node.warn('📋 서버에서 config 캐시 가져오기...');\n    const API_KEY = env.get('SENSOR_API_KEY') || '';\n    configMsg = {\n        payload: 'fetch_config',\n        method: 'GET',\n        headers: { 'x-api-key': API_KEY }\n    };\n}\n\n// 상태 표시\nconst modeLabel = operationMode === 'online' ? '온라인' : '오프라인';\nconst manualLabel = manualOverride ? ' (수동)' : '';\nconst serverLabel = serverOnline ? '서버 정상' : '서버 다운';\nconst configLabel = global.get('houseConfig') ? ' | config ✓' : '';\n\nnode.status({\n    fill: operationMode === 'online' ? 'green' : 'yellow',\n    shape: manualOverride ? 'ring' : 'dot',\n    text: `${modeLabel}${manualLabel} | ${serverLabel}${configLabel}`\n});\n\nmsg.payload = {\n    operationMode,\n    serverOnline,\n    manualOverride,\n    timestamp: new Date().toISOString()\n};\n\nreturn [msg, syncMsg, configMsg];",
+        "func": "const manualOverride = global.get('manualOverride') || false;\nconst prevMode = global.get('operationMode') || 'unknown';\nconst prevServerOnline = global.get('serverOnline');\n\n// 서버 응답 확인\nlet serverOnline = false;\nif (msg.statusCode === 200 && msg.payload && (msg.payload.success === true || msg.payload.status === 'ok')) {\n    serverOnline = true;\n}\n\nglobal.set('serverOnline', serverOnline);\n\n// 모드 결정: 수동 스위치 ON → 강제 오프라인\nconst operationMode = manualOverride ? 'offline' : (serverOnline ? 'online' : 'offline');\nglobal.set('operationMode', operationMode);\n\nlet syncMsg = null;\nlet configMsg = null;\n\n// 상태 변경 감지\nif (prevMode !== operationMode) {\n    node.warn(`🔄 모드 변경: ${prevMode} → ${operationMode}`);\n    \n    // 온라인 전환 시 동기화 트리거 (unknown/offline → online 모두 포함)\n    if (prevMode !== 'online' && operationMode === 'online') {\n        node.warn('🔄 온라인 복귀! 데이터 동기화 시작...');\n        syncMsg = { payload: 'sync_trigger' };\n    }\n}\n\n// 서버 온라인 + config 미캐시 → config 가져오기 (env var 동적 URL)\nif (serverOnline && !global.get('houseConfig')) {\n    node.warn('📋 서버에서 config 캐시 가져오기...');\n    const SERVER_URL = env.get('SERVER_URL') || 'http://192.168.137.1:3000';\n    const FARM_ID = env.get('FARM_ID') || 'farm_0001';\n    const API_KEY = env.get('SENSOR_API_KEY') || 'smartfarm-sensor-key';\n    configMsg = {\n        payload: 'fetch_config',\n        url: SERVER_URL + '/api/config/farm/' + FARM_ID,\n        method: 'GET',\n        headers: { 'x-api-key': API_KEY }\n    };\n}\n\n// 상태 표시\nconst modeLabel = operationMode === 'online' ? '온라인' : '오프라인';\nconst manualLabel = manualOverride ? ' (수동)' : '';\nconst serverLabel = serverOnline ? '서버 정상' : '서버 다운';\nconst configLabel = global.get('houseConfig') ? ' | config ✓' : '';\n\nnode.status({\n    fill: operationMode === 'online' ? 'green' : 'yellow',\n    shape: manualOverride ? 'ring' : 'dot',\n    text: `${modeLabel}${manualLabel} | ${serverLabel}${configLabel}`\n});\n\nmsg.payload = {\n    operationMode,\n    serverOnline,\n    manualOverride,\n    timestamp: new Date().toISOString()\n};\n\nreturn [msg, syncMsg, configMsg];",
         "outputs": 3,
         "outputLabels": ["상태 표시", "동기화 트리거", "Config 캐시"],
         "x": 610,
@@ -60,7 +77,7 @@
         "name": "HTTP 에러 캐치",
         "scope": ["health_request"],
         "uncaught": false,
-        "x": 420,
+        "x": 500,
         "y": 140,
         "wires": [["health_check"]]
     },
@@ -108,7 +125,7 @@
         "method": "use",
         "ret": "obj",
         "paytoqs": "ignore",
-        "url": "http://192.168.137.1:3000/api/config/farm/farm_0001",
+        "url": "",
         "tls": "",
         "persist": false,
         "proxy": "",
@@ -125,7 +142,7 @@
         "type": "function",
         "z": "health_monitor_flow",
         "name": "Config 저장",
-        "func": "if (msg.statusCode === 200 && msg.payload && msg.payload.success && msg.payload.data) {\n    const config = msg.payload.data;\n    global.set('houseConfig', config);\n    node.warn('📋 Config 캐시 완료: ' + (config.houses ? config.houses.length + '개 하우스' : '데이터 없음'));\n    node.status({ fill: 'green', shape: 'dot', text: 'config 캐시 완료' });\n\n    // SQLite config_cache에도 저장 (위치 파라미터 - msg.payload 배열)\n    msg.topic = 'INSERT OR REPLACE INTO config_cache (id, farm_id, house_id, config_json, version, updated_at) VALUES (1, $1, $2, $3, $4, $5)';\n    msg.payload = [\n        config.farmId || 'farm_0001',\n        config.houseId || (config.houses && config.houses[0] ? config.houses[0].houseId : 'house_0001'),\n        JSON.stringify(config),\n        config.configVersion || 1,\n        new Date().toISOString()\n    ];\n    return msg;\n} else {\n    node.warn('⚠️ Config 가져오기 실패: ' + JSON.stringify(msg.payload).substring(0, 100));\n    node.status({ fill: 'red', shape: 'dot', text: 'config 실패' });\n    return null;\n}",
+        "func": "if (msg.statusCode === 200 && msg.payload && msg.payload.success && msg.payload.data) {\n    var rawData = msg.payload.data;\n    var config;\n\n    // API가 배열(하우스 목록)을 반환하면 올바른 형식으로 래핑\n    if (Array.isArray(rawData)) {\n        var FARM_ID = env.get('FARM_ID') || 'farm_0001';\n        var enabledHouses = rawData.filter(function(h) { return h.enabled !== false; });\n        var maxVersion = 0;\n        rawData.forEach(function(h) {\n            var v = h.configVersion || 0;\n            if (v > maxVersion) maxVersion = v;\n        });\n        config = { farmId: FARM_ID, houses: enabledHouses, configVersion: maxVersion };\n        node.warn('📋 Config 캐시 완료: ' + enabledHouses.length + '개 하우스 (배열→래핑)');\n    } else if (rawData.houses) {\n        config = rawData;\n        node.warn('📋 Config 캐시 완료: ' + (config.houses.length || 0) + '개 하우스');\n    } else {\n        config = rawData;\n        node.warn('📋 Config 캐시 완료: 단일 config');\n    }\n\n    global.set('houseConfig', config);\n    node.status({ fill: 'green', shape: 'dot', text: (config.houses ? config.houses.length : 0) + '개 하우스 캐시' });\n\n    // SQLite config_cache에도 저장\n    msg.topic = 'INSERT OR REPLACE INTO config_cache (id, farm_id, house_id, config_json, version, updated_at) VALUES (1, $1, $2, $3, $4, $5)';\n    msg.payload = [\n        config.farmId || 'farm_0001',\n        config.houses && config.houses[0] ? config.houses[0].houseId : 'house_0001',\n        JSON.stringify(config),\n        config.configVersion || 1,\n        new Date().toISOString()\n    ];\n    return msg;\n} else {\n    node.warn('⚠️ Config 가져오기 실패: status=' + msg.statusCode + ' payload=' + JSON.stringify(msg.payload).substring(0, 200));\n    node.status({ fill: 'red', shape: 'dot', text: 'config 실패' });\n    return null;\n}",
         "outputs": 1,
         "x": 1090,
         "y": 160,

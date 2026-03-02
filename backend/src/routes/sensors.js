@@ -107,6 +107,7 @@ router.post("/collect", async (req, res, next) => {
 router.post("/batch", async (req, res, next) => {
   try {
     const { farmId, houseId, dataArray } = req.body;
+    logger.info(`📥 배치 수집: farmId=${farmId}, houseId=${houseId}, dataArray=${Array.isArray(dataArray) ? dataArray.length + '건' : 'invalid'}, ip=${req.ip}`);
 
     if (!Array.isArray(dataArray) || dataArray.length === 0) {
       return res.status(400).json({
@@ -117,6 +118,7 @@ router.post("/batch", async (req, res, next) => {
 
     const config = await Config.findOne({ farmId, houseId });
     if (!config) {
+      logger.warn(`⚠️ 배치 수집 404: farmId=${farmId}, houseId=${houseId} - house config 없음`);
       return res.status(404).json({
         success: false,
         error: "House configuration not found",

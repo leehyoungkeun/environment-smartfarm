@@ -129,9 +129,14 @@ const SystemStatusWidget = ({ config, latestData, alerts }) => {
         {/* 센서별 상태 */}
         {config?.sensors && config.sensors.length > 0 && (
           <div>
-            <div style={{fontSize:13,fontWeight:700,color:'#64748b',marginBottom:10,display:'flex',alignItems:'center',gap:6}}>
+            <div style={{fontSize:13,fontWeight:700,color:'#64748b',marginBottom:10,display:'flex',alignItems:'center',gap:6,flexWrap:'wrap'}}>
               <span style={{width:4,height:14,background:headerColor,borderRadius:2,display:'inline-block'}}/>
               센서별 실시간
+              {latestData?.timestamp && (
+                <span style={{fontSize:13,fontWeight:700,color:'#475569',marginLeft:'auto',fontFamily:'monospace',background:'#f1f5f9',padding:'2px 8px',borderRadius:6}}>
+                  {new Date(latestData.timestamp).toLocaleString('ko-KR', {year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',second:'2-digit'})}
+                </span>
+              )}
             </div>
             <div className="space-y-2">
               {config.sensors.map(sensor => {

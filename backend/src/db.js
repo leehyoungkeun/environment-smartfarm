@@ -15,10 +15,25 @@ const { Pool } = pg;
 
 const prisma = new PrismaClient({
   log:
-    process.env.NODE_ENV === "development"
-      ? ["query", "error", "warn"]
-      : ["error"],
+    process.env.NODE_ENV === "production"
+      ? ["error"]
+      : [
+          { level: "query", emit: "event" },
+          { level: "error", emit: "stdout" },
+          { level: "warn", emit: "stdout" },
+        ],
 });
+
+// 개발 모드: 쿼리를 간결하게 출력 (모델·액션 + 소요시간)
+if (process.env.NODE_ENV !== "production") {
+  prisma.$on("query", (e) => {
+    const q = e.query;
+    // SELECT/INSERT/UPDATE/DELETE + 테이블명 추출
+    const match = q.match(/^(SELECT|INSERT|UPDATE|DELETE).*?"public"\.?"(\w+)"/i);
+    const tag = match ? `${match[1]} ${match[2]}` : q.slice(0, 60);
+    logger.debug(`[Prisma] ${tag}  (${e.duration}ms)`);
+  });
+}
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // pg Pool (시계열 raw SQL)

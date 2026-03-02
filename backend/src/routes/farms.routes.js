@@ -300,7 +300,7 @@ router.get("/", async (req, res) => {
         orderBy: { createdAt: "desc" },
         skip: (pageNum - 1) * limitNum,
         take: limitNum,
-        include: { _count: { select: { users: true } }, businessProject: true },
+        include: { _count: { select: { userFarms: true } }, businessProject: true },
       }),
       prisma.farm.count({ where }),
     ]);
@@ -350,7 +350,7 @@ router.get("/", async (req, res) => {
         subsidyAmount: f.subsidyAmount != null ? Number(f.subsidyAmount) : null,
         selfFunding: f.selfFunding != null ? Number(f.selfFunding) : null,
         apiKey: f.apiKey, lastSeenAt: f.lastSeenAt, memo: f.memo, createdAt: f.createdAt,
-        houseCount: houseCountMap[f.farmId] || 0, userCount: f._count.users,
+        houseCount: houseCountMap[f.farmId] || 0, userCount: f._count.userFarms,
       };
     });
 
@@ -411,6 +411,13 @@ router.post("/", authorize("manager"), async (req, res) => {
     if (totalCost != null && totalCost !== '' && Number(totalCost) < 0) return res.status(400).json({ success: false, error: "총사업비는 0 이상이어야 합니다" });
     if (subsidyAmount != null && subsidyAmount !== '' && Number(subsidyAmount) < 0) return res.status(400).json({ success: false, error: "보조금은 0 이상이어야 합니다" });
     if (selfFunding != null && selfFunding !== '' && Number(selfFunding) < 0) return res.status(400).json({ success: false, error: "자부담은 0 이상이어야 합니다" });
+    // 보조사업 금액 정합성 검증 (총사업비 = 보조금 + 자부담)
+    if (businessType === 'subsidy') {
+      const t = Number(totalCost) || 0, s = Number(subsidyAmount) || 0, f = Number(selfFunding) || 0;
+      if (t > 0 && s + f > 0 && t !== s + f) return res.status(400).json({ success: false, error: `총사업비(${t.toLocaleString()}원) ≠ 보조금(${s.toLocaleString()}원) + 자부담(${f.toLocaleString()}원)` });
+      if (s > t) return res.status(400).json({ success: false, error: "보조금이 총사업비를 초과할 수 없습니다" });
+      if (f > t) return res.status(400).json({ success: false, error: "자부담이 총사업비를 초과할 수 없습니다" });
+    }
 
     // managers에서 첫 번째 관리자를 ownerName/ownerPhone에도 저장 (호환성)
     const mgrs = Array.isArray(managers) ? managers : [];
@@ -578,7 +585,7 @@ router.get("/:farmId", async (req, res) => {
     const farm = await prisma.farm.findUnique({
       where: { farmId: req.params.farmId },
       include: {
-        users: { include: { user: { select: { id: true, username: true, name: true, role: true } } } },
+        userFarms: { include: { user: { select: { id: true, username: true, name: true, role: true } } } },
       },
     });
     if (!farm) return res.status(404).json({ success: false, error: "농장을 찾을 수 없습니다" });
@@ -589,7 +596,8 @@ router.get("/:farmId", async (req, res) => {
       select: { id: true, houseId: true, houseName: true, enabled: true, sensors: true, devices: true },
     });
 
-    res.json({ success: true, data: toBigIntSafe({ ...farm, houses }) });
+    const { userFarms: uf, ...farmRest } = farm;
+    res.json({ success: true, data: toBigIntSafe({ ...farmRest, users: uf, houses }) });
   } catch (error) {
     res.status(500).json({ success: false, error: error.message });
   }
@@ -606,6 +614,12 @@ router.put("/:farmId", authorize("manager"), async (req, res) => {
     if (totalCost !== undefined && totalCost != null && totalCost !== '' && Number(totalCost) < 0) return res.status(400).json({ success: false, error: "총사업비는 0 이상이어야 합니다" });
     if (subsidyAmount !== undefined && subsidyAmount != null && subsidyAmount !== '' && Number(subsidyAmount) < 0) return res.status(400).json({ success: false, error: "보조금은 0 이상이어야 합니다" });
     if (selfFunding !== undefined && selfFunding != null && selfFunding !== '' && Number(selfFunding) < 0) return res.status(400).json({ success: false, error: "자부담은 0 이상이어야 합니다" });
+    // 보조사업 금액 정합성 검증
+    if (businessType === 'subsidy' || (businessType === undefined && totalCost !== undefined)) {
+      const t = Number(totalCost) || 0, s = Number(subsidyAmount) || 0, f = Number(selfFunding) || 0;
+      if (t > 0 && s + f > 0 && t !== s + f) return res.status(400).json({ success: false, error: `총사업비(${t.toLocaleString()}원) ≠ 보조금(${s.toLocaleString()}원) + 자부담(${f.toLocaleString()}원)` });
+      if (s > t) return res.status(400).json({ success: false, error: "보조금이 총사업비를 초과할 수 없습니다" });
+    }
 
     const updateData = {};
     if (name !== undefined) updateData.name = name;
@@ -635,8 +649,19 @@ router.put("/:farmId", authorize("manager"), async (req, res) => {
       if (ownerPhone !== undefined) updateData.ownerPhone = ownerPhone;
     }
 
+    // 변경 전 데이터 조회 (before/after 비교용)
+    const before = await prisma.farm.findUnique({ where: { farmId: req.params.farmId } });
     const farm = await prisma.farm.update({ where: { farmId: req.params.farmId }, data: updateData });
-    await audit(req, "update", "farm", req.params.farmId, { fields: Object.keys(updateData) });
+    // 변경된 필드의 before/after 값 저장
+    const changes = {};
+    for (const key of Object.keys(updateData)) {
+      const oldVal = before[key];
+      const newVal = farm[key];
+      const oldStr = oldVal instanceof Date ? oldVal.toISOString() : typeof oldVal === 'bigint' ? oldVal.toString() : JSON.stringify(oldVal);
+      const newStr = newVal instanceof Date ? newVal.toISOString() : typeof newVal === 'bigint' ? newVal.toString() : JSON.stringify(newVal);
+      if (oldStr !== newStr) changes[key] = { before: oldVal instanceof Date ? oldVal.toISOString() : typeof oldVal === 'bigint' ? oldVal.toString() : oldVal, after: newVal instanceof Date ? newVal.toISOString() : typeof newVal === 'bigint' ? newVal.toString() : newVal };
+    }
+    await audit(req, "update", "farm", req.params.farmId, { fields: Object.keys(updateData), changes });
     res.json({ success: true, data: toBigIntSafe(farm) });
   } catch (error) {
     if (error.code === "P2025") return res.status(404).json({ success: false, error: "농장을 찾을 수 없습니다" });

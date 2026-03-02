@@ -328,6 +328,26 @@ router.put("/change-password", authenticate, async (req, res) => {
 // =========================================
 
 /**
+ * GET /api/auth/check-username/:username
+ * 사용자 ID 중복 확인 (owner 이상)
+ */
+router.get("/check-username/:username", authenticate, authorize("owner"), async (req, res) => {
+  try {
+    const { username } = req.params;
+    if (!username || username.trim().length < 3) {
+      return res.json({ success: true, data: { available: false, reason: "3자 이상 입력해주세요" } });
+    }
+    const existing = await User.findOne({ username: username.trim() });
+    res.json({
+      success: true,
+      data: { available: !existing, reason: existing ? "이미 사용 중인 아이디입니다" : "사용 가능한 아이디입니다" },
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+/**
  * GET /api/auth/users
  * owner 이상 접근 가능
  * - superadmin/manager: 전체 사용자 목록
@@ -448,11 +468,11 @@ router.put(
 
         if (action === "changeRole") {
           if (!canCreateRole(req.user.role, role)) { skipped++; continue; }
-          await prisma.users.update({ where: { id: uid }, data: { role } });
+          await prisma.user.update({ where: { id: uid }, data: { role } });
         } else if (action === "enable") {
-          await prisma.users.update({ where: { id: uid }, data: { enabled: true } });
+          await prisma.user.update({ where: { id: uid }, data: { enabled: true } });
         } else {
-          await prisma.users.update({ where: { id: uid }, data: { enabled: false } });
+          await prisma.user.update({ where: { id: uid }, data: { enabled: false } });
         }
         updated++;
       }

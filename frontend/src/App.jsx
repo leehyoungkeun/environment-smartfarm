@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import LoginPage from './components/Auth/LoginPage';
@@ -170,16 +170,30 @@ function AppContent() {
   };
   const [currentPage, setCurrentPageState] = useState(getPageFromHash);
 
+  const scrollPositions = useRef({});
   const setCurrentPage = (page) => {
+    // 현재 페이지 스크롤 위치 저장
+    scrollPositions.current[currentPage] = window.scrollY;
     window.location.hash = page;
     setCurrentPageState(page);
+    // 다음 프레임에서 저장된 위치로 복원
+    requestAnimationFrame(() => {
+      window.scrollTo(0, scrollPositions.current[page] || 0);
+    });
   };
 
   useEffect(() => {
-    const onHashChange = () => setCurrentPageState(getPageFromHash());
+    const onHashChange = () => {
+      scrollPositions.current[currentPage] = window.scrollY;
+      const next = getPageFromHash();
+      setCurrentPageState(next);
+      requestAnimationFrame(() => {
+        window.scrollTo(0, scrollPositions.current[next] || 0);
+      });
+    };
     window.addEventListener('hashchange', onHashChange);
     return () => window.removeEventListener('hashchange', onHashChange);
-  }, []);
+  }, [currentPage]);
   const farmId = selectedFarmId || (isSystemWide ? null : user?.farmId) || import.meta.env.VITE_FARM_ID || 'farm_0001';
   const needsFarmSelect = isSystemWide && !selectedFarmId;
   const [showAlertPanel, setShowAlertPanel] = useState(false);
@@ -405,15 +419,18 @@ function AppContent() {
 
       {/* 메인 콘텐츠 */}
       <main className="relative z-10 pb-24 md:pb-8">
-        {/* 선택된 농장 정보 배너 (superadmin/manager는 FarmSelector 사용하므로 숨김) */}
-        {selectedFarmInfo && currentPage !== 'farms' && !isSystemWide && (
+        {/* 선택된 농장 정보 배너 */}
+        {selectedFarmInfo && currentPage !== 'farms' && !(isSystemWide && !selectedFarmId) && (
           <div className="max-w-7xl mx-auto px-4 md:px-6 pt-3 md:pt-4">
-            <div className="flex items-center gap-3 text-lg">
+            <div className="flex items-center gap-2 text-base flex-wrap">
+              {isSystemWide && selectedFarmId && (
+                <span className="text-xs font-mono bg-gray-100 text-gray-500 px-2 py-0.5 rounded">{selectedFarmId}</span>
+              )}
               <span className="text-emerald-600 font-bold">{selectedFarmInfo.name}</span>
               {selectedFarmInfo.location && (
                 <>
                   <span className="text-gray-300">|</span>
-                  <span className="text-gray-500">{selectedFarmInfo.location}</span>
+                  <span className="text-gray-500 text-sm">{selectedFarmInfo.location}</span>
                 </>
               )}
             </div>
@@ -456,8 +473,9 @@ function AppContent() {
             <AIManager farmId={farmId} />
           </div>
         )}
-        {currentPage === 'farms' && hasPermission('farms') && (
-          <div className="max-w-7xl mx-auto px-4 md:px-6 py-4 md:py-6">
+        {/* FarmManager: display:none으로 숨김 — 언마운트 방지로 페이지/스크롤 상태 유지 */}
+        {hasPermission('farms') && (
+          <div className="max-w-7xl mx-auto px-4 md:px-6 py-4 md:py-6" style={{ display: currentPage === 'farms' ? '' : 'none' }}>
             <FarmManager onNavigateFarm={(farmId, farmInfo) => { selectFarm(farmId, farmInfo); setCurrentPage('dashboard'); }} />
           </div>
         )}

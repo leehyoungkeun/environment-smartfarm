@@ -3,8 +3,8 @@ import axios from 'axios';
 import { getApiBase, getPcApiBase, getRpiApiBase, isFarmLocalMode } from '../../services/apiSwitcher';
 
 const DEFAULT_SENSOR_OPTIONS = [
-  { id: 'temp_001', name: '온도', unit: '°C', icon: '🌡️' },
-  { id: 'humidity_001', name: '습도', unit: '%', icon: '💧' },
+  { id: 'temp_0001', name: '온도', unit: '°C', icon: '🌡️' },
+  { id: 'humidity_0001', name: '습도', unit: '%', icon: '💧' },
 ];
 
 const DEVICE_TYPE_OPTIONS = [
@@ -265,6 +265,7 @@ const AutomationManager = ({ farmId }) => {
       {showForm && !editingRule && (
         <RuleForm
           farmId={farmId}
+
           rule={null}
           existingRules={rules}
           defaultTab={activeTab}
@@ -289,6 +290,7 @@ const AutomationManager = ({ farmId }) => {
                 <RuleForm
                   key={`edit-${rule._id}`}
                   farmId={farmId}
+        
                   rule={editingRule}
                   existingRules={rules}
                   defaultTab={activeTab}
@@ -583,10 +585,10 @@ const RuleCard = ({ rule, tabColor = 'violet', onEdit, onDelete }) => {
  */
 const RuleForm = ({ farmId, rule, existingRules = [], defaultTab = 'sensor', onSave, onCancel }) => {
   const defaultConditions = {
-    sensor: [{ type: 'sensor', sensorId: 'temp_001', sensorName: '온도', operator: '>', value: 30 }],
+    sensor: [{ type: 'sensor', sensorId: 'temp_0001', sensorName: '온도', operator: '>', value: 30 }],
     schedule: [{ type: 'time', timeMode: 'specific', times: ['08:00'], days: [1, 2, 3, 4, 5] }],
     custom: [
-      { type: 'sensor', sensorId: 'temp_001', sensorName: '온도', operator: '>', value: 28 },
+      { type: 'sensor', sensorId: 'temp_0001', sensorName: '온도', operator: '>', value: 28 },
       { type: 'time', timeMode: 'specific', times: ['08:00'], days: [1, 2, 3, 4, 5] },
     ],
   };
@@ -615,7 +617,7 @@ const RuleForm = ({ farmId, rule, existingRules = [], defaultTab = 'sensor', onS
   };
 
   const addCondition = (type) => {
-    const firstSensor = sensorOptions[0] || { id: 'temp_001', name: '온도' };
+    const firstSensor = sensorOptions[0] || { id: 'temp_0001', name: '온도' };
     const newCond = type === 'sensor'
       ? { type: 'sensor', sensorId: firstSensor.id, sensorName: firstSensor.name, operator: '>', value: 30, logic: 'AND' }
       : { type: 'time', timeMode: 'specific', times: ['08:00'], days: [1, 2, 3, 4, 5] };

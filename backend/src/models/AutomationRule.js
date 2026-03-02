@@ -2,6 +2,7 @@
 // 자동화 규칙 모델 - PostgreSQL (Prisma) 버전
 // API 응답 형태는 MongoDB 버전과 동일하게 유지
 
+import crypto from "crypto";
 import { prisma } from "../db.js";
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -28,7 +29,7 @@ const AutomationRule = {
   async create(data) {
     const createData = {
       farmId: data.farmId,
-      houseId: data.houseId,
+      houseId: data.houseId || null,
       name: data.name,
       description: data.description || "",
       enabled: data.enabled !== undefined ? data.enabled : true,
@@ -39,7 +40,7 @@ const AutomationRule = {
       cooldownSeconds: data.cooldownSeconds || 300,
       priority: data.priority || 10,
     };
-    if (data.id) createData.id = data.id;
+    createData.id = data.id || crypto.randomUUID();
     if (data.lastTriggeredAt) createData.lastTriggeredAt = new Date(data.lastTriggeredAt);
     if (data.triggerCount !== undefined) createData.triggerCount = data.triggerCount;
     const rule = await prisma.automationRule.create({ data: createData });

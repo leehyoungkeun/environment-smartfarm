@@ -1,5 +1,8 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import axios from 'axios';
 import { getControlLogs, getControlStats } from '../../services/controlApi';
+
+const API = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3000/api';
 
 const DEVICE_TYPE_INFO = {
   window:      { label: '1창', icon: '🪟' },
@@ -30,6 +33,67 @@ const COMMAND_INFO = {
   stop:  { label: '정지',  color: 'text-amber-700',   bg: 'bg-amber-100' },
   on:    { label: 'ON',    color: 'text-emerald-700', bg: 'bg-emerald-100' },
   off:   { label: 'OFF',   color: 'text-gray-600',    bg: 'bg-gray-100' },
+};
+
+// JSON 객체 command를 사람이 읽을 수 있는 문자열로 변환
+const parseCommand = (cmd) => {
+  // 단순 문자열이면 COMMAND_INFO 사용
+  if (typeof cmd === 'string' && COMMAND_INFO[cmd]) {
+    return COMMAND_INFO[cmd];
+  }
+
+  // JSON 문자열이면 파싱 시도
+  let obj = cmd;
+  if (typeof cmd === 'string') {
+    try { obj = JSON.parse(cmd); } catch { return { label: cmd, color: 'text-gray-600', bg: 'bg-gray-100' }; }
+  }
+
+  if (typeof obj !== 'object' || obj === null) {
+    return { label: String(cmd), color: 'text-gray-600', bg: 'bg-gray-100' };
+  }
+
+  // 양액기 상태 객체 파싱
+  const parts = [];
+  if (obj.operating_state) {
+    const stateMap = { STOPPED: '정지', RUNNING: '작동중', PAUSED: '일시정지', IDLE: '대기' };
+    parts.push(stateMap[obj.operating_state] || obj.operating_state);
+  }
+  if (obj.active_program != null) {
+    parts.push(obj.active_program ? `프로그램 ${obj.active_program}` : '프로그램 없음');
+  }
+  if (obj.valve_states && Array.isArray(obj.valve_states)) {
+    const openCount = obj.valve_states.filter(v => v === true).length;
+    parts.push(openCount > 0 ? `밸브 ${openCount}개 열림` : '밸브 전체 닫힘');
+  }
+  if (obj.pump_state && typeof obj.pump_state === 'object') {
+    const pumps = [];
+    if (obj.pump_state.raw_pump) pumps.push('원수펌프');
+    if (obj.pump_state.nutrient_pump) pumps.push('양액펌프');
+    if (pumps.length > 0) parts.push(`${pumps.join('+')} ON`);
+  }
+  if (obj.mixer_state === true) parts.push('교반기 ON');
+
+  // 일반 on/off/open/close 필드가 있는 경우
+  if (obj.command && COMMAND_INFO[obj.command]) return COMMAND_INFO[obj.command];
+  if (obj.action && COMMAND_INFO[obj.action]) return COMMAND_INFO[obj.action];
+
+  if (parts.length === 0) {
+    // 키-값 요약 (최대 3개)
+    const entries = Object.entries(obj).slice(0, 3);
+    const summary = entries.map(([k, v]) => {
+      if (typeof v === 'boolean') return `${k}: ${v ? 'ON' : 'OFF'}`;
+      return `${k}: ${v}`;
+    }).join(', ');
+    return { label: summary || JSON.stringify(obj).substring(0, 40), color: 'text-gray-600', bg: 'bg-gray-100' };
+  }
+
+  const label = parts.join(' · ');
+  const isRunning = obj.operating_state === 'RUNNING';
+  return {
+    label,
+    color: isRunning ? 'text-emerald-700' : 'text-amber-700',
+    bg: isRunning ? 'bg-emerald-100' : 'bg-amber-100',
+  };
 };
 
 const formatDuration = (ms) => {
@@ -70,6 +134,18 @@ const ControlHistory = ({ farmId }) => {
   const [stats, setStats] = useState(null);
   const [loading, setLoading] = useState(true);
   const [pagination, setPagination] = useState({ total: 0, page: 1, totalPages: 1 });
+  const [houseMap, setHouseMap] = useState({}); // houseId → houseName
+
+  // 하우스명 매핑 로드
+  useEffect(() => {
+    if (!farmId) return;
+    axios.get(`${API}/farms/${farmId}`).then(r => {
+      const houses = r.data?.data?.houses || [];
+      const map = {};
+      houses.forEach(h => { map[h.houseId] = h.houseName || h.houseId; });
+      setHouseMap(map);
+    }).catch(() => {});
+  }, [farmId]);
 
   const [filters, setFilters] = useState({
     houseId: '',
@@ -194,7 +270,7 @@ const ControlHistory = ({ farmId }) => {
           </select>
 
           <span className="text-xs text-gray-400 ml-auto">
-            총 {pagination.total}건
+            총 {pagination.total.toLocaleString()}건
           </span>
         </div>
       </div>
@@ -230,7 +306,7 @@ const ControlHistory = ({ farmId }) => {
                 <tbody>
                   {logs.map((log, idx) => {
                     const deviceInfo = DEVICE_TYPE_INFO[log.deviceType] || DEVICE_TYPE_INFO.unknown;
-                    const cmdInfo = COMMAND_INFO[log.command] || { label: log.command, color: 'text-gray-600', bg: 'bg-gray-100' };
+                    const cmdInfo = parseCommand(log.command);
 
                     return (
                       <tr
@@ -241,7 +317,7 @@ const ControlHistory = ({ farmId }) => {
                           {formatTime(log.createdAt)}
                         </td>
                         <td className="px-4 py-3 text-sm text-gray-700">
-                          {log.houseId}
+                          {houseMap[log.houseId] || log.houseId}
                         </td>
                         <td className="px-4 py-3">
                           <div className="flex items-center gap-1.5">
@@ -250,8 +326,8 @@ const ControlHistory = ({ farmId }) => {
                             <span className="text-xs text-gray-400">({deviceInfo.label})</span>
                           </div>
                         </td>
-                        <td className="px-4 py-3">
-                          <span className={`inline-flex items-center px-2.5 py-1 rounded-md text-sm font-bold ${cmdInfo.bg} ${cmdInfo.color}`}>
+                        <td className="px-4 py-3 max-w-xs">
+                          <span className={`inline-flex items-center px-2.5 py-1 rounded-md text-xs font-bold ${cmdInfo.bg} ${cmdInfo.color}`}>
                             {cmdInfo.label}
                           </span>
                         </td>
@@ -313,7 +389,7 @@ const ControlHistory = ({ farmId }) => {
                       )}
                     </div>
                     <div className="flex items-center gap-3 text-xs text-gray-500">
-                      <span>{log.houseId}</span>
+                      <span>{houseMap[log.houseId] || log.houseId}</span>
                       <span>{log.isAutomatic
                         ? `🤖 자동`
                         : `👆 ${log.operatorName || '수동'}`}</span>
@@ -361,7 +437,7 @@ const StatCard = ({ label, value, icon, color }) => (
       <span className="text-lg">{icon}</span>
       <span className="text-xs text-gray-500 font-medium uppercase tracking-wider">{label}</span>
     </div>
-    <p className={`text-2xl md:text-3xl font-bold ${color}`}>{value}</p>
+    <p className={`text-2xl md:text-3xl font-bold ${color}`}>{typeof value === 'number' ? value.toLocaleString() : value}</p>
   </div>
 );
 

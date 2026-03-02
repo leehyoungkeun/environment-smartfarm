@@ -48,11 +48,12 @@ router.get("/node-red/:farmId/:houseId", async (req, res) => {
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 router.get("/farm/:farmId", async (req, res) => {
   try {
-    logger.info("📥 하우스 목록 조회:", req.params.farmId);
+    const apiKey = req.headers["x-api-key"] || "(none)";
+    logger.info(`📥 하우스 목록 조회: farmId=${req.params.farmId}, apiKey=${apiKey.substring(0, 10)}..., isDevice=${req.isDevice}, reqFarmId=${req.farmId}, ip=${req.ip}`);
 
     const houses = await Config.find({ farmId: req.params.farmId });
 
-    logger.info(`✅ ${houses.length}개 하우스 조회 성공`);
+    logger.info(`✅ ${houses.length}개 하우스 조회 성공 (farmId=${req.params.farmId})`);
     res.json({ success: true, data: houses });
   } catch (error) {
     logger.error("❌ 하우스 목록 조회 실패:", error);
@@ -333,10 +334,16 @@ router.get("/system-settings/:farmId", async (req, res) => {
       [farmId]
     );
 
-    const defaults = { retentionDays: 60 };
-    const settings = result.rows[0]
-      ? { ...defaults, ...result.rows[0].settings }
-      : defaults;
+    const defaults = {
+      retentionDays: 60,
+      alertConfig: { enabled: true, checkIntervalMinutes: 5, cooldownMinutes: 15, criticalRatio: 0.5 },
+    };
+    const raw = result.rows[0]?.settings || {};
+    const settings = {
+      ...defaults,
+      ...raw,
+      alertConfig: { ...defaults.alertConfig, ...(raw.alertConfig || {}) },
+    };
 
     res.json({ success: true, data: settings });
   } catch (error) {
@@ -364,6 +371,29 @@ router.put("/system-settings/:farmId", async (req, res) => {
         });
       }
       settings.retentionDays = days;
+    }
+
+    // alertConfig 처리
+    const { alertConfig } = req.body;
+    if (alertConfig !== undefined) {
+      const cfg = {};
+      if (alertConfig.checkIntervalMinutes !== undefined) {
+        const v = parseInt(alertConfig.checkIntervalMinutes);
+        if (isNaN(v) || v < 1 || v > 60) return res.status(400).json({ success: false, error: "checkIntervalMinutes는 1~60 범위여야 합니다." });
+        cfg.checkIntervalMinutes = v;
+      }
+      if (alertConfig.cooldownMinutes !== undefined) {
+        const v = parseInt(alertConfig.cooldownMinutes);
+        if (isNaN(v) || v < 1 || v > 120) return res.status(400).json({ success: false, error: "cooldownMinutes는 1~120 범위여야 합니다." });
+        cfg.cooldownMinutes = v;
+      }
+      if (alertConfig.criticalRatio !== undefined) {
+        const v = parseFloat(alertConfig.criticalRatio);
+        if (isNaN(v) || v < 0.1 || v > 1.0) return res.status(400).json({ success: false, error: "criticalRatio는 0.1~1.0 범위여야 합니다." });
+        cfg.criticalRatio = v;
+      }
+      if (alertConfig.enabled !== undefined) cfg.enabled = !!alertConfig.enabled;
+      if (Object.keys(cfg).length > 0) settings.alertConfig = cfg;
     }
 
     await pool.query(

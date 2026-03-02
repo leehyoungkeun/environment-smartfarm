@@ -30,7 +30,7 @@ if (fnConfigSave) {
     msg.topic = 'INSERT OR REPLACE INTO config_cache (id, farm_id, house_id, config_json, version, updated_at) VALUES (1, $1, $2, $3, $4, $5)';
     msg.payload = [
         config.farmId || 'farm_0001',
-        config.houseId || (config.houses && config.houses[0] ? config.houses[0].houseId : 'house_001'),
+        config.houseId || (config.houses && config.houses[0] ? config.houses[0].houseId : 'house_0001'),
         JSON.stringify(config),
         config.configVersion || 1,
         new Date().toISOString()

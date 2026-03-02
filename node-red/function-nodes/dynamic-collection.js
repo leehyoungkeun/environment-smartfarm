@@ -19,7 +19,7 @@
 // 환경변수 또는 하드코딩
 const SERVER_URL = env.get('SERVER_URL') || 'http://192.168.1.101:3000';
 const FARM_ID = env.get('FARM_ID') || 'farm_0001';
-const HOUSE_ID = env.get('HOUSE_ID') || 'house_001';
+const HOUSE_ID = env.get('HOUSE_ID') || 'house_0001';
 const API_KEY = env.get('SENSOR_API_KEY') || '';
 
 // 설정 캐시 (global context)
@@ -130,17 +130,17 @@ for (const sensor of enabledSensors) {
         
         // 예시: 센서 타입에 따라 다르게 처리
         switch (sensor.sensorId) {
-            case 'temp_001':
+            case 'temp_0001':
                 // DHT22 온도 센서 읽기
                 value = readDHT22Temperature();
                 break;
-            
-            case 'humidity_001':
+
+            case 'humidity_0001':
                 // DHT22 습도 센서 읽기
                 value = readDHT22Humidity();
                 break;
-            
-            case 'co2_001':
+
+            case 'co2_0001':
                 // MH-Z19 CO2 센서 읽기
                 value = readCO2Sensor();
                 break;
@@ -179,7 +179,7 @@ for (const sensor of enabledSensors) {
 
 // 디바이스 정보
 const deviceInfo = {
-    deviceId: env.get('DEVICE_ID') || 'rpi_001',
+    deviceId: env.get('DEVICE_ID') || 'rpi_0001',
     ip: env.get('DEVICE_IP') || '192.168.1.100',
     version: '1.0.0'
 };
@@ -315,7 +315,7 @@ if (buffer.length === 0) {
 
 const SERVER_URL_6 = env.get('SERVER_URL') || 'http://192.168.1.101:3000';
 const FARM_ID_6 = env.get('FARM_ID') || 'farm_0001';
-const HOUSE_ID_6 = env.get('HOUSE_ID') || 'house_001';
+const HOUSE_ID_6 = env.get('HOUSE_ID') || 'house_0001';
 const API_KEY_6 = env.get('SENSOR_API_KEY') || '';
 
 msg.url = `${SERVER_URL_6}/api/sensors/batch`;

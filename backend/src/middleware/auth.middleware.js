@@ -217,6 +217,8 @@ export const authenticateApiKey = async (req, res, next) => {
     const validApiKey = process.env.SENSOR_API_KEY;
     if (validApiKey && apiKey === validApiKey) {
       req.isDevice = true;
+      // farmId를 요청에서 추출 (URL 파라미터 > body > query > env 기본값)
+      req.farmId = req.params?.farmId || req.body?.farmId || req.query?.farmId || process.env.FARM_ID || "farm_0001";
       return next();
     }
   }

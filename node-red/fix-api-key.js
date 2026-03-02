@@ -30,7 +30,7 @@ const farmIdEntry = {
 
 const houseIdEntry = {
   name: 'HOUSE_ID',
-  value: 'house_001',
+  value: 'house_0001',
   type: 'str'
 };
 

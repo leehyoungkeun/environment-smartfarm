@@ -132,11 +132,11 @@ const ConfigurationManager = ({ farmId = import.meta.env.VITE_FARM_ID || 'farm_0
         collection: { intervalSeconds: 60, method: 'http', retryAttempts: 3 },
         sensors: [
           {
-            sensorId: 'temp_001', name: '온도', unit: '°C', type: 'number',
+            sensorId: 'temp_0001', name: '온도', unit: '°C', type: 'number',
             min: -10, max: 50, enabled: true, order: 1, icon: '🌡️', color: '#EF4444', precision: 1
           },
           {
-            sensorId: 'humidity_001', name: '습도', unit: '%', type: 'number',
+            sensorId: 'humidity_0001', name: '습도', unit: '%', type: 'number',
             min: 0, max: 100, enabled: true, order: 2, icon: '💧', color: '#3B82F6', precision: 1
           }
         ]
@@ -192,6 +192,7 @@ const ConfigurationManager = ({ farmId = import.meta.env.VITE_FARM_ID || 'farm_0
   const tabs = [
     { id: 'houses', label: '하우스/센서', icon: '🏠' },
     { id: 'automation', label: '자동화규칙', icon: '🤖' },
+    { id: 'alerts', label: '알림설정', icon: '🔔' },
     { id: 'system', label: '시스템', icon: '⚙️' },
   ];
 
@@ -293,6 +294,11 @@ const ConfigurationManager = ({ farmId = import.meta.env.VITE_FARM_ID || 'farm_0
         <Suspense fallback={<div className="skeleton h-96 rounded-2xl" />}>
           <AutomationManager farmId={farmId} />
         </Suspense>
+      )}
+
+      {/* 알림설정 탭 */}
+      {activeTab === 'alerts' && (
+        <AlertSettingsTab farmId={farmId} houses={houses} onHousesUpdate={loadHouses} />
       )}
 
       {/* 시스템 설정 탭 */}
@@ -709,7 +715,7 @@ return msg;`}</pre>
                     <label className="text-xs text-gray-500 mb-1 block">센서 ID</label>
                     <input type="text" value={newSensor.sensorId}
                       onChange={(e) => setNewSensor({ ...newSensor, sensorId: e.target.value })}
-                      className="input-field text-sm" placeholder="예: co2_001" />
+                      className="input-field text-sm" placeholder="예: co2_0001" />
                   </div>
                   <div>
                     <label className="text-xs text-gray-500 mb-1 block">이름</label>
@@ -1433,6 +1439,262 @@ const SystemSettings = () => {
       >
         {saved ? '저장 완료' : '저장'}
       </button>
+    </div>
+  );
+};
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// AlertSettingsTab — 알림 설정 (농장 전체 + 하우스별 센서)
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+const CHECK_PRESETS = [
+  { value: 1, label: '1분' },
+  { value: 3, label: '3분' },
+  { value: 5, label: '5분' },
+  { value: 10, label: '10분' },
+];
+const COOLDOWN_PRESETS = [
+  { value: 5, label: '5분' },
+  { value: 15, label: '15분' },
+  { value: 30, label: '30분' },
+  { value: 60, label: '1시간' },
+];
+const CRITICAL_PRESETS = [
+  { value: 0.3, label: '30%', desc: '민감' },
+  { value: 0.5, label: '50%', desc: '기본' },
+  { value: 0.7, label: '70%', desc: '둔감' },
+];
+
+const AlertSettingsTab = ({ farmId, houses, onHousesUpdate }) => {
+  const [alertConfig, setAlertConfig] = useState({ enabled: true, checkIntervalMinutes: 5, cooldownMinutes: 15, criticalRatio: 0.5 });
+  const [serverConfig, setServerConfig] = useState(null);
+  const [configLoading, setConfigLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+
+  const [selectedHouseId, setSelectedHouseId] = useState(null);
+  const [editedSensors, setEditedSensors] = useState([]);
+  const [sensorsDirty, setSensorsDirty] = useState(false);
+  const [sensorSaving, setSensorSaving] = useState(false);
+
+  // 농장 알림 설정 로드
+  useEffect(() => {
+    (async () => {
+      setConfigLoading(true);
+      try {
+        const res = await axios.get(`${getApiBase()}/config/system-settings/${farmId}`, { timeout: 5000 });
+        if (res.data.success && res.data.data?.alertConfig) {
+          const cfg = { enabled: true, checkIntervalMinutes: 5, cooldownMinutes: 15, criticalRatio: 0.5, ...res.data.data.alertConfig };
+          setAlertConfig(cfg);
+          setServerConfig(cfg);
+        }
+      } catch (e) { console.warn('알림 설정 로드 실패:', e.message); }
+      finally { setConfigLoading(false); }
+    })();
+  }, [farmId]);
+
+  const configDirty = serverConfig ? JSON.stringify(alertConfig) !== JSON.stringify(serverConfig) : false;
+
+  const saveConfig = async () => {
+    setSaving(true);
+    try {
+      const res = await rpiApi('put', `/config/system-settings/${farmId}`, { alertConfig });
+      if (res.data.success) {
+        setServerConfig({ ...alertConfig });
+        alert('알림 설정이 저장되었습니다.');
+      }
+    } catch (e) { alert('저장 실패: ' + (e.response?.data?.error || e.message)); }
+    finally { setSaving(false); }
+  };
+
+  // 하우스 선택 시 센서 로드
+  useEffect(() => {
+    if (!selectedHouseId) return;
+    const house = houses.find(h => h.houseId === selectedHouseId);
+    if (house) {
+      setEditedSensors((house.sensors || []).map(s => ({ ...s, alertEnabled: s.alertEnabled !== false })));
+      setSensorsDirty(false);
+    }
+  }, [selectedHouseId, houses]);
+
+  const updateSensor = (sensorId, field, value) => {
+    setEditedSensors(prev => prev.map(s => s.sensorId === sensorId ? { ...s, [field]: value } : s));
+    setSensorsDirty(true);
+  };
+
+  const saveSensors = async () => {
+    setSensorSaving(true);
+    try {
+      const house = houses.find(h => h.houseId === selectedHouseId);
+      const res = await rpiApi('put', `/config/${selectedHouseId}?farmId=${farmId}`, { ...house, sensors: editedSensors });
+      if (res.data.success) { onHousesUpdate(); setSensorsDirty(false); alert('센서 임계값이 저장되었습니다.'); }
+    } catch (e) { alert('저장 실패: ' + (e.response?.data?.error || e.message)); }
+    finally { setSensorSaving(false); }
+  };
+
+  const PresetButtons = ({ presets, value, onChange, activeColor = 'bg-blue-600 text-white border-blue-600' }) => (
+    <div className="flex flex-wrap gap-2">
+      {presets.map(p => (
+        <button key={p.value} onClick={() => onChange(p.value)}
+          className={`px-3 py-1.5 rounded-lg text-sm font-semibold transition-all border ${
+            value === p.value ? activeColor + ' shadow-sm' : 'bg-white text-gray-600 border-gray-200 hover:border-blue-300 hover:bg-blue-50'
+          }`}>
+          {p.label}{p.desc ? ` · ${p.desc}` : ''}
+        </button>
+      ))}
+    </div>
+  );
+
+  return (
+    <div className="grid grid-cols-1 lg:grid-cols-3 gap-5 animate-fade-in-up">
+      {/* 좌측: 농장 설정 + 하우스 목록 */}
+      <div className="lg:col-span-1 space-y-4">
+        <div className="glass-card p-4 md:p-5">
+          <h2 className="text-lg font-bold text-gray-800 mb-4">농장 알림 설정</h2>
+          {configLoading ? (
+            <div className="space-y-3">{[...Array(3)].map((_, i) => <div key={i} className="skeleton h-12 rounded-xl" />)}</div>
+          ) : (
+            <>
+              {/* 알림 ON/OFF */}
+              <div className="flex items-center justify-between bg-gray-50 rounded-xl p-4 border border-gray-200 mb-4">
+                <div className="flex items-center gap-3">
+                  <span className="text-2xl">🔔</span>
+                  <div>
+                    <p className="text-sm font-bold text-gray-800">센서 알림</p>
+                    <p className="text-xs text-gray-500">{alertConfig.enabled ? '활성 - 임계값 초과 시 알림 생성' : '비활성 - 알림 중지됨'}</p>
+                  </div>
+                </div>
+                <button onClick={() => setAlertConfig(p => ({ ...p, enabled: !p.enabled }))}
+                  className={`relative w-14 h-7 rounded-full transition-all ${alertConfig.enabled ? 'bg-blue-500' : 'bg-gray-300'}`}>
+                  <span className={`absolute top-0.5 w-6 h-6 bg-white rounded-full shadow transition-all ${alertConfig.enabled ? 'left-7' : 'left-0.5'}`} />
+                </button>
+              </div>
+
+              {alertConfig.enabled && (
+                <>
+                  {/* 체크 간격 */}
+                  <div className="mb-4">
+                    <label className="text-sm text-gray-600 font-semibold mb-1 block">알림 체크 간격</label>
+                    <p className="text-xs text-gray-400 mb-2"><span className="text-blue-600 font-bold">{alertConfig.checkIntervalMinutes}분</span>마다 센서 데이터 확인</p>
+                    <PresetButtons presets={CHECK_PRESETS} value={alertConfig.checkIntervalMinutes}
+                      onChange={v => setAlertConfig(p => ({ ...p, checkIntervalMinutes: v }))} />
+                  </div>
+                  {/* 쿨다운 */}
+                  <div className="mb-4">
+                    <label className="text-sm text-gray-600 font-semibold mb-1 block">중복 알림 방지 (쿨다운)</label>
+                    <p className="text-xs text-gray-400 mb-2">같은 센서 <span className="text-orange-500 font-bold">{alertConfig.cooldownMinutes}분</span> 이내 중복 차단</p>
+                    <PresetButtons presets={COOLDOWN_PRESETS} value={alertConfig.cooldownMinutes}
+                      onChange={v => setAlertConfig(p => ({ ...p, cooldownMinutes: v }))}
+                      activeColor="bg-orange-500 text-white border-orange-500" />
+                  </div>
+                  {/* CRITICAL 비율 */}
+                  <div className="mb-4">
+                    <label className="text-sm text-gray-600 font-semibold mb-1 block">심각(CRITICAL) 판정 기준</label>
+                    <p className="text-xs text-gray-400 mb-2">임계범위의 <span className="text-red-500 font-bold">{Math.round(alertConfig.criticalRatio * 100)}%</span> 이상 벗어나면 심각</p>
+                    <PresetButtons presets={CRITICAL_PRESETS} value={alertConfig.criticalRatio}
+                      onChange={v => setAlertConfig(p => ({ ...p, criticalRatio: v }))}
+                      activeColor="bg-red-500 text-white border-red-500" />
+                  </div>
+                  {/* 안내 */}
+                  <div className="bg-blue-50 border border-blue-200 rounded-xl p-3 mb-4">
+                    <p className="text-xs text-blue-600"><span className="font-bold">💡 예시:</span> 온도 범위 5~40°C, 심각기준 {Math.round(alertConfig.criticalRatio * 100)}% → {Math.round((40 - 5) * alertConfig.criticalRatio)}°C 이상 초과 시 CRITICAL</p>
+                  </div>
+                </>
+              )}
+              <button onClick={saveConfig} disabled={!configDirty || saving}
+                className={`w-full py-2.5 rounded-xl text-base font-bold transition-all active:scale-[0.97] ${
+                  configDirty ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/20 hover:bg-blue-700' : 'bg-gray-100 text-gray-400 border border-gray-200 cursor-default'
+                }`}>{saving ? '저장 중...' : configDirty ? '💾 설정 저장' : '저장 완료'}</button>
+            </>
+          )}
+        </div>
+
+        {/* 하우스 목록 */}
+        <div className="glass-card p-4 md:p-5">
+          <h2 className="text-base font-bold text-gray-700 mb-3">하우스별 센서 임계값</h2>
+          {houses.length === 0 ? (
+            <p className="text-sm text-gray-400 text-center py-4">하우스가 없습니다</p>
+          ) : (
+            <div className="space-y-2">
+              {houses.map(h => (
+                <button key={h.houseId} onClick={() => setSelectedHouseId(h.houseId)}
+                  className={`w-full text-left px-4 py-3 rounded-xl transition-all ${
+                    selectedHouseId === h.houseId ? 'bg-blue-50 border-2 border-blue-400 shadow-sm' : 'bg-gray-50 border border-gray-200 hover:bg-gray-100'
+                  }`}>
+                  <p className="text-sm font-bold text-gray-800">{h.houseName || h.houseId}</p>
+                  <p className="text-xs text-gray-500">
+                    센서 {(h.sensors || []).length}개 · 알림 {(h.sensors || []).filter(s => s.alertEnabled !== false).length}개 활성
+                  </p>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* 우측: 센서별 임계값 편집 */}
+      <div className="lg:col-span-2">
+        {selectedHouseId ? (
+          <div className="glass-card p-4 md:p-5 animate-fade-in-up">
+            <h2 className="text-lg font-bold text-gray-800 mb-4">
+              {houses.find(h => h.houseId === selectedHouseId)?.houseName || selectedHouseId} — 센서 알림 설정
+            </h2>
+            {editedSensors.length === 0 ? (
+              <p className="text-sm text-gray-400 text-center py-8">등록된 센서가 없습니다</p>
+            ) : (
+              <div className="space-y-3">
+                {editedSensors.map(sensor => (
+                  <div key={sensor.sensorId}
+                    className={`rounded-xl border-2 p-4 transition-all ${sensor.alertEnabled ? 'bg-white border-gray-200' : 'bg-gray-50 border-gray-100 opacity-50'}`}>
+                    <div className="flex items-center justify-between mb-3">
+                      <div className="flex items-center gap-3">
+                        <span className="text-2xl">{sensor.icon || '📡'}</span>
+                        <div>
+                          <p className="text-sm font-bold text-gray-800">{sensor.name}</p>
+                          <p className="text-xs text-gray-400">{sensor.sensorId} · {sensor.unit}</p>
+                        </div>
+                      </div>
+                      <button onClick={() => updateSensor(sensor.sensorId, 'alertEnabled', !sensor.alertEnabled)}
+                        className={`relative w-12 h-6 rounded-full transition-all ${sensor.alertEnabled ? 'bg-blue-500' : 'bg-gray-300'}`}>
+                        <span className={`absolute top-0.5 w-5 h-5 bg-white rounded-full shadow transition-all ${sensor.alertEnabled ? 'left-6' : 'left-0.5'}`} />
+                      </button>
+                    </div>
+                    {sensor.alertEnabled && (
+                      <div className="grid grid-cols-2 gap-4">
+                        <div>
+                          <label className="text-xs text-gray-500 font-semibold mb-1 block">하한 (최소값)</label>
+                          <div className="flex items-center gap-2">
+                            <input type="number" value={sensor.min ?? ''} step="any"
+                              onChange={e => updateSensor(sensor.sensorId, 'min', e.target.value === '' ? null : parseFloat(e.target.value))}
+                              className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm font-mono focus:ring-2 focus:ring-blue-400 focus:border-blue-400 outline-none" />
+                            <span className="text-xs text-gray-400 whitespace-nowrap">{sensor.unit}</span>
+                          </div>
+                        </div>
+                        <div>
+                          <label className="text-xs text-gray-500 font-semibold mb-1 block">상한 (최대값)</label>
+                          <div className="flex items-center gap-2">
+                            <input type="number" value={sensor.max ?? ''} step="any"
+                              onChange={e => updateSensor(sensor.sensorId, 'max', e.target.value === '' ? null : parseFloat(e.target.value))}
+                              className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm font-mono focus:ring-2 focus:ring-blue-400 focus:border-blue-400 outline-none" />
+                            <span className="text-xs text-gray-400 whitespace-nowrap">{sensor.unit}</span>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+            <button onClick={saveSensors} disabled={!sensorsDirty || sensorSaving}
+              className={`w-full mt-4 py-2.5 rounded-xl text-base font-bold transition-all active:scale-[0.97] ${
+                sensorsDirty ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/20 hover:bg-blue-700' : 'bg-gray-100 text-gray-400 border border-gray-200 cursor-default'
+              }`}>{sensorSaving ? '저장 중...' : sensorsDirty ? '💾 센서 임계값 저장' : '변경 없음'}</button>
+          </div>
+        ) : (
+          <div className="glass-card p-12 text-center">
+            <div className="text-4xl mb-4 opacity-30">🔔</div>
+            <p className="text-gray-400 text-base">왼쪽에서 하우스를 선택하여<br/>센서별 알림 임계값을 설정하세요</p>
+          </div>
+        )}
+      </div>
     </div>
   );
 };

@@ -36,7 +36,7 @@
         "type": "function",
         "z": "automation_eval_flow",
         "name": "테스트 센서 데이터",
-        "func": "msg.sensorData = {\n    farmId: env.get('FARM_ID') || 'farm_0001',\n    houseId: env.get('HOUSE_ID') || 'house_001',\n    data: { temp_001: 32.5, humidity_001: 65.0 }\n};\nreturn msg;",
+        "func": "msg.sensorData = {\n    farmId: env.get('FARM_ID') || 'farm_0001',\n    houseId: env.get('HOUSE_ID') || 'house_0001',\n    data: { temp_0001: 32.5, humidity_0001: 65.0 }\n};\nreturn msg;",
         "outputs": 1,
         "x": 410,
         "y": 160,

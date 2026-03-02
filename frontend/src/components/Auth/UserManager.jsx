@@ -745,19 +745,38 @@ const UserForm = ({ user, creatableRoles, roleHierarchy, isSystemWide, currentFa
   const [error, setError] = useState('');
 
   // 아이디 중복 확인
-  const usernameStatus = useMemo(() => {
-    if (user) return null;
+  const [usernameCheck, setUsernameCheck] = useState({ checked: false, checking: false, available: false, msg: '' });
+  const [lastCheckedName, setLastCheckedName] = useState('');
+
+  const checkUsername = async () => {
     const val = form.username.trim();
-    if (!val) return null;
-    if (val.length < 3) return { ok: false, msg: '3자 이상 입력' };
-    if (existingUsernames.includes(val)) return { ok: false, msg: '이미 사용 중' };
-    return { ok: true, msg: '사용 가능' };
-  }, [form.username, existingUsernames, user]);
+    if (!val || val.length < 3) {
+      setUsernameCheck({ checked: true, checking: false, available: false, msg: '3자 이상 입력해주세요' });
+      return;
+    }
+    setUsernameCheck({ checked: false, checking: true, available: false, msg: '' });
+    try {
+      const res = await axios.get(`${API_BASE_URL}/auth/check-username/${encodeURIComponent(val)}`);
+      const { available, reason } = res.data.data;
+      setUsernameCheck({ checked: true, checking: false, available, msg: reason });
+      setLastCheckedName(val);
+    } catch {
+      const taken = existingUsernames.includes(val);
+      setUsernameCheck({ checked: true, checking: false, available: !taken, msg: taken ? '이미 사용 중인 아이디입니다' : '사용 가능한 아이디입니다' });
+      setLastCheckedName(val);
+    }
+  };
+
+  const handleUsernameChange = (e) => {
+    setForm({ ...form, username: e.target.value });
+    if (usernameCheck.checked) setUsernameCheck({ checked: false, checking: false, available: false, msg: '' });
+  };
 
   const handleSave = async () => {
     if (!form.username || !form.name) return setError('ID와 이름은 필수입니다');
     if (!user && !form.password) return setError('비밀번호는 필수입니다');
-    if (!user && usernameStatus && !usernameStatus.ok) return setError('사용할 수 없는 아이디입니다');
+    if (!user && (!usernameCheck.checked || !usernameCheck.available)) return setError('아이디 중복확인을 해주세요');
+    if (!user && form.username.trim() !== lastCheckedName) return setError('아이디가 변경되었습니다. 중복확인을 다시 해주세요');
     setSaving(true); setError('');
     try {
       const data = { ...form };
@@ -774,40 +793,48 @@ const UserForm = ({ user, creatableRoles, roleHierarchy, isSystemWide, currentFa
   return (
     <div className="glass-card p-5 mb-5 border border-indigo-200 animate-fade-in-up">
       <h2 className="text-base font-bold text-indigo-700 mb-4">{user ? '사용자 수정' : '새 사용자 추가'}</h2>
-      <div className="grid grid-cols-2 gap-3 mb-3">
+      <div className="grid grid-cols-2 gap-4 mb-3">
         <div>
-          <label className="text-[10px] text-gray-600 mb-1 block font-medium">사용자 ID</label>
-          <div className="relative">
+          <label className="text-xs text-gray-600 mb-1 block font-medium">사용자 ID</label>
+          <div className="flex gap-2">
             <input type="text" value={form.username} disabled={!!user}
-              onChange={(e) => setForm({ ...form, username: e.target.value })}
-              className={`input-field text-xs disabled:opacity-50 pr-7 ${usernameStatus ? (usernameStatus.ok ? 'ring-1 ring-green-400 border-green-400' : 'ring-1 ring-red-400 border-red-400') : ''}`} placeholder="worker01" />
-            {usernameStatus && (
-              <span className={`absolute right-2 top-1/2 -translate-y-1/2 ${usernameStatus.ok ? 'text-green-600' : 'text-red-500'}`}>
-                {usernameStatus.ok
-                  ? <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" /></svg>
-                  : <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M6 18L18 6M6 6l12 12" /></svg>}
-              </span>
+              onChange={handleUsernameChange}
+              onKeyDown={(e) => { if (e.key === 'Enter' && !user) { e.preventDefault(); checkUsername(); } }}
+              className={`input-field text-sm disabled:opacity-50 flex-[2] min-w-0 ${usernameCheck.checked ? (usernameCheck.available ? 'ring-1 ring-green-400 border-green-400' : 'ring-1 ring-red-400 border-red-400') : ''}`} placeholder="worker01" />
+            {!user && (
+              <button type="button" onClick={checkUsername} disabled={usernameCheck.checking || !form.username.trim()}
+                className={`flex-1 py-1.5 text-xs font-medium rounded-lg border whitespace-nowrap transition-all disabled:opacity-40
+                  ${usernameCheck.checked && usernameCheck.available
+                    ? 'bg-green-50 text-green-700 border-green-300'
+                    : 'bg-indigo-50 text-indigo-700 border-indigo-200 hover:bg-indigo-100 active:scale-95'}`}>
+                {usernameCheck.checking ? '확인 중…' : usernameCheck.checked && usernameCheck.available ? '✓ 확인됨' : '중복확인'}
+              </button>
             )}
           </div>
-          {usernameStatus && (
-            <p className={`text-[10px] mt-0.5 ${usernameStatus.ok ? 'text-green-600' : 'text-red-500'}`}>{usernameStatus.msg}</p>
+          {usernameCheck.checked && (
+            <p className={`text-[10px] mt-1 flex items-center gap-1 ${usernameCheck.available ? 'text-green-600' : 'text-red-500'}`}>
+              {usernameCheck.available
+                ? <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" /></svg>
+                : <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M6 18L18 6M6 6l12 12" /></svg>}
+              {usernameCheck.msg}
+            </p>
           )}
         </div>
         <div>
-          <label className="text-[10px] text-gray-600 mb-1 block font-medium">{user ? '새 비밀번호 (변경 시)' : '비밀번호'}</label>
+          <label className="text-xs text-gray-600 mb-1 block font-medium">{user ? '새 비밀번호 (변경 시)' : '비밀번호'}</label>
           <input type="password" value={form.password}
             onChange={(e) => setForm({ ...form, password: e.target.value })}
-            className="input-field text-xs" placeholder="••••" />
+            className="input-field text-sm" placeholder="••••" />
         </div>
         <div>
-          <label className="text-[10px] text-gray-600 mb-1 block font-medium">이름</label>
+          <label className="text-xs text-gray-600 mb-1 block font-medium">이름</label>
           <input type="text" value={form.name}
             onChange={(e) => setForm({ ...form, name: e.target.value })}
-            className="input-field text-xs" placeholder="홍길동" />
+            className="input-field text-sm" placeholder="홍길동" />
         </div>
         <div>
-          <label className="text-[10px] text-gray-600 mb-1 block font-medium">역할</label>
-          <select value={form.role} onChange={(e) => setForm({ ...form, role: e.target.value })} className="input-field text-xs">
+          <label className="text-xs text-gray-600 mb-1 block font-medium">역할</label>
+          <select value={form.role} onChange={(e) => setForm({ ...form, role: e.target.value })} className="input-field text-sm">
             {creatableRoles.map(role => (
               <option key={role} value={role}>{getRoleLabel(role)}</option>
             ))}
@@ -815,10 +842,10 @@ const UserForm = ({ user, creatableRoles, roleHierarchy, isSystemWide, currentFa
         </div>
         {isSystemWide && (
           <div className="col-span-2">
-            <label className="text-[10px] text-gray-600 mb-1 block font-medium">소속 농장 ID</label>
+            <label className="text-xs text-gray-600 mb-1 block font-medium">소속 농장 ID</label>
             <input type="text" value={form.farmId}
               onChange={(e) => setForm({ ...form, farmId: e.target.value })}
-              className="input-field text-xs" placeholder="farm_0001" />
+              className="input-field text-sm" placeholder="farm_0001" />
           </div>
         )}
       </div>
@@ -846,14 +873,34 @@ const UserFormLight = ({ user, creatableRoles, roleHierarchy, isSystemWide, curr
   const [error, setError] = useState('');
 
   // 아이디 중복 확인
-  const usernameStatus = useMemo(() => {
-    if (user) return null; // 수정 모드에서는 체크 불필요
+  const [usernameCheck, setUsernameCheck] = useState({ checked: false, checking: false, available: false, msg: '' });
+  const [lastCheckedName, setLastCheckedName] = useState('');
+
+  const checkUsername = async () => {
     const val = form.username.trim();
-    if (!val) return null;
-    if (val.length < 3) return { ok: false, msg: '3자 이상 입력' };
-    if (existingUsernames.includes(val)) return { ok: false, msg: '이미 사용 중' };
-    return { ok: true, msg: '사용 가능' };
-  }, [form.username, existingUsernames, user]);
+    if (!val || val.length < 3) {
+      setUsernameCheck({ checked: true, checking: false, available: false, msg: '3자 이상 입력해주세요' });
+      return;
+    }
+    setUsernameCheck({ checked: false, checking: true, available: false, msg: '' });
+    try {
+      const res = await axios.get(`${API_BASE_URL}/auth/check-username/${encodeURIComponent(val)}`);
+      const { available, reason } = res.data.data;
+      setUsernameCheck({ checked: true, checking: false, available, msg: reason });
+      setLastCheckedName(val);
+    } catch {
+      // API 실패 시 클라이언트 사이드 fallback
+      const taken = existingUsernames.includes(val);
+      setUsernameCheck({ checked: true, checking: false, available: !taken, msg: taken ? '이미 사용 중인 아이디입니다' : '사용 가능한 아이디입니다' });
+      setLastCheckedName(val);
+    }
+  };
+
+  // 아이디 변경 시 체크 상태 초기화
+  const handleUsernameChange = (e) => {
+    setForm({ ...form, username: e.target.value });
+    if (usernameCheck.checked) setUsernameCheck({ checked: false, checking: false, available: false, msg: '' });
+  };
 
   // 농장 검색 상태
   const [farms, setFarms] = useState([]);
@@ -911,7 +958,8 @@ const UserFormLight = ({ user, creatableRoles, roleHierarchy, isSystemWide, curr
   const handleSave = async () => {
     if (!form.username || !form.name) return setError('ID와 이름은 필수입니다');
     if (!user && !form.password) return setError('비밀번호는 필수입니다');
-    if (!user && usernameStatus && !usernameStatus.ok) return setError('사용할 수 없는 아이디입니다');
+    if (!user && (!usernameCheck.checked || !usernameCheck.available)) return setError('아이디 중복확인을 해주세요');
+    if (!user && form.username.trim() !== lastCheckedName) return setError('아이디가 변경되었습니다. 중복확인을 다시 해주세요');
     if (isSystemWide && !form.farmId) return setError('소속 농장을 선택해주세요');
     setSaving(true); setError('');
     try {
@@ -1029,20 +1077,28 @@ const UserFormLight = ({ user, creatableRoles, roleHierarchy, isSystemWide, curr
         <div className="grid grid-cols-2 gap-4">
           <div>
             <label className="text-xs text-gray-600 mb-1 block font-medium">사용자 ID</label>
-            <div className="relative">
+            <div className="flex gap-2">
               <input type="text" value={form.username} disabled={!!user}
-                onChange={(e) => setForm({ ...form, username: e.target.value })}
-                className={`${inputCls} pr-8 ${usernameStatus ? (usernameStatus.ok ? 'ring-1 ring-green-400 border-green-400' : 'ring-1 ring-red-400 border-red-400') : ''}`} placeholder="worker01" />
-              {usernameStatus && (
-                <span className={`absolute right-2 top-1/2 -translate-y-1/2 text-xs font-medium ${usernameStatus.ok ? 'text-green-600' : 'text-red-500'}`}>
-                  {usernameStatus.ok
-                    ? <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" /></svg>
-                    : <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M6 18L18 6M6 6l12 12" /></svg>}
-                </span>
+                onChange={handleUsernameChange}
+                onKeyDown={(e) => { if (e.key === 'Enter' && !user) { e.preventDefault(); checkUsername(); } }}
+                className={`${inputCls} flex-[2] min-w-0 ${usernameCheck.checked ? (usernameCheck.available ? 'ring-1 ring-green-400 border-green-400' : 'ring-1 ring-red-400 border-red-400') : ''}`} placeholder="worker01" />
+              {!user && (
+                <button type="button" onClick={checkUsername} disabled={usernameCheck.checking || !form.username.trim()}
+                  className={`flex-1 py-1.5 text-xs font-medium rounded-lg border whitespace-nowrap transition-all disabled:opacity-40
+                    ${usernameCheck.checked && usernameCheck.available
+                      ? 'bg-green-50 text-green-700 border-green-300'
+                      : 'bg-indigo-50 text-indigo-700 border-indigo-200 hover:bg-indigo-100 active:scale-95'}`}>
+                  {usernameCheck.checking ? '확인 중…' : usernameCheck.checked && usernameCheck.available ? '✓ 확인됨' : '중복확인'}
+                </button>
               )}
             </div>
-            {usernameStatus && (
-              <p className={`text-[10px] mt-0.5 ${usernameStatus.ok ? 'text-green-600' : 'text-red-500'}`}>{usernameStatus.msg}</p>
+            {usernameCheck.checked && (
+              <p className={`text-[10px] mt-1 flex items-center gap-1 ${usernameCheck.available ? 'text-green-600' : 'text-red-500'}`}>
+                {usernameCheck.available
+                  ? <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" /></svg>
+                  : <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M6 18L18 6M6 6l12 12" /></svg>}
+                {usernameCheck.msg}
+              </p>
             )}
           </div>
           <div>

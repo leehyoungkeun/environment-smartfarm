@@ -710,7 +710,29 @@
     "type": "tab",
     "label": "센서 수집 (오프라인)",
     "disabled": false,
-    "info": "센서 데이터 수집 → SQLite 항상 저장\n온라인: SQLite + 서버 전송\n오프라인: SQLite만 저장\n\n수집 주기: 10분 (600초)"
+    "info": "센서 데이터 수집 → SQLite 항상 저장\n온라인: SQLite + 서버 전송\n오프라인: SQLite만 저장\n\n수집 주기: 10분 (600초)",
+    "env": [
+      {
+        "name": "SENSOR_API_KEY",
+        "value": "smartfarm-sensor-key",
+        "type": "str"
+      },
+      {
+        "name": "SERVER_URL",
+        "value": "http://192.168.137.1:3000",
+        "type": "str"
+      },
+      {
+        "name": "FARM_ID",
+        "value": "farm_0001",
+        "type": "str"
+      },
+      {
+        "name": "HOUSE_ID",
+        "value": "house_0001",
+        "type": "str"
+      }
+    ]
   },
   {
     "id": "inject_collect",
@@ -764,7 +786,7 @@
     "type": "function",
     "z": "collection_offline_flow",
     "name": "① 설정 로드",
-    "func": "const SERVER_URL = env.get('SERVER_URL') || 'http://192.168.137.1:3000';\nconst FARM_ID = env.get('FARM_ID') || 'farm_0001';\nconst HOUSE_ID = env.get('HOUSE_ID') || 'house_001';\nconst API_KEY = env.get('SENSOR_API_KEY') || 'smartfarm-sensor-key';\n\n// operationMode가 아직 설정 안 된 경우 (재시작 직후)\n// serverOnline도 체크하여 기본값 결정\nconst serverOnline = global.get('serverOnline');\nconst operationMode = global.get('operationMode') || (serverOnline === true ? 'online' : 'offline');\n\nif (operationMode === 'online') {\n    // 온라인: 서버에서 설정 가져오기\n    msg.url = `${SERVER_URL}/api/config/${HOUSE_ID}?farmId=${FARM_ID}`;\n    msg.method = 'GET';\n    msg.headers = { 'Content-Type': 'application/json', 'x-api-key': API_KEY };\n    node.status({ fill: 'blue', shape: 'dot', text: '온라인: 서버 config 요청' });\n    return [msg, null, null]; // 출력1: HTTP Request\n} else {\n    // 오프라인: global 캐시 → SQLite 캐시\n    const cachedConfig = global.get('houseConfig');\n    if (cachedConfig) {\n        msg.config = cachedConfig;\n        node.status({ fill: 'yellow', shape: 'dot', text: '오프라인: global 캐시 사용' });\n        return [null, msg, null]; // 출력2: 센서 수집으로\n    } else {\n        // SQLite config_cache에서 로드\n        msg.topic = 'SELECT config_json FROM config_cache ORDER BY version DESC LIMIT 1';\n        node.status({ fill: 'yellow', shape: 'ring', text: '오프라인: SQLite 캐시 조회' });\n        return [null, null, msg]; // 출력3: SQLite 조회\n    }\n}",
+    "func": "const SERVER_URL = env.get('SERVER_URL') || 'http://192.168.137.1:3000';\nconst FARM_ID = env.get('FARM_ID') || 'farm_0001';\nconst HOUSE_ID = env.get('HOUSE_ID') || 'house_0001';\nconst API_KEY = env.get('SENSOR_API_KEY') || 'smartfarm-sensor-key';\n\n// operationMode가 아직 설정 안 된 경우 (재시작 직후)\n// serverOnline도 체크하여 기본값 결정\nconst serverOnline = global.get('serverOnline');\nconst operationMode = global.get('operationMode') || (serverOnline === true ? 'online' : 'offline');\n\nnode.warn('🔍 ① 모드=' + operationMode + ', serverOnline=' + serverOnline + ', FARM_ID=' + FARM_ID + ', API_KEY=' + (API_KEY ? API_KEY.substring(0,10) + '...' : 'EMPTY'));\n\nif (operationMode === 'online') {\n    // 온라인: 서버에서 설정 가져오기\n    msg.url = `${SERVER_URL}/api/config/farm/${FARM_ID}`;\n    msg.method = 'GET';\n    msg.headers = { 'Content-Type': 'application/json', 'x-api-key': API_KEY };\n    node.warn('🔍 ① URL=' + msg.url);\n    node.status({ fill: 'blue', shape: 'dot', text: '온라인: 서버 config 요청' });\n    return [msg, null, null]; // 출력1: HTTP Request\n} else {\n    // 오프라인: global 캐시 → SQLite 캐시\n    const cachedConfig = global.get('houseConfig');\n    if (cachedConfig) {\n        msg.config = cachedConfig;\n        node.status({ fill: 'yellow', shape: 'dot', text: '오프라인: global 캐시 사용' });\n        return [null, msg, null]; // 출력2: 센서 수집으로\n    } else {\n        // SQLite config_cache에서 로드\n        msg.topic = 'SELECT config_json FROM config_cache ORDER BY version DESC LIMIT 1';\n        node.status({ fill: 'yellow', shape: 'ring', text: '오프라인: SQLite 캐시 조회' });\n        return [null, null, msg]; // 출력3: SQLite 조회\n    }\n}",
     "outputs": 3,
     "outputLabels": [
       "서버 요청 (온라인)",
@@ -814,11 +836,12 @@
     "type": "function",
     "z": "collection_offline_flow",
     "name": "② 설정 응답 처리",
-    "func": "if (msg.statusCode !== 200) {\n    const cachedConfig = global.get('houseConfig');\n    if (cachedConfig) {\n        node.warn('⚠️ 서버 응답 실패, 캐시된 설정 사용');\n        msg.config = cachedConfig;\n        return [msg, null];\n    }\n    node.error('❌ 서버 응답 실패, 캐시도 없음');\n    return [null, null];\n}\n\nconst response = msg.payload;\nif (!response.success) {\n    node.error('설정 오류: ' + (response.error || 'unknown'));\n    return [null, null];\n}\n\nconst config = response.data;\n\n// global 캐시 갱신\nconst cachedConfig = global.get('houseConfig');\nconst cachedVersion = cachedConfig ? cachedConfig.configVersion : 0;\n\nif (!cachedConfig || config.configVersion > cachedVersion) {\n    node.warn('📋 설정 업데이트: v' + cachedVersion + ' → v' + config.configVersion);\n    global.set('houseConfig', config);\n\n    // SQLite에도 캐시 저장 (위치 파라미터)\n    const cacheMsg = {\n        topic: 'INSERT OR REPLACE INTO config_cache (id, farm_id, house_id, config_json, version, updated_at) VALUES (1, $1, $2, $3, $4, $5)',\n        payload: [\n            config.farmId || 'farm_0001',\n            config.houseId || (config.houses && config.houses[0] ? config.houses[0].houseId : 'house_001'),\n            JSON.stringify(config),\n            config.configVersion || 1,\n            new Date().toISOString()\n        ]\n    };\n    msg.config = config;\n    return [msg, cacheMsg];\n}\n\nmsg.config = config;\nreturn [msg, null];",
-    "outputs": 2,
+    "func": "if (msg.statusCode !== 200) {\n    const cachedConfig = global.get('houseConfig');\n    if (cachedConfig) {\n        node.warn('⚠️ 서버 응답 실패 (' + msg.statusCode + '), 캐시된 설정 사용');\n        msg.config = cachedConfig;\n        return [msg, null];\n    }\n    // 서버 실패 + 캐시 없음 → SQLite 캐시 폴백\n    node.warn('⚠️ 서버 응답 실패 (' + msg.statusCode + '), SQLite 캐시 조회 시도');\n    msg.topic = 'SELECT config_json FROM config_cache ORDER BY version DESC LIMIT 1';\n    return [null, null, msg];\n}\n\nconst response = msg.payload;\nnode.warn('🔍 ② statusCode=' + msg.statusCode + ', raw payload(200자): ' + JSON.stringify(response).substring(0, 200));\nif (!response.success) {\n    node.error('설정 오류: ' + (response.error || 'unknown'));\n    return [null, null];\n}\n\n// /api/config/farm/:farmId → data는 하우스 배열\nvar rawData = response.data;\nnode.warn('📋 응답 타입: ' + typeof rawData + ', isArray: ' + Array.isArray(rawData) + ', length: ' + (Array.isArray(rawData) ? rawData.length : 'N/A') + ', keys: ' + (rawData ? Object.keys(rawData).slice(0,5) : 'null'));\nvar config;\nif (Array.isArray(rawData)) {\n    var FARM_ID = env.get('FARM_ID') || 'farm_0001';\n    var enabledHouses = [];\n    for (var i = 0; i < rawData.length; i++) {\n        var h = rawData[i];\n        if (h && h.enabled !== false) { enabledHouses.push(h); }\n    }\n    config = {\n        farmId: FARM_ID,\n        houses: enabledHouses,\n        configVersion: enabledHouses.length > 0 ? enabledHouses[0].configVersion || 1 : 1\n    };\n    node.warn('📋 멀티하우스 config: 전체 ' + rawData.length + '개, 활성 ' + enabledHouses.length + '개');\n    if (enabledHouses.length > 0) { node.warn('📋 첫번째: ' + enabledHouses[0].houseId + ' enabled=' + enabledHouses[0].enabled); }\n} else if (rawData && rawData.houses) {\n    config = rawData;\n    node.warn('📋 기존 멀티하우스 config: ' + config.houses.length + '개 하우스');\n} else {\n    config = rawData;\n    node.warn('📋 단일하우스 config: ' + (config ? config.houseId : 'null'));\n}\n\n// global 캐시 갱신\nglobal.set('houseConfig', config);\n\n// SQLite에도 캐시 저장\nconst cacheMsg = {\n    topic: 'INSERT OR REPLACE INTO config_cache (id, farm_id, house_id, config_json, version, updated_at) VALUES (1, $1, $2, $3, $4, $5)',\n    payload: [\n        config.farmId || 'farm_0001',\n        'ALL',\n        JSON.stringify(config),\n        config.configVersion || 1,\n        new Date().toISOString()\n    ]\n};\nmsg.config = config;\nreturn [msg, cacheMsg];",
+    "outputs": 3,
     "outputLabels": [
       "센서 수집으로",
-      "SQLite 캐시 저장"
+      "SQLite 캐시 저장",
+      "SQLite 캐시 폴백 조회"
     ],
     "x": 920,
     "y": 60,
@@ -828,6 +851,9 @@
       ],
       [
         "sqlite_save_config_cache"
+      ],
+      [
+        "sqlite_config_cache"
       ]
     ]
   },
@@ -852,7 +878,7 @@
     "type": "function",
     "z": "collection_offline_flow",
     "name": "SQLite config → global",
-    "func": "const rows = msg.payload || [];\n\nif (rows.length > 0 && rows[0].config_json) {\n    try {\n        const config = JSON.parse(rows[0].config_json);\n        global.set('houseConfig', config);\n        msg.config = config;\n        node.warn('📋 SQLite에서 config 복원 완료');\n        node.status({ fill: 'green', shape: 'dot', text: 'SQLite config 복원' });\n        return msg;\n    } catch (e) {\n        node.error('❌ config JSON 파싱 실패: ' + e.message);\n    }\n}\n\nnode.error('❌ SQLite config_cache도 비어있음 - 서버에 1회 접속 필요');\nnode.status({ fill: 'red', shape: 'dot', text: 'config 없음!' });\nreturn null;",
+    "func": "const rows = msg.payload || [];\n\nif (rows.length > 0 && rows[0].config_json) {\n    try {\n        const config = JSON.parse(rows[0].config_json);\n        global.set('houseConfig', config);\n        msg.config = config;\n        node.warn('📋 SQLite에서 config 복원 완료');\n        node.status({ fill: 'green', shape: 'dot', text: 'SQLite config 복원' });\n        return msg;\n    } catch (e) {\n        node.error('❌ config JSON 파싱 실패: ' + e.message);\n    }\n}\n\n// config 없음 → 30초 후 수집 사이클에서 자동 재시도\nvar retryCount = global.get('configRetryCount') || 0;\nretryCount++;\nglobal.set('configRetryCount', retryCount);\nnode.warn('⚠️ config 없음 (시도 ' + retryCount + '회) - 다음 수집 사이클에서 재시도');\nnode.status({ fill: 'red', shape: 'ring', text: 'config 없음 (재시도 ' + retryCount + ')' });\nreturn null;",
     "outputs": 1,
     "x": 920,
     "y": 140,
@@ -890,7 +916,7 @@
     "type": "function",
     "z": "collection_offline_flow",
     "name": "③ 센서 데이터 수집",
-    "func": "const config = msg.config || global.get('houseConfig');\n\nif (!config) {\n    node.error('❌ config 없음, 수집 중단');\n    return null;\n}\n\n// 모든 하우스의 센서 수집 (멀티하우스 지원)\nlet housesToCollect = [];\n\nif (config.houses && config.houses.length > 0) {\n    housesToCollect = config.houses.filter(h => h.enabled !== false);\n} else if (config.sensors) {\n    // 단일 하우스 config (레거시 호환)\n    housesToCollect = [{ houseId: config.houseId, sensors: config.sensors }];\n}\n\nif (housesToCollect.length === 0) {\n    node.error('❌ 활성 하우스 없음');\n    return null;\n}\n\nconst farmId = config.farmId;\nconst messages = [];\n\nfor (const house of housesToCollect) {\n    const sensors = house.sensors || [];\n    const houseId = house.houseId;\n    const enabledSensors = sensors.filter(s => s.enabled);\n\n    if (enabledSensors.length === 0) {\n        continue;\n    }\n\n    // 센서 데이터 읽기 (시뮬레이션 - 실제 GPIO 연결 시 여기를 수정)\n    const sensorData = {};\n    for (const sensor of enabledSensors) {\n        try {\n            let value;\n            switch (sensor.sensorId) {\n                case 'temp_001':\n                    value = parseFloat((Math.random() * 10 + 20).toFixed(1));\n                    break;\n                case 'humidity_001':\n                    value = parseFloat((Math.random() * 20 + 50).toFixed(1));\n                    break;\n                case 'co2_001':\n                    value = parseInt(Math.random() * 200 + 400);\n                    break;\n                default:\n                    if (sensor.type === 'number') {\n                        const min = sensor.min !== null ? sensor.min : 0;\n                        const max = sensor.max !== null ? sensor.max : 100;\n                        value = parseFloat((Math.random() * (max - min) + min).toFixed(sensor.precision || 1));\n                    } else if (sensor.type === 'boolean') {\n                        value = Math.random() > 0.5;\n                    } else {\n                        value = 'OK';\n                    }\n            }\n            sensorData[sensor.sensorId] = value;\n        } catch (e) {\n            node.error('센서 읽기 실패: ' + sensor.sensorId + ' - ' + e.message);\n            sensorData[sensor.sensorId] = null;\n        }\n    }\n\n    messages.push({\n        payload: {\n            farmId: farmId,\n            houseId: houseId,\n            data: sensorData,\n            timestamp: new Date().toISOString(),\n            deviceInfo: {\n                deviceId: env.get('DEVICE_ID') || 'rpi_001',\n                ip: '192.168.137.30',\n                version: '2.0.0-offline'\n            }\n        }\n    });\n}\n\nif (messages.length === 0) {\n    node.warn('⚠️ 모든 하우스에 활성 센서 없음');\n    return null;\n}\n\nconst totalSensors = messages.reduce((sum, m) => sum + Object.keys(m.payload.data).length, 0);\nnode.warn('📡 ' + messages.length + '개 하우스, 총 ' + totalSensors + '개 센서 수집');\nnode.status({ fill: 'green', shape: 'dot', text: messages.length + '개 하우스 ' + totalSensors + '개 센서' });\n\nreturn [messages];",
+    "func": "const config = msg.config || global.get('houseConfig');\n\nif (!config) {\n    node.error('❌ config 없음, 수집 중단');\n    return null;\n}\n\n// 모든 하우스의 센서 수집 (멀티하우스 지원)\nlet housesToCollect = [];\n\nif (config.houses && config.houses.length > 0) {\n    housesToCollect = config.houses.filter(h => h.enabled !== false);\n} else if (config.sensors) {\n    // 단일 하우스 config (레거시 호환)\n    housesToCollect = [{ houseId: config.houseId, sensors: config.sensors }];\n}\n\nif (housesToCollect.length === 0) {\n    node.error('❌ 활성 하우스 없음');\n    return null;\n}\n\nconst farmId = config.farmId;\nconst messages = [];\n\nfor (const house of housesToCollect) {\n    const sensors = house.sensors || [];\n    const houseId = house.houseId;\n    const enabledSensors = sensors.filter(s => s.enabled);\n\n    if (enabledSensors.length === 0) {\n        continue;\n    }\n\n    // 센서 데이터 읽기 (시뮬레이션 - 실제 GPIO 연결 시 여기를 수정)\n    const sensorData = {};\n    for (const sensor of enabledSensors) {\n        try {\n            let value;\n            switch (sensor.sensorId) {\n                case 'temp_0001':\n                    value = parseFloat((Math.random() * 10 + 20).toFixed(1));\n                    break;\n                case 'humidity_0001':\n                    value = parseFloat((Math.random() * 20 + 50).toFixed(1));\n                    break;\n                case 'co2_0001':\n                    value = parseInt(Math.random() * 200 + 400);\n                    break;\n                default:\n                    if (sensor.type === 'number') {\n                        const min = sensor.min !== null ? sensor.min : 0;\n                        const max = sensor.max !== null ? sensor.max : 100;\n                        value = parseFloat((Math.random() * (max - min) + min).toFixed(sensor.precision || 1));\n                    } else if (sensor.type === 'boolean') {\n                        value = Math.random() > 0.5;\n                    } else {\n                        value = 'OK';\n                    }\n            }\n            sensorData[sensor.sensorId] = value;\n        } catch (e) {\n            node.error('센서 읽기 실패: ' + sensor.sensorId + ' - ' + e.message);\n            sensorData[sensor.sensorId] = null;\n        }\n    }\n\n    messages.push({\n        payload: {\n            farmId: farmId,\n            houseId: houseId,\n            data: sensorData,\n            timestamp: new Date().toISOString(),\n            deviceInfo: {\n                deviceId: env.get('DEVICE_ID') || 'rpi_0001',\n                ip: '192.168.137.30',\n                version: '2.0.0-offline'\n            }\n        }\n    });\n}\n\nif (messages.length === 0) {\n    node.warn('⚠️ 모든 하우스에 활성 센서 없음');\n    return null;\n}\n\nconst totalSensors = messages.reduce((sum, m) => sum + Object.keys(m.payload.data).length, 0);\nnode.warn('📡 ' + messages.length + '개 하우스, 총 ' + totalSensors + '개 센서 수집');\nnode.status({ fill: 'green', shape: 'dot', text: messages.length + '개 하우스 ' + totalSensors + '개 센서' });\n\nreturn [messages];",
     "outputs": 1,
     "x": 430,
     "y": 260,
@@ -995,11 +1021,12 @@
     "type": "function",
     "z": "collection_offline_flow",
     "name": "⑥ 전송 결과 처리",
-    "func": "if (msg.statusCode === 201 || msg.statusCode === 200) {\n    node.warn('✅ 서버 전송 성공 → synced=1');\n    \n    const syncMsg = {\n        topic: 'UPDATE sensor_data SET synced = 1 WHERE timestamp = $1 AND house_id = $2 AND synced = 0',\n        payload: [msg._insertTimestamp, msg._houseId]\n    };\n\n    node.status({ fill: 'green', shape: 'dot', text: '서버 전송 ✓ + synced' });\n    return [syncMsg, msg];\n} else {\n    node.warn('⚠️ 서버 전송 실패 (' + msg.statusCode + '): synced=0 유지');\n    node.status({ fill: 'yellow', shape: 'ring', text: '전송 실패 (synced=0)' });\n    return [null, msg];\n}",
-    "outputs": 2,
+    "func": "if (msg.statusCode === 201 || msg.statusCode === 200) {\n    node.warn('✅ 서버 전송 성공 → synced=1');\n    \n    const syncMsg = {\n        topic: 'UPDATE sensor_data SET synced = 1 WHERE timestamp = $1 AND house_id = $2 AND synced = 0',\n        payload: [msg._insertTimestamp, msg._houseId]\n    };\n\n    node.status({ fill: 'green', shape: 'dot', text: '서버 전송 ✓ + synced' });\n    return [syncMsg, msg, null];\n} else {\n    // 1회 재시도 (아직 재시도 안 했으면)\n    if (!msg._retried) {\n        msg._retried = true;\n        node.warn('⚠️ 서버 전송 실패 (' + msg.statusCode + '): 3초 후 1회 재시도');\n        node.status({ fill: 'yellow', shape: 'ring', text: '전송 실패 → 재시도 중' });\n        return [null, null, msg];\n    }\n    node.warn('❌ 서버 전송 재시도 실패 (' + msg.statusCode + '): synced=0 유지, 다음 동기화에서 처리');\n    node.status({ fill: 'red', shape: 'ring', text: '전송 실패 (synced=0)' });\n    return [null, msg, null];\n}",
+    "outputs": 3,
     "outputLabels": [
       "synced 업데이트",
-      "Debug"
+      "Debug",
+      "재시도"
     ],
     "x": 900,
     "y": 370,
@@ -1009,6 +1036,34 @@
       ],
       [
         "debug_send_result"
+      ],
+      [
+        "delay_retry_send"
+      ]
+    ]
+  },
+  {
+    "id": "delay_retry_send",
+    "type": "delay",
+    "z": "collection_offline_flow",
+    "name": "3초 딜레이",
+    "pauseType": "delay",
+    "timeout": "3",
+    "timeoutUnits": "seconds",
+    "rate": "1",
+    "nbRateUnits": "1",
+    "rateUnits": "second",
+    "randomFirst": "1",
+    "randomLast": "5",
+    "randomUnits": "seconds",
+    "drop": false,
+    "allowrate": false,
+    "outputs": 1,
+    "x": 680,
+    "y": 510,
+    "wires": [
+      [
+        "http_send_server"
       ]
     ]
   },
@@ -1137,7 +1192,29 @@
     "type": "tab",
     "label": "온/오프라인 감지",
     "disabled": false,
-    "info": "PC 서버 헬스체크 (30초 간격)\n- 서버 응답 시: online 모드\n- 서버 미응답 시: offline 모드\n- 수동 전환 시: 강제 offline\n\nglobal.operationMode = 'online' | 'offline'\nglobal.serverOnline = true | false\nglobal.manualOverride = true | false"
+    "info": "PC 서버 헬스체크 (30초 간격)\n- 서버 응답 시: online 모드\n- 서버 미응답 시: offline 모드\n- 수동 전환 시: 강제 offline\n\nglobal.operationMode = 'online' | 'offline'\nglobal.serverOnline = true | false\nglobal.manualOverride = true | false",
+    "env": [
+      {
+        "name": "SENSOR_API_KEY",
+        "value": "smartfarm-sensor-key",
+        "type": "str"
+      },
+      {
+        "name": "SERVER_URL",
+        "value": "http://192.168.137.1:3000",
+        "type": "str"
+      },
+      {
+        "name": "FARM_ID",
+        "value": "farm_0001",
+        "type": "str"
+      },
+      {
+        "name": "HOUSE_ID",
+        "value": "house_0001",
+        "type": "str"
+      }
+    ]
   },
   {
     "id": "inject_health",
@@ -1187,7 +1264,7 @@
     "type": "function",
     "z": "health_monitor_flow",
     "name": "모드 결정",
-    "func": "const manualOverride = global.get('manualOverride') || false;\nconst prevMode = global.get('operationMode') || 'unknown';\nconst prevServerOnline = global.get('serverOnline');\n\n// 서버 응답 확인\nlet serverOnline = false;\nif (msg.statusCode === 200 && msg.payload && (msg.payload.success === true || msg.payload.status === 'ok')) {\n    serverOnline = true;\n}\n\nglobal.set('serverOnline', serverOnline);\n\n// 모드 결정: 수동 스위치 ON → 강제 오프라인\nconst operationMode = manualOverride ? 'offline' : (serverOnline ? 'online' : 'offline');\nglobal.set('operationMode', operationMode);\n\nlet syncMsg = null;\nlet configMsg = null;\n\n// 상태 변경 감지\nif (prevMode !== operationMode) {\n    node.warn(`🔄 모드 변경: ${prevMode} → ${operationMode}`);\n    \n    // 온라인 전환 시 동기화 트리거 (unknown/offline → online 모두 포함)\n    if (prevMode !== 'online' && operationMode === 'online') {\n        node.warn('🔄 온라인 복귀! 데이터 동기화 시작...');\n        syncMsg = { payload: 'sync_trigger' };\n    }\n}\n\n// 서버 온라인 + config 미캐시 → config 가져오기 (API 키 포함)\nif (serverOnline && !global.get('houseConfig')) {\n    node.warn('📋 서버에서 config 캐시 가져오기...');\n    const API_KEY = env.get('SENSOR_API_KEY') || '';\n    configMsg = {\n        payload: 'fetch_config',\n        method: 'GET',\n        headers: { 'x-api-key': API_KEY }\n    };\n}\n\n// 상태 표시\nconst modeLabel = operationMode === 'online' ? '온라인' : '오프라인';\nconst manualLabel = manualOverride ? ' (수동)' : '';\nconst serverLabel = serverOnline ? '서버 정상' : '서버 다운';\nconst configLabel = global.get('houseConfig') ? ' | config ✓' : '';\n\nnode.status({\n    fill: operationMode === 'online' ? 'green' : 'yellow',\n    shape: manualOverride ? 'ring' : 'dot',\n    text: `${modeLabel}${manualLabel} | ${serverLabel}${configLabel}`\n});\n\nmsg.payload = {\n    operationMode,\n    serverOnline,\n    manualOverride,\n    timestamp: new Date().toISOString()\n};\n\nreturn [msg, syncMsg, configMsg];",
+    "func": "const manualOverride = global.get('manualOverride') || false;\nconst prevMode = global.get('operationMode') || 'unknown';\nconst prevServerOnline = global.get('serverOnline');\n\n// 서버 응답 확인\nlet serverOnline = false;\nif (msg.statusCode === 200 && msg.payload && (msg.payload.success === true || msg.payload.status === 'ok')) {\n    serverOnline = true;\n}\n\nglobal.set('serverOnline', serverOnline);\n\n// 모드 결정: 수동 스위치 ON → 강제 오프라인\nconst operationMode = manualOverride ? 'offline' : (serverOnline ? 'online' : 'offline');\nglobal.set('operationMode', operationMode);\n\nlet syncMsg = null;\nlet configMsg = null;\n\n// 상태 변경 감지\nif (prevMode !== operationMode) {\n    node.warn(`🔄 모드 변경: ${prevMode} → ${operationMode}`);\n    \n    // 온라인 전환 시 동기화 트리거 (unknown/offline → online 모두 포함)\n    if (prevMode !== 'online' && operationMode === 'online') {\n        node.warn('🔄 온라인 복귀! 데이터 동기화 시작...');\n        syncMsg = { payload: 'sync_trigger' };\n    }\n}\n\n// 서버 온라인 + config 미캐시 → config 가져오기 (API 키 포함)\nif (serverOnline && !global.get('houseConfig')) {\n    node.warn('📋 서버에서 config 캐시 가져오기...');\n    const API_KEY = env.get('SENSOR_API_KEY') || 'smartfarm-sensor-key';\n    configMsg = {\n        payload: 'fetch_config',\n        method: 'GET',\n        headers: { 'x-api-key': API_KEY }\n    };\n}\n\n// 상태 표시\nconst modeLabel = operationMode === 'online' ? '온라인' : '오프라인';\nconst manualLabel = manualOverride ? ' (수동)' : '';\nconst serverLabel = serverOnline ? '서버 정상' : '서버 다운';\nconst configLabel = global.get('houseConfig') ? ' | config ✓' : '';\n\nnode.status({\n    fill: operationMode === 'online' ? 'green' : 'yellow',\n    shape: manualOverride ? 'ring' : 'dot',\n    text: `${modeLabel}${manualLabel} | ${serverLabel}${configLabel}`\n});\n\nmsg.payload = {\n    operationMode,\n    serverOnline,\n    manualOverride,\n    timestamp: new Date().toISOString()\n};\n\nreturn [msg, syncMsg, configMsg];",
     "outputs": 3,
     "outputLabels": [
       "상태 표시",
@@ -1274,7 +1351,7 @@
     "method": "use",
     "ret": "obj",
     "paytoqs": "ignore",
-    "url": "http://192.168.137.1:3000/api/config/farm_0001",
+    "url": "http://192.168.137.1:3000/api/config/farm/farm_0001",
     "tls": "",
     "persist": false,
     "proxy": "",
@@ -1295,7 +1372,7 @@
     "type": "function",
     "z": "health_monitor_flow",
     "name": "Config 저장",
-    "func": "if (msg.statusCode === 200 && msg.payload && msg.payload.success && msg.payload.data) {\n    const config = msg.payload.data;\n    global.set('houseConfig', config);\n    node.warn('📋 Config 캐시 완료: ' + (config.houses ? config.houses.length + '개 하우스' : '데이터 없음'));\n    node.status({ fill: 'green', shape: 'dot', text: 'config 캐시 완료' });\n\n    // SQLite config_cache에도 저장 (위치 파라미터 - msg.payload 배열)\n    msg.topic = 'INSERT OR REPLACE INTO config_cache (id, farm_id, house_id, config_json, version, updated_at) VALUES (1, $1, $2, $3, $4, $5)';\n    msg.payload = [\n        config.farmId || 'farm_0001',\n        config.houseId || (config.houses && config.houses[0] ? config.houses[0].houseId : 'house_001'),\n        JSON.stringify(config),\n        config.configVersion || 1,\n        new Date().toISOString()\n    ];\n    return msg;\n} else {\n    node.warn('⚠️ Config 가져오기 실패: ' + JSON.stringify(msg.payload).substring(0, 100));\n    node.status({ fill: 'red', shape: 'dot', text: 'config 실패' });\n    return null;\n}",
+    "func": "if (msg.statusCode === 200 && msg.payload && msg.payload.success && msg.payload.data) {\n    var rawData = msg.payload.data;\n    var config;\n    if (Array.isArray(rawData)) {\n        config = {\n            farmId: 'farm_0001',\n            houses: rawData.filter(function(h) { return h.enabled !== false; }),\n            configVersion: Math.max.apply(null, rawData.map(function(h) { return h.configVersion || 1; }))\n        };\n    } else {\n        config = rawData;\n    }\n    global.set('houseConfig', config);\n    node.warn('📋 Config 캐시 완료: ' + (config.houses ? config.houses.length + '개 하우스' : '단일 하우스'));\n    node.status({ fill: 'green', shape: 'dot', text: 'config 캐시 ' + (config.houses ? config.houses.length + '개' : '완료') });\n\n    msg.topic = 'INSERT OR REPLACE INTO config_cache (id, farm_id, house_id, config_json, version, updated_at) VALUES (1, $1, $2, $3, $4, $5)';\n    msg.payload = [\n        config.farmId || 'farm_0001',\n        'ALL',\n        JSON.stringify(config),\n        config.configVersion || 1,\n        new Date().toISOString()\n    ];\n    return msg;\n} else {\n    node.warn('⚠️ Config 가져오기 실패: ' + JSON.stringify(msg.payload).substring(0, 100));\n    node.status({ fill: 'red', shape: 'dot', text: 'config 실패' });\n    return null;\n}",
     "outputs": 1,
     "x": 1090,
     "y": 160,
@@ -1479,7 +1556,7 @@
       },
       {
         "name": "HOUSE_ID",
-        "value": "house_001",
+        "value": "house_0001",
         "type": "str"
       }
     ]
@@ -3018,7 +3095,29 @@
     "type": "tab",
     "label": "데이터 동기화",
     "disabled": false,
-    "info": "오프라인 → 온라인 전환 시 미동기화 데이터 배치 전송\n- synced=0인 sensor_data를 200건씩 서버에 전송\n- 성공 시 synced=1로 마킹\n- 자동화 규칙: CRUD 변경 시 즉시 RPi→PC 동기화"
+    "info": "오프라인 → 온라인 전환 시 미동기화 데이터 배치 전송\n- synced=0인 sensor_data를 200건씩 서버에 전송\n- 성공 시 synced=1로 마킹\n- 자동화 규칙: CRUD 변경 시 즉시 RPi→PC 동기화",
+    "env": [
+      {
+        "name": "SENSOR_API_KEY",
+        "value": "smartfarm-sensor-key",
+        "type": "str"
+      },
+      {
+        "name": "SERVER_URL",
+        "value": "http://192.168.137.1:3000",
+        "type": "str"
+      },
+      {
+        "name": "FARM_ID",
+        "value": "farm_0001",
+        "type": "str"
+      },
+      {
+        "name": "HOUSE_ID",
+        "value": "house_0001",
+        "type": "str"
+      }
+    ]
   },
   {
     "id": "comment_sync",
@@ -3086,13 +3185,13 @@
     "type": "function",
     "z": "sync_flow",
     "name": "온라인 체크",
-    "func": "const mode = global.get('operationMode') || 'online';\n\nif (mode !== 'online') {\n    node.status({ fill: 'yellow', shape: 'ring', text: '오프라인 - 동기화 대기' });\n    return null;\n}\n\n// 온라인이면 미동기화 데이터 조회 (200건 배치)\nmsg.topic = `SELECT id, timestamp, farm_id, house_id, sensor_id, value\nFROM sensor_data\nWHERE synced = 0\nORDER BY timestamp ASC\nLIMIT 200`;\n\nreturn msg;",
+    "func": "const mode = global.get('operationMode') || 'online';\n\nif (mode !== 'online') {\n    node.status({ fill: 'yellow', shape: 'ring', text: '오프라인 - 동기화 대기' });\n    return null;\n}\n\n// 최근 10건만 동기화, 나머지 오래된 데이터는 스킵 처리\n// Step 1: 오래된 미동기화 데이터 정리 (최근 10건 제외)\n// synced=2로 마킹하여 SELECT와의 레이스 컨디션 방지\nmsg.topic = `UPDATE sensor_data SET synced = 2\nWHERE synced = 0\nAND id NOT IN (\n  SELECT id FROM sensor_data WHERE synced = 0\n  ORDER BY timestamp DESC LIMIT 10\n)`;\n\n// Step 2: 이후 SELECT 쿼리 저장 (synced=0만 조회 → 방금 2로 바꾼 것은 제외)\nmsg._selectQuery = `SELECT id, timestamp, farm_id, house_id, sensor_id, value\nFROM sensor_data\nWHERE synced = 0\nORDER BY timestamp DESC\nLIMIT 10`;\n\nnode.warn('🔄 동기화 체크: 최근 10건만 전송, 나머지 스킵(synced=2)');\nreturn msg;",
     "outputs": 1,
     "x": 410,
     "y": 160,
     "wires": [
       [
-        "sqlite_sync_query"
+        "sqlite_sync_cleanup"
       ]
     ]
   },
@@ -3113,11 +3212,42 @@
     ]
   },
   {
+    "id": "sqlite_sync_cleanup",
+    "type": "sqlite",
+    "z": "sync_flow",
+    "name": "오래된 데이터 스킵",
+    "mydb": "sqlite_db",
+    "sqlquery": "msg.topic",
+    "sql": "",
+    "x": 590,
+    "y": 100,
+    "wires": [
+      [
+        "sync_set_query"
+      ]
+    ]
+  },
+  {
+    "id": "sync_set_query",
+    "type": "function",
+    "z": "sync_flow",
+    "name": "SELECT 쿼리 설정",
+    "func": "msg.topic = msg._selectQuery;\ndelete msg._selectQuery;\nreturn msg;",
+    "outputs": 1,
+    "x": 790,
+    "y": 100,
+    "wires": [
+      [
+        "sqlite_sync_query"
+      ]
+    ]
+  },
+  {
     "id": "sync_prepare",
     "type": "function",
     "z": "sync_flow",
     "name": "배치 전송 준비",
-    "func": "const rows = msg.payload || [];\n\nif (rows.length === 0) {\n    node.status({ fill: 'green', shape: 'dot', text: '동기화 완료 (0건)' });\n    return null;\n}\n\nconst SERVER_URL = env.get('SERVER_URL') || 'http://192.168.137.1:3000';\nconst API_KEY = env.get('SENSOR_API_KEY') || '';\n\n// 하우스별로 분리\nconst byHouse = {};\nfor (const row of rows) {\n    const houseKey = row.farm_id + '_' + row.house_id;\n    if (!byHouse[houseKey]) {\n        byHouse[houseKey] = { farmId: row.farm_id, houseId: row.house_id, rows: [] };\n    }\n    byHouse[houseKey].rows.push(row);\n}\n\n// 하우스별 배치 메시지 생성\nconst messages = [];\nfor (const house of Object.values(byHouse)) {\n    // 타임스탬프별로 그룹핑\n    const grouped = {};\n    for (const row of house.rows) {\n        if (!grouped[row.timestamp]) {\n            grouped[row.timestamp] = {\n                timestamp: row.timestamp,\n                data: {},\n                deviceInfo: { deviceId: 'rpi_001', ip: '192.168.137.30', version: '1.0.0' }\n            };\n        }\n        grouped[row.timestamp].data[row.sensor_id] = row.value;\n    }\n\n    messages.push({\n        url: SERVER_URL + '/api/sensors/batch',\n        method: 'POST',\n        headers: { 'Content-Type': 'application/json', 'x-api-key': API_KEY },\n        payload: {\n            farmId: house.farmId,\n            houseId: house.houseId,\n            dataArray: Object.values(grouped)\n        },\n        _syncIds: house.rows.map(r => r.id),\n        _syncCount: house.rows.length\n    });\n}\n\nconst houseCount = Object.keys(byHouse).length;\nnode.warn('📤 동기화 전송: ' + rows.length + '건 (' + houseCount + '개 하우스)');\nnode.status({ fill: 'blue', shape: 'dot', text: '전송 중: ' + rows.length + '건' });\n\n// 배열로 반환 → 하우스별 순차 전송\nreturn [messages];",
+    "func": "const rows = msg.payload || [];\n\nif (rows.length === 0) {\n    node.status({ fill: 'green', shape: 'dot', text: '동기화 완료 (0건)' });\n    return null;\n}\n\nconst SERVER_URL = env.get('SERVER_URL') || 'http://192.168.137.1:3000';\nconst API_KEY = env.get('SENSOR_API_KEY') || 'smartfarm-sensor-key';\n\n// 하우스별로 분리\nconst byHouse = {};\nfor (const row of rows) {\n    const houseKey = row.farm_id + '_' + row.house_id;\n    if (!byHouse[houseKey]) {\n        byHouse[houseKey] = { farmId: row.farm_id, houseId: row.house_id, rows: [] };\n    }\n    byHouse[houseKey].rows.push(row);\n}\n\n// 하우스별 배치 메시지 생성\nconst messages = [];\nfor (const house of Object.values(byHouse)) {\n    // 타임스탬프별로 그룹핑\n    const grouped = {};\n    for (const row of house.rows) {\n        if (!grouped[row.timestamp]) {\n            grouped[row.timestamp] = {\n                timestamp: row.timestamp,\n                data: {},\n                deviceInfo: { deviceId: 'rpi_0001', ip: '192.168.137.30', version: '1.0.0' }\n            };\n        }\n        grouped[row.timestamp].data[row.sensor_id] = row.value;\n    }\n\n    messages.push({\n        url: SERVER_URL + '/api/sensors/batch',\n        method: 'POST',\n        headers: { 'Content-Type': 'application/json', 'x-api-key': API_KEY },\n        payload: {\n            farmId: house.farmId,\n            houseId: house.houseId,\n            dataArray: Object.values(grouped)\n        },\n        _syncIds: house.rows.map(r => r.id),\n        _syncCount: house.rows.length\n    });\n}\n\nconst houseCount = Object.keys(byHouse).length;\nnode.warn('📤 동기화 전송: ' + rows.length + '건 (' + houseCount + '개 하우스)');\nnode.status({ fill: 'blue', shape: 'dot', text: '전송 중: ' + rows.length + '건' });\n\n// 배열로 반환 → 하우스별 순차 전송\nreturn [messages];",
     "outputs": 1,
     "x": 810,
     "y": 160,
@@ -3194,15 +3324,11 @@
     "type": "function",
     "z": "sync_flow",
     "name": "다음 배치 확인",
-    "func": "setTimeout(function() { node.send({ payload: \"next_batch\" }); }, 1000);\nreturn null;",
+    "func": "node.status({ fill: 'green', shape: 'dot', text: '동기화 완료' });\nnode.warn('✅ 동기화 사이클 완료 - 다음 주기(5분)까지 대기');\nreturn null;",
     "outputs": 1,
     "x": 1070,
     "y": 260,
-    "wires": [
-      [
-        "sync_check"
-      ]
-    ]
+    "wires": []
   },
   {
     "id": "comment_rule_sync",
@@ -3284,7 +3410,7 @@
     "type": "function",
     "z": "sync_flow",
     "name": "규칙 전송 준비",
-    "func": "const rows = msg.payload || [];\n\nif (rows.length === 0) {\n    node.status({ fill: 'green', shape: 'dot', text: '규칙 동기화 완료 (0건)' });\n    return null;\n}\n\nconst SERVER_URL = env.get('SERVER_URL') || 'http://192.168.137.1:3000';\nconst API_KEY = env.get('SENSOR_API_KEY') || '';\nconst farmId = env.get('FARM_ID') || 'farm_0001';\n\n// SQLite 행 → PC API 호환 형태로 변환\nvar rules = rows.map(function(row) {\n    var conditions, actions;\n    try { conditions = JSON.parse(row.conditions); } catch(e) { conditions = []; }\n    try { actions = JSON.parse(row.actions); } catch(e) { actions = []; }\n    return {\n        id: row.id,\n        farmId: row.farm_id,\n        houseId: row.house_id,\n        name: row.name,\n        description: row.description || '',\n        enabled: row.enabled === 1,\n        conditionLogic: row.condition_logic || 'AND',\n        conditions: conditions,\n        actions: actions,\n        cooldownSeconds: row.cooldown_seconds || 300,\n        priority: row.priority || 10,\n        lastTriggeredAt: row.last_triggered_at || null,\n        triggerCount: row.trigger_count || 0,\n        createdAt: row.created_at,\n        updatedAt: row.updated_at\n    };\n});\n\nmsg.url = SERVER_URL + '/api/automation/' + farmId + '/sync';\nmsg.method = 'POST';\nmsg.headers = { 'Content-Type': 'application/json', 'x-api-key': API_KEY };\nmsg.payload = { rules: rules };\nmsg._syncRuleIds = rows.map(function(r) { return r.id; });\nmsg._syncRuleCount = rows.length;\n\nnode.warn('📤 규칙 동기화 전송: ' + rows.length + '건');\nnode.status({ fill: 'blue', shape: 'dot', text: '규칙 전송 중: ' + rows.length + '건' });\n\nreturn msg;",
+    "func": "const rows = msg.payload || [];\n\nif (rows.length === 0) {\n    node.status({ fill: 'green', shape: 'dot', text: '규칙 동기화 완료 (0건)' });\n    return null;\n}\n\nconst SERVER_URL = env.get('SERVER_URL') || 'http://192.168.137.1:3000';\nconst API_KEY = env.get('SENSOR_API_KEY') || 'smartfarm-sensor-key';\nconst farmId = env.get('FARM_ID') || 'farm_0001';\n\n// SQLite 행 → PC API 호환 형태로 변환\nvar rules = rows.map(function(row) {\n    var conditions, actions;\n    try { conditions = JSON.parse(row.conditions); } catch(e) { conditions = []; }\n    try { actions = JSON.parse(row.actions); } catch(e) { actions = []; }\n    return {\n        id: row.id,\n        farmId: row.farm_id,\n        houseId: row.house_id,\n        name: row.name,\n        description: row.description || '',\n        enabled: row.enabled === 1,\n        conditionLogic: row.condition_logic || 'AND',\n        conditions: conditions,\n        actions: actions,\n        cooldownSeconds: row.cooldown_seconds || 300,\n        priority: row.priority || 10,\n        lastTriggeredAt: row.last_triggered_at || null,\n        triggerCount: row.trigger_count || 0,\n        createdAt: row.created_at,\n        updatedAt: row.updated_at\n    };\n});\n\nmsg.url = SERVER_URL + '/api/automation/' + farmId + '/sync';\nmsg.method = 'POST';\nmsg.headers = { 'Content-Type': 'application/json', 'x-api-key': API_KEY };\nmsg.payload = { rules: rules };\nmsg._syncRuleIds = rows.map(function(r) { return r.id; });\nmsg._syncRuleCount = rows.length;\n\nnode.warn('📤 규칙 동기화 전송: ' + rows.length + '건');\nnode.status({ fill: 'blue', shape: 'dot', text: '규칙 전송 중: ' + rows.length + '건' });\n\nreturn msg;",
     "outputs": 1,
     "x": 870,
     "y": 460,
@@ -3510,7 +3636,7 @@
     "type": "function",
     "z": "automation_eval_flow",
     "name": "테스트 센서 데이터",
-    "func": "msg.sensorData = {\n    farmId: env.get('FARM_ID') || 'farm_0001',\n    houseId: env.get('HOUSE_ID') || 'house_001',\n    data: { temp_001: 32.5, humidity_001: 65.0 }\n};\nreturn msg;",
+    "func": "msg.sensorData = {\n    farmId: env.get('FARM_ID') || 'farm_0001',\n    houseId: env.get('HOUSE_ID') || 'house_0001',\n    data: { temp_0001: 32.5, humidity_0001: 65.0 }\n};\nreturn msg;",
     "outputs": 1,
     "x": 410,
     "y": 160,
@@ -3839,5 +3965,2162 @@
     "willMsg": {},
     "userProps": "",
     "sessionExpiry": ""
+  },
+  {
+    "id": "f1_tab",
+    "type": "tab",
+    "label": "센서 수집",
+    "disabled": false,
+    "info": "센서 수집 플로우 - 2초 간격으로 센서 데이터를 읽어 Express에 전달"
+  },
+  {
+    "id": "f2_tab",
+    "type": "tab",
+    "label": "장비 상태 수집",
+    "disabled": false,
+    "info": "장비 상태를 Flow Context에서 읽어 Express에 전달"
+  },
+  {
+    "id": "f3_tab",
+    "type": "tab",
+    "label": "관수 스케줄러",
+    "disabled": false,
+    "info": "3가지 트리거(일사량/시간간격/고정시간)를 10초 간격으로 확인"
+  },
+  {
+    "id": "f4_tab",
+    "type": "tab",
+    "label": "관수 시퀀스",
+    "disabled": false,
+    "info": "5단계 관수 시퀀스 상태 머신"
+  },
+  {
+    "id": "f5_tab",
+    "type": "tab",
+    "label": "경보 처리",
+    "disabled": false,
+    "info": "센서 임계값 초과 시 Express에 경보 전달"
+  },
+  {
+    "id": "f6_tab",
+    "type": "tab",
+    "label": "비상정지",
+    "disabled": false,
+    "info": "외부 비상정지/수동 명령 수신"
+  },
+  {
+    "id": "f7_tab",
+    "type": "tab",
+    "label": "일일집계",
+    "disabled": false,
+    "info": "매일 자정에 일일 운영 실적 집계"
+  },
+  {
+    "id": "f8_tab",
+    "type": "tab",
+    "label": "Heartbeat",
+    "disabled": false,
+    "info": "60초 간격 온라인 상태 보고 (항상 AWS 전송)"
+  },
+  {
+    "id": "f9_tab",
+    "type": "tab",
+    "label": "일일집계 전송",
+    "disabled": false,
+    "info": "매일 00:05에 전일 집계를 클라우드로 전송 (항상 AWS 전송)"
+  },
+  {
+    "id": "f10_tab",
+    "type": "tab",
+    "label": "원격 명령 수신",
+    "disabled": false,
+    "info": "AWS IoT에서 수신한 원격 제어 명령 처리"
+  },
+  {
+    "id": "aws_control_test_tab",
+    "type": "tab",
+    "label": "AWS IoT 제어 테스트",
+    "disabled": false,
+    "info": "AWS API Gateway → Lambda → IoT Core 제어 신호 테스트 플로우\n\n수동: inject 버튼 클릭으로 테스트\n자동: 서버 시작 감지 시 자동 테스트"
+  },
+  {
+    "id": "f1_comment",
+    "type": "comment",
+    "z": "f1_tab",
+    "name": "센서 수집 플로우 - 2초 간격으로 센서 데이터를 읽어 Express에 전달",
+    "info": "센서 데이터를 2초 간격으로 읽어서 RPi Express 내부 API(/internal/sensor-update)에 전달합니다.\n실배포 시 Modbus/GPIO 노드로 교체해야 합니다.",
+    "x": 400,
+    "y": 40,
+    "wires": []
+  },
+  {
+    "id": "f1_inject",
+    "type": "inject",
+    "z": "f1_tab",
+    "d": true,
+    "name": "2초 간격 트리거",
+    "props": [
+      {
+        "p": "payload"
+      }
+    ],
+    "repeat": "2",
+    "crontab": "",
+    "once": true,
+    "onceDelay": "1",
+    "topic": "",
+    "payload": "",
+    "payloadType": "date",
+    "x": 140,
+    "y": 140,
+    "wires": [
+      [
+        "f1_read_sensor"
+      ]
+    ]
+  },
+  {
+    "id": "f1_read_sensor",
+    "type": "function",
+    "z": "f1_tab",
+    "name": "센서 읽기",
+    "func": "// 센서 데이터 읽기 (시뮬레이션)\n// 실배포 시 Modbus/GPIO로 교체\n\nfunction randomInRange(min, max) {\n    return Math.round((Math.random() * (max - min) + min) * 100) / 100;\n}\n\nvar sensorData = {\n    temp_0001: randomInRange(-10, 50),\n    humidity_0001: randomInRange(0, 100)\n};\n\n// 센서 데이터를 글로벌 컨텍스트에 저장\nglobal.set('latest_sensor_data', sensorData);\n\n// API 전송용 payload 구성\nmsg.payload = {\n    farmId: 'farm_0001',\n    houseId: 'house_0001',\n    data: sensorData\n};\n\nmsg.headers = {\n    'Content-Type': 'application/json',\n    'x-api-key': 'smartfarm-sensor-key'\n};\n\nreturn msg;\n",
+    "outputs": 1,
+    "timeout": "",
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "libs": [],
+    "x": 360,
+    "y": 140,
+    "wires": [
+      [
+        "f1_http_req",
+        "a906f3dbcddd0b1e"
+      ]
+    ]
+  },
+  {
+    "id": "f1_http_req",
+    "type": "http request",
+    "z": "f1_tab",
+    "name": "POST sensor-update",
+    "method": "POST",
+    "ret": "obj",
+    "paytoqs": "ignore",
+    "url": "http://192.168.137.1:3000/api/sensors/collect",
+    "tls": "",
+    "persist": false,
+    "proxy": "",
+    "insecureHTTPParser": false,
+    "authType": "",
+    "senderr": false,
+    "headers": [],
+    "x": 580,
+    "y": 140,
+    "wires": [
+      [
+        "f1_debug"
+      ]
+    ]
+  },
+  {
+    "id": "f1_debug",
+    "type": "debug",
+    "z": "f1_tab",
+    "name": "센서 업데이트 응답",
+    "active": false,
+    "tosidebar": true,
+    "console": false,
+    "tostatus": true,
+    "complete": "payload",
+    "targetType": "msg",
+    "statusVal": "payload.statusCode",
+    "statusType": "auto",
+    "x": 800,
+    "y": 140,
+    "wires": []
+  },
+  {
+    "id": "a906f3dbcddd0b1e",
+    "type": "debug",
+    "z": "f1_tab",
+    "name": "debug 1",
+    "active": false,
+    "tosidebar": true,
+    "console": false,
+    "tostatus": false,
+    "complete": "payload",
+    "targetType": "msg",
+    "statusVal": "",
+    "statusType": "auto",
+    "x": 560,
+    "y": 220,
+    "wires": []
+  },
+  {
+    "id": "flow2_inject",
+    "type": "inject",
+    "z": "f1_tab",
+    "d": true,
+    "name": "시작 (1회)",
+    "props": [],
+    "repeat": "",
+    "crontab": "",
+    "once": true,
+    "onceDelay": "3",
+    "topic": "",
+    "x": 100,
+    "y": 440,
+    "wires": [
+      [
+        "flow2_read_sensor"
+      ]
+    ]
+  },
+  {
+    "id": "flow2_read_sensor",
+    "type": "function",
+    "z": "f1_tab",
+    "name": "센서 읽기",
+    "func": "function randomInRange(min, max) {\n    return Math.round((Math.random() * (max - min) + min) * 100) / 100;\n}\n\nvar sensorData = {\n    temp_0001: randomInRange(-10, 50),\n    humidity_0001: randomInRange(0, 100)\n};\n\nglobal.set('latest_sensor_data', sensorData);\n\nmsg.payload = {\n    farmId: 'farm_0001',\n    houseId: 'house_0001',\n    data: sensorData\n};\n\nmsg.headers = {\n    'Content-Type': 'application/json',\n    'x-api-key': 'smartfarm-sensor-key'\n};\n\nreturn msg;",
+    "outputs": 1,
+    "timeout": "",
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "libs": [],
+    "x": 370,
+    "y": 440,
+    "wires": [
+      [
+        "flow2_http_post"
+      ]
+    ]
+  },
+  {
+    "id": "flow2_http_post",
+    "type": "http request",
+    "z": "f1_tab",
+    "name": "서버 전송",
+    "method": "POST",
+    "ret": "obj",
+    "paytoqs": "ignore",
+    "url": "http://192.168.137.1:3000/api/sensors/collect",
+    "tls": "",
+    "persist": false,
+    "proxy": "",
+    "insecureHTTPParser": false,
+    "authType": "",
+    "senderr": true,
+    "headers": [],
+    "x": 560,
+    "y": 440,
+    "wires": [
+      [
+        "flow2_status",
+        "flow2_set_delay"
+      ]
+    ]
+  },
+  {
+    "id": "flow2_status",
+    "type": "function",
+    "z": "f1_tab",
+    "name": "상태 표시",
+    "func": "var interval = flow.get('intervalSeconds') || 60;\n\nif (msg.statusCode === 201) {\n    node.status({fill:'green', shape:'dot', text:'전송 성공 (다음: ' + interval + '초 후)'});\n} else {\n    node.status({fill:'red', shape:'ring', text:'전송 실패: ' + (msg.statusCode || 'timeout')});\n}\n\nreturn null;",
+    "outputs": 0,
+    "timeout": "",
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "libs": [],
+    "x": 760,
+    "y": 380,
+    "wires": []
+  },
+  {
+    "id": "flow2_set_delay",
+    "type": "function",
+    "z": "f1_tab",
+    "name": "대기 시간 설정",
+    "func": "var interval = flow.get('intervalSeconds') || 60;\nmsg.delay = interval * 1000;\nreturn msg;",
+    "outputs": 1,
+    "timeout": "",
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "libs": [],
+    "x": 770,
+    "y": 500,
+    "wires": [
+      [
+        "flow2_delay",
+        "f489fdf2703bd1d8"
+      ]
+    ]
+  },
+  {
+    "id": "flow2_delay",
+    "type": "delay",
+    "z": "f1_tab",
+    "name": "동적 대기",
+    "pauseType": "delayv",
+    "timeout": "60",
+    "timeoutUnits": "seconds",
+    "rate": "1",
+    "nbRateUnits": "1",
+    "rateUnits": "second",
+    "randomFirst": "1",
+    "randomLast": "5",
+    "randomUnits": "seconds",
+    "drop": false,
+    "allowrate": false,
+    "outputs": 1,
+    "x": 580,
+    "y": 580,
+    "wires": [
+      [
+        "flow2_read_sensor"
+      ]
+    ]
+  },
+  {
+    "id": "f489fdf2703bd1d8",
+    "type": "debug",
+    "z": "f1_tab",
+    "name": "debug 2",
+    "active": false,
+    "tosidebar": true,
+    "console": false,
+    "tostatus": false,
+    "complete": "true",
+    "targetType": "full",
+    "statusVal": "",
+    "statusType": "auto",
+    "x": 920,
+    "y": 440,
+    "wires": []
+  },
+  {
+    "id": "flow1_inject_v2",
+    "type": "inject",
+    "z": "f1_tab",
+    "name": "5분마다 설정 조회",
+    "props": [],
+    "repeat": "300",
+    "crontab": "",
+    "once": true,
+    "onceDelay": "1",
+    "topic": "",
+    "x": 130,
+    "y": 300,
+    "wires": [
+      [
+        "flow1_set_header"
+      ]
+    ]
+  },
+  {
+    "id": "flow1_set_header",
+    "type": "function",
+    "z": "f1_tab",
+    "name": "API 키 설정",
+    "func": "msg.headers = {\n    'x-api-key': 'smartfarm-sensor-key'\n};\nreturn msg;",
+    "outputs": 1,
+    "timeout": "",
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "libs": [],
+    "x": 350,
+    "y": 300,
+    "wires": [
+      [
+        "flow1_http_get_v2"
+      ]
+    ]
+  },
+  {
+    "id": "flow1_http_get_v2",
+    "type": "http request",
+    "z": "f1_tab",
+    "name": "설정 조회",
+    "method": "GET",
+    "ret": "obj",
+    "paytoqs": "ignore",
+    "url": "http://192.168.137.1:3000/api/config/node-red/farm_0001/house_0001",
+    "tls": "",
+    "persist": false,
+    "proxy": "",
+    "insecureHTTPParser": false,
+    "authType": "",
+    "senderr": true,
+    "headers": [],
+    "x": 540,
+    "y": 300,
+    "wires": [
+      [
+        "flow1_save_config_v2"
+      ]
+    ]
+  },
+  {
+    "id": "flow1_save_config_v2",
+    "type": "function",
+    "z": "f1_tab",
+    "name": "설정 저장",
+    "func": "if (msg.statusCode !== 200 || !msg.payload.success) {\n    node.status({fill:'red', shape:'ring', text:'서버 응답 오류'});\n    return null;\n}\n\nvar data = msg.payload.data;\nvar interval = data.intervalSeconds || 60;\n\nflow.set('intervalSeconds', interval);\nflow.set('sensors', data.sensors);\n\nnode.status({fill:'green', shape:'dot', text:'수집간격: ' + interval + '초'});\n\nreturn msg;",
+    "outputs": 1,
+    "timeout": "",
+    "noerr": 0,
+    "initialize": "flow.set('intervalSeconds', 60);",
+    "finalize": "",
+    "libs": [],
+    "x": 730,
+    "y": 300,
+    "wires": [
+      [
+        "flow1_debug_v2"
+      ]
+    ]
+  },
+  {
+    "id": "flow1_debug_v2",
+    "type": "debug",
+    "z": "f1_tab",
+    "name": "설정 확인",
+    "active": true,
+    "tosidebar": true,
+    "console": false,
+    "tostatus": false,
+    "complete": "payload.data",
+    "targetType": "msg",
+    "statusVal": "",
+    "statusType": "auto",
+    "x": 910,
+    "y": 300,
+    "wires": []
+  },
+  {
+    "id": "f2_comment",
+    "type": "comment",
+    "z": "f2_tab",
+    "name": "장비 상태를 Flow Context에서 읽어 Express에 전달",
+    "info": "장비(밸브, 펌프, 믹서) 상태를 Flow Context에서 읽어 5초 간격으로 Express 내부 API에 전달합니다.\n관수 시퀀스 플로우에서 상태를 업데이트하면 이 플로우가 자동으로 반영합니다.",
+    "x": 350,
+    "y": 40,
+    "wires": []
+  },
+  {
+    "id": "f2_inject",
+    "type": "inject",
+    "z": "f2_tab",
+    "name": "5초 간격 트리거",
+    "props": [
+      {
+        "p": "payload"
+      }
+    ],
+    "repeat": "5",
+    "crontab": "",
+    "once": true,
+    "onceDelay": "2",
+    "topic": "",
+    "payload": "",
+    "payloadType": "date",
+    "x": 140,
+    "y": 140,
+    "wires": [
+      [
+        "f2_read_status"
+      ]
+    ]
+  },
+  {
+    "id": "f2_read_status",
+    "type": "function",
+    "z": "f2_tab",
+    "name": "상태 읽기",
+    "func": "// 장비 상태를 Flow Context에서 읽기\n// 관수 시퀀스 및 수동 제어에서 상태가 업데이트됨\n\nvar VALVE_COUNT = 14;\n\n// 기본값 설정\nvar defaultValveStates = [];\nfor (var i = 0; i < VALVE_COUNT; i++) {\n    defaultValveStates.push(false);\n}\n\nvar operatingState = flow.get('operating_state') || 'STOPPED';\nvar activeProgram = flow.get('active_program') || null;\nvar valveStates = flow.get('valve_states') || defaultValveStates;\nvar pumpState = flow.get('pump_state') || { raw_pump: false, nutrient_pump: false };\nvar mixerState = flow.get('mixer_state') || false;\n\nmsg.payload = {\n    operating_state: operatingState,\n    active_program: activeProgram,\n    valve_states: valveStates,\n    pump_state: pumpState,\n    mixer_state: mixerState\n};\n\nmsg.headers = { 'Content-Type': 'application/json' };\n\nreturn msg;",
+    "outputs": 1,
+    "timeout": "",
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "libs": [],
+    "x": 360,
+    "y": 140,
+    "wires": [
+      [
+        "f2_http_req"
+      ]
+    ]
+  },
+  {
+    "id": "f2_http_req",
+    "type": "http request",
+    "z": "f2_tab",
+    "name": "POST status-update",
+    "method": "POST",
+    "ret": "obj",
+    "paytoqs": "ignore",
+    "url": "http://localhost:3001/internal/status-update",
+    "tls": "",
+    "persist": false,
+    "proxy": "",
+    "insecureHTTPParser": false,
+    "authType": "",
+    "senderr": false,
+    "headers": [],
+    "x": 580,
+    "y": 140,
+    "wires": [
+      [
+        "f2_debug"
+      ]
+    ]
+  },
+  {
+    "id": "f2_debug",
+    "type": "debug",
+    "z": "f2_tab",
+    "name": "상태 업데이트 응답",
+    "active": false,
+    "tosidebar": true,
+    "console": false,
+    "tostatus": true,
+    "complete": "payload",
+    "targetType": "msg",
+    "statusVal": "payload.statusCode",
+    "statusType": "auto",
+    "x": 800,
+    "y": 140,
+    "wires": []
+  },
+  {
+    "id": "f3_comment",
+    "type": "comment",
+    "z": "f3_tab",
+    "name": "3가지 트리거(일사량/시간간격/고정시간)를 10초 간격으로 확인",
+    "info": "관수 프로그램의 트리거 조건을 10초 간격으로 확인합니다.\n1. 일사량 기반: 누적 일사량이 설정값 이상\n2. 시간 간격 기반: 마지막 관수 후 설정 시간 경과\n3. 고정 시간 기반: 설정된 시작 시간 도래\n요일 조건도 함께 확인합니다.",
+    "x": 380,
+    "y": 40,
+    "wires": []
+  },
+  {
+    "id": "f3_inject",
+    "type": "inject",
+    "z": "f3_tab",
+    "name": "10초 간격 트리거 확인",
+    "props": [
+      {
+        "p": "payload"
+      }
+    ],
+    "repeat": "10",
+    "crontab": "",
+    "once": true,
+    "onceDelay": "5",
+    "topic": "",
+    "payload": "",
+    "payloadType": "date",
+    "x": 160,
+    "y": 140,
+    "wires": [
+      [
+        "f3_get_programs"
+      ]
+    ]
+  },
+  {
+    "id": "f3_get_programs",
+    "type": "http request",
+    "z": "f3_tab",
+    "name": "GET programs",
+    "method": "GET",
+    "ret": "obj",
+    "paytoqs": "ignore",
+    "url": "http://localhost:3001/internal/programs",
+    "tls": "",
+    "persist": false,
+    "proxy": "",
+    "insecureHTTPParser": false,
+    "authType": "",
+    "senderr": false,
+    "headers": [],
+    "x": 380,
+    "y": 140,
+    "wires": [
+      [
+        "f3_check_trigger"
+      ]
+    ]
+  },
+  {
+    "id": "f3_check_trigger",
+    "type": "function",
+    "z": "f3_tab",
+    "name": "트리거 확인",
+    "func": "// 관수 프로그램 트리거 조건 확인\n// 3가지 트리거: 일사량, 시간간격, 고정시간\n\nvar response = msg.payload;\nvar programs = (response && response.data) ? response.data : response;\nif (!programs || !Array.isArray(programs)) {\n    node.warn('프로그램 목록을 가져올 수 없습니다: ' + JSON.stringify(msg.payload));\n    return [null, msg];\n}\n\nvar now = new Date();\nvar currentDay = now.getDay(); // 0=일, 1=월, ..., 6=토\nvar currentHour = now.getHours();\nvar currentMinute = now.getMinutes();\nvar currentTimeStr = ('0' + currentHour).slice(-2) + ':' + ('0' + currentMinute).slice(-2);\n\n// 현재 운영 상태 확인\nvar operatingState = flow.get('operating_state') || 'STOPPED';\nif (operatingState === 'EMERGENCY' || operatingState === 'IRRIGATING') {\n    // 비상정지 상태이거나 이미 관수 중이면 트리거하지 않음\n    return [null, { payload: '현재 상태: ' + operatingState + ' - 트리거 건너뜀' }];\n}\n\nvar sensorData = global.get('latest_sensor_data') || {};\nvar accumulatedSolar = flow.get('accumulated_solar') || 0;\n\n// 누적 일사량 계산 (10초 간격이므로 일사량 * 10/3600 적산)\nif (sensorData.solar_radiation) {\n    accumulatedSolar += sensorData.solar_radiation * (10 / 3600);\n    flow.set('accumulated_solar', accumulatedSolar);\n}\n\nvar triggeredProgram = null;\n\nfor (var i = 0; i < programs.length; i++) {\n    var program = programs[i];\n    \n    // 프로그램 활성화 여부 확인\n    if (!program.enabled) continue;\n    \n    // 요일 확인\n    if (program.active_days && Array.isArray(program.active_days)) {\n        if (!program.active_days[currentDay]) continue;\n    }\n    \n    var triggerType = program.trigger_type;\n    var lastIrrigationTime = flow.get('last_irrigation_' + program.program_id) || 0;\n    \n    if (triggerType === 'solar') {\n        // 일사량 기반 트리거\n        if (program.trigger_solar_radiation && accumulatedSolar >= program.trigger_solar_radiation) {\n            triggeredProgram = program;\n            // 누적 일사량 리셋\n            flow.set('accumulated_solar', 0);\n            node.status({ fill: 'green', shape: 'dot', text: '일사량 트리거: ' + program.name });\n            break;\n        }\n    } else if (triggerType === 'interval') {\n        // 시간 간격 기반 트리거\n        var elapsedMinutes = (now.getTime() - lastIrrigationTime) / 60000;\n        if (program.trigger_interval_minutes && elapsedMinutes >= program.trigger_interval_minutes) {\n            triggeredProgram = program;\n            node.status({ fill: 'green', shape: 'dot', text: '시간간격 트리거: ' + program.name });\n            break;\n        }\n    } else if (triggerType === 'schedule') {\n        // 고정 시간 기반 트리거\n        if (program.trigger_start_time === currentTimeStr) {\n            // 같은 시간에 중복 트리거 방지\n            var lastScheduleTrigger = flow.get('last_schedule_trigger_' + program.program_id) || '';\n            var todayKey = now.toISOString().slice(0, 10) + '_' + currentTimeStr;\n            if (lastScheduleTrigger !== todayKey) {\n                flow.set('last_schedule_trigger_' + program.program_id, todayKey);\n                triggeredProgram = program;\n                node.status({ fill: 'green', shape: 'dot', text: '고정시간 트리거: ' + program.name });\n                break;\n            }\n        }\n    }\n}\n\nif (triggeredProgram) {\n    // 마지막 관수 시간 기록\n    flow.set('last_irrigation_' + triggeredProgram.program_id, now.getTime());\n    \n    var triggerMsg = {\n        payload: triggeredProgram,\n        topic: 'irrigation_trigger'\n    };\n    return [triggerMsg, null];\n} else {\n    node.status({ fill: 'grey', shape: 'ring', text: '대기 중 - ' + currentTimeStr });\n    return [null, { payload: '트리거 조건 미충족' }];\n}",
+    "outputs": 2,
+    "timeout": "",
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "libs": [],
+    "x": 590,
+    "y": 140,
+    "wires": [
+      [
+        "f3_link_out"
+      ],
+      [
+        "f3_debug_no_trigger"
+      ]
+    ]
+  },
+  {
+    "id": "f3_link_out",
+    "type": "link out",
+    "z": "f3_tab",
+    "name": "관수 시퀀스로 전달",
+    "mode": "link",
+    "links": [
+      "f4_link_in"
+    ],
+    "x": 785,
+    "y": 100,
+    "wires": []
+  },
+  {
+    "id": "f3_debug_no_trigger",
+    "type": "debug",
+    "z": "f3_tab",
+    "name": "트리거 없음",
+    "active": false,
+    "tosidebar": true,
+    "console": false,
+    "tostatus": false,
+    "complete": "payload",
+    "targetType": "msg",
+    "statusVal": "",
+    "statusType": "auto",
+    "x": 790,
+    "y": 180,
+    "wires": []
+  },
+  {
+    "id": "f4_comment",
+    "type": "comment",
+    "z": "f4_tab",
+    "name": "5단계 관수 시퀀스 상태 머신",
+    "info": "관수 시퀀스 5단계:\nSTEP 1: 원수 펌프 ON → 3초 대기\nSTEP 2: 양액 혼합 (목표 EC/pH 설정) → 믹서 ON → EC/pH 도달 대기 (최대 60초)\nSTEP 3: 양액 펌프 ON\nSTEP 4: 밸브 순차 개방 (각 설정 시간만큼), 유량 추적\nSTEP 5: 전체 완료 → 모든 펌프/믹서 OFF → 실행 기록 POST\n\nFlow Context에 현재 상태를 저장하며, 장비 상태 수집 플로우에서 읽어갑니다.",
+    "x": 300,
+    "y": 40,
+    "wires": []
+  },
+  {
+    "id": "f4_link_in",
+    "type": "link in",
+    "z": "f4_tab",
+    "name": "관수 트리거 수신",
+    "links": [
+      "f3_link_out"
+    ],
+    "x": 95,
+    "y": 140,
+    "wires": [
+      [
+        "f4_state_machine"
+      ]
+    ]
+  },
+  {
+    "id": "f4_state_machine",
+    "type": "function",
+    "z": "f4_tab",
+    "name": "관수 상태 머신",
+    "func": "// 5단계 관수 시퀀스 상태 머신\n// STEP 1: 원수 펌프 ON → 3초 대기\n// STEP 2: 양액 혼합 → 믹서 ON → EC/pH 목표 도달 대기 (최대 60초)\n// STEP 3: 양액 펌프 ON\n// STEP 4: 밸브 순차 개방\n// STEP 5: 완료 → 전체 OFF → 실행 기록\n\nvar VALVE_COUNT = 14;\nvar program = msg.payload;\nvar currentStep = flow.get('irrigation_step') || 0;\nvar stepStartTime = flow.get('step_start_time') || 0;\nvar currentValveIdx = flow.get('current_valve_index') || 0;\nvar now = Date.now();\n\n// 새 프로그램 트리거 시 초기화\nif (msg.topic === 'irrigation_trigger' && currentStep === 0) {\n    flow.set('irrigation_program', program);\n    flow.set('irrigation_step', 1);\n    flow.set('step_start_time', now);\n    flow.set('current_valve_index', 0);\n    flow.set('operating_state', 'IRRIGATING');\n    flow.set('active_program', program.program_id || program.name);\n    flow.set('irrigation_total_flow', 0);\n    \n    // STEP 1: 원수 펌프 ON\n    var pumpState = { raw_pump: true, nutrient_pump: false };\n    flow.set('pump_state', pumpState);\n    \n    node.status({ fill: 'blue', shape: 'dot', text: 'STEP 1: 원수 펌프 ON' });\n    \n    msg.payload = {\n        operating_state: 'IRRIGATING',\n        active_program: program.program_id || program.name,\n        valve_states: flow.get('valve_states') || new Array(VALVE_COUNT).fill(false),\n        pump_state: pumpState,\n        mixer_state: false\n    };\n    msg.headers = { 'Content-Type': 'application/json' };\n    msg.delay = 3000; // 3초 대기\n    msg.nextStep = 2;\n    return msg;\n}\n\nprogram = flow.get('irrigation_program');\nif (!program) {\n    node.status({ fill: 'grey', shape: 'ring', text: '프로그램 없음' });\n    return null;\n}\n\ncurrentStep = flow.get('irrigation_step');\n\nif (currentStep === 2) {\n    // STEP 2: 양액 혼합 - 믹서 ON\n    flow.set('mixer_state', true);\n    flow.set('step_start_time', now);\n    flow.set('irrigation_step', 2);\n    \n    var sensorData = global.get('latest_sensor_data') || {};\n    var targetEc = program.target_ec || 2.0;\n    var targetPh = program.target_ph || 6.0;\n    var elapsed = (now - flow.get('step_start_time')) / 1000;\n    \n    // EC/pH 목표 도달 확인 (시뮬레이션에서는 즉시 통과, 실배포 시 센서 값 비교)\n    // 최대 60초 타임아웃\n    node.status({ fill: 'blue', shape: 'dot', text: 'STEP 2: 양액 혼합 중 (목표 EC: ' + targetEc + ', pH: ' + targetPh + ')' });\n    \n    // 시뮬레이션: 즉시 다음 단계로 진행\n    flow.set('irrigation_step', 3);\n    msg.delay = 1000;\n    msg.nextStep = 3;\n    \n    msg.payload = {\n        operating_state: 'IRRIGATING',\n        active_program: flow.get('active_program'),\n        valve_states: flow.get('valve_states') || new Array(VALVE_COUNT).fill(false),\n        pump_state: flow.get('pump_state'),\n        mixer_state: true\n    };\n    msg.headers = { 'Content-Type': 'application/json' };\n    return msg;\n}\n\nif (currentStep === 3) {\n    // STEP 3: 양액 펌프 ON\n    var pumpState3 = { raw_pump: true, nutrient_pump: true };\n    flow.set('pump_state', pumpState3);\n    flow.set('irrigation_step', 4);\n    flow.set('current_valve_index', 0);\n    flow.set('step_start_time', now);\n    \n    node.status({ fill: 'blue', shape: 'dot', text: 'STEP 3: 양액 펌프 ON' });\n    \n    msg.payload = {\n        operating_state: 'IRRIGATING',\n        active_program: flow.get('active_program'),\n        valve_states: flow.get('valve_states') || new Array(VALVE_COUNT).fill(false),\n        pump_state: pumpState3,\n        mixer_state: true\n    };\n    msg.headers = { 'Content-Type': 'application/json' };\n    msg.delay = 1000;\n    msg.nextStep = 4;\n    return msg;\n}\n\nif (currentStep === 4) {\n    // STEP 4: 밸브 순차 개방\n    var valveConfigs = program.valve_configs || program.valves || [];\n    currentValveIdx = flow.get('current_valve_index') || 0;\n    \n    if (currentValveIdx >= valveConfigs.length) {\n        // 모든 밸브 완료 → STEP 5로\n        flow.set('irrigation_step', 5);\n        msg.delay = 500;\n        msg.nextStep = 5;\n        msg.payload = {\n            operating_state: 'IRRIGATING',\n            active_program: flow.get('active_program'),\n            valve_states: new Array(VALVE_COUNT).fill(false),\n            pump_state: flow.get('pump_state'),\n            mixer_state: flow.get('mixer_state')\n        };\n        msg.headers = { 'Content-Type': 'application/json' };\n        node.status({ fill: 'blue', shape: 'dot', text: 'STEP 4: 모든 밸브 완료' });\n        return msg;\n    }\n    \n    var currentValve = valveConfigs[currentValveIdx];\n    var valveIndex = currentValve.valve_index || currentValveIdx;\n    var duration = (currentValve.duration_seconds || 60) * 1000; // ms로 변환\n    \n    // 현재 밸브 열기\n    var valveStates = new Array(VALVE_COUNT).fill(false);\n    valveStates[valveIndex] = true;\n    flow.set('valve_states', valveStates);\n    \n    // 유량 누적\n    var sensorNow = global.get('latest_sensor_data') || {};\n    var totalFlow = flow.get('irrigation_total_flow') || 0;\n    totalFlow += sensorNow.supply_flow || 0;\n    flow.set('irrigation_total_flow', totalFlow);\n    \n    // 다음 밸브로\n    flow.set('current_valve_index', currentValveIdx + 1);\n    flow.set('step_start_time', now);\n    \n    node.status({ fill: 'green', shape: 'dot', text: 'STEP 4: 밸브 ' + (valveIndex + 1) + ' 개방 중 (' + (currentValveIdx + 1) + '/' + valveConfigs.length + ')' });\n    \n    msg.payload = {\n        operating_state: 'IRRIGATING',\n        active_program: flow.get('active_program'),\n        valve_states: valveStates,\n        pump_state: flow.get('pump_state'),\n        mixer_state: flow.get('mixer_state')\n    };\n    msg.headers = { 'Content-Type': 'application/json' };\n    msg.delay = duration;\n    msg.nextStep = 4; // 같은 STEP에서 다음 밸브\n    return msg;\n}\n\nif (currentStep === 5) {\n    // STEP 5: 완료 - 모든 장비 OFF\n    flow.set('valve_states', new Array(VALVE_COUNT).fill(false));\n    flow.set('pump_state', { raw_pump: false, nutrient_pump: false });\n    flow.set('mixer_state', false);\n    flow.set('operating_state', 'STOPPED');\n    flow.set('active_program', null);\n    flow.set('irrigation_step', 0);\n    flow.set('current_valve_index', 0);\n    \n    var executionRecord = {\n        program_id: program.program_id,\n        program_name: program.name,\n        completed_at: new Date().toISOString(),\n        total_flow: flow.get('irrigation_total_flow') || 0\n    };\n    \n    // 일일 실행 기록 저장\n    var dailyRecords = flow.get('daily_irrigation_records') || [];\n    dailyRecords.push(executionRecord);\n    flow.set('daily_irrigation_records', dailyRecords);\n    flow.set('irrigation_total_flow', 0);\n    \n    node.status({ fill: 'green', shape: 'ring', text: 'STEP 5: 관수 완료 - ' + (program.name || program.program_id) });\n    \n    msg.payload = {\n        operating_state: 'STOPPED',\n        active_program: null,\n        valve_states: new Array(VALVE_COUNT).fill(false),\n        pump_state: { raw_pump: false, nutrient_pump: false },\n        mixer_state: false\n    };\n    msg.headers = { 'Content-Type': 'application/json' };\n    return msg;\n}\n\nreturn null;",
+    "outputs": 1,
+    "timeout": "",
+    "noerr": 0,
+    "initialize": "// 초기화 시 관수 상태 리셋\nflow.set('irrigation_step', 0);\nflow.set('current_valve_index', 0);\nflow.set('irrigation_total_flow', 0);",
+    "finalize": "",
+    "libs": [],
+    "x": 310,
+    "y": 140,
+    "wires": [
+      [
+        "f4_http_status",
+        "f4_delay"
+      ]
+    ]
+  },
+  {
+    "id": "f4_http_status",
+    "type": "http request",
+    "z": "f4_tab",
+    "name": "POST status-update",
+    "method": "POST",
+    "ret": "obj",
+    "paytoqs": "ignore",
+    "url": "http://localhost:3001/internal/status-update",
+    "tls": "",
+    "persist": false,
+    "proxy": "",
+    "insecureHTTPParser": false,
+    "authType": "",
+    "senderr": false,
+    "headers": [],
+    "x": 560,
+    "y": 100,
+    "wires": [
+      [
+        "f4_debug"
+      ]
+    ]
+  },
+  {
+    "id": "f4_delay",
+    "type": "delay",
+    "z": "f4_tab",
+    "name": "시퀀스 대기",
+    "pauseType": "delayv",
+    "timeout": "3",
+    "timeoutUnits": "seconds",
+    "rate": "1",
+    "nbRateUnits": "1",
+    "rateUnits": "second",
+    "randomFirst": "1",
+    "randomLast": "5",
+    "randomUnits": "seconds",
+    "drop": false,
+    "allowrate": false,
+    "outputs": 1,
+    "x": 530,
+    "y": 200,
+    "wires": [
+      [
+        "f4_next_step"
+      ]
+    ]
+  },
+  {
+    "id": "f4_next_step",
+    "type": "function",
+    "z": "f4_tab",
+    "name": "다음 단계 진행",
+    "func": "// 다음 단계로 진행\nvar nextStep = msg.nextStep;\nif (nextStep) {\n    flow.set('irrigation_step', nextStep);\n    msg.topic = 'next_step';\n    msg.payload = flow.get('irrigation_program');\n    return msg;\n}\nreturn null;",
+    "outputs": 1,
+    "timeout": "",
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "libs": [],
+    "x": 740,
+    "y": 200,
+    "wires": [
+      [
+        "f4_state_machine"
+      ]
+    ]
+  },
+  {
+    "id": "f4_debug",
+    "type": "debug",
+    "z": "f4_tab",
+    "name": "시퀀스 상태",
+    "active": true,
+    "tosidebar": true,
+    "console": false,
+    "tostatus": true,
+    "complete": "payload",
+    "targetType": "msg",
+    "statusVal": "",
+    "statusType": "auto",
+    "x": 780,
+    "y": 100,
+    "wires": []
+  },
+  {
+    "id": "f5_comment",
+    "type": "comment",
+    "z": "f5_tab",
+    "name": "센서 임계값 초과 시 Express에 경보 전달",
+    "info": "센서 데이터의 임계값을 3초 간격으로 확인합니다.\n임계값 초과 시 Express 내부 API(/internal/alarm)에 경보를 전달합니다.\n동일 경보의 중복 발생을 방지하기 위해 Flow Context로 경보 상태를 관리합니다.\n\n확인 항목:\n- EC 상한/하한\n- pH 상한/하한\n- 온도 상한/하한",
+    "x": 310,
+    "y": 60,
+    "wires": []
+  },
+  {
+    "id": "f5_inject",
+    "type": "inject",
+    "z": "f5_tab",
+    "name": "3초 간격 트리거",
+    "props": [
+      {
+        "p": "payload"
+      }
+    ],
+    "repeat": "3",
+    "crontab": "",
+    "once": true,
+    "onceDelay": "5",
+    "topic": "",
+    "payload": "",
+    "payloadType": "date",
+    "x": 140,
+    "y": 140,
+    "wires": [
+      [
+        "f5_get_config"
+      ]
+    ]
+  },
+  {
+    "id": "f5_get_config",
+    "type": "http request",
+    "z": "f5_tab",
+    "name": "GET config",
+    "method": "GET",
+    "ret": "obj",
+    "paytoqs": "ignore",
+    "url": "http://localhost:3001/internal/config",
+    "tls": "",
+    "persist": false,
+    "proxy": "",
+    "insecureHTTPParser": false,
+    "authType": "",
+    "senderr": false,
+    "headers": [],
+    "x": 360,
+    "y": 140,
+    "wires": [
+      [
+        "f5_check_thresholds"
+      ]
+    ]
+  },
+  {
+    "id": "f5_check_thresholds",
+    "type": "function",
+    "z": "f5_tab",
+    "name": "임계값 확인",
+    "func": "// 센서 임계값 확인\n// 글로벌 컨텍스트에서 최신 센서 데이터 읽기\n\nvar response = msg.payload;\nvar config = (response && response.data) ? response.data : response;\nif (!config) {\n    node.warn('설정 정보를 가져올 수 없습니다.');\n    return null;\n}\n\nvar sensorData = global.get('latest_sensor_data');\nif (!sensorData) {\n    node.status({ fill: 'grey', shape: 'ring', text: '센서 데이터 없음' });\n    return null;\n}\n\n// 임계값 기본값 설정\nvar thresholds = {\n    alarm_ec_upper: config.alarm_ec_upper || 3.5,\n    alarm_ec_lower: config.alarm_ec_lower || 0.3,\n    alarm_ph_upper: config.alarm_ph_upper || 8.5,\n    alarm_ph_lower: config.alarm_ph_lower || 4.5,\n    alarm_temp_upper: config.alarm_temp_upper || 40,\n    alarm_temp_lower: config.alarm_temp_lower || 5\n};\n\n// 현재 경보 상태 (중복 방지)\nvar activeAlarms = flow.get('active_alarms') || {};\nvar alarms = [];\n\n// EC 상한 확인\nif (sensorData.ec > thresholds.alarm_ec_upper) {\n    if (!activeAlarms['EC_HIGH']) {\n        alarms.push({\n            alarm_type: 'EC_HIGH',\n            alarm_value: sensorData.ec,\n            threshold_value: thresholds.alarm_ec_upper,\n            message: 'EC 상한 초과: 현재 ' + sensorData.ec + ' (임계값: ' + thresholds.alarm_ec_upper + ')'\n        });\n        activeAlarms['EC_HIGH'] = true;\n    }\n} else {\n    activeAlarms['EC_HIGH'] = false;\n}\n\n// EC 하한 확인\nif (sensorData.ec < thresholds.alarm_ec_lower) {\n    if (!activeAlarms['EC_LOW']) {\n        alarms.push({\n            alarm_type: 'EC_LOW',\n            alarm_value: sensorData.ec,\n            threshold_value: thresholds.alarm_ec_lower,\n            message: 'EC 하한 미달: 현재 ' + sensorData.ec + ' (임계값: ' + thresholds.alarm_ec_lower + ')'\n        });\n        activeAlarms['EC_LOW'] = true;\n    }\n} else {\n    activeAlarms['EC_LOW'] = false;\n}\n\n// pH 상한 확인\nif (sensorData.ph > thresholds.alarm_ph_upper) {\n    if (!activeAlarms['PH_HIGH']) {\n        alarms.push({\n            alarm_type: 'PH_HIGH',\n            alarm_value: sensorData.ph,\n            threshold_value: thresholds.alarm_ph_upper,\n            message: 'pH 상한 초과: 현재 ' + sensorData.ph + ' (임계값: ' + thresholds.alarm_ph_upper + ')'\n        });\n        activeAlarms['PH_HIGH'] = true;\n    }\n} else {\n    activeAlarms['PH_HIGH'] = false;\n}\n\n// pH 하한 확인\nif (sensorData.ph < thresholds.alarm_ph_lower) {\n    if (!activeAlarms['PH_LOW']) {\n        alarms.push({\n            alarm_type: 'PH_LOW',\n            alarm_value: sensorData.ph,\n            threshold_value: thresholds.alarm_ph_lower,\n            message: 'pH 하한 미달: 현재 ' + sensorData.ph + ' (임계값: ' + thresholds.alarm_ph_lower + ')'\n        });\n        activeAlarms['PH_LOW'] = true;\n    }\n} else {\n    activeAlarms['PH_LOW'] = false;\n}\n\n// 온도 상한 확인\nif (sensorData.indoor_temp > thresholds.alarm_temp_upper) {\n    if (!activeAlarms['TEMP_HIGH']) {\n        alarms.push({\n            alarm_type: 'TEMP_HIGH',\n            alarm_value: sensorData.indoor_temp,\n            threshold_value: thresholds.alarm_temp_upper,\n            message: '온도 상한 초과: 현재 ' + sensorData.indoor_temp + '°C (임계값: ' + thresholds.alarm_temp_upper + '°C)'\n        });\n        activeAlarms['TEMP_HIGH'] = true;\n    }\n} else {\n    activeAlarms['TEMP_HIGH'] = false;\n}\n\n// 온도 하한 확인\nif (sensorData.indoor_temp < thresholds.alarm_temp_lower) {\n    if (!activeAlarms['TEMP_LOW']) {\n        alarms.push({\n            alarm_type: 'TEMP_LOW',\n            alarm_value: sensorData.indoor_temp,\n            threshold_value: thresholds.alarm_temp_lower,\n            message: '온도 하한 미달: 현재 ' + sensorData.indoor_temp + '°C (임계값: ' + thresholds.alarm_temp_lower + '°C)'\n        });\n        activeAlarms['TEMP_LOW'] = true;\n    }\n} else {\n    activeAlarms['TEMP_LOW'] = false;\n}\n\nflow.set('active_alarms', activeAlarms);\n\nif (alarms.length > 0) {\n    node.status({ fill: 'red', shape: 'dot', text: '경보 ' + alarms.length + '건 발생' });\n    // 각 경보를 개별 메시지로 전송\n    var messages = alarms.map(function(alarm) {\n        return {\n            payload: alarm,\n            headers: { 'Content-Type': 'application/json' }\n        };\n    });\n    // 첫 번째 경보만 전송 (순차 처리)\n    msg.payload = alarms[0];\n    msg.headers = { 'Content-Type': 'application/json' };\n    msg.alarms = alarms;\n    return msg;\n} else {\n    node.status({ fill: 'green', shape: 'ring', text: '정상 범위 내' });\n    return null;\n}",
+    "outputs": 1,
+    "timeout": "",
+    "noerr": 0,
+    "initialize": "// 경보 상태 초기화\nflow.set('active_alarms', {});",
+    "finalize": "",
+    "libs": [],
+    "x": 580,
+    "y": 140,
+    "wires": [
+      [
+        "f5_http_alarm"
+      ]
+    ]
+  },
+  {
+    "id": "f5_http_alarm",
+    "type": "http request",
+    "z": "f5_tab",
+    "name": "POST alarm",
+    "method": "POST",
+    "ret": "obj",
+    "paytoqs": "ignore",
+    "url": "http://localhost:3001/internal/alarm",
+    "tls": "",
+    "persist": false,
+    "proxy": "",
+    "insecureHTTPParser": false,
+    "authType": "",
+    "senderr": false,
+    "headers": [],
+    "x": 780,
+    "y": 140,
+    "wires": [
+      [
+        "f5_debug"
+      ]
+    ]
+  },
+  {
+    "id": "f5_debug",
+    "type": "debug",
+    "z": "f5_tab",
+    "name": "경보 전송 결과",
+    "active": true,
+    "tosidebar": true,
+    "console": false,
+    "tostatus": true,
+    "complete": "payload",
+    "targetType": "msg",
+    "statusVal": "",
+    "statusType": "auto",
+    "x": 980,
+    "y": 140,
+    "wires": []
+  },
+  {
+    "id": "f6_comment",
+    "type": "comment",
+    "z": "f6_tab",
+    "name": "외부 비상정지/수동 명령 수신",
+    "info": "비상정지:\nGET /emergency-stop 요청 시 모든 밸브/펌프/믹서를 OFF로 설정하고\noperating_state를 EMERGENCY로 변경합니다.\n\n수동 밸브 제어:\nPOST /manual-valve 요청으로 개별 밸브를 수동 제어합니다.",
+    "x": 320,
+    "y": 40,
+    "wires": []
+  },
+  {
+    "id": "f6_http_in_estop",
+    "type": "http in",
+    "z": "f6_tab",
+    "name": "GET /emergency-stop",
+    "url": "/emergency-stop",
+    "method": "get",
+    "upload": false,
+    "swaggerDoc": "",
+    "x": 160,
+    "y": 140,
+    "wires": [
+      [
+        "f6_emergency_func"
+      ]
+    ]
+  },
+  {
+    "id": "f6_emergency_func",
+    "type": "function",
+    "z": "f6_tab",
+    "name": "비상정지 실행",
+    "func": "// 비상정지 실행\n// 모든 밸브 OFF, 모든 펌프 OFF, 믹서 OFF\n\nvar VALVE_COUNT = 14;\n\n// 모든 장비 OFF\nvar valveStates = new Array(VALVE_COUNT).fill(false);\nvar pumpState = { raw_pump: false, nutrient_pump: false };\nvar mixerState = false;\n\n// Flow Context 업데이트\nflow.set('valve_states', valveStates);\nflow.set('pump_state', pumpState);\nflow.set('mixer_state', mixerState);\nflow.set('operating_state', 'EMERGENCY');\nflow.set('active_program', null);\n\n// 진행 중인 관수 시퀀스 초기화\nflow.set('irrigation_step', 0);\nflow.set('current_valve_index', 0);\nflow.set('irrigation_total_flow', 0);\n\nnode.status({ fill: 'red', shape: 'dot', text: '비상정지 실행됨' });\nnode.warn('비상정지가 실행되었습니다. 모든 장비가 OFF 되었습니다.');\n\n// Express에 상태 업데이트 전송용 메시지\nvar statusMsg = {\n    payload: {\n        operating_state: 'EMERGENCY',\n        active_program: null,\n        valve_states: valveStates,\n        pump_state: pumpState,\n        mixer_state: mixerState\n    },\n    headers: { 'Content-Type': 'application/json' }\n};\n\n// HTTP 응답용 메시지\nvar responseMsg = {\n    payload: {\n        success: true,\n        message: '비상정지 실행됨',\n        timestamp: new Date().toISOString()\n    },\n    res: msg.res\n};\n\nreturn [statusMsg, responseMsg];",
+    "outputs": 2,
+    "timeout": "",
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "libs": [],
+    "x": 400,
+    "y": 140,
+    "wires": [
+      [
+        "f6_http_status_update"
+      ],
+      [
+        "f6_http_response_estop"
+      ]
+    ]
+  },
+  {
+    "id": "f6_http_status_update",
+    "type": "http request",
+    "z": "f6_tab",
+    "name": "POST status-update",
+    "method": "POST",
+    "ret": "obj",
+    "paytoqs": "ignore",
+    "url": "http://localhost:3001/internal/status-update",
+    "tls": "",
+    "persist": false,
+    "proxy": "",
+    "insecureHTTPParser": false,
+    "authType": "",
+    "senderr": false,
+    "headers": [],
+    "x": 660,
+    "y": 120,
+    "wires": [
+      [
+        "f6_debug_estop"
+      ]
+    ]
+  },
+  {
+    "id": "f6_http_response_estop",
+    "type": "http response",
+    "z": "f6_tab",
+    "name": "비상정지 응답",
+    "statusCode": "200",
+    "headers": {},
+    "x": 640,
+    "y": 180,
+    "wires": []
+  },
+  {
+    "id": "f6_debug_estop",
+    "type": "debug",
+    "z": "f6_tab",
+    "name": "비상정지 상태 업데이트 결과",
+    "active": true,
+    "tosidebar": true,
+    "console": false,
+    "tostatus": true,
+    "complete": "payload",
+    "targetType": "msg",
+    "statusVal": "",
+    "statusType": "auto",
+    "x": 920,
+    "y": 120,
+    "wires": []
+  },
+  {
+    "id": "f6_http_in_manual",
+    "type": "http in",
+    "z": "f6_tab",
+    "name": "POST /manual-valve",
+    "url": "/manual-valve",
+    "method": "post",
+    "upload": false,
+    "swaggerDoc": "",
+    "x": 160,
+    "y": 300,
+    "wires": [
+      [
+        "f6_manual_valve_func"
+      ]
+    ]
+  },
+  {
+    "id": "f6_manual_valve_func",
+    "type": "function",
+    "z": "f6_tab",
+    "name": "수동 밸브 제어",
+    "func": "// 수동 밸브 제어\n// body: { valve_index: number, state: boolean }\n\nvar VALVE_COUNT = 14;\nvar body = msg.payload;\n\nif (body.valve_index === undefined || body.state === undefined) {\n    msg.payload = {\n        success: false,\n        message: 'valve_index와 state가 필요합니다.'\n    };\n    msg.statusCode = 400;\n    return [null, msg];\n}\n\nvar valveIndex = parseInt(body.valve_index);\nvar state = Boolean(body.state);\n\nif (valveIndex < 0 || valveIndex >= VALVE_COUNT) {\n    msg.payload = {\n        success: false,\n        message: '유효하지 않은 밸브 인덱스입니다. (0~' + (VALVE_COUNT - 1) + ')'\n    };\n    msg.statusCode = 400;\n    return [null, msg];\n}\n\n// Flow Context에서 밸브 상태 읽기\nvar valveStates = flow.get('valve_states') || new Array(VALVE_COUNT).fill(false);\nvalveStates[valveIndex] = state;\nflow.set('valve_states', valveStates);\n\nvar stateText = state ? '열림' : '닫힘';\nnode.status({ fill: state ? 'green' : 'grey', shape: 'dot', text: '밸브 ' + (valveIndex + 1) + ': ' + stateText });\n\n// Express에 상태 업데이트 전송\nvar statusMsg = {\n    payload: {\n        operating_state: flow.get('operating_state') || 'MANUAL',\n        active_program: null,\n        valve_states: valveStates,\n        pump_state: flow.get('pump_state') || { raw_pump: false, nutrient_pump: false },\n        mixer_state: flow.get('mixer_state') || false\n    },\n    headers: { 'Content-Type': 'application/json' }\n};\n\n// HTTP 응답\nvar responseMsg = {\n    payload: {\n        success: true,\n        message: '밸브 ' + (valveIndex + 1) + ' ' + stateText,\n        valve_index: valveIndex,\n        state: state\n    },\n    res: msg.res\n};\n\nreturn [statusMsg, responseMsg];",
+    "outputs": 2,
+    "timeout": "",
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "libs": [],
+    "x": 410,
+    "y": 300,
+    "wires": [
+      [
+        "f6_http_manual_status"
+      ],
+      [
+        "f6_http_response_manual"
+      ]
+    ]
+  },
+  {
+    "id": "f6_http_manual_status",
+    "type": "http request",
+    "z": "f6_tab",
+    "name": "POST status-update",
+    "method": "POST",
+    "ret": "obj",
+    "paytoqs": "ignore",
+    "url": "http://localhost:3001/internal/status-update",
+    "tls": "",
+    "persist": false,
+    "proxy": "",
+    "insecureHTTPParser": false,
+    "authType": "",
+    "senderr": false,
+    "headers": [],
+    "x": 660,
+    "y": 280,
+    "wires": [
+      [
+        "f6_debug_manual"
+      ]
+    ]
+  },
+  {
+    "id": "f6_http_response_manual",
+    "type": "http response",
+    "z": "f6_tab",
+    "name": "수동 제어 응답",
+    "statusCode": "200",
+    "headers": {},
+    "x": 650,
+    "y": 340,
+    "wires": []
+  },
+  {
+    "id": "f6_debug_manual",
+    "type": "debug",
+    "z": "f6_tab",
+    "name": "수동 제어 결과",
+    "active": true,
+    "tosidebar": true,
+    "console": false,
+    "tostatus": false,
+    "complete": "payload",
+    "targetType": "msg",
+    "statusVal": "",
+    "statusType": "auto",
+    "x": 880,
+    "y": 280,
+    "wires": []
+  },
+  {
+    "id": "f7_comment",
+    "type": "comment",
+    "z": "f7_tab",
+    "name": "매일 자정에 일일 운영 실적 집계",
+    "info": "매일 자정(00:00)에 하루 동안의 운영 실적을 집계합니다.\n집계 항목:\n- 프로그램별 실행 횟수 및 총 유량\n- 전체 관수 횟수\n- 센서 평균값\n\n집계 결과는 Express 내부 API(/internal/daily-summary)에 저장됩니다.",
+    "x": 320,
+    "y": 40,
+    "wires": []
+  },
+  {
+    "id": "f7_inject",
+    "type": "inject",
+    "z": "f7_tab",
+    "name": "매일 자정 트리거",
+    "props": [
+      {
+        "p": "payload"
+      }
+    ],
+    "repeat": "",
+    "crontab": "00 00 * * *",
+    "once": false,
+    "onceDelay": "0.1",
+    "topic": "",
+    "payload": "",
+    "payloadType": "date",
+    "x": 150,
+    "y": 140,
+    "wires": [
+      [
+        "f7_get_summary_data"
+      ]
+    ]
+  },
+  {
+    "id": "f7_get_summary_data",
+    "type": "http request",
+    "z": "f7_tab",
+    "name": "GET daily-summary-data",
+    "method": "GET",
+    "ret": "obj",
+    "paytoqs": "ignore",
+    "url": "http://localhost:3001/internal/daily-summary-data",
+    "tls": "",
+    "persist": false,
+    "proxy": "",
+    "insecureHTTPParser": false,
+    "authType": "",
+    "senderr": false,
+    "headers": [],
+    "x": 380,
+    "y": 140,
+    "wires": [
+      [
+        "f7_calc_summary"
+      ]
+    ]
+  },
+  {
+    "id": "f7_calc_summary",
+    "type": "function",
+    "z": "f7_tab",
+    "name": "집계 계산",
+    "func": "// 일일 운영 실적 집계 계산\n\nvar response = msg.payload;\nvar data = (response && response.data) ? response.data : response;\nif (!data) {\n    node.warn('집계 데이터를 가져올 수 없습니다.');\n    return null;\n}\n\nvar now = new Date();\nvar yesterday = new Date(now);\nyesterday.setDate(yesterday.getDate() - 1);\nvar dateStr = yesterday.toISOString().slice(0, 10);\n\n// Node-RED 측 관수 기록 (Flow Context)\nvar dailyRecords = flow.get('daily_irrigation_records') || [];\n\n// 프로그램별 집계\nvar programStats = {};\nvar totalFlow = 0;\nvar totalIrrigationCount = dailyRecords.length;\n\nfor (var i = 0; i < dailyRecords.length; i++) {\n    var record = dailyRecords[i];\n    var progId = record.program_id || 'unknown';\n    \n    if (!programStats[progId]) {\n        programStats[progId] = {\n            program_id: progId,\n            program_name: record.program_name || progId,\n            execution_count: 0,\n            total_flow: 0\n        };\n    }\n    \n    programStats[progId].execution_count++;\n    programStats[progId].total_flow += record.total_flow || 0;\n    totalFlow += record.total_flow || 0;\n}\n\n// 프로그램별 통계를 배열로 변환\nvar programStatsArray = Object.keys(programStats).map(function(key) {\n    return programStats[key];\n});\n\n// Express에서 받은 센서 평균 데이터 포함\nvar summary = {\n    date: dateStr,\n    total_irrigation_count: totalIrrigationCount,\n    total_flow: Math.round(totalFlow * 100) / 100,\n    program_stats: programStatsArray,\n    sensor_averages: data.sensor_averages || {},\n    created_at: now.toISOString()\n};\n\n// 일일 기록 리셋\nflow.set('daily_irrigation_records', []);\n// 누적 일사량도 리셋\nflow.set('accumulated_solar', 0);\n\nnode.status({ fill: 'green', shape: 'dot', text: dateStr + ' 집계 완료: ' + totalIrrigationCount + '회 관수' });\n\nmsg.payload = summary;\nmsg.headers = { 'Content-Type': 'application/json' };\n\nreturn msg;",
+    "outputs": 1,
+    "timeout": "",
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "libs": [],
+    "x": 600,
+    "y": 140,
+    "wires": [
+      [
+        "f7_post_summary"
+      ]
+    ]
+  },
+  {
+    "id": "f7_post_summary",
+    "type": "http request",
+    "z": "f7_tab",
+    "name": "POST daily-summary",
+    "method": "POST",
+    "ret": "obj",
+    "paytoqs": "ignore",
+    "url": "http://localhost:3001/internal/daily-summary",
+    "tls": "",
+    "persist": false,
+    "proxy": "",
+    "insecureHTTPParser": false,
+    "authType": "",
+    "senderr": false,
+    "headers": [],
+    "x": 800,
+    "y": 140,
+    "wires": [
+      [
+        "f7_debug"
+      ]
+    ]
+  },
+  {
+    "id": "f7_debug",
+    "type": "debug",
+    "z": "f7_tab",
+    "name": "일일집계 저장 결과",
+    "active": true,
+    "tosidebar": true,
+    "console": false,
+    "tostatus": true,
+    "complete": "payload",
+    "targetType": "msg",
+    "statusVal": "",
+    "statusType": "auto",
+    "x": 1020,
+    "y": 140,
+    "wires": []
+  },
+  {
+    "id": "f8_comment",
+    "type": "comment",
+    "z": "f8_tab",
+    "name": "60초 간격 온라인 상태 보고 (항상 AWS 전송)",
+    "info": "60초 간격으로 AWS IoT Core에 heartbeat 메시지를 발행합니다.\n토픽: farm/{farmId}/heartbeat\n\ncpu_temp, disk_usage는 실배포 시 os 모듈로 교체해야 합니다.",
+    "x": 340,
+    "y": 40,
+    "wires": []
+  },
+  {
+    "id": "f8_inject",
+    "type": "inject",
+    "z": "f8_tab",
+    "name": "60초 간격 트리거",
+    "props": [
+      {
+        "p": "payload"
+      }
+    ],
+    "repeat": "60",
+    "crontab": "",
+    "once": true,
+    "onceDelay": "3",
+    "topic": "",
+    "payload": "",
+    "payloadType": "date",
+    "x": 150,
+    "y": 140,
+    "wires": [
+      [
+        "f8_heartbeat_func"
+      ]
+    ]
+  },
+  {
+    "id": "f8_heartbeat_func",
+    "type": "function",
+    "z": "f8_tab",
+    "name": "Heartbeat 생성",
+    "func": "// Heartbeat 메시지 생성\n// cpu_temp, disk_usage는 실배포 시 os 모듈로 교체\n\nvar farmId = env.get('FARM_ID') || global.get('FARM_ID') || 'default-farm';\n\n// Node-RED 시작 시간 기록 (최초 실행 시)\nvar startTime = global.get('node_start_time');\nif (!startTime) {\n    startTime = Date.now();\n    global.set('node_start_time', startTime);\n}\nvar uptimeSec = Math.floor((Date.now() - startTime) / 1000);\n\nvar heartbeat = {\n    farmId: farmId,\n    timestamp: new Date().toISOString(),\n    uptime: uptimeSec,\n    cpu_temp: 0,\n    disk_usage: 0,\n    operating_state: flow.get('operating_state') || 'STOPPED',\n    memory_usage: 0\n};\n\nmsg.payload = JSON.stringify(heartbeat);\nmsg.topic = 'farm/' + farmId + '/heartbeat';\n\nnode.status({ fill: 'green', shape: 'dot', text: 'uptime: ' + uptimeSec + 's' });\n\nreturn msg;",
+    "outputs": 1,
+    "timeout": "",
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "libs": [],
+    "x": 390,
+    "y": 140,
+    "wires": [
+      [
+        "f8_mqtt_out",
+        "f8_debug"
+      ]
+    ]
+  },
+  {
+    "id": "f8_mqtt_out",
+    "type": "mqtt out",
+    "z": "f8_tab",
+    "name": "AWS IoT Heartbeat",
+    "topic": "",
+    "qos": "0",
+    "retain": "",
+    "respTopic": "",
+    "contentType": "",
+    "userProps": "",
+    "correl": "",
+    "expiry": "",
+    "broker": "mqtt_broker_aws",
+    "x": 630,
+    "y": 140,
+    "wires": []
+  },
+  {
+    "id": "f8_debug",
+    "type": "debug",
+    "z": "f8_tab",
+    "name": "Heartbeat 전송 확인",
+    "active": true,
+    "tosidebar": true,
+    "console": false,
+    "tostatus": false,
+    "complete": "true",
+    "targetType": "full",
+    "statusVal": "",
+    "statusType": "auto",
+    "x": 630,
+    "y": 220,
+    "wires": []
+  },
+  {
+    "id": "f9_comment",
+    "type": "comment",
+    "z": "f9_tab",
+    "name": "매일 00:05에 전일 집계를 클라우드로 전송 (항상 AWS 전송)",
+    "info": "매일 00:05에 전일 일일집계 데이터를 Express에서 조회한 후\nAWS IoT Core MQTT로 클라우드에 전송합니다.\n토픽: farm/{farmId}/daily-summary",
+    "x": 380,
+    "y": 40,
+    "wires": []
+  },
+  {
+    "id": "f9_inject",
+    "type": "inject",
+    "z": "f9_tab",
+    "name": "매일 00:05 트리거",
+    "props": [
+      {
+        "p": "payload"
+      }
+    ],
+    "repeat": "",
+    "crontab": "05 00 * * *",
+    "once": false,
+    "onceDelay": "0.1",
+    "topic": "",
+    "payload": "",
+    "payloadType": "date",
+    "x": 150,
+    "y": 140,
+    "wires": [
+      [
+        "f9_calc_yesterday"
+      ]
+    ]
+  },
+  {
+    "id": "f9_calc_yesterday",
+    "type": "function",
+    "z": "f9_tab",
+    "name": "어제 날짜 계산",
+    "func": "// 어제 날짜 계산\nvar now = new Date();\nvar yesterday = new Date(now);\nyesterday.setDate(yesterday.getDate() - 1);\n\nvar year = yesterday.getFullYear();\nvar month = ('0' + (yesterday.getMonth() + 1)).slice(-2);\nvar day = ('0' + yesterday.getDate()).slice(-2);\nvar dateStr = year + '-' + month + '-' + day;\n\nmsg.yesterday = dateStr;\nmsg.url = 'http://localhost:3001/api/daily-summary?date=' + dateStr;\n\nnode.status({ fill: 'blue', shape: 'dot', text: '어제 날짜: ' + dateStr });\n\nreturn msg;",
+    "outputs": 1,
+    "timeout": "",
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "libs": [],
+    "x": 370,
+    "y": 140,
+    "wires": [
+      [
+        "f9_get_summary"
+      ]
+    ]
+  },
+  {
+    "id": "f9_get_summary",
+    "type": "http request",
+    "z": "f9_tab",
+    "name": "GET daily-summary",
+    "method": "GET",
+    "ret": "obj",
+    "paytoqs": "ignore",
+    "url": "",
+    "tls": "",
+    "persist": false,
+    "proxy": "",
+    "insecureHTTPParser": false,
+    "authType": "",
+    "senderr": false,
+    "headers": [],
+    "x": 580,
+    "y": 140,
+    "wires": [
+      [
+        "f9_prepare_mqtt"
+      ]
+    ]
+  },
+  {
+    "id": "f9_prepare_mqtt",
+    "type": "function",
+    "z": "f9_tab",
+    "name": "MQTT 전송 준비",
+    "func": "// 일일집계 데이터를 MQTT로 전송 준비\n\nvar farmId = env.get('FARM_ID') || global.get('FARM_ID') || 'default-farm';\nvar response = msg.payload;\nvar summaryData = (response && response.data) ? response.data : response;\n\nif (!summaryData || (typeof summaryData === 'object' && Object.keys(summaryData).length === 0)) {\n    node.warn('전일 집계 데이터가 없습니다: ' + msg.yesterday);\n    node.status({ fill: 'yellow', shape: 'ring', text: '전일 집계 없음: ' + msg.yesterday });\n    return null;\n}\n\n// farmId 추가\nsummaryData.farmId = farmId;\nsummaryData.sent_at = new Date().toISOString();\n\nmsg.payload = JSON.stringify(summaryData);\nmsg.topic = 'farm/' + farmId + '/daily-summary';\n\nnode.status({ fill: 'green', shape: 'dot', text: '클라우드 전송: ' + msg.yesterday });\n\nreturn msg;",
+    "outputs": 1,
+    "timeout": "",
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "libs": [],
+    "x": 790,
+    "y": 140,
+    "wires": [
+      [
+        "f9_mqtt_out"
+      ]
+    ]
+  },
+  {
+    "id": "f9_mqtt_out",
+    "type": "mqtt out",
+    "z": "f9_tab",
+    "name": "AWS IoT Daily Summary",
+    "topic": "",
+    "qos": "1",
+    "retain": "",
+    "respTopic": "",
+    "contentType": "",
+    "userProps": "",
+    "correl": "",
+    "expiry": "",
+    "broker": "mqtt_broker_aws",
+    "x": 1020,
+    "y": 140,
+    "wires": []
+  },
+  {
+    "id": "f9_debug",
+    "type": "debug",
+    "z": "f9_tab",
+    "name": "집계 전송 결과",
+    "active": true,
+    "tosidebar": true,
+    "console": false,
+    "tostatus": false,
+    "complete": "true",
+    "targetType": "full",
+    "statusVal": "",
+    "statusType": "auto",
+    "x": 1020,
+    "y": 220,
+    "wires": []
+  },
+  {
+    "id": "f10_comment",
+    "type": "comment",
+    "z": "f10_tab",
+    "name": "AWS IoT에서 수신한 원격 제어 명령 처리",
+    "info": "AWS IoT Core에서 수신한 원격 제어 명령을 처리합니다.\n토픽: farm/{farmId}/command\n\n명령 유형:\n- EMERGENCY_STOP: 비상정지 실행\n- START: 운영 시작\n- STOP: 운영 중지\n- MANUAL: 수동 밸브 제어\n\n처리 결과는 farm/{farmId}/command/ack 토픽으로 응답합니다.",
+    "x": 340,
+    "y": 40,
+    "wires": []
+  },
+  {
+    "id": "f10_mqtt_in",
+    "type": "mqtt in",
+    "z": "f10_tab",
+    "name": "원격 명령 구독",
+    "topic": "smartfarm/house1/+/control",
+    "qos": "1",
+    "datatype": "utf8",
+    "broker": "mqtt_broker_aws",
+    "nl": false,
+    "rap": true,
+    "rh": 0,
+    "inputs": 0,
+    "x": 140,
+    "y": 140,
+    "wires": [
+      [
+        "f10_json_parse"
+      ]
+    ]
+  },
+  {
+    "id": "f10_json_parse",
+    "type": "json",
+    "z": "f10_tab",
+    "name": "JSON 파싱",
+    "property": "payload",
+    "action": "obj",
+    "pretty": false,
+    "x": 320,
+    "y": 140,
+    "wires": [
+      [
+        "f10_switch"
+      ]
+    ]
+  },
+  {
+    "id": "f10_switch",
+    "type": "switch",
+    "z": "f10_tab",
+    "name": "명령 유형 분기",
+    "property": "payload.type",
+    "propertyType": "msg",
+    "rules": [
+      {
+        "t": "eq",
+        "v": "EMERGENCY_STOP",
+        "vt": "str"
+      },
+      {
+        "t": "eq",
+        "v": "START",
+        "vt": "str"
+      },
+      {
+        "t": "eq",
+        "v": "STOP",
+        "vt": "str"
+      },
+      {
+        "t": "eq",
+        "v": "MANUAL",
+        "vt": "str"
+      }
+    ],
+    "checkall": "false",
+    "repair": false,
+    "outputs": 4,
+    "x": 510,
+    "y": 140,
+    "wires": [
+      [
+        "f10_estop_http"
+      ],
+      [
+        "f10_start_func"
+      ],
+      [
+        "f10_stop_func"
+      ],
+      [
+        "f10_manual_func"
+      ]
+    ]
+  },
+  {
+    "id": "f10_estop_http",
+    "type": "http request",
+    "z": "f10_tab",
+    "name": "비상정지 호출",
+    "method": "GET",
+    "ret": "obj",
+    "paytoqs": "ignore",
+    "url": "http://localhost:1880/emergency-stop",
+    "tls": "",
+    "persist": false,
+    "proxy": "",
+    "insecureHTTPParser": false,
+    "authType": "",
+    "senderr": false,
+    "headers": [],
+    "x": 750,
+    "y": 80,
+    "wires": [
+      [
+        "f10_estop_ack"
+      ]
+    ]
+  },
+  {
+    "id": "f10_estop_ack",
+    "type": "function",
+    "z": "f10_tab",
+    "name": "비상정지 ACK 생성",
+    "func": "// 비상정지 명령 ACK 생성\nvar farmId = env.get('FARM_ID') || global.get('FARM_ID') || 'default-farm';\nvar originalCmd = msg.originalPayload || msg.payload;\n\nmsg.payload = JSON.stringify({\n    type: 'EMERGENCY_STOP',\n    command_id: originalCmd.command_id || null,\n    success: true,\n    message: '비상정지가 실행되었습니다.',\n    timestamp: new Date().toISOString()\n});\nmsg.topic = 'farm/' + farmId + '/command/ack';\n\nnode.status({ fill: 'red', shape: 'dot', text: '비상정지 ACK 전송' });\nreturn msg;",
+    "outputs": 1,
+    "timeout": "",
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "libs": [],
+    "x": 980,
+    "y": 80,
+    "wires": [
+      [
+        "f10_mqtt_ack"
+      ]
+    ]
+  },
+  {
+    "id": "f10_start_func",
+    "type": "function",
+    "z": "f10_tab",
+    "name": "운영 시작 처리",
+    "func": "// 운영 시작 명령 처리\nvar VALVE_COUNT = 14;\nvar farmId = env.get('FARM_ID') || global.get('FARM_ID') || 'default-farm';\nvar cmd = msg.payload;\n\n// 운영 상태를 RUNNING으로 변경\nflow.set('operating_state', 'RUNNING');\n\nnode.status({ fill: 'green', shape: 'dot', text: '운영 시작됨' });\n\n// Express에 상태 업데이트\nvar statusMsg = {\n    payload: {\n        operating_state: 'RUNNING',\n        active_program: flow.get('active_program') || null,\n        valve_states: flow.get('valve_states') || new Array(VALVE_COUNT).fill(false),\n        pump_state: flow.get('pump_state') || { raw_pump: false, nutrient_pump: false },\n        mixer_state: flow.get('mixer_state') || false\n    },\n    headers: { 'Content-Type': 'application/json' }\n};\n\n// ACK 메시지\nvar ackMsg = {\n    payload: JSON.stringify({\n        type: 'START',\n        command_id: cmd.command_id || null,\n        success: true,\n        message: '운영이 시작되었습니다.',\n        timestamp: new Date().toISOString()\n    }),\n    topic: 'farm/' + farmId + '/command/ack'\n};\n\nreturn [statusMsg, ackMsg];",
+    "outputs": 2,
+    "timeout": "",
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "libs": [],
+    "x": 750,
+    "y": 140,
+    "wires": [
+      [
+        "f10_http_status_update"
+      ],
+      [
+        "f10_mqtt_ack"
+      ]
+    ]
+  },
+  {
+    "id": "f10_stop_func",
+    "type": "function",
+    "z": "f10_tab",
+    "name": "운영 중지 처리",
+    "func": "// 운영 중지 명령 처리\nvar VALVE_COUNT = 14;\nvar farmId = env.get('FARM_ID') || global.get('FARM_ID') || 'default-farm';\nvar cmd = msg.payload;\n\n// 운영 상태를 STOPPED로 변경\nflow.set('operating_state', 'STOPPED');\nflow.set('active_program', null);\n\nnode.status({ fill: 'grey', shape: 'ring', text: '운영 중지됨' });\n\n// Express에 상태 업데이트\nvar statusMsg = {\n    payload: {\n        operating_state: 'STOPPED',\n        active_program: null,\n        valve_states: flow.get('valve_states') || new Array(VALVE_COUNT).fill(false),\n        pump_state: flow.get('pump_state') || { raw_pump: false, nutrient_pump: false },\n        mixer_state: flow.get('mixer_state') || false\n    },\n    headers: { 'Content-Type': 'application/json' }\n};\n\n// ACK 메시지\nvar ackMsg = {\n    payload: JSON.stringify({\n        type: 'STOP',\n        command_id: cmd.command_id || null,\n        success: true,\n        message: '운영이 중지되었습니다.',\n        timestamp: new Date().toISOString()\n    }),\n    topic: 'farm/' + farmId + '/command/ack'\n};\n\nreturn [statusMsg, ackMsg];",
+    "outputs": 2,
+    "timeout": "",
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "libs": [],
+    "x": 750,
+    "y": 200,
+    "wires": [
+      [
+        "f10_http_status_update"
+      ],
+      [
+        "f10_mqtt_ack"
+      ]
+    ]
+  },
+  {
+    "id": "f10_manual_func",
+    "type": "function",
+    "z": "f10_tab",
+    "name": "수동 제어 처리",
+    "func": "// 수동 밸브 제어 명령 처리\nvar VALVE_COUNT = 14;\nvar farmId = env.get('FARM_ID') || global.get('FARM_ID') || 'default-farm';\nvar cmd = msg.payload;\n\nvar valveIndex = cmd.valve_index;\nvar state = cmd.state;\n\nif (valveIndex === undefined || state === undefined) {\n    var errorAck = {\n        payload: JSON.stringify({\n            type: 'MANUAL',\n            command_id: cmd.command_id || null,\n            success: false,\n            message: 'valve_index와 state가 필요합니다.',\n            timestamp: new Date().toISOString()\n        }),\n        topic: 'farm/' + farmId + '/command/ack'\n    };\n    return [null, errorAck];\n}\n\nvalveIndex = parseInt(valveIndex);\nstate = Boolean(state);\n\nif (valveIndex < 0 || valveIndex >= VALVE_COUNT) {\n    var errorAck2 = {\n        payload: JSON.stringify({\n            type: 'MANUAL',\n            command_id: cmd.command_id || null,\n            success: false,\n            message: '유효하지 않은 밸브 인덱스: ' + valveIndex,\n            timestamp: new Date().toISOString()\n        }),\n        topic: 'farm/' + farmId + '/command/ack'\n    };\n    return [null, errorAck2];\n}\n\n// 밸브 상태 업데이트\nvar valveStates = flow.get('valve_states') || new Array(VALVE_COUNT).fill(false);\nvalveStates[valveIndex] = state;\nflow.set('valve_states', valveStates);\n\nvar stateText = state ? '열림' : '닫힘';\nnode.status({ fill: state ? 'green' : 'grey', shape: 'dot', text: '밸브 ' + (valveIndex + 1) + ': ' + stateText });\n\n// Express에 상태 업데이트\nvar statusMsg = {\n    payload: {\n        operating_state: flow.get('operating_state') || 'MANUAL',\n        active_program: null,\n        valve_states: valveStates,\n        pump_state: flow.get('pump_state') || { raw_pump: false, nutrient_pump: false },\n        mixer_state: flow.get('mixer_state') || false\n    },\n    headers: { 'Content-Type': 'application/json' }\n};\n\n// ACK 메시지\nvar ackMsg = {\n    payload: JSON.stringify({\n        type: 'MANUAL',\n        command_id: cmd.command_id || null,\n        success: true,\n        message: '밸브 ' + (valveIndex + 1) + ' ' + stateText,\n        valve_index: valveIndex,\n        state: state,\n        timestamp: new Date().toISOString()\n    }),\n    topic: 'farm/' + farmId + '/command/ack'\n};\n\nreturn [statusMsg, ackMsg];",
+    "outputs": 2,
+    "timeout": "",
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "libs": [],
+    "x": 750,
+    "y": 260,
+    "wires": [
+      [
+        "f10_http_status_update"
+      ],
+      [
+        "f10_mqtt_ack"
+      ]
+    ]
+  },
+  {
+    "id": "f10_http_status_update",
+    "type": "http request",
+    "z": "f10_tab",
+    "name": "POST status-update",
+    "method": "POST",
+    "ret": "obj",
+    "paytoqs": "ignore",
+    "url": "http://localhost:3001/internal/status-update",
+    "tls": "",
+    "persist": false,
+    "proxy": "",
+    "insecureHTTPParser": false,
+    "authType": "",
+    "senderr": false,
+    "headers": [],
+    "x": 1040,
+    "y": 320,
+    "wires": [
+      [
+        "f10_debug_status"
+      ]
+    ]
+  },
+  {
+    "id": "f10_mqtt_ack",
+    "type": "mqtt out",
+    "z": "f10_tab",
+    "name": "명령 ACK 전송",
+    "topic": "",
+    "qos": "1",
+    "retain": "",
+    "respTopic": "",
+    "contentType": "",
+    "userProps": "",
+    "correl": "",
+    "expiry": "",
+    "broker": "mqtt_broker_aws",
+    "x": 1200,
+    "y": 140,
+    "wires": []
+  },
+  {
+    "id": "f10_debug_status",
+    "type": "debug",
+    "z": "f10_tab",
+    "name": "명령 처리 결과",
+    "active": true,
+    "tosidebar": true,
+    "console": false,
+    "tostatus": true,
+    "complete": "payload",
+    "targetType": "msg",
+    "statusVal": "payload",
+    "statusType": "auto",
+    "x": 1240,
+    "y": 320,
+    "wires": []
+  },
+  {
+    "id": "comment_manual_section",
+    "type": "comment",
+    "z": "aws_control_test_tab",
+    "name": "━━━ 📌 수동 테스트: 버튼 클릭으로 제어 신호 전송 ━━━",
+    "info": "각 inject 노드의 왼쪽 버튼을 클릭하면\nAWS API Gateway → Lambda → IoT Core로\n제어 신호가 전송됩니다.\n\n- house_id: house1\n- window_id: window1\n- commands: open, stop, close",
+    "x": 280,
+    "y": 40,
+    "wires": []
+  },
+  {
+    "id": "inject_open",
+    "type": "inject",
+    "z": "aws_control_test_tab",
+    "name": "🔓 열기 (open)",
+    "props": [
+      {
+        "p": "command",
+        "v": "open",
+        "vt": "str"
+      },
+      {
+        "p": "deviceId",
+        "v": "window1",
+        "vt": "str"
+      }
+    ],
+    "repeat": "",
+    "crontab": "",
+    "once": false,
+    "onceDelay": 0.1,
+    "topic": "",
+    "x": 160,
+    "y": 100,
+    "wires": [
+      [
+        "build_control_payload"
+      ]
+    ]
+  },
+  {
+    "id": "inject_stop",
+    "type": "inject",
+    "z": "aws_control_test_tab",
+    "name": "⛔ 정지 (stop)",
+    "props": [
+      {
+        "p": "command",
+        "v": "stop",
+        "vt": "str"
+      },
+      {
+        "p": "deviceId",
+        "v": "window1",
+        "vt": "str"
+      }
+    ],
+    "repeat": "",
+    "crontab": "",
+    "once": false,
+    "onceDelay": 0.1,
+    "topic": "",
+    "x": 160,
+    "y": 160,
+    "wires": [
+      [
+        "build_control_payload"
+      ]
+    ]
+  },
+  {
+    "id": "inject_close",
+    "type": "inject",
+    "z": "aws_control_test_tab",
+    "name": "🔒 닫기 (close)",
+    "props": [
+      {
+        "p": "command",
+        "v": "close",
+        "vt": "str"
+      },
+      {
+        "p": "deviceId",
+        "v": "window1",
+        "vt": "str"
+      }
+    ],
+    "repeat": "",
+    "crontab": "",
+    "once": false,
+    "onceDelay": 0.1,
+    "topic": "",
+    "x": 160,
+    "y": 220,
+    "wires": [
+      [
+        "build_control_payload"
+      ]
+    ]
+  },
+  {
+    "id": "build_control_payload",
+    "type": "function",
+    "z": "aws_control_test_tab",
+    "name": "제어 페이로드 생성",
+    "func": "// 제어 명령 페이로드 생성\n// 프론트엔드 controlApi.js와 동일한 형식\n\nconst command = msg.command || 'open';\nconst deviceId = msg.deviceId || 'window1';\nconst houseId = msg.houseId || 'house1';\nconst requestId = Date.now() + '-' + Math.random().toString(36).substring(2, 10);\n\nmsg.payload = {\n    house_id: houseId,\n    window_id: deviceId,\n    command: command.toLowerCase(),\n    operator: 'nodered_test',\n    request_id: requestId,\n    timestamp: new Date().toISOString()\n};\n\nmsg.headers = {\n    'Content-Type': 'application/json'\n};\n\nconst cmdLabels = { open: '열기', stop: '정지', close: '닫기', on: 'ON', off: 'OFF' };\nconst label = cmdLabels[command] || command;\n\nnode.status({\n    fill: 'blue',\n    shape: 'dot',\n    text: `${label} → ${houseId}/${deviceId} (${requestId.substring(0, 8)})`\n});\n\nnode.warn(`🎛️ 제어 전송: ${houseId}/${deviceId} ${command.toUpperCase()} [${requestId}]`);\n\nreturn msg;",
+    "outputs": 1,
+    "timeout": "",
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "libs": [],
+    "x": 430,
+    "y": 160,
+    "wires": [
+      [
+        "aws_api_request"
+      ]
+    ]
+  },
+  {
+    "id": "aws_api_request",
+    "type": "http request",
+    "z": "aws_control_test_tab",
+    "name": "AWS API Gateway POST",
+    "method": "POST",
+    "ret": "obj",
+    "paytoqs": "ignore",
+    "url": "https://pdwbldwmy3.execute-api.ap-northeast-2.amazonaws.com/control",
+    "tls": "",
+    "persist": false,
+    "proxy": "",
+    "insecureHTTPParser": false,
+    "authType": "",
+    "senderr": true,
+    "headers": [],
+    "x": 680,
+    "y": 160,
+    "wires": [
+      [
+        "parse_aws_response",
+        "66b6b2414bee0a0b"
+      ]
+    ]
+  },
+  {
+    "id": "parse_aws_response",
+    "type": "function",
+    "z": "aws_control_test_tab",
+    "name": "응답 파싱",
+    "func": "// AWS API Gateway / Lambda 응답 파싱\nconst statusCode = msg.statusCode;\nlet result;\n\ntry {\n    const data = typeof msg.payload === 'string'\n        ? JSON.parse(msg.payload)\n        : msg.payload;\n    \n    // Lambda 응답은 body가 문자열로 올 수 있음\n    result = data.body\n        ? (typeof data.body === 'string' ? JSON.parse(data.body) : data.body)\n        : data;\n} catch (e) {\n    result = msg.payload;\n}\n\nif (statusCode >= 200 && statusCode < 300) {\n    node.status({ fill: 'green', shape: 'dot', text: `✅ 성공 (${statusCode})` });\n    node.warn(`✅ AWS 응답 성공: ${JSON.stringify(result)}`);\n    msg.payload = {\n        success: true,\n        statusCode: statusCode,\n        result: result\n    };\n} else {\n    node.status({ fill: 'red', shape: 'dot', text: `❌ 실패 (${statusCode})` });\n    node.warn(`❌ AWS 응답 실패 (${statusCode}): ${JSON.stringify(result)}`);\n    msg.payload = {\n        success: false,\n        statusCode: statusCode,\n        error: result\n    };\n}\n\nreturn msg;",
+    "outputs": 1,
+    "timeout": "",
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "libs": [],
+    "x": 910,
+    "y": 160,
+    "wires": [
+      [
+        "debug_control_result"
+      ]
+    ]
+  },
+  {
+    "id": "debug_control_result",
+    "type": "debug",
+    "z": "aws_control_test_tab",
+    "name": "🎯 제어 결과",
+    "active": true,
+    "tosidebar": true,
+    "console": false,
+    "tostatus": true,
+    "complete": "payload",
+    "targetType": "msg",
+    "statusVal": "payload",
+    "statusType": "auto",
+    "x": 1110,
+    "y": 160,
+    "wires": []
+  },
+  {
+    "id": "comment_auto_section",
+    "type": "comment",
+    "z": "aws_control_test_tab",
+    "name": "━━━ 📌 자동 테스트: 서버 시작 감지 → 샘플 제어 전송 ━━━",
+    "info": "서버 /health 엔드포인트를 30초마다 확인하고,\n서버가 꺼졌다 켜지면 자동으로 open 테스트 신호를 전송합니다.\n\n이 기능을 끄려면 '서버 감시 시작' inject 노드를 비활성화하세요.",
+    "x": 300,
+    "y": 320,
+    "wires": []
+  },
+  {
+    "id": "health_poll_inject",
+    "type": "inject",
+    "z": "aws_control_test_tab",
+    "d": true,
+    "name": "서버 감시 시작 (30초 간격)",
+    "props": [],
+    "repeat": "30",
+    "crontab": "",
+    "once": true,
+    "onceDelay": "10",
+    "topic": "",
+    "x": 200,
+    "y": 400,
+    "wires": [
+      [
+        "health_check_request"
+      ]
+    ]
+  },
+  {
+    "id": "health_check_request",
+    "type": "http request",
+    "z": "aws_control_test_tab",
+    "name": "GET /health",
+    "method": "GET",
+    "ret": "obj",
+    "paytoqs": "ignore",
+    "url": "http://192.168.137.1:3000/health",
+    "tls": "",
+    "persist": false,
+    "proxy": "",
+    "insecureHTTPParser": false,
+    "authType": "",
+    "senderr": true,
+    "headers": [],
+    "x": 440,
+    "y": 400,
+    "wires": [
+      [
+        "detect_server_start"
+      ]
+    ]
+  },
+  {
+    "id": "detect_server_start",
+    "type": "function",
+    "z": "aws_control_test_tab",
+    "name": "서버 시작 감지",
+    "func": "// flow 변수로 이전 서버 상태 추적\nconst wasOnline = flow.get('serverWasOnline') || false;\nconst isOnline = msg.statusCode === 200 &&\n                 msg.payload &&\n                 msg.payload.success === true;\n\nflow.set('serverWasOnline', isOnline);\n\nif (isOnline && !wasOnline) {\n    // 서버가 방금 시작됨! → 테스트 신호 전송\n    node.status({\n        fill: 'green',\n        shape: 'dot',\n        text: '🟢 서버 시작 감지! 테스트 전송...'\n    });\n    node.warn('🟢 서버 시작 감지 → 샘플 open 제어 신호 전송');\n    \n    // open 명령 전송\n    msg.command = 'open';\n    msg.deviceId = 'window1';\n    msg.houseId = 'house1';\n    return msg;\n    \n} else if (isOnline) {\n    node.status({\n        fill: 'green',\n        shape: 'ring',\n        text: '서버 온라인 (' + new Date().toLocaleTimeString('ko-KR') + ')'\n    });\n} else {\n    node.status({\n        fill: 'red',\n        shape: 'ring',\n        text: '서버 오프라인 (' + new Date().toLocaleTimeString('ko-KR') + ')'\n    });\n}\n\n// 서버가 이미 온라인이거나 오프라인이면 전송하지 않음\nreturn null;",
+    "outputs": 1,
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "libs": [],
+    "x": 680,
+    "y": 400,
+    "wires": [
+      [
+        "build_control_payload"
+      ]
+    ]
+  },
+  {
+    "id": "comment_custom_section",
+    "type": "comment",
+    "z": "aws_control_test_tab",
+    "name": "━━━ 📌 커스텀 테스트: 장치/명령 직접 지정 ━━━",
+    "info": "house_id, window_id, command를 직접 지정하여 테스트합니다.\nJSON inject 노드의 값을 수정하여 사용하세요.",
+    "x": 270,
+    "y": 500,
+    "wires": []
+  },
+  {
+    "id": "inject_custom",
+    "type": "inject",
+    "z": "aws_control_test_tab",
+    "name": "커스텀 제어 전송",
+    "props": [
+      {
+        "p": "command",
+        "v": "open",
+        "vt": "str"
+      },
+      {
+        "p": "deviceId",
+        "v": "window1",
+        "vt": "str"
+      },
+      {
+        "p": "houseId",
+        "v": "house1",
+        "vt": "str"
+      }
+    ],
+    "repeat": "",
+    "crontab": "",
+    "once": false,
+    "onceDelay": 0.1,
+    "topic": "",
+    "x": 170,
+    "y": 560,
+    "wires": [
+      [
+        "build_control_payload"
+      ]
+    ]
+  },
+  {
+    "id": "inject_sequence",
+    "type": "inject",
+    "z": "aws_control_test_tab",
+    "name": "🔄 연속 테스트 (open→stop→close)",
+    "props": [
+      {
+        "p": "sequence",
+        "v": "true",
+        "vt": "bool"
+      }
+    ],
+    "repeat": "",
+    "crontab": "",
+    "once": false,
+    "onceDelay": 0.1,
+    "topic": "",
+    "x": 220,
+    "y": 620,
+    "wires": [
+      [
+        "sequence_generator"
+      ]
+    ]
+  },
+  {
+    "id": "sequence_generator",
+    "type": "function",
+    "z": "aws_control_test_tab",
+    "name": "시퀀스 생성 (3초 간격)",
+    "func": "// open → 3초 → stop → 3초 → close 순서로 전송\nconst commands = ['open', 'stop', 'close'];\nconst results = [];\n\nfor (let i = 0; i < commands.length; i++) {\n    results.push({\n        command: commands[i],\n        deviceId: 'window1',\n        houseId: 'house1',\n        delay: i * 3000  // 0, 3초, 6초\n    });\n}\n\nnode.status({\n    fill: 'blue',\n    shape: 'dot',\n    text: `시퀀스 시작: ${commands.join(' → ')}`\n});\nnode.warn(`🔄 시퀀스 테스트 시작: ${commands.join(' → ')} (3초 간격)`);\n\n// 첫 번째 즉시 전송\nconst firstMsg = RED.util.cloneMessage(msg);\nfirstMsg.command = results[0].command;\nfirstMsg.deviceId = results[0].deviceId;\nfirstMsg.houseId = results[0].houseId;\n\n// 나머지는 setTimeout으로 전송\nfor (let i = 1; i < results.length; i++) {\n    const r = results[i];\n    setTimeout(() => {\n        const delayedMsg = RED.util.cloneMessage(msg);\n        delayedMsg.command = r.command;\n        delayedMsg.deviceId = r.deviceId;\n        delayedMsg.houseId = r.houseId;\n        node.send(delayedMsg);\n        node.status({\n            fill: 'blue',\n            shape: 'dot',\n            text: `시퀀스: ${r.command} 전송`\n        });\n    }, r.delay);\n}\n\nreturn firstMsg;",
+    "outputs": 1,
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "libs": [],
+    "x": 500,
+    "y": 620,
+    "wires": [
+      [
+        "build_control_payload"
+      ]
+    ]
+  },
+  {
+    "id": "4f99b96622a2e68c",
+    "type": "inject",
+    "z": "aws_control_test_tab",
+    "name": "",
+    "props": [
+      {
+        "p": "command",
+        "v": "open",
+        "vt": "str"
+      },
+      {
+        "p": "houseId",
+        "v": "house1",
+        "vt": "str"
+      },
+      {
+        "p": "deviceId",
+        "v": "window1",
+        "vt": "str"
+      }
+    ],
+    "repeat": "60",
+    "crontab": "",
+    "once": false,
+    "onceDelay": 0.1,
+    "topic": "",
+    "x": 130,
+    "y": 720,
+    "wires": [
+      [
+        "build_control_payload"
+      ]
+    ]
+  },
+  {
+    "id": "66b6b2414bee0a0b",
+    "type": "debug",
+    "z": "aws_control_test_tab",
+    "name": "debug 3",
+    "active": true,
+    "tosidebar": true,
+    "console": false,
+    "tostatus": false,
+    "complete": "true",
+    "targetType": "full",
+    "statusVal": "",
+    "statusType": "auto",
+    "x": 920,
+    "y": 260,
+    "wires": []
+  },
+  {
+    "id": "tls_aws",
+    "type": "tls-config",
+    "name": "AWS IoT TLS",
+    "cert": "",
+    "key": "",
+    "ca": "",
+    "certname": "/home/lhk/certs/certificate.pem.crt",
+    "keyname": "/home/lhk/certs/private.pem.key",
+    "caname": "/home/lhk/certs/AmazonRootCA1.pem",
+    "servername": "",
+    "verifyservercert": true,
+    "alpnprotocol": ""
+  },
+  {
+    "id": "mqtt_broker_aws",
+    "type": "mqtt-broker",
+    "name": "AWS IoT Core",
+    "broker": "a2ybxz5mrpnfww-ats.iot.ap-northeast-2.amazonaws.com",
+    "port": "8883",
+    "tls": "tls_aws",
+    "clientid": "MyFarmPi_01_nodered",
+    "autoConnect": true,
+    "usetls": true,
+    "protocolVersion": "4",
+    "keepalive": "60",
+    "cleansession": true,
+    "autoUnsubscribe": true,
+    "birthTopic": "",
+    "birthQos": "0",
+    "birthPayload": "",
+    "birthMsg": {},
+    "closeTopic": "",
+    "closeQos": "0",
+    "closePayload": "",
+    "closeMsg": {},
+    "willTopic": "",
+    "willQos": "0",
+    "willPayload": "",
+    "willMsg": {},
+    "userProps": "",
+    "sessionExpiry": ""
+  },
+  {
+    "id": "6aa90c98fb62c231",
+    "type": "tls-config",
+    "name": "",
+    "cert": "",
+    "key": "",
+    "ca": "",
+    "certname": "2675714a1c473961dec763e5e44499135f4926426723544a59be0e7405c027b6-certificate.pem.crt",
+    "keyname": "2675714a1c473961dec763e5e44499135f4926426723544a59be0e7405c027b6-private.pem.key",
+    "caname": "AmazonRootCA1.pem",
+    "servername": "",
+    "verifyservercert": true,
+    "alpnprotocol": ""
   }
 ]

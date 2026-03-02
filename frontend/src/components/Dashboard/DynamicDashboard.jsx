@@ -614,7 +614,7 @@ const DynamicDashboard = ({ farmId }) => {
       {(
         <div className="space-y-5">
           <div className="animate-fade-in-up stagger-1">
-            <TodaySummaryWidget farmId={farmId} houseId={selectedHouse} alerts={alerts} dataVersion={dataVersion} />
+            <TodaySummaryWidget farmId={farmId} houseId={selectedHouse} alerts={alerts} dataVersion={dataVersion} config={currentHouse} />
           </div>
 
           <div className="animate-fade-in-up stagger-2">

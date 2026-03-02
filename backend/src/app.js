@@ -157,8 +157,8 @@ app.get("/health", async (req, res) => {
 // 공개 API (인증 불필요)
 app.use("/api/auth", authRoutes);
 
-// Node-RED 내부 통신 (로컬 네트워크 전용, 인증 불필요)
-app.use("/internal", internalRoutes);
+// Node-RED 내부 통신 (API Key 인증 필수)
+app.use("/internal", authenticateApiKey, internalRoutes);
 
 // 센서 + 설정 API (API 키 또는 JWT - Node-RED 접근 필요)
 app.use("/api/sensors", authenticateApiKey, sensorsRoutes);

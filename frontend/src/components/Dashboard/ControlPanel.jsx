@@ -150,6 +150,16 @@ const ControlPanel = ({ farmId, houseId, houseConfig }) => {
     } catch { return {}; }
   });
 
+  // houseId 변경 시 localStorage에서 해당 하우스 설정 재로드
+  useEffect(() => {
+    try { setAutomationActive(localStorage.getItem(`automationActive_${farmId}_${houseId}`) === 'true'); }
+    catch { setAutomationActive(false); }
+    try { setDeviceModes(JSON.parse(localStorage.getItem(`deviceModes_${farmId}_${houseId}`)) || {}); }
+    catch { setDeviceModes({}); }
+    try { setSelectedRuleMap(JSON.parse(localStorage.getItem(`deviceRules_${farmId}_${houseId}`)) || {}); }
+    catch { setSelectedRuleMap({}); }
+  }, [farmId, houseId]);
+
   const getDeviceRules = (deviceId) => {
     const selectedIds = selectedRuleMap[deviceId] || [];
     return autoRules.filter(r => selectedIds.includes(r._id));

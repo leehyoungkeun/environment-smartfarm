@@ -12,7 +12,7 @@ import logger from "../utils/logger.js";
 const router = express.Router();
 
 const DEFAULT_FARM_ID = process.env.FARM_ID || "farm_0001";
-const DEFAULT_HOUSE_ID = process.env.HOUSE_ID || "house_001";
+const DEFAULT_HOUSE_ID = process.env.HOUSE_ID || "house_0001";
 
 function resolveFarmHouse(req) {
   return {

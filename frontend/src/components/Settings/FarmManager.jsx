@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import axios from 'axios';
 import Fuse from 'fuse.js';
 import { useAuth } from '../../contexts/AuthContext';
@@ -193,9 +193,15 @@ export default function FarmManager({ onNavigateFarm }) {
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
 
-  // Table
-  const [currentPage, setCurrentPage] = useState(1);
-  const [perPage, setPerPage] = useState(20);
+  // Table — sessionStorage로 페이지 복원
+  const [currentPage, setCurrentPage] = useState(() => {
+    const saved = sessionStorage.getItem('farmManager_page');
+    return saved ? Number(saved) : 1;
+  });
+  const [perPage, setPerPage] = useState(() => {
+    const saved = sessionStorage.getItem('farmManager_perPage');
+    return saved ? Number(saved) : 20;
+  });
   const [selectedIds, setSelectedIds] = useState([]);
   const [copiedKey, setCopiedKey] = useState(null);
 
@@ -219,6 +225,7 @@ export default function FarmManager({ onNavigateFarm }) {
 
   // Detail modal
   const [detailFarm, setDetailFarm] = useState(null);
+  const [detailLoading, setDetailLoading] = useState(false);
   const [farmUsers, setFarmUsers] = useState([]);
   const [farmHouses, setFarmHouses] = useState([]);
   const [allUsers, setAllUsers] = useState([]);
@@ -239,6 +246,7 @@ export default function FarmManager({ onNavigateFarm }) {
 
   // Audit log (detail)
   const [auditLogs, setAuditLogs] = useState([]);
+  const [expandedAuditId, setExpandedAuditId] = useState(null);
 
   // Connection history (detail)
   const [connHistory, setConnHistory] = useState(null);
@@ -288,6 +296,8 @@ export default function FarmManager({ onNavigateFarm }) {
   const [showScheduleForm, setShowScheduleForm] = useState(false);
   const [editScheduleId, setEditScheduleId] = useState(null);
   const [scheduleForm, setScheduleForm] = useState({ title: '', description: '', type: 'inspection', startDate: '', endDate: '', assignedTo: '', houseId: '', priority: 'normal' });
+  const [scheduleViewMode, setScheduleViewMode] = useState('list'); // 'list' | 'calendar'
+  const [calMonth, setCalMonth] = useState(() => { const d = new Date(); return { year: d.getFullYear(), month: d.getMonth() }; });
   // Documents (Feature: 문서)
   const [farmDocuments, setFarmDocuments] = useState([]);
   const [docSummary, setDocSummary] = useState({ total: 0, totalSize: 0, byCategory: {} });
@@ -319,6 +329,10 @@ export default function FarmManager({ onNavigateFarm }) {
 
   // Keyboard navigation
   const [focusedIdx, setFocusedIdx] = useState(-1);
+
+  // Context menu (우클릭)
+  const [ctxMenu, setCtxMenu] = useState(null); // { x, y, farm }
+  const ctxRef = useRef(null);
 
   // Alert summary cards
   const [alertSummary, setAlertSummary] = useState({ total: 0, offline: 0, sensorAlert: 0, maintenanceExpiring: 0, normal: 0, recentAlerts: 0, offlineFarmIds: [], sensorAlertFarmIds: [], maintExpiringFarmIds: [] });
@@ -356,11 +370,18 @@ export default function FarmManager({ onNavigateFarm }) {
   }, []);
 
   useEffect(() => { fetchFarms(); }, [fetchFarms]);
-  useEffect(() => { setCurrentPage(1); }, [search, region, statusFilter, connectionFilter, maintFilter, tagFilter, dateFrom, dateTo]);
+  // 필터 변경 시 1페이지로 리셋 (초기 마운트 제외 — sessionStorage 복원값 보호)
+  const filterMountRef = useRef(true);
+  useEffect(() => {
+    if (filterMountRef.current) { filterMountRef.current = false; return; }
+    setCurrentPage(1);
+  }, [search, region, statusFilter, connectionFilter, maintFilter, tagFilter, dateFrom, dateTo, summaryFilter]);
 
-  // localStorage sync
+  // localStorage / sessionStorage sync
   useEffect(() => { localStorage.setItem('farmManager_columns', JSON.stringify(visibleColumns)); }, [visibleColumns]);
   useEffect(() => { localStorage.setItem('farmManager_pinned', JSON.stringify(pinnedIds)); }, [pinnedIds]);
+  useEffect(() => { sessionStorage.setItem('farmManager_page', String(currentPage)); }, [currentPage]);
+  useEffect(() => { sessionStorage.setItem('farmManager_perPage', String(perPage)); }, [perPage]);
 
   // Reset focus on page change
   useEffect(() => { setFocusedIdx(-1); }, [currentPage]);
@@ -374,6 +395,13 @@ export default function FarmManager({ onNavigateFarm }) {
     document.addEventListener('mousedown', handler);
     return () => document.removeEventListener('mousedown', handler);
   }, [showColumnSettings]);
+
+  // 에러 자동 해제 (5초)
+  useEffect(() => {
+    if (!error) return;
+    const t = setTimeout(() => setError(''), 5000);
+    return () => clearTimeout(t);
+  }, [error]);
 
   // Alert feed auto-refresh (30s interval while panel is open)
   useEffect(() => {
@@ -503,9 +531,14 @@ export default function FarmManager({ onNavigateFarm }) {
     return [...pinned, ...rest];
   }, [filteredFarms, pinnedIds]);
 
-  const totalPages = Math.ceil(sortedFarms.length / perPage);
+  const totalPages = Math.max(1, Math.ceil(sortedFarms.length / perPage));
+  // 페이지 범위 초과 보정 (데이터 로딩 완료 후에만)
+  useEffect(() => {
+    if (!loading && sortedFarms.length > 0 && currentPage > totalPages) setCurrentPage(totalPages);
+  }, [totalPages, currentPage, loading, sortedFarms.length]);
+  const safePage = Math.min(currentPage, totalPages);
   const paginated = useMemo(() =>
-    sortedFarms.slice((currentPage - 1) * perPage, currentPage * perPage), [sortedFarms, currentPage, perPage]);
+    sortedFarms.slice((safePage - 1) * perPage, safePage * perPage), [sortedFarms, safePage, perPage]);
 
   const pageNums = useMemo(() => {
     const pages = [];
@@ -548,6 +581,26 @@ export default function FarmManager({ onNavigateFarm }) {
     return () => window.removeEventListener('keydown', handler);
   }, [focusedIdx, paginated, showForm, detailFarm, showColumnSettings]);
 
+  // 컨텍스트 메뉴 외부 클릭/스크롤 시 닫기
+  useEffect(() => {
+    if (!ctxMenu) return;
+    const close = () => setCtxMenu(null);
+    window.addEventListener('click', close);
+    window.addEventListener('scroll', close, true);
+    window.addEventListener('keydown', (e) => { if (e.key === 'Escape') close(); });
+    return () => {
+      window.removeEventListener('click', close);
+      window.removeEventListener('scroll', close, true);
+    };
+  }, [ctxMenu]);
+
+  const handleRowContext = (e, farm) => {
+    e.preventDefault();
+    const x = Math.min(e.clientX, window.innerWidth - 180);
+    const y = Math.min(e.clientY, window.innerHeight - 260);
+    setCtxMenu({ x, y, farm });
+  };
+
   /* ── Selection ── */
   const allSelected = paginated.length > 0 && paginated.every(f => selectedIds.includes(f.farmId));
   const toggleAll = () => {
@@ -588,7 +641,7 @@ export default function FarmManager({ onNavigateFarm }) {
       const ackParam = t === 'unack' ? '&acknowledged=false' : '';
       const r = await axios.get(`${API}/farms/alerts/recent?limit=50${ackParam}`);
       setAlertFeedData(r.data.data || []);
-    } catch { /* ignore */ }
+    } catch (err) { setError(err.response?.data?.error || '알림 피드 조회 실패'); }
     finally { setAlertFeedLoading(false); }
   };
   const acknowledgeAlert = async (alertId) => {
@@ -599,7 +652,7 @@ export default function FarmManager({ onNavigateFarm }) {
       ));
       const r = await axios.get(`${API}/farms/alert-summary`).catch(() => null);
       if (r) setAlertSummary(r.data.data);
-    } catch { /* ignore */ }
+    } catch (err) { setError(err.response?.data?.error || '알림 확인 처리 실패'); }
   };
   const deleteAlert = async (alertId) => {
     try {
@@ -611,7 +664,7 @@ export default function FarmManager({ onNavigateFarm }) {
       ));
       const r = await axios.get(`${API}/farms/alert-summary`).catch(() => null);
       if (r) setAlertSummary(r.data.data);
-    } catch { /* ignore */ }
+    } catch (err) { setError(err.response?.data?.error || '알림 삭제 실패'); }
   };
   const isCol = (id) => visibleColumns.includes(id);
   const visibleCount = visibleColumns.length + 3; // +checkbox, +pin, +actions
@@ -623,7 +676,7 @@ export default function FarmManager({ onNavigateFarm }) {
       setFarmAlerts(prev => prev.map(a =>
         a._id === alertId ? { ...a, acknowledged: true, acknowledgedAt: new Date().toISOString(), acknowledgedBy: actionSource, metadata: { ...a.metadata, ...(resolution ? { resolution, resolvedAt: new Date().toISOString() } : {}) } } : a
       ));
-    } catch { /* ignore */ }
+    } catch (err) { setError(err.response?.data?.error || '알림 확인 처리 실패'); }
   };
   const saveFarmAlertResolution = async (alertId) => {
     if (!editResolutionText.trim()) return;
@@ -633,7 +686,7 @@ export default function FarmManager({ onNavigateFarm }) {
         a._id === alertId ? { ...a, metadata: { ...a.metadata, resolution: editResolutionText.trim(), resolvedAt: new Date().toISOString() } } : a
       ));
       setEditResolutionId(null); setEditResolutionText('');
-    } catch { /* ignore */ }
+    } catch (err) { setError(err.response?.data?.error || '조치사항 저장 실패'); }
   };
 
   /* ── CRUD Handlers ── */
@@ -649,6 +702,17 @@ export default function FarmManager({ onNavigateFarm }) {
         finalTags.push(remaining);
       }
       tagInputRef.current.value = '';
+    }
+    // 사업비 검증 (보조사업인 경우)
+    if (form.businessType === 'subsidy') {
+      const total = Number(form.totalCost) || 0;
+      const subsidy = Number(form.subsidyAmount) || 0;
+      const self = Number(form.selfFunding) || 0;
+      if (total > 0 && subsidy + self > 0 && total !== subsidy + self) {
+        return setError(`총사업비(${total.toLocaleString()}원) ≠ 보조금(${subsidy.toLocaleString()}원) + 자부담(${self.toLocaleString()}원). 금액을 확인해주세요.`);
+      }
+      if (subsidy > total) return setError('보조금이 총사업비를 초과할 수 없습니다.');
+      if (self > total) return setError('자부담이 총사업비를 초과할 수 없습니다.');
     }
     const data = { ...form, managers: clean, tags: finalTags };
     try {
@@ -772,7 +836,8 @@ export default function FarmManager({ onNavigateFarm }) {
 
   /* ── Detail Modal ── */
   const openDetail = async (farm) => {
-    setDetailFarm(farm); setDetailTab('info'); setAssignUserId(''); setAssignRole('viewer');
+    setDetailFarm(farm); setDetailTab('info'); setDetailLoading(true);
+    setAssignUserId(''); setAssignRole('viewer');
     setMaintLogs([]); setMaintSummary({ totalCost: 0, count: 0 }); setShowMaintForm(false);
     setFarmStats(null); setAuditLogs([]); setConnHistory(null);
     setFarmNotes([]); setNewNote(''); setEditNoteId(null); setEditHouseId(null);
@@ -803,7 +868,10 @@ export default function FarmManager({ onNavigateFarm }) {
       if (schR) { setFarmSchedules(schR.data.data || []); setScheduleSummary(schR.data.summary || {}); }
       if (docR) { setFarmDocuments(docR.data.data || []); setDocSummary(docR.data.summary || {}); }
       if (alertR) setFarmAlerts(alertR.data.data || []);
-    } catch { setFarmHouses([]); setFarmUsers([]); setAllUsers([]); }
+    } catch (err) {
+      setError(err.response?.data?.error || '농장 상세정보 조회 실패');
+      setFarmHouses([]); setFarmUsers([]); setAllUsers([]);
+    } finally { setDetailLoading(false); }
   };
 
   const assignUser = async () => {
@@ -981,10 +1049,20 @@ export default function FarmManager({ onNavigateFarm }) {
   };
 
   const AUDIT_ACTION_LABEL = {
-    create: '생성', update: '수정', delete: '삭제',
-    batch_status: '일괄 상태변경', batch_create: '일괄 등록',
-    regenerate_key: 'API키 재발급',
+    create: '생성', update: '수정', delete: '삭제', soft_delete: '삭제',
+    restore: '복원', batch_status: '일괄 상태변경', batch_create: '일괄 등록',
+    regenerate_key: 'API키 재발급', update_role: '역할 변경', update_permissions: '권한 변경',
+    backup: '백업',
   };
+  const FIELD_LABEL = {
+    name: '농장명', location: '주소', status: '상태', memo: '메모', tags: '태그',
+    systemType: '시스템 유형', farmType: '농장 유형', farmArea: '면적(평)',
+    registeredAt: '등록일', maintenanceMonths: '유지보수 기간(개월)', maintenanceStartAt: '유지보수 시작일',
+    managers: '관리자', ownerName: '대표자명', ownerPhone: '대표자 연락처',
+    businessProjectId: '사업', businessType: '사업 유형',
+    totalCost: '총사업비', subsidyAmount: '보조금', selfFunding: '자부담',
+  };
+  const TARGET_TYPE_LABEL = { farm: '농장', user_farm: '사용자-농장', house: '하우스' };
 
   /* ── Excel Export ── */
   const exportExcel = () => {
@@ -1361,11 +1439,17 @@ export default function FarmManager({ onNavigateFarm }) {
       </div>
 
       {error && (
-        <div className="flex items-center justify-between px-4 py-2.5 bg-red-50 border border-red-200 rounded-lg text-sm text-red-600">
-          <span>{error}</span>
-          <button onClick={() => setError('')} className="text-red-400 hover:text-red-600 ml-2">
-            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
-          </button>
+        <div className="flex items-center justify-between px-4 py-2.5 bg-red-50 border border-red-200 rounded-lg text-sm text-red-600 animate-fade-in-up">
+          <div className="flex items-center gap-2">
+            <svg className="w-4 h-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+            <span>{error}</span>
+          </div>
+          <div className="flex items-center gap-1">
+            <button onClick={() => { setError(''); fetchFarms(); }} className="text-xs text-red-500 hover:text-red-700 px-2 py-0.5 rounded hover:bg-red-100 transition-colors">재시도</button>
+            <button onClick={() => setError('')} className="text-red-400 hover:text-red-600 p-0.5">
+              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+            </button>
+          </div>
         </div>
       )}
 
@@ -1452,7 +1536,7 @@ export default function FarmManager({ onNavigateFarm }) {
                   try {
                     const r = await axios.get(`${API}/farms?onlyDeleted=true`);
                     setTrashFarms(r.data.data || []);
-                  } catch { setTrashFarms([]); }
+                  } catch (err) { setTrashFarms([]); setError(err.response?.data?.error || '휴지통 조회 실패'); }
                 }
               }}
                 className={`px-3 py-1.5 rounded text-xs font-medium border transition-colors ${showTrash ? 'bg-red-50 text-red-700 border-red-300' : 'bg-white text-gray-500 border-gray-300 hover:bg-gray-50'}`}>
@@ -1512,22 +1596,21 @@ export default function FarmManager({ onNavigateFarm }) {
                   <svg className="w-3 h-3 mx-auto" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 5a2 2 0 012-2h10a2 2 0 012 2v16l-7-3.5L5 21V5z" /></svg>
                 </th>
                 {isCol('no') && <th className="w-8 px-1 py-2 text-center text-xs font-semibold text-gray-600 border-r border-gray-200">No</th>}
-                {isCol('farmId') && <th className="w-16 px-1 py-2 text-left text-xs font-semibold text-gray-600 border-r border-gray-200">농장ID</th>}
-                {isCol('name') && <th className="min-w-[120px] px-2 py-2 text-left text-xs font-semibold text-gray-600 border-r border-gray-200">농장명</th>}
-                {isCol('manager') && <th className="px-2 py-2 text-left text-xs font-semibold text-gray-600 border-r border-gray-200">대표자</th>}
-                {isCol('region') && <th className="w-24 px-1 py-2 text-left text-xs font-semibold text-gray-600 border-r border-gray-200">지역</th>}
-                {isCol('farmType') && <th className="w-16 px-1 py-2 text-left text-xs font-semibold text-gray-600 border-r border-gray-200">형태</th>}
+                {isCol('farmId') && <th className="w-16 px-1 py-2 text-center text-xs font-semibold text-gray-600 border-r border-gray-200">농장ID</th>}
+                {isCol('name') && <th className="min-w-[120px] px-2 py-2 text-center text-xs font-semibold text-gray-600 border-r border-gray-200">농장명</th>}
+                {isCol('manager') && <th className="px-2 py-2 text-center text-xs font-semibold text-gray-600 border-r border-gray-200">대표자</th>}
+                {isCol('region') && <th className="w-24 px-1 py-2 text-center text-xs font-semibold text-gray-600 border-r border-gray-200">지역</th>}
+                {isCol('farmType') && <th className="w-16 px-1 py-2 text-center text-xs font-semibold text-gray-600 border-r border-gray-200">형태</th>}
                 {isCol('houseCount') && <th className="w-14 px-1 py-2 text-center text-xs font-semibold text-gray-600 border-r border-gray-200">동</th>}
-                {isCol('farmArea') && <th className="w-16 px-1 py-2 text-right text-xs font-semibold text-gray-600 border-r border-gray-200">면적</th>}
-                {isCol('systemType') && <th className="w-20 px-1 py-2 text-left text-xs font-semibold text-gray-600 border-r border-gray-200">시스템</th>}
+                {isCol('farmArea') && <th className="w-16 px-1 py-2 text-center text-xs font-semibold text-gray-600 border-r border-gray-200">면적</th>}
+                {isCol('systemType') && <th className="w-20 px-1 py-2 text-center text-xs font-semibold text-gray-600 border-r border-gray-200">시스템</th>}
                 {isCol('status') && <th className="px-2 py-2 text-center text-xs font-semibold text-gray-600 border-r border-gray-200">상태</th>}
                 {isCol('connection') && <th className="px-2 py-2 text-center text-xs font-semibold text-gray-600 border-r border-gray-200">접속</th>}
                 {isCol('maintenance') && <th className="px-2 py-2 text-center text-xs font-semibold text-gray-600 border-r border-gray-200">유지보수</th>}
                 {isCol('registeredAt') && <th className="px-2 py-2 text-center text-xs font-semibold text-gray-600 border-r border-gray-200">등록일</th>}
-                {isCol('apiKey') && <th className="px-2 py-2 text-left text-xs font-semibold text-gray-600 border-r border-gray-200">API Key</th>}
-                {isCol('tags') && <th className="px-2 py-2 text-left text-xs font-semibold text-gray-600 border-r border-gray-200">태그</th>}
-                {isCol('memo') && <th className="px-2 py-2 text-left text-xs font-semibold text-gray-600 border-r border-gray-200">메모</th>}
-                <th className="px-1 py-2 text-center text-xs font-semibold text-gray-600">관리</th>
+                {isCol('apiKey') && <th className="px-2 py-2 text-center text-xs font-semibold text-gray-600 border-r border-gray-200">API Key</th>}
+                {isCol('tags') && <th className="px-2 py-2 text-center text-xs font-semibold text-gray-600 border-r border-gray-200">태그</th>}
+                {isCol('memo') && <th className="px-2 py-2 text-center text-xs font-semibold text-gray-600 border-r border-gray-200">메모</th>}
               </tr>
             </thead>
             <tbody>
@@ -1542,18 +1625,22 @@ export default function FarmManager({ onNavigateFarm }) {
                 const isFocused = focusedIdx === idx;
                 return (
                   <tr key={farm.farmId}
-                    className={`border-b border-gray-100 transition-colors whitespace-nowrap ${
-                      isFocused ? 'ring-2 ring-inset ring-indigo-400 bg-indigo-50/50' :
-                      isActive ? 'bg-blue-50/70' :
+                    onMouseDown={() => setFocusedIdx(idx)}
+                    onDoubleClick={() => enterFarm(farm)}
+                    onContextMenu={(e) => handleRowContext(e, farm)}
+                    style={{ cursor: 'pointer' }}
+                    className={`border-b border-gray-100 whitespace-nowrap ${
+                      isFocused ? 'bg-blue-100 border-l-2 border-l-blue-500' :
+                      isActive ? 'bg-blue-50/60' :
                       isPinned ? 'bg-amber-50/40' :
                       selected ? 'bg-indigo-50/50' :
                       idx % 2 === 0 ? 'bg-white' : 'bg-gray-50/30'
-                    } ${isActive ? 'border-l-2 border-l-blue-500' : isPinned ? 'border-l-2 border-l-amber-400' : ''} hover:bg-indigo-50/40`}>
-                    <td className="px-1 py-1.5 text-center border-r border-gray-100">
+                    } ${!isFocused ? 'hover:bg-indigo-50/40' : ''} ${isActive && !isFocused ? 'border-l-2 border-l-blue-500' : isPinned && !isFocused ? 'border-l-2 border-l-amber-400' : ''}`}>
+                    <td className="px-1 py-1.5 text-center border-r border-gray-100" onClick={e => e.stopPropagation()}>
                       <input type="checkbox" checked={selected} onChange={() => toggleOne(farm.farmId)}
                         className="w-3.5 h-3.5 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500" />
                     </td>
-                    <td className="w-7 px-0 py-1.5 text-center border-r border-gray-100">
+                    <td className="w-7 px-0 py-1.5 text-center border-r border-gray-100" onClick={e => e.stopPropagation()}>
                       <button onClick={() => togglePin(farm.farmId)} title={isPinned ? '고정 해제' : '상단 고정'}
                         className={`transition-colors ${isPinned ? 'text-amber-500 hover:text-amber-600' : 'text-gray-300 hover:text-amber-400'}`}>
                         <svg className="w-3.5 h-3.5 mx-auto" fill={isPinned ? 'currentColor' : 'none'} viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 5a2 2 0 012-2h10a2 2 0 012 2v16l-7-3.5L5 21V5z" /></svg>
@@ -1561,11 +1648,11 @@ export default function FarmManager({ onNavigateFarm }) {
                     </td>
                     {isCol('no') && <td className="px-1 py-1.5 text-center text-xs text-gray-400 border-r border-gray-100">{no}</td>}
                     {isCol('farmId') && <td className="w-16 px-1 py-1.5 border-r border-gray-100">
-                      <span className="text-[11px] font-mono text-gray-500">{farm.farmId}</span>
+                      <span className="text-xs font-mono text-gray-500">{farm.farmId}</span>
                     </td>}
                     {isCol('name') && <td className="min-w-[120px] px-2 py-1.5 border-r border-gray-100 truncate">
-                      <button onClick={() => openDetail(farm)}
-                        className="text-[13px] font-medium text-indigo-700 hover:text-indigo-900 hover:underline text-left truncate block w-full">
+                      <button onClick={(e) => { e.stopPropagation(); openDetail(farm); }}
+                        className="text-[13px] font-medium text-indigo-700 hover:text-indigo-900 hover:underline text-left truncate">
                         {farm.name}
                       </button>
                     </td>}
@@ -1626,32 +1713,6 @@ export default function FarmManager({ onNavigateFarm }) {
                     {isCol('memo') && <td className="px-2 py-1.5 text-xs text-gray-500 border-r border-gray-100 truncate max-w-[150px]" title={farm.memo}>
                       {farm.memo || <span className="text-gray-300">-</span>}
                     </td>}
-                    <td className="px-1 py-1.5 text-center">
-                      <div className="flex items-center justify-center gap-0.5">
-                        <button onClick={() => enterFarm(farm)} title="이 농장으로 접속"
-                          className={`w-[52px] py-0.5 rounded text-[11px] font-bold transition-colors text-center border ${isActive
-                            ? 'bg-blue-600 text-white border-blue-600'
-                            : 'bg-blue-100 text-blue-800 hover:bg-blue-600 hover:text-white hover:border-blue-600 border-blue-300'}`}>
-                          {isActive ? '접속중' : '접속'}
-                        </button>
-                        <button onClick={() => openDetail(farm)} title="상세"
-                          className="p-0.5 text-gray-400 hover:text-indigo-600 hover:bg-indigo-50 rounded transition-colors">
-                          <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" /></svg>
-                        </button>
-                        <button onClick={() => handleEdit(farm)} title="수정"
-                          className="p-0.5 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded transition-colors">
-                          <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg>
-                        </button>
-                        <button onClick={() => cloneFarm(farm)} title="복제"
-                          className="p-0.5 text-gray-400 hover:text-purple-600 hover:bg-purple-50 rounded transition-colors">
-                          <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" /></svg>
-                        </button>
-                        <button onClick={() => handleDelete(farm.farmId)} title="삭제"
-                          className="p-0.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded transition-colors">
-                          <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
-                        </button>
-                      </div>
-                    </td>
                   </tr>
                 );
               })}
@@ -1668,6 +1729,37 @@ export default function FarmManager({ onNavigateFarm }) {
             </tbody>
           </table>
         </div>
+
+        {/* 우클릭 컨텍스트 메뉴 */}
+        {ctxMenu && (
+          <div ref={ctxRef}
+            style={{ position: 'fixed', left: ctxMenu.x, top: ctxMenu.y, zIndex: 9999 }}
+            className="bg-white rounded-lg shadow-xl border border-gray-200 py-1 min-w-[160px] animate-fade-in-up">
+            <div className="px-3 py-1.5 border-b border-gray-100">
+              <p className="text-xs font-bold text-gray-700 truncate">{ctxMenu.farm.name}</p>
+              <p className="text-[10px] text-gray-400 font-mono">{ctxMenu.farm.farmId}</p>
+            </div>
+            {[
+              { label: '접속', icon: 'M13 10V3L4 14h7v7l9-11h-7z', color: 'text-blue-600', action: () => enterFarm(ctxMenu.farm) },
+              { label: '상세보기', icon: 'M15 12a3 3 0 11-6 0 3 3 0 016 0z M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z', color: 'text-indigo-600', action: () => openDetail(ctxMenu.farm) },
+              { label: '수정', icon: 'M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z', color: 'text-blue-600', action: () => handleEdit(ctxMenu.farm) },
+              { label: '복제', icon: 'M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z', color: 'text-purple-600', action: () => cloneFarm(ctxMenu.farm) },
+              { label: pinnedIds.includes(ctxMenu.farm.farmId) ? '즐겨찾기 해제' : '즐겨찾기', icon: 'M5 5a2 2 0 012-2h10a2 2 0 012 2v16l-7-3.5L5 21V5z', color: 'text-amber-500', action: () => togglePin(ctxMenu.farm.farmId) },
+              { divider: true },
+              { label: '삭제', icon: 'M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16', color: 'text-red-500', action: () => handleDelete(ctxMenu.farm.farmId) },
+            ].map((item, i) => item.divider ? (
+              <div key={i} className="border-t border-gray-100 my-1" />
+            ) : (
+              <button key={i} onClick={() => { item.action(); setCtxMenu(null); }}
+                className={`w-full flex items-center gap-2.5 px-3 py-2 text-sm hover:bg-gray-50 transition-colors ${item.color}`}>
+                <svg className="w-4 h-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d={item.icon} />
+                </svg>
+                <span className="text-gray-700">{item.label}</span>
+              </button>
+            ))}
+          </div>
+        )}
 
         {/* Pagination */}
         {totalPages > 0 && (
@@ -2020,7 +2112,7 @@ export default function FarmManager({ onNavigateFarm }) {
                                 <span className="text-sm text-gray-700">보조사업</span>
                               </label>
                             </div>
-                            {form.businessType === 'subsidy' && (
+                            {form.businessType === 'subsidy' && (<>
                               <div className="grid grid-cols-3 gap-2">
                                 <div>
                                   <label className="text-[11px] text-gray-500 mb-0.5 block">총사업비 (원)</label>
@@ -2038,7 +2130,31 @@ export default function FarmManager({ onNavigateFarm }) {
                                     placeholder="0" className="w-full px-2.5 py-1.5 border border-gray-300 rounded text-sm text-right focus:outline-none focus:border-indigo-500" />
                                 </div>
                               </div>
-                            )}
+                              {/* 금액 검증 메시지 */}
+                              {(() => {
+                                const t = Number(form.totalCost) || 0;
+                                const s = Number(form.subsidyAmount) || 0;
+                                const f = Number(form.selfFunding) || 0;
+                                if (t > 0 && s + f > 0 && t !== s + f) {
+                                  const diff = t - s - f;
+                                  return (
+                                    <div className="mt-1.5 px-2.5 py-1.5 bg-red-50 border border-red-200 rounded text-xs text-red-600 flex items-center gap-1.5">
+                                      <svg className="w-3.5 h-3.5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                                      총사업비 ≠ 보조금 + 자부담 (차이: {Math.abs(diff).toLocaleString()}원 {diff > 0 ? '부족' : '초과'})
+                                    </div>
+                                  );
+                                }
+                                if (t > 0 && s + f > 0 && t === s + f) {
+                                  return (
+                                    <div className="mt-1.5 px-2.5 py-1.5 bg-emerald-50 border border-emerald-200 rounded text-xs text-emerald-600 flex items-center gap-1.5">
+                                      <svg className="w-3.5 h-3.5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>
+                                      금액이 일치합니다
+                                    </div>
+                                  );
+                                }
+                                return null;
+                              })()}
+                            </>)}
                           </div>
                         )}
                       </td>
@@ -2251,7 +2367,6 @@ export default function FarmManager({ onNavigateFarm }) {
                   { key: 'info', label: '기본정보' },
                   { key: 'stats', label: '현황' },
                   { key: 'houses', label: `하우스 (${farmHouses.length})` },
-                  { key: 'users', label: `사용자 (${farmUsers.length})` },
                   { key: 'schedules', label: `일정 (${scheduleSummary.upcoming || 0})` },
                   { key: 'maintenance', label: `유지보수 (${maintLogs.length})` },
                   { key: 'documents', label: `문서 (${docSummary.total || 0})` },
@@ -2272,8 +2387,32 @@ export default function FarmManager({ onNavigateFarm }) {
               {/* Tab Content */}
               <div className="p-6" ref={detailRef}>
 
+                {/* Loading Skeleton */}
+                {detailLoading && (
+                  <div className="space-y-4 animate-pulse">
+                    <div className="grid grid-cols-2 gap-4">
+                      {[...Array(6)].map((_, i) => (
+                        <div key={i} className="space-y-2">
+                          <div className="h-3 w-20 bg-gray-200 rounded"></div>
+                          <div className="h-8 bg-gray-100 rounded"></div>
+                        </div>
+                      ))}
+                    </div>
+                    <div className="h-px bg-gray-100 my-4"></div>
+                    <div className="space-y-3">
+                      {[...Array(4)].map((_, i) => (
+                        <div key={i} className="flex items-center gap-3">
+                          <div className="h-4 w-4 bg-gray-200 rounded"></div>
+                          <div className="h-4 flex-1 bg-gray-100 rounded"></div>
+                          <div className="h-4 w-24 bg-gray-100 rounded"></div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
                 {/* 기본정보 탭 */}
-                {detailTab === 'info' && (
+                {!detailLoading && detailTab === 'info' && (
                   <div>
                   <table className="w-full border-collapse">
                     <tbody>
@@ -2491,7 +2630,7 @@ export default function FarmManager({ onNavigateFarm }) {
                 )}
 
                 {/* 현황 탭 */}
-                {detailTab === 'stats' && (
+                {!detailLoading && detailTab === 'stats' && (
                   farmStats ? (
                     <div className="space-y-4">
                       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
@@ -2515,7 +2654,7 @@ export default function FarmManager({ onNavigateFarm }) {
                             {Object.entries(farmStats.alerts.bySeverity).map(([sev, cnt]) => (
                               <div key={sev} className={`flex-1 text-center p-2 rounded ${sev === 'CRITICAL' ? 'bg-red-50' : sev === 'WARNING' ? 'bg-amber-50' : 'bg-blue-50'}`}>
                                 <div className="text-lg font-bold">{cnt}</div>
-                                <div className="text-xs text-gray-500">{sev}</div>
+                                <div className="text-xs text-gray-500">{sev === 'CRITICAL' ? '긴급' : sev === 'WARNING' ? '경고' : sev === 'INFO' ? '정보' : sev}</div>
                               </div>
                             ))}
                           </div>
@@ -2583,30 +2722,58 @@ export default function FarmManager({ onNavigateFarm }) {
                         </div>
                       )}
                       {/* 최근 센서 데이터 */}
-                      {farmStats.sensors?.houses?.length > 0 && (
-                        <div className="border border-gray-200 rounded-lg p-4">
-                          <h5 className="text-sm font-semibold text-gray-700 mb-2">최근 센서 데이터</h5>
-                          <div className="space-y-2">
-                            {farmStats.sensors.houses.map(h => (
-                              <div key={h.houseId} className="bg-gray-50 rounded-lg px-3 py-2.5">
-                                <div className="flex items-center justify-between mb-1.5">
-                                  <span className="text-sm font-semibold text-gray-700">{h.houseId}</span>
-                                  <span className="text-[10px] text-gray-400">{new Date(h.lastUpdate).toLocaleString('ko-KR')}</span>
-                                </div>
-                                {h.data && typeof h.data === 'object' && (
-                                  <div className="flex flex-wrap gap-x-4 gap-y-0.5">
-                                    {Object.entries(h.data).map(([key, val]) => (
-                                      <span key={key} className="text-xs text-gray-500">
-                                        <span className="text-gray-400">{key}:</span> <span className="font-medium text-gray-700">{typeof val === 'number' ? Math.round(val * 10) / 10 : val}</span>
-                                      </span>
-                                    ))}
+                      {farmStats.sensors?.houses?.length > 0 && (() => {
+                        // houseId → houseName 매핑
+                        const houseNameMap = {};
+                        farmHouses.forEach(fh => { houseNameMap[fh.houseId] = fh.houseName || fh.houseId; });
+                        // 센서 키 → 한글 라벨 + 단위 + 아이콘
+                        const sensorLabel = (key) => {
+                          const k = key.toLowerCase();
+                          if (k.startsWith('temp') || k.includes('temperature')) return { label: '온도', unit: '°C', icon: '🌡️', color: 'text-red-600' };
+                          if (k.startsWith('ext_humidity') || k.includes('ext_humi')) return { label: '외부습도', unit: '%', icon: '💧', color: 'text-cyan-600' };
+                          if (k.startsWith('humidity') || k.includes('humi')) return { label: '습도', unit: '%', icon: '💧', color: 'text-blue-600' };
+                          if (k.startsWith('co2') || k.includes('carbon')) return { label: 'CO₂', unit: 'ppm', icon: '🫧', color: 'text-gray-600' };
+                          if (k.startsWith('light') || k.includes('lux') || k.includes('illumin')) return { label: '조도', unit: 'lux', icon: '☀️', color: 'text-yellow-600' };
+                          if (k.startsWith('soil_temp')) return { label: '토양온도', unit: '°C', icon: '🌱', color: 'text-orange-600' };
+                          if (k.startsWith('soil_moist') || k.startsWith('soil_humi')) return { label: '토양수분', unit: '%', icon: '🌱', color: 'text-emerald-600' };
+                          if (k.startsWith('soil_ec') || k.includes('ec')) return { label: 'EC', unit: 'dS/m', icon: '⚡', color: 'text-purple-600' };
+                          if (k.startsWith('soil_ph') || k.startsWith('ph')) return { label: 'pH', unit: '', icon: '🧪', color: 'text-indigo-600' };
+                          if (k.startsWith('wind')) return { label: '풍속', unit: 'm/s', icon: '🌬️', color: 'text-teal-600' };
+                          if (k.startsWith('rain')) return { label: '강수', unit: 'mm', icon: '🌧️', color: 'text-sky-600' };
+                          if (k.startsWith('ext_temp')) return { label: '외부온도', unit: '°C', icon: '🌡️', color: 'text-orange-500' };
+                          return { label: key, unit: '', icon: '📟', color: 'text-gray-600' };
+                        };
+                        return (
+                          <div className="border border-gray-200 rounded-lg p-4">
+                            <h5 className="text-sm font-semibold text-gray-700 mb-2">최근 센서 데이터</h5>
+                            <div className="space-y-2">
+                              {farmStats.sensors.houses.map(h => (
+                                <div key={h.houseId} className="bg-gray-50 rounded-lg px-3 py-2.5">
+                                  <div className="flex items-center justify-between mb-1.5">
+                                    <span className="text-sm font-semibold text-gray-700">{houseNameMap[h.houseId] || h.houseId}</span>
+                                    <span className="text-[10px] text-gray-400">{new Date(h.lastUpdate).toLocaleString('ko-KR')}</span>
                                   </div>
-                                )}
-                              </div>
-                            ))}
+                                  {h.data && typeof h.data === 'object' && (
+                                    <div className="flex flex-wrap gap-x-4 gap-y-1">
+                                      {Object.entries(h.data).map(([key, val]) => {
+                                        const s = sensorLabel(key);
+                                        const numVal = typeof val === 'number' ? Math.round(val * 10) / 10 : val;
+                                        return (
+                                          <span key={key} className="text-xs flex items-center gap-1">
+                                            <span className="text-[11px]">{s.icon}</span>
+                                            <span className="text-gray-500">{s.label}</span>
+                                            <span className={`font-semibold ${s.color}`}>{numVal}{s.unit && <span className="text-gray-400 font-normal">{s.unit}</span>}</span>
+                                          </span>
+                                        );
+                                      })}
+                                    </div>
+                                  )}
+                                </div>
+                              ))}
+                            </div>
                           </div>
-                        </div>
-                      )}
+                        );
+                      })()}
                     </div>
                   ) : (
                     <div className="text-center py-12 text-gray-400">
@@ -2617,7 +2784,7 @@ export default function FarmManager({ onNavigateFarm }) {
                 )}
 
                 {/* 하우스 탭 */}
-                {detailTab === 'houses' && (
+                {!detailLoading && detailTab === 'houses' && (
                   farmHouses.length > 0 ? (
                     <table className="w-full text-sm border-collapse">
                       <thead>
@@ -2699,131 +2866,8 @@ export default function FarmManager({ onNavigateFarm }) {
                 )}
 
                 {/* 사용자 탭 */}
-                {detailTab === 'users' && (
-                  <div>
-                    {farmUsers.length > 0 && (
-                      <table className="w-full text-sm border-collapse mb-4">
-                        <thead>
-                          <tr className="bg-slate-50">
-                            <th className="px-4 py-2.5 text-left text-xs font-semibold text-gray-600 border border-gray-200">이름</th>
-                            <th className="px-3 py-2.5 text-left text-xs font-semibold text-gray-600 border border-gray-200">아이디</th>
-                            <th className="w-24 px-3 py-2.5 text-center text-xs font-semibold text-gray-600 border border-gray-200">역할</th>
-                            <th className="px-3 py-2.5 text-left text-xs font-semibold text-gray-600 border border-gray-200">권한</th>
-                            <th className="w-28 px-3 py-2.5 text-center text-xs font-semibold text-gray-600 border border-gray-200">관리</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {farmUsers.map(uf => {
-                            const perms = uf.permissions || DEFAULT_PERMS[uf.role] || {};
-                            return (
-                              <React.Fragment key={uf.id}>
-                                <tr className="hover:bg-gray-50">
-                                  <td className="px-4 py-2.5 font-medium text-gray-700 border border-gray-200">{uf.user?.name || '-'}</td>
-                                  <td className="px-3 py-2.5 text-gray-500 border border-gray-200">{uf.user?.username}</td>
-                                  <td className="px-3 py-2.5 text-center border border-gray-200">
-                                    <select value={uf.role}
-                                      onChange={async (e) => {
-                                        try {
-                                          await axios.put(`${API}/farms/${detailFarm.farmId}/users/${uf.userId}/role`, { role: e.target.value });
-                                          const r = await axios.get(`${API}/farms/${detailFarm.farmId}`);
-                                          setFarmUsers(r.data.data.users || []);
-                                          fetchFarms();
-                                        } catch (err) { setError(err.response?.data?.error || '역할 변경 실패'); }
-                                      }}
-                                      className="px-2 py-0.5 rounded text-[11px] font-medium bg-blue-50 text-blue-700 border border-blue-200 cursor-pointer">
-                                      <option value="admin">관리자</option>
-                                      <option value="worker">작업자</option>
-                                      <option value="viewer">뷰어</option>
-                                    </select>
-                                  </td>
-                                  <td className="px-3 py-2.5 border border-gray-200">
-                                    <div className="flex flex-wrap gap-1">
-                                      {Object.entries(PERM_LABELS).map(([pk, pv]) => (
-                                        <span key={pk} className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${perms[pk] ? 'bg-emerald-100 text-emerald-700' : 'bg-gray-100 text-gray-400'}`}>
-                                          {pv}
-                                        </span>
-                                      ))}
-                                    </div>
-                                  </td>
-                                  <td className="px-3 py-2.5 text-center border border-gray-200">
-                                    <div className="flex items-center justify-center gap-1">
-                                      <button onClick={() => {
-                                        if (editPermUserId === uf.userId) { setEditPermUserId(null); }
-                                        else { setEditPermUserId(uf.userId); setEditPerms({ ...perms }); }
-                                      }}
-                                        className={`text-xs font-medium px-2 py-0.5 rounded transition-colors ${editPermUserId === uf.userId ? 'text-indigo-700 bg-indigo-50' : 'text-gray-500 hover:text-indigo-600 hover:bg-indigo-50'}`}>
-                                        편집
-                                      </button>
-                                      <button onClick={() => removeUser(uf.userId)}
-                                        className="text-xs text-red-500 hover:text-red-700 font-medium px-2 py-0.5 rounded hover:bg-red-50 transition-colors">해제</button>
-                                    </div>
-                                  </td>
-                                </tr>
-                                {editPermUserId === uf.userId && (
-                                  <tr>
-                                    <td colSpan={5} className="px-4 py-3 bg-indigo-50/50 border border-gray-200">
-                                      <div className="flex items-center gap-4 flex-wrap">
-                                        {Object.entries(PERM_LABELS).map(([pk, pv]) => (
-                                          <label key={pk} className="flex items-center gap-1.5 cursor-pointer">
-                                            <input type="checkbox" checked={!!editPerms[pk]}
-                                              onChange={e => setEditPerms({ ...editPerms, [pk]: e.target.checked })}
-                                              className="w-3.5 h-3.5 rounded border-gray-300 text-indigo-600" />
-                                            <span className="text-xs text-gray-700">{pv}</span>
-                                          </label>
-                                        ))}
-                                        <button onClick={async () => {
-                                          try {
-                                            await axios.put(`${API}/farms/${detailFarm.farmId}/users/${uf.userId}/permissions`, { permissions: editPerms });
-                                            setEditPermUserId(null);
-                                            const r = await axios.get(`${API}/farms/${detailFarm.farmId}`);
-                                            setFarmUsers(r.data.data.users || []);
-                                          } catch (err) { setError(err.response?.data?.error || '권한 저장 실패'); }
-                                        }}
-                                          className="px-3 py-1 bg-indigo-600 text-white rounded text-xs font-medium hover:bg-indigo-700 transition-colors">
-                                          저장
-                                        </button>
-                                        <button onClick={() => setEditPermUserId(null)}
-                                          className="px-3 py-1 bg-white border border-gray-300 rounded text-xs text-gray-600 hover:bg-gray-50 transition-colors">
-                                          취소
-                                        </button>
-                                      </div>
-                                    </td>
-                                  </tr>
-                                )}
-                              </React.Fragment>
-                            );
-                          })}
-                        </tbody>
-                      </table>
-                    )}
-                    {/* Assign new user */}
-                    <div className="bg-gray-50 rounded-lg p-4 border border-gray-200">
-                      <h5 className="text-xs font-semibold text-gray-600 mb-2">사용자 추가</h5>
-                      <div className="flex gap-2">
-                        <select value={assignUserId} onChange={e => setAssignUserId(e.target.value)}
-                          className="flex-1 px-3 py-1.5 border border-gray-300 rounded text-sm bg-white focus:outline-none focus:border-indigo-500">
-                          <option value="">사용자 선택</option>
-                          {allUsers
-                            .filter(u => !farmUsers.some(fu => fu.userId === u.id))
-                            .map(u => <option key={u.id} value={u.id}>{u.name} ({u.username})</option>)}
-                        </select>
-                        <select value={assignRole} onChange={e => setAssignRole(e.target.value)}
-                          className="w-24 px-2 py-1.5 border border-gray-300 rounded text-sm bg-white focus:outline-none focus:border-indigo-500">
-                          <option value="admin">관리자</option>
-                          <option value="worker">작업자</option>
-                          <option value="viewer">뷰어</option>
-                        </select>
-                        <button onClick={assignUser} disabled={!assignUserId}
-                          className="px-4 py-1.5 bg-indigo-600 text-white rounded text-sm font-medium hover:bg-indigo-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors">
-                          할당
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                )}
-
                 {/* 일정 탭 */}
-                {detailTab === 'schedules' && (
+                {!detailLoading && detailTab === 'schedules' && (
                   <div className="space-y-4">
                     {/* 요약 카드 */}
                     <div className="grid grid-cols-4 gap-3">
@@ -2853,6 +2897,17 @@ export default function FarmManager({ onNavigateFarm }) {
                             className="w-3.5 h-3.5 rounded border-gray-300 text-indigo-600" />
                           완료 포함
                         </label>
+                        {/* 뷰 모드 토글 */}
+                        <div className="flex border border-gray-300 rounded overflow-hidden ml-2">
+                          <button onClick={() => setScheduleViewMode('list')}
+                            className={`px-2.5 py-1 text-xs font-medium ${scheduleViewMode === 'list' ? 'bg-indigo-600 text-white' : 'bg-white text-gray-500 hover:bg-gray-50'}`}>
+                            목록
+                          </button>
+                          <button onClick={() => setScheduleViewMode('calendar')}
+                            className={`px-2.5 py-1 text-xs font-medium ${scheduleViewMode === 'calendar' ? 'bg-indigo-600 text-white' : 'bg-white text-gray-500 hover:bg-gray-50'}`}>
+                            달력
+                          </button>
+                        </div>
                       </div>
                       <button onClick={() => { setShowScheduleForm(true); setEditScheduleId(null); setScheduleForm({ title: '', description: '', type: 'inspection', startDate: new Date().toISOString().split('T')[0], endDate: '', assignedTo: '', houseId: '', priority: 'normal' }); }}
                         className="px-3 py-1.5 bg-indigo-600 text-white rounded text-xs font-medium hover:bg-indigo-700 transition-colors">
@@ -2939,11 +2994,98 @@ export default function FarmManager({ onNavigateFarm }) {
                       </div>
                     )}
 
-                    {/* 일정 목록 */}
+                    {/* 일정 뷰 */}
                     {(() => {
                       let list = farmSchedules;
                       if (scheduleFilter) list = list.filter(s => s.type === scheduleFilter);
                       if (!scheduleShowCompleted) list = list.filter(s => !s.completed);
+
+                      if (scheduleViewMode === 'calendar') {
+                        /* ── 달력 뷰 ── */
+                        const { year, month } = calMonth;
+                        const firstDay = new Date(year, month, 1).getDay();
+                        const daysInMonth = new Date(year, month + 1, 0).getDate();
+                        const today = new Date();
+                        const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+                        const cells = [];
+                        for (let i = 0; i < firstDay; i++) cells.push(null);
+                        for (let d = 1; d <= daysInMonth; d++) cells.push(d);
+
+                        const getSchedulesForDay = (day) => {
+                          const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+                          return list.filter(s => {
+                            const start = s.startDate ? s.startDate.substring(0, 10) : '';
+                            const end = s.endDate ? s.endDate.substring(0, 10) : start;
+                            return dateStr >= start && dateStr <= (end || start);
+                          });
+                        };
+
+                        const monthLabel = `${year}년 ${month + 1}월`;
+                        const prevMonth = () => setCalMonth(p => p.month === 0 ? { year: p.year - 1, month: 11 } : { ...p, month: p.month - 1 });
+                        const nextMonth = () => setCalMonth(p => p.month === 11 ? { year: p.year + 1, month: 0 } : { ...p, month: p.month + 1 });
+
+                        return (
+                          <div>
+                            {/* 달력 헤더 */}
+                            <div className="flex items-center justify-between mb-3">
+                              <button onClick={prevMonth} className="px-2 py-1 text-gray-500 hover:bg-gray-100 rounded text-sm">&lt;</button>
+                              <span className="text-sm font-bold text-gray-800">{monthLabel}</span>
+                              <button onClick={nextMonth} className="px-2 py-1 text-gray-500 hover:bg-gray-100 rounded text-sm">&gt;</button>
+                            </div>
+                            {/* 요일 헤더 */}
+                            <div className="grid grid-cols-7 text-center text-[11px] font-medium text-gray-500 mb-1">
+                              {['일', '월', '화', '수', '목', '금', '토'].map(d => <div key={d} className="py-1">{d}</div>)}
+                            </div>
+                            {/* 달력 그리드 */}
+                            <div className="grid grid-cols-7 border-t border-l border-gray-200">
+                              {cells.map((day, i) => {
+                                if (!day) return <div key={`e${i}`} className="border-r border-b border-gray-200 bg-gray-50/50 min-h-[72px]"></div>;
+                                const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+                                const daySchedules = getSchedulesForDay(day);
+                                const isToday = dateStr === todayStr;
+                                const isSun = i % 7 === 0;
+                                const isSat = i % 7 === 6;
+                                return (
+                                  <div key={day} className={`border-r border-b border-gray-200 min-h-[72px] p-1 ${isToday ? 'bg-blue-50/60' : ''}`}>
+                                    <div className={`text-[11px] font-medium mb-0.5 ${isToday ? 'text-blue-600 font-bold' : isSun ? 'text-red-400' : isSat ? 'text-blue-400' : 'text-gray-600'}`}>
+                                      {day}
+                                    </div>
+                                    <div className="space-y-0.5">
+                                      {daySchedules.slice(0, 3).map(s => (
+                                        <div key={s.id}
+                                          onClick={() => {
+                                            setEditScheduleId(s.id);
+                                            setScheduleForm({
+                                              title: s.title, description: s.description || '', type: s.type || 'general',
+                                              startDate: s.startDate ? new Date(s.startDate).toISOString().split('T')[0] : '',
+                                              endDate: s.endDate ? new Date(s.endDate).toISOString().split('T')[0] : '',
+                                              assignedTo: s.assignedTo || '', houseId: s.houseId || '', priority: s.priority || 'normal',
+                                            });
+                                            setShowScheduleForm(true);
+                                          }}
+                                          className={`text-[10px] px-1 py-0.5 rounded truncate cursor-pointer ${
+                                            s.completed ? 'bg-gray-100 text-gray-400 line-through' :
+                                            s.priority === 'urgent' ? 'bg-red-100 text-red-700' :
+                                            s.priority === 'high' ? 'bg-orange-100 text-orange-700' :
+                                            SCHEDULE_TYPE_CLS[s.type] || 'bg-indigo-50 text-indigo-700'
+                                          }`}
+                                          title={s.title}>
+                                          {s.title}
+                                        </div>
+                                      ))}
+                                      {daySchedules.length > 3 && (
+                                        <div className="text-[10px] text-gray-400 px-1">+{daySchedules.length - 3}건</div>
+                                      )}
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        );
+                      }
+
+                      /* ── 목록 뷰 ── */
                       return list.length > 0 ? (
                         <div className="space-y-2">
                           {list.map(sch => {
@@ -2959,7 +3101,7 @@ export default function FarmManager({ onNavigateFarm }) {
                                           const r = await axios.get(`${API}/farms/${detailFarm.farmId}/schedules`);
                                           setFarmSchedules(r.data.data || []);
                                           setScheduleSummary(r.data.summary || {});
-                                        } catch { /* ignore */ }
+                                        } catch (err) { setError(err.response?.data?.error || '일정 상태 변경 실패'); }
                                       }}
                                       className="w-4 h-4 rounded border-gray-300 text-indigo-600 mt-0.5" />
                                     <div className="flex-1">
@@ -3026,7 +3168,7 @@ export default function FarmManager({ onNavigateFarm }) {
                 )}
 
                 {/* 유지보수 탭 */}
-                {detailTab === 'maintenance' && (
+                {!detailLoading && detailTab === 'maintenance' && (
                   <div className="space-y-4">
                     {/* 상단 요약 + 버튼 */}
                     <div className="flex items-center justify-between">
@@ -3149,7 +3291,7 @@ export default function FarmManager({ onNavigateFarm }) {
                 )}
 
                 {/* 문서 탭 */}
-                {detailTab === 'documents' && (
+                {!detailLoading && detailTab === 'documents' && (
                   <div className="space-y-4">
                     {/* 카테고리 필터 */}
                     <div className="flex items-center gap-2 flex-wrap">
@@ -3277,36 +3419,131 @@ export default function FarmManager({ onNavigateFarm }) {
                 )}
 
                 {/* 감사 로그 탭 */}
-                {detailTab === 'audit' && (
+                {!detailLoading && detailTab === 'audit' && (
                   auditLogs.length > 0 ? (
-                    <div className="space-y-2 max-h-96 overflow-y-auto">
-                      {auditLogs.map(log => (
-                        <div key={log.id} className="flex items-start gap-3 px-3 py-2 bg-gray-50 rounded-lg">
-                          <div className="flex-shrink-0 w-16 text-[11px] text-gray-400 pt-0.5">
-                            {new Date(log.createdAt).toLocaleDateString('ko-KR', { month: 'short', day: 'numeric' })}
-                          </div>
-                          <div className="flex-1 min-w-0">
-                            <div className="flex items-center gap-2">
-                              <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${
-                                log.action === 'create' ? 'bg-emerald-100 text-emerald-700' :
-                                log.action === 'delete' ? 'bg-red-100 text-red-700' :
-                                log.action === 'update' ? 'bg-blue-100 text-blue-700' :
-                                'bg-gray-100 text-gray-600'
-                              }`}>{AUDIT_ACTION_LABEL[log.action] || log.action}</span>
-                              <span className="text-xs text-gray-500">{log.targetType}</span>
-                              {log.userName && <span className="text-xs text-gray-400">by {log.userName}</span>}
+                    <div className="space-y-2 max-h-[500px] overflow-y-auto">
+                      {auditLogs.map(log => {
+                        const hasChanges = log.details?.changes && Object.keys(log.details.changes).length > 0;
+                        const isExpanded = expandedAuditId === log.id;
+                        const fmtVal = (v) => {
+                          if (v === null || v === undefined) return '(없음)';
+                          if (Array.isArray(v)) {
+                            if (v.length === 0) return '(없음)';
+                            // managers 배열인 경우 이름만 추출
+                            if (v[0] && typeof v[0] === 'object' && v[0].name) return v.map(m => m.name || '').filter(Boolean).join(', ') || '(없음)';
+                            return v.join(', ');
+                          }
+                          if (typeof v === 'object') {
+                            // managers 단일 객체
+                            if (v.name) return v.name;
+                            return JSON.stringify(v);
+                          }
+                          if (typeof v === 'string' && v.match(/^\d{4}-\d{2}-\d{2}T/)) return new Date(v).toLocaleDateString('ko-KR');
+                          if (v === 'active') return '활성';
+                          if (v === 'inactive') return '비활성';
+                          if (v === 'suspended') return '정지';
+                          return String(v);
+                        };
+                        // 변경 필드를 한글로 요약
+                        const fieldsSummary = (fields) => {
+                          if (!fields || !Array.isArray(fields)) return '';
+                          return fields.map(f => FIELD_LABEL[f] || f).join(', ');
+                        };
+                        // 액션 설명 문구 생성
+                        const actionDesc = () => {
+                          const target = TARGET_TYPE_LABEL[log.targetType] || log.targetType;
+                          const action = AUDIT_ACTION_LABEL[log.action] || log.action;
+                          if (log.action === 'create') return `${target} ${action}`;
+                          if (log.action === 'update') {
+                            const cnt = hasChanges ? Object.keys(log.details.changes).length : (log.details?.fields?.length || 0);
+                            return `${target} ${cnt}개 항목 ${action}`;
+                          }
+                          if (log.action === 'soft_delete' || log.action === 'delete') return `${target} ${action}`;
+                          if (log.action === 'restore') return `${target} ${action}`;
+                          if (log.action === 'batch_status') return `${log.details?.count || ''}건 상태 일괄변경`;
+                          if (log.action === 'batch_create') return `${log.details?.total || ''}건 일괄 등록`;
+                          return `${target} ${action}`;
+                        };
+                        return (
+                          <div key={log.id} className={`bg-gray-50 rounded-lg ${hasChanges ? 'cursor-pointer hover:bg-gray-100' : ''}`}
+                            onClick={() => hasChanges && setExpandedAuditId(isExpanded ? null : log.id)}>
+                            <div className="flex items-start gap-3 px-3 py-2.5">
+                              <div className="flex-shrink-0 w-20 text-[11px] text-gray-400 pt-0.5">
+                                {new Date(log.createdAt).toLocaleDateString('ko-KR', { month: 'short', day: 'numeric' })}
+                                <div className="text-[10px]">{new Date(log.createdAt).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' })}</div>
+                              </div>
+                              <div className="flex-1 min-w-0">
+                                <div className="flex items-center gap-2 flex-wrap">
+                                  <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${
+                                    log.action === 'create' ? 'bg-emerald-100 text-emerald-700' :
+                                    log.action === 'delete' || log.action === 'soft_delete' ? 'bg-red-100 text-red-700' :
+                                    log.action === 'update' ? 'bg-blue-100 text-blue-700' :
+                                    log.action === 'restore' ? 'bg-amber-100 text-amber-700' :
+                                    log.action === 'batch_status' || log.action === 'batch_create' ? 'bg-purple-100 text-purple-700' :
+                                    'bg-gray-100 text-gray-600'
+                                  }`}>{AUDIT_ACTION_LABEL[log.action] || log.action}</span>
+                                  <span className="text-xs text-gray-700 font-medium">{actionDesc()}</span>
+                                  {log.userName && <span className="text-[11px] text-gray-400">by {log.userName}</span>}
+                                </div>
+                                {/* 변경된 필드 한글 요약 */}
+                                {log.details?.fields && !hasChanges && (
+                                  <div className="text-[11px] text-gray-400 mt-1">
+                                    {fieldsSummary(log.details.fields)}
+                                  </div>
+                                )}
+                                {hasChanges && !isExpanded && (
+                                  <div className="flex items-center gap-1 mt-1">
+                                    <span className="text-[11px] text-gray-400">
+                                      {Object.keys(log.details.changes).map(f => FIELD_LABEL[f] || f).join(', ')}
+                                    </span>
+                                    <span className="text-[10px] text-indigo-500 ml-1 font-medium">
+                                      클릭하여 상세보기
+                                    </span>
+                                  </div>
+                                )}
+                                {hasChanges && isExpanded && (
+                                  <span className="text-[10px] text-indigo-500 mt-1 inline-block font-medium">접기</span>
+                                )}
+                                {/* 생성/삭제 등 changes 없는 경우 기타 정보 */}
+                                {!log.details?.fields && !hasChanges && log.details && Object.keys(log.details).length > 0 && (
+                                  <div className="text-[11px] text-gray-400 mt-1">
+                                    {log.details.name || log.details.status || log.details.role || ''}
+                                  </div>
+                                )}
+                              </div>
                             </div>
-                            {log.details && Object.keys(log.details).length > 0 && (
-                              <div className="text-[11px] text-gray-400 mt-0.5 truncate">
-                                {log.details.name || log.details.fields?.join(', ') || log.details.status || JSON.stringify(log.details).substring(0, 80)}
+                            {/* 전/후 비교 테이블 */}
+                            {hasChanges && isExpanded && (
+                              <div className="px-3 pb-3" onClick={e => e.stopPropagation()}>
+                                <table className="w-full text-xs border-collapse mt-1 rounded overflow-hidden">
+                                  <thead>
+                                    <tr className="bg-gray-200/70">
+                                      <th className="px-3 py-1.5 text-left text-gray-600 font-semibold w-32">항목</th>
+                                      <th className="px-3 py-1.5 text-left font-semibold">
+                                        <span className="text-red-500">변경 전</span>
+                                      </th>
+                                      <th className="px-1 py-1.5 text-center text-gray-300 w-6">&rarr;</th>
+                                      <th className="px-3 py-1.5 text-left font-semibold">
+                                        <span className="text-emerald-600">변경 후</span>
+                                      </th>
+                                    </tr>
+                                  </thead>
+                                  <tbody>
+                                    {Object.entries(log.details.changes).map(([field, { before, after }]) => (
+                                      <tr key={field} className="border-t border-gray-200/60">
+                                        <td className="px-3 py-2 font-medium text-gray-700 bg-gray-50">{FIELD_LABEL[field] || field}</td>
+                                        <td className="px-3 py-2 text-red-600 bg-red-50/40">{fmtVal(before)}</td>
+                                        <td className="px-1 py-2 text-center text-gray-300">&rarr;</td>
+                                        <td className="px-3 py-2 text-emerald-700 bg-emerald-50/40">{fmtVal(after)}</td>
+                                      </tr>
+                                    ))}
+                                  </tbody>
+                                </table>
                               </div>
                             )}
                           </div>
-                          <div className="text-[10px] text-gray-300 flex-shrink-0">
-                            {new Date(log.createdAt).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' })}
-                          </div>
-                        </div>
-                      ))}
+                        );
+                      })}
                     </div>
                   ) : (
                     <div className="text-center py-12 text-gray-400">
@@ -3317,7 +3554,7 @@ export default function FarmManager({ onNavigateFarm }) {
                 )}
 
                 {/* 알림내역 탭 */}
-                {detailTab === 'alerts' && (() => {
+                {!detailLoading && detailTab === 'alerts' && (() => {
                   const activeAlerts = farmAlerts.filter(a => !a.deleted);
                   const deletedAlerts = farmAlerts.filter(a => a.deleted);
                   const filtered = farmAlertFilter === 'unack' ? activeAlerts.filter(a => !a.acknowledged)
@@ -3493,7 +3730,7 @@ export default function FarmManager({ onNavigateFarm }) {
                 })()}
 
                 {/* 메모 탭 */}
-                {detailTab === 'notes' && (() => {
+                {!detailLoading && detailTab === 'notes' && (() => {
                   // 시스템 메모: 알림 확인/조치/삭제 기록을 메모로 변환
                   const sysEntries = farmAlerts
                     .filter(a => a.acknowledged || a.metadata?.resolution || a.deleted)
@@ -3618,7 +3855,7 @@ export default function FarmManager({ onNavigateFarm }) {
                 })()}
 
                 {/* API 키 탭 */}
-                {detailTab === 'apikey' && (
+                {!detailLoading && detailTab === 'apikey' && (
                   <div className="space-y-4">
                     <table className="w-full border-collapse">
                       <tbody>

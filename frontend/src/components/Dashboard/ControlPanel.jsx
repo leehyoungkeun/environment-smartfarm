@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import { createPortal } from 'react-dom';
 import axios from 'axios';
 import { useAuth } from '../../contexts/AuthContext';
-import { sendControlCommand } from '../../services/controlApi';
+import { sendControlCommand, getControlLogs } from '../../services/controlApi';
 import { getSystemMode, getApiBase, getRpiApiBase } from '../../services/apiSwitcher';
 
 const DEVICE_TYPE_INFO = {
@@ -109,6 +110,25 @@ const ControlPanel = ({ farmId, houseId, houseConfig }) => {
     });
   };
 
+  // 제어이력 모달
+  const [historyModal, setHistoryModal] = useState(false);
+  const [historyLogs, setHistoryLogs] = useState([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [historyPage, setHistoryPage] = useState(1);
+  const [historyTotal, setHistoryTotal] = useState(0);
+
+  const loadHistory = useCallback(async (page = 1) => {
+    setHistoryLoading(true);
+    try {
+      const res = await getControlLogs(farmId, { houseId, limit: 20, page });
+      if (res.success) {
+        setHistoryLogs(res.data || []);
+        setHistoryTotal(res.pagination?.total || 0);
+        setHistoryPage(res.pagination?.page || 1);
+      }
+    } catch {} finally { setHistoryLoading(false); }
+  }, [farmId, houseId]);
+
   // 자동화 규칙 로드 (RPi 우선 → PC 폴백)
   const [autoRules, setAutoRules] = useState([]);
   const [expandedRuleId, setExpandedRuleId] = useState(null);
@@ -204,9 +224,10 @@ const ControlPanel = ({ farmId, houseId, houseConfig }) => {
       setDeviceStates(prev => ({ ...prev, [deviceId]: { ...prev[deviceId], status: statusMap[command] || 'idle', lastCommand: command, lastCommandTime: new Date().toISOString() } }));
     }
     try {
-      const operatorName = ['superadmin', 'manager'].includes(user?.role)
-        ? '관리자'
-        : `${user?.name || user?.username || '알 수 없음'}`;
+      const ROLE_LABELS = { superadmin: '최고관리자', manager: '관리직원', owner: '농장대표', worker: '작업자' };
+      const rolePart = ROLE_LABELS[user?.role] || user?.role || '';
+      const namePart = user?.name || user?.username || '알 수 없음';
+      const operatorName = `${rolePart} ${namePart}`.trim();
       const mode = getSystemMode();
       let result;
 
@@ -316,7 +337,10 @@ const ControlPanel = ({ farmId, houseId, houseConfig }) => {
       <div className="glass-card p-4 md:p-5">
         <div className="flex items-center justify-between mb-4">
           <h2 className="text-base md:text-lg font-bold flex items-center gap-2" style={{color:'#111827'}}>🎛️ 제어 패널</h2>
-          <span style={{fontSize:12,color:'#9ca3af',background:'#f3f4f6',padding:'3px 10px',borderRadius:6}}>{controlHouseId}</span>
+          <button onClick={() => { setHistoryModal(true); loadHistory(1); }}
+            style={{fontSize:12,color:'#4b5563',background:'#f3f4f6',padding:'4px 12px',borderRadius:8,border:'1px solid #e5e7eb',cursor:'pointer',fontWeight:600}}>
+            📋 제어이력
+          </button>
         </div>
         <div className="text-center py-8">
           <div className="text-3xl mb-3 opacity-30">🎛️</div>
@@ -332,7 +356,10 @@ const ControlPanel = ({ farmId, houseId, houseConfig }) => {
       <div className="flex items-center justify-between mb-4">
         <h2 style={{fontSize:18,fontWeight:800,color:'#111827',letterSpacing:'-0.01em'}} className="flex items-center gap-2">🎛️ 제어 패널</h2>
         <div className="flex items-center gap-2">
-          <span style={{fontSize:12,color:'#6b7280',background:'#f3f4f6',padding:'3px 10px',borderRadius:8,fontWeight:600}}>{controlHouseId}</span>
+          <button onClick={() => { setHistoryModal(true); loadHistory(1); }}
+            style={{fontSize:12,color:'#4b5563',background:'#f3f4f6',padding:'4px 12px',borderRadius:8,border:'1px solid #e5e7eb',cursor:'pointer',fontWeight:600}}>
+            📋 제어이력
+          </button>
           {/* 자동화 적용/중지 상태 표시 */}
           {automationActive && (
             <span style={{fontSize:11,fontWeight:700,padding:'3px 10px',borderRadius:8,background:'#dcfce7',color:'#047857',border:'1px solid #bbf7d0'}}>
@@ -579,6 +606,22 @@ const ControlPanel = ({ farmId, houseId, houseConfig }) => {
         </div>
       )}
 
+      {/* 제어이력 모달 */}
+      {historyModal && createPortal(
+        <ControlHistoryModal
+          logs={historyLogs}
+          loading={historyLoading}
+          total={historyTotal}
+          page={historyPage}
+          houseConfig={houseConfig}
+          controlHouseId={controlHouseId}
+          onPageChange={(p) => { setHistoryPage(p); loadHistory(p); }}
+          onRefresh={() => loadHistory(historyPage)}
+          onClose={() => setHistoryModal(false)}
+        />,
+        document.body
+      )}
+
       {/* 자동화 규칙 선택 팝업 */}
       {rulePickerDevice && (
         <RulePickerModal
@@ -588,6 +631,114 @@ const ControlPanel = ({ farmId, houseId, houseConfig }) => {
           onClose={() => setRulePickerDevice(null)}
         />
       )}
+    </div>
+  );
+};
+
+/** 제어이력 모달 */
+const HISTORY_CMD = {
+  open: { l: '열기', bg: '#dcfce7', c: '#15803d' }, close: { l: '닫기', bg: '#dbeafe', c: '#1d4ed8' },
+  stop: { l: '정지', bg: '#fef3c7', c: '#b45309' }, on: { l: 'ON', bg: '#dcfce7', c: '#15803d' }, off: { l: 'OFF', bg: '#f3f4f6', c: '#4b5563' },
+};
+const SOURCE_MAP = {
+  web_dashboard: { icon: '🌐', label: '원격제어' },
+  touch_panel:   { icon: '📱', label: '터치패널' },
+  local:         { icon: '📱', label: '로컬제어' },
+  rpi_local:     { icon: '📱', label: '로컬제어' },
+  automation:    { icon: '🤖', label: '자동제어' },
+  scheduler:     { icon: '🤖', label: '스케줄러' },
+};
+
+const ControlHistoryModal = ({ logs, loading, total, page, houseConfig, controlHouseId, onPageChange, onRefresh, onClose }) => {
+  const totalPages = Math.ceil(total / 20) || 1;
+
+  const fmtDate = (iso) => {
+    const d = new Date(iso);
+    const Y = d.getFullYear();
+    const M = String(d.getMonth() + 1).padStart(2, '0');
+    const D = String(d.getDate()).padStart(2, '0');
+    const h = String(d.getHours()).padStart(2, '0');
+    const m = String(d.getMinutes()).padStart(2, '0');
+    const s = String(d.getSeconds()).padStart(2, '0');
+    return { date: `${Y}-${M}-${D}`, time: `${h}:${m}:${s}` };
+  };
+
+  const getSource = (log) => {
+    if (log.isAutomatic) return SOURCE_MAP.automation;
+    return SOURCE_MAP[log.operator] || { icon: '👆', label: log.operator || '수동' };
+  };
+
+  return (
+    <div style={{position:'fixed',inset:0,zIndex:9999,display:'flex',alignItems:'center',justifyContent:'center',background:'rgba(0,0,0,0.5)'}} onClick={onClose}>
+      <div style={{background:'#fff',borderRadius:16,width:'96%',maxWidth:640,maxHeight:'85vh',display:'flex',flexDirection:'column',boxShadow:'0 20px 60px rgba(0,0,0,0.3)'}} onClick={e => e.stopPropagation()}>
+        {/* 헤더 */}
+        <div style={{padding:'14px 20px',borderBottom:'2px solid #e5e7eb',display:'flex',alignItems:'center',justifyContent:'space-between'}}>
+          <div>
+            <h3 style={{fontSize:16,fontWeight:800,color:'#0f172a'}}>📋 제어 이력</h3>
+            <span style={{fontSize:12,color:'#6b7280'}}>{houseConfig?.houseName || controlHouseId} · 총 {total}건</span>
+          </div>
+          <div style={{display:'flex',gap:8,alignItems:'center'}}>
+            <button onClick={onRefresh} style={{border:'1px solid #e5e7eb',background:'#f9fafb',borderRadius:8,padding:'4px 10px',fontSize:13,cursor:'pointer',color:'#6b7280'}}>🔄</button>
+            <button onClick={onClose} style={{border:'none',background:'transparent',fontSize:20,cursor:'pointer',color:'#9ca3af',padding:'4px'}}>✕</button>
+          </div>
+        </div>
+
+        {/* 이력 목록 */}
+        <div style={{flex:1,overflowY:'auto',padding:'4px 0'}}>
+          {loading ? (
+            <div style={{textAlign:'center',padding:'40px 0',color:'#9ca3af'}}>로딩 중...</div>
+          ) : logs.length === 0 ? (
+            <div style={{textAlign:'center',padding:'40px 0',color:'#9ca3af',fontSize:14}}>제어 이력이 없습니다</div>
+          ) : logs.map((log, idx) => {
+            const cmd = HISTORY_CMD[log.command] || { l: log.command, bg: '#f3f4f6', c: '#4b5563' };
+            const { date, time } = fmtDate(log.createdAt);
+            const source = getSource(log);
+
+            return (
+              <div key={log._id || idx} style={{padding:'10px 16px',borderBottom:'1px solid #f3f4f6'}}>
+                {/* 1행: 날짜시간 + 장치 + 명령 + 결과 */}
+                <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:4}}>
+                  <span style={{fontSize:12,color:'#6b7280',fontFamily:'monospace',flexShrink:0}}>{date} {time}</span>
+                  <span style={{fontSize:13,fontWeight:700,color:'#1f2937'}}>{log.deviceName || log.deviceId}</span>
+                  <span style={{fontSize:11,fontWeight:700,padding:'2px 8px',borderRadius:6,background:cmd.bg,color:cmd.c}}>{cmd.l}</span>
+                  <span style={{fontSize:12,fontWeight:600,color: log.success ? '#047857' : '#be123c'}}>{log.success ? '✓ 성공' : '✗ 실패'}</span>
+                </div>
+                {/* 2행: 조작자 + 제어방식 + 자동화 사유 */}
+                <div style={{display:'flex',alignItems:'center',gap:6,flexWrap:'wrap'}}>
+                  {log.operatorName && (
+                    <span style={{fontSize:11,padding:'1px 7px',borderRadius:6,background:'#eff6ff',color:'#1d4ed8',border:'1px solid #dbeafe',fontWeight:600}}>
+                      👤 {log.operatorName}
+                    </span>
+                  )}
+                  <span style={{fontSize:11,padding:'1px 7px',borderRadius:6,background: log.isAutomatic ? '#f5f3ff' : '#f0fdf4',
+                    color: log.isAutomatic ? '#7c3aed' : '#15803d', border: `1px solid ${log.isAutomatic ? '#ede9fe' : '#dcfce7'}`,fontWeight:600}}>
+                    {source.icon} {source.label}
+                  </span>
+                  {log.automationReason && (
+                    <span style={{fontSize:11,padding:'1px 7px',borderRadius:6,background:'#fefce8',color:'#a16207',border:'1px solid #fef3c7'}}>
+                      📌 {log.automationReason}
+                    </span>
+                  )}
+                  {!log.success && log.error && (
+                    <span style={{fontSize:11,padding:'1px 7px',borderRadius:6,background:'#fef2f2',color:'#be123c',border:'1px solid #fecaca'}}>
+                      {log.error}
+                    </span>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+
+        {/* 페이지네이션 */}
+        <div style={{padding:'10px 16px',borderTop:'2px solid #e5e7eb',display:'flex',alignItems:'center',justifyContent:'center',gap:12}}>
+          <button onClick={() => onPageChange(Math.max(1, page - 1))} disabled={page <= 1}
+            style={{padding:'6px 14px',borderRadius:8,border:'1px solid #e5e7eb',background:'#f9fafb',fontSize:13,cursor: page <= 1 ? 'default' : 'pointer',opacity: page <= 1 ? 0.3 : 1,color:'#4b5563'}}>← 이전</button>
+          <span style={{fontSize:13,color:'#6b7280',fontWeight:600}}>{page} / {totalPages}</span>
+          <button onClick={() => onPageChange(Math.min(totalPages, page + 1))} disabled={page >= totalPages}
+            style={{padding:'6px 14px',borderRadius:8,border:'1px solid #e5e7eb',background:'#f9fafb',fontSize:13,cursor: page >= totalPages ? 'default' : 'pointer',opacity: page >= totalPages ? 0.3 : 1,color:'#4b5563'}}>다음 →</button>
+        </div>
+      </div>
     </div>
   );
 };
@@ -720,7 +871,11 @@ const DeviceAutoRules = ({ deviceId, rules, expandedRuleId, onToggleExpand, onRe
 
 /** 자동화 규칙 선택 팝업 */
 const RulePickerModal = ({ allRules, selectedIds, onToggle, onClose }) => {
-  const sensorIcon = { sensor: '🌡️', schedule: '⏰', custom: '⚙️' };
+  const categoryMeta = {
+    sensor:   { icon: '🌡️', label: '센서', bg: '#f5f3ff', color: '#7c3aed', border: '#ede9fe' },
+    schedule: { icon: '⏰', label: '시간', bg: '#fffbeb', color: '#b45309', border: '#fef3c7' },
+    custom:   { icon: '⚙️', label: '복합', bg: '#f0f9ff', color: '#0369a1', border: '#e0f2fe' },
+  };
   const categorize = (rule) => {
     const hasSensor = rule.conditions?.some(c => c.type === 'sensor');
     const hasTime = rule.conditions?.some(c => c.type === 'time');
@@ -774,8 +929,11 @@ const RulePickerModal = ({ allRules, selectedIds, onToggle, onClose }) => {
                 </div>
                 {/* 규칙 정보 */}
                 <div style={{flex:1,minWidth:0}}>
-                  <div style={{display:'flex',alignItems:'center',gap:6,marginBottom:4}}>
-                    <span style={{fontSize:14}}>{sensorIcon[cat]}</span>
+                  <div style={{display:'flex',alignItems:'center',gap:6,marginBottom:4,flexWrap:'wrap'}}>
+                    <span style={{fontSize:11,fontWeight:700,padding:'1px 8px',borderRadius:10,
+                      background: categoryMeta[cat].bg, color: categoryMeta[cat].color,
+                      border: `1px solid ${categoryMeta[cat].border}`,
+                    }}>{categoryMeta[cat].icon} {categoryMeta[cat].label}</span>
                     <span style={{fontSize:14,fontWeight:700,color:'#0f172a'}}>{rule.name}</span>
                     <span style={{fontSize:11,fontWeight:700,padding:'1px 8px',borderRadius:10,
                       background: rule.enabled ? '#dcfce7' : '#fee2e2',

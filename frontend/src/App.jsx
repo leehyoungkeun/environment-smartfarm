@@ -267,7 +267,6 @@ function AppContent() {
         { id: 'farms', label: '농장관리', icon: '🏭', permission: 'farms' },
         { id: 'dashboard', label: '대시보드', icon: '📊', permission: 'dashboard' },
         { id: 'control', label: '제어', icon: '🎛️', permission: 'control' },
-        { id: 'history', label: '이력', icon: '📋', permission: 'history' },
         { id: 'journal', label: '영농일지', icon: '📝', permission: 'journal' },
         { id: 'report', label: '보고서', icon: '📄', permission: 'report' },
         { id: 'ai', label: 'AI도우미', icon: '🤖', permission: 'ai' },
@@ -454,9 +453,6 @@ function AppContent() {
         )}
         {currentPage === 'control' && hasPermission('control') && (
           <ControlPage farmId={farmId} />
-        )}
-{currentPage === 'history' && hasPermission('history') && (
-          <ControlHistory farmId={farmId} />
         )}
         {currentPage === 'journal' && hasPermission('journal') && (
           <div className="max-w-7xl mx-auto px-4 md:px-6 py-4 md:py-6">

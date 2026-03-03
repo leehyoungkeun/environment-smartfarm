@@ -324,7 +324,7 @@ export const AuthProvider = ({ children }) => {
   const ROLE_PERMISSIONS = {
     superadmin: ['dashboard', 'control', 'automation', 'history', 'journal', 'report', 'ai', 'settings', 'users', 'farms', 'server'],
     manager:    ['dashboard', 'control', 'automation', 'history', 'journal', 'report', 'ai', 'settings', 'users', 'farms'],
-    owner:      ['dashboard', 'control', 'automation', 'history', 'journal', 'report', 'ai', 'settings', 'users'],
+    owner:      ['dashboard', 'control', 'automation', 'history', 'journal', 'report', 'ai', 'users'],
     worker:     ['dashboard', 'control', 'automation', 'history', 'journal', 'report', 'ai'],
   };
 

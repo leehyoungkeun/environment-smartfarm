@@ -1,6 +1,7 @@
 import React, { useState, useRef, useCallback } from 'react';
 import axios from 'axios';
 import * as XLSX from 'xlsx';
+import ControlHistory from './ControlHistory';
 import {
   BarChart, Bar, LineChart, Line, PieChart, Pie, Cell,
   XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
@@ -63,6 +64,7 @@ function StatCard({ label, value, unit, color, bg, icon }) {
 // ReportPage
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 export default function ReportPage({ farmId }) {
+  const [activeTab, setActiveTab] = useState('report');
   const today = new Date().toISOString().split('T')[0];
   const [reportType, setReportType] = useState('daily');
   const [selectedDate, setSelectedDate] = useState(today);
@@ -228,8 +230,33 @@ export default function ReportPage({ farmId }) {
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   // Render
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  const TABS = [
+    { id: 'report', label: '센서 보고서', icon: '📄' },
+    { id: 'control-history', label: '제어 이력', icon: '📋' },
+  ];
+
   return (
     <div>
+      {/* 탭 바 */}
+      <div className="flex gap-1.5 mb-5 bg-gray-100 rounded-xl p-1">
+        {TABS.map(tab => (
+          <button
+            key={tab.id}
+            onClick={() => setActiveTab(tab.id)}
+            className={`flex-1 py-2.5 rounded-lg text-sm font-semibold transition-all flex items-center justify-center gap-1.5 ${
+              activeTab === tab.id
+                ? 'bg-blue-600 text-white shadow-sm'
+                : 'text-gray-500 hover:text-gray-800 hover:bg-white/60'
+            }`}
+          >
+            <span>{tab.icon}</span> {tab.label}
+          </button>
+        ))}
+      </div>
+
+      {activeTab === 'control-history' && <ControlHistory farmId={farmId} />}
+
+      {activeTab === 'report' && <>
       {/* 컨트롤 바 */}
       <div className="bg-white rounded-xl border border-gray-200 p-4 mb-5 shadow-sm">
         <div className="flex flex-wrap items-center gap-3">
@@ -539,6 +566,7 @@ export default function ReportPage({ farmId }) {
           </SectionCard>
         </div>
       )}
+      </>}
     </div>
   );
 }

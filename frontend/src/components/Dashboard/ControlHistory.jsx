@@ -209,7 +209,7 @@ const ControlHistory = ({ farmId }) => {
   const durations = useMemo(() => computeDurations(logs), [logs]);
 
   return (
-    <div className="max-w-7xl mx-auto px-4 md:px-6 py-4 md:py-6">
+    <div>
       {/* 헤더 */}
       <div className="flex items-center justify-between mb-5">
         <div>

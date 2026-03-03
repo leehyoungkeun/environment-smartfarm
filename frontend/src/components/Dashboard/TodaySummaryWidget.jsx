@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import { createPortal } from 'react-dom';
 import axios from 'axios';
 import { getApiBase, getRpiApiBase } from '../../services/apiSwitcher';
 
@@ -31,6 +32,8 @@ const TodaySummaryWidget = ({ farmId, houseId, alerts: parentAlerts, dataVersion
   const [showModal, setShowModal] = useState(false);
   const [modalData, setModalData] = useState([]);
   const [modalLoading, setModalLoading] = useState(false);
+  const [modalPage, setModalPage] = useState(1);
+  const MODAL_PAGE_SIZE = 30;
 
   // 알림 상세 모달
   const [showAlertModal, setShowAlertModal] = useState(false);
@@ -70,6 +73,7 @@ const TodaySummaryWidget = ({ farmId, houseId, alerts: parentAlerts, dataVersion
   const openDataModal = useCallback(async () => {
     setShowModal(true);
     setModalLoading(true);
+    setModalPage(1);
     try {
       const today = new Date();
       today.setHours(0, 0, 0, 0);
@@ -193,12 +197,19 @@ const TodaySummaryWidget = ({ farmId, houseId, alerts: parentAlerts, dataVersion
     },
   ];
 
-  // 동적 센서 컬럼 추출
+  // 동적 센서 컬럼 추출 — 전체 데이터에서 모든 고유 키 수집
   const sensorKeys = (() => {
     if (modalData.length === 0) return [];
-    const sample = modalData[0]?.data;
-    if (!sample || typeof sample !== 'object') return [];
-    return Object.keys(sample).filter(k => typeof sample[k] === 'number' || typeof sample[k] === 'string');
+    const keySet = new Set();
+    for (const row of modalData) {
+      if (row.data && typeof row.data === 'object') {
+        for (const k of Object.keys(row.data)) {
+          const v = row.data[k];
+          if (typeof v === 'number' || typeof v === 'string') keySet.add(k);
+        }
+      }
+    }
+    return [...keySet];
   })();
 
   return (
@@ -263,119 +274,110 @@ const TodaySummaryWidget = ({ farmId, houseId, alerts: parentAlerts, dataVersion
       </div>
 
       {/* 데이터 수집 상세 모달 */}
-      {showModal && (
+      {showModal && createPortal(
         <div
           onClick={() => setShowModal(false)}
-          style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.4)',zIndex:10000,display:'flex',alignItems:'center',justifyContent:'center',padding:16}}
+          style={{position:'fixed',top:0,left:0,right:0,bottom:0,background:'rgba(0,0,0,0.5)',zIndex:10000,display:'flex',alignItems:'center',justifyContent:'center',padding:16,overflow:'hidden'}}
         >
           <div
             onClick={(e) => e.stopPropagation()}
-            style={{background:'#fff',borderRadius:16,width:'100%',maxWidth:900,maxHeight:'80vh',display:'flex',flexDirection:'column',boxShadow:'0 20px 60px rgba(0,0,0,0.2)'}}
+            style={{background:'#fff',borderRadius:16,width:'96%',maxWidth:640,height:'80vh',display:'flex',flexDirection:'column',boxShadow:'0 20px 60px rgba(0,0,0,0.2)',overflow:'hidden'}}
           >
             {/* 헤더 */}
-            <div style={{padding:'16px 20px',borderBottom:'1px solid #e2e8f0',display:'flex',alignItems:'center',justifyContent:'space-between',flexShrink:0}}>
-              <h3 style={{fontSize:16,fontWeight:800,color:'#0f172a'}}>
-                📊 오늘 수집된 데이터 ({dataCount}건)
-              </h3>
-              <button onClick={() => setShowModal(false)}
-                style={{background:'#f1f5f9',border:'none',borderRadius:8,width:32,height:32,fontSize:18,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',color:'#64748b'}}>
-                ✕
-              </button>
+            <div style={{padding:'14px 20px',borderBottom:'2px solid #e5e7eb',display:'flex',alignItems:'center',justifyContent:'space-between',flexShrink:0}}>
+              <div>
+                <h3 style={{fontSize:16,fontWeight:800,color:'#0f172a'}}>📊 센서 수집 이력</h3>
+                <span style={{fontSize:12,color:'#6b7280'}}>{config?.houseName || houseId} · 총 {dataCount}건</span>
+              </div>
+              <div style={{display:'flex',gap:8,alignItems:'center'}}>
+                <button onClick={openDataModal} style={{border:'1px solid #e5e7eb',background:'#f9fafb',borderRadius:8,padding:'4px 10px',fontSize:13,cursor:'pointer',color:'#6b7280'}}>🔄</button>
+                <button onClick={() => setShowModal(false)} style={{border:'none',background:'transparent',fontSize:20,cursor:'pointer',color:'#9ca3af',padding:'4px'}}>✕</button>
+              </div>
             </div>
 
-            {/* 본문 */}
-            <div style={{flex:1,overflow:'auto',padding:'0'}}>
+            {/* 본문 — 카드 리스트 (페이지네이션) */}
+            <div style={{flex:1,overflowY:'auto',padding:'4px 0'}}>
               {modalLoading ? (
-                <div style={{padding:40,textAlign:'center',color:'#94a3b8'}}>
-                  <div style={{fontSize:24,marginBottom:8}}>⏳</div>
-                  데이터를 불러오는 중...
-                </div>
+                <div style={{textAlign:'center',padding:'40px 0',color:'#9ca3af'}}>로딩 중...</div>
               ) : modalData.length === 0 ? (
-                <div style={{padding:40,textAlign:'center',color:'#94a3b8'}}>
-                  <div style={{fontSize:24,marginBottom:8}}>📭</div>
-                  수집된 데이터가 없습니다.
-                </div>
-              ) : (
-                <table style={{width:'100%',borderCollapse:'collapse',fontSize:13}}>
-                  <thead>
-                    <tr style={{background:'#f8fafc',position:'sticky',top:0,zIndex:1}}>
-                      <th style={thStyle}>No</th>
-                      <th style={thStyle}>시간</th>
+                <div style={{textAlign:'center',padding:'40px 0',color:'#9ca3af',fontSize:14}}>수집된 데이터가 없습니다</div>
+              ) : modalData.slice((modalPage - 1) * MODAL_PAGE_SIZE, modalPage * MODAL_PAGE_SIZE).map((row, idx) => {
+                const globalIdx = (modalPage - 1) * MODAL_PAGE_SIZE + idx;
+                const d = new Date(row.timestamp);
+                const dateStr = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')} ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}:${String(d.getSeconds()).padStart(2,'0')}`;
+                const hasWarning = sensorKeys.some(k => {
+                  const cfg = config?.sensors?.find(s => s.sensorId === k);
+                  const v = row.data?.[k];
+                  return cfg && typeof v === 'number' && ((cfg.min != null && v < cfg.min) || (cfg.max != null && v > cfg.max));
+                });
+
+                return (
+                  <div key={globalIdx} style={{padding:'10px 16px',borderBottom:'1px solid #f3f4f6',background: hasWarning ? '#fef2f2' : ''}}>
+                    {/* 1행: 날짜시간 + 번호 + 경고 */}
+                    <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:6}}>
+                      <span style={{fontSize:12,color:'#6b7280',fontFamily:'monospace'}}>{dateStr}</span>
+                      <span style={{fontSize:11,color:'#9ca3af',fontWeight:600}}>#{globalIdx + 1}</span>
+                      {hasWarning && <span style={{fontSize:10,fontWeight:700,padding:'1px 6px',borderRadius:4,background:'#dc2626',color:'#fff'}}>임계초과</span>}
+                    </div>
+                    {/* 2행: 센서값 뱃지들 */}
+                    <div style={{display:'flex',flexWrap:'wrap',gap:6}}>
                       {sensorKeys.map(k => {
+                        const cfg = config?.sensors?.find(s => s.sensorId === k);
+                        const v = row.data?.[k];
+                        const isOver = cfg && typeof v === 'number' && ((cfg.min != null && v < cfg.min) || (cfg.max != null && v > cfg.max));
+                        const label = sensorLabel(k, config?.sensors);
                         const unit = sensorUnit(k, config?.sensors);
-                        const cfgSensor = config?.sensors?.find(s => s.sensorId === k);
+                        const icon = cfg?.icon || '';
+
                         return (
-                          <th key={k} style={thStyle}>
-                            <div style={{display:'flex',alignItems:'center',gap:4,justifyContent:'center'}}>
-                              {cfgSensor?.icon && <span style={{fontSize:14}}>{cfgSensor.icon}</span>}
-                              <span>{sensorLabel(k, config?.sensors)}</span>
-                            </div>
-                            {unit && <div style={{fontSize:10,color:'#94a3b8',fontWeight:500,textAlign:'center'}}>({unit})</div>}
-                          </th>
+                          <span key={k} style={{
+                            fontSize:12,fontWeight:600,padding:'3px 10px',borderRadius:8,
+                            display:'inline-flex',alignItems:'center',gap:4,
+                            background: isOver ? '#fef2f2' : '#f0f9ff',
+                            color: isOver ? '#dc2626' : '#0369a1',
+                            border: `1px solid ${isOver ? '#fecaca' : '#e0f2fe'}`,
+                          }}>
+                            {icon && <span style={{fontSize:13}}>{icon}</span>}
+                            <span style={{color:'#6b7280',fontWeight:500}}>{label}</span>
+                            <span style={{fontFamily:'monospace',fontWeight:700}}>{v != null ? fmtVal(v) : '-'}</span>
+                            {unit && <span style={{fontSize:10,color:'#9ca3af'}}>{unit}</span>}
+                            {isOver && <span style={{fontSize:9,fontWeight:800}}>!</span>}
+                          </span>
                         );
                       })}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {modalData.map((row, idx) => {
-                      // 센서별 임계값 초과 여부 체크
-                      const hasWarning = sensorKeys.some(k => {
-                        const cfgSensor = config?.sensors?.find(s => s.sensorId === k);
-                        const v = row.data?.[k];
-                        if (cfgSensor && typeof v === 'number') {
-                          return (cfgSensor.min != null && v < cfgSensor.min) || (cfgSensor.max != null && v > cfgSensor.max);
-                        }
-                        return false;
-                      });
-                      return (
-                        <tr key={idx} style={{borderBottom:'1px solid #f1f5f9', background: hasWarning ? '#fef2f2' : ''}}
-                          onMouseEnter={(e) => e.currentTarget.style.background = hasWarning ? '#fee2e2' : '#f8fafc'}
-                          onMouseLeave={(e) => e.currentTarget.style.background = hasWarning ? '#fef2f2' : ''}
-                        >
-                          <td style={tdStyle}>{idx + 1}</td>
-                          <td style={{...tdStyle,whiteSpace:'nowrap',fontFamily:'monospace',fontSize:12}}>
-                            {new Date(row.timestamp).toLocaleTimeString('ko-KR', { hour:'2-digit', minute:'2-digit', second:'2-digit' })}
-                          </td>
-                          {sensorKeys.map(k => {
-                            const cfgSensor = config?.sensors?.find(s => s.sensorId === k);
-                            const v = row.data?.[k];
-                            const isOver = cfgSensor && typeof v === 'number' && (
-                              (cfgSensor.min != null && v < cfgSensor.min) || (cfgSensor.max != null && v > cfgSensor.max)
-                            );
-                            return (
-                              <td key={k} style={{...tdStyle,textAlign:'right',fontFamily:'monospace',fontWeight: isOver ? 700 : 400, color: isOver ? '#dc2626' : '#334155'}}>
-                                {v != null ? fmtVal(v) : '-'}
-                                {isOver && <span style={{fontSize:9,marginLeft:3,padding:'1px 4px',borderRadius:3,background:'#dc2626',color:'#fff',fontWeight:700}}>!</span>}
-                              </td>
-                            );
-                          })}
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              )}
+                    </div>
+                  </div>
+                );
+              })}
             </div>
 
-            {/* 푸터 */}
-            {!modalLoading && modalData.length > 0 && (
-              <div style={{padding:'10px 20px',borderTop:'1px solid #e2e8f0',fontSize:12,color:'#94a3b8',textAlign:'center',flexShrink:0}}>
-                최근 {modalData.length}건 표시 (최대 200건)
-              </div>
-            )}
+            {/* 페이지네이션 */}
+            {(() => {
+              const totalPages = Math.ceil(modalData.length / MODAL_PAGE_SIZE) || 1;
+              return (
+                <div style={{padding:'10px 16px',borderTop:'2px solid #e5e7eb',display:'flex',alignItems:'center',justifyContent:'center',gap:12,flexShrink:0}}>
+                  <button onClick={() => setModalPage(p => Math.max(1, p - 1))} disabled={modalPage <= 1}
+                    style={{padding:'6px 14px',borderRadius:8,border:'1px solid #e5e7eb',background:'#f9fafb',fontSize:13,cursor: modalPage <= 1 ? 'default' : 'pointer',opacity: modalPage <= 1 ? 0.3 : 1,color:'#4b5563'}}>← 이전</button>
+                  <span style={{fontSize:13,color:'#6b7280',fontWeight:600}}>{modalPage} / {totalPages}</span>
+                  <button onClick={() => setModalPage(p => Math.min(totalPages, p + 1))} disabled={modalPage >= totalPages}
+                    style={{padding:'6px 14px',borderRadius:8,border:'1px solid #e5e7eb',background:'#f9fafb',fontSize:13,cursor: modalPage >= totalPages ? 'default' : 'pointer',opacity: modalPage >= totalPages ? 0.3 : 1,color:'#4b5563'}}>다음 →</button>
+                </div>
+              );
+            })()}
           </div>
-        </div>
+        </div>,
+        document.body
       )}
 
       {/* 알림 상세 모달 */}
-      {showAlertModal && (
+      {showAlertModal && createPortal(
         <div
           onClick={() => setShowAlertModal(false)}
-          style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.4)',zIndex:10000,display:'flex',alignItems:'center',justifyContent:'center',padding:16}}
+          style={{position:'fixed',top:0,left:0,right:0,bottom:0,background:'rgba(0,0,0,0.5)',zIndex:10000,display:'flex',alignItems:'center',justifyContent:'center',padding:16,overflow:'hidden'}}
         >
           <div
             onClick={(e) => e.stopPropagation()}
-            style={{background:'#fff',borderRadius:16,width:'100%',maxWidth:900,maxHeight:'80vh',display:'flex',flexDirection:'column',boxShadow:'0 20px 60px rgba(0,0,0,0.2)'}}
+            style={{background:'#fff',borderRadius:16,width:'100%',maxWidth:900,height:'80vh',display:'flex',flexDirection:'column',boxShadow:'0 20px 60px rgba(0,0,0,0.2)',overflow:'hidden'}}
           >
             {/* 헤더 */}
             <div style={{padding:'16px 20px',borderBottom:'1px solid #e2e8f0',display:'flex',alignItems:'center',justifyContent:'space-between',flexShrink:0}}>
@@ -472,7 +474,8 @@ const TodaySummaryWidget = ({ farmId, houseId, alerts: parentAlerts, dataVersion
               </div>
             )}
           </div>
-        </div>
+        </div>,
+        document.body
       )}
     </>
   );

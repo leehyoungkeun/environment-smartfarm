@@ -118,11 +118,7 @@ router.post("/batch", async (req, res, next) => {
 
     const config = await Config.findOne({ farmId, houseId });
     if (!config) {
-      logger.warn(`⚠️ 배치 수집 404: farmId=${farmId}, houseId=${houseId} - house config 없음`);
-      return res.status(404).json({
-        success: false,
-        error: "House configuration not found",
-      });
+      logger.warn(`⚠️ 배치 수집: farmId=${farmId}, houseId=${houseId} - house config 없음 (데이터는 저장)`);
     }
 
     const sensorDataDocs = dataArray.map((item) => ({
@@ -131,7 +127,7 @@ router.post("/batch", async (req, res, next) => {
       timestamp: new Date(item.timestamp || Date.now()),
       data: item.data,
       metadata: {
-        configVersion: config.configVersion,
+        configVersion: config?.configVersion || 0,
         collectionMethod: "http",
         deviceInfo: item.deviceInfo || {},
         quality: "good",

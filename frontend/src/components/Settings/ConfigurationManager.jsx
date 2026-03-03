@@ -1,4 +1,4 @@
-import React, { useState, useEffect, lazy, Suspense } from 'react';
+import React, { useState, useEffect, useCallback, lazy, Suspense } from 'react';
 import axiosBase from 'axios';
 import { getApiBase, getPcApiBase, getRpiApiBase, isFarmLocalMode, setFarmLocalMode } from '../../services/apiSwitcher';
 
@@ -1195,6 +1195,7 @@ const SystemSettings = ({ farmId }) => {
           { id: 'server', label: '서버 연결', icon: '🖥️' },
           { id: 'collection', label: '수집 주기', icon: '📡' },
           { id: 'retention', label: '보관 기간', icon: '💾' },
+          { id: 'sync', label: '동기화', icon: '🔄' },
         ]}
         activeTab={systemSubTab}
         onChange={setSystemSubTab}
@@ -1549,6 +1550,189 @@ const SystemSettings = ({ farmId }) => {
         {saved ? '저장 완료' : '저장'}
       </button>
       </div>}
+
+      {/* 동기화 관리 */}
+      {systemSubTab === 'sync' && <SyncPanel farmId={farmId} />}
+    </div>
+  );
+};
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// SyncPanel — 동기화 상태 및 제어
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+const SyncPanel = ({ farmId }) => {
+  const [syncStatus, setSyncStatus] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [actionLoading, setActionLoading] = useState(null);
+  const [actionMsg, setActionMsg] = useState(null); // { type: 'success'|'error', text }
+
+  const loadStatus = useCallback(async () => {
+    try {
+      const apiKeyHeader = { 'x-api-key': import.meta.env.VITE_SENSOR_API_KEY || 'smartfarm-sensor-key' };
+      let res;
+      try {
+        res = await axios.get(`${getApiBase()}/config/sync-status/${farmId}`, { timeout: 5000, headers: apiKeyHeader });
+      } catch {
+        res = await axiosBase.get(`${getRpiApiBase()}/sync/status`, { timeout: 5000 });
+      }
+      if (res.data?.success) setSyncStatus(res.data.data);
+    } catch (err) {
+      console.warn('[SyncPanel] status load failed:', err.message);
+    } finally { setLoading(false); }
+  }, [farmId]);
+
+  useEffect(() => {
+    loadStatus();
+    const id = setInterval(loadStatus, 15000);
+    return () => clearInterval(id);
+  }, [loadStatus]);
+
+  const handleAction = async (action) => {
+    if (action === 'skip' && !window.confirm('미동기화 데이터를 동기화 안함으로 처리하시겠습니까?\n해당 데이터는 서버에 전송되지 않습니다.')) return;
+    setActionLoading(action);
+    setActionMsg(null);
+    const labels = { start: '동기화 시작', stop: '동기화 중지', skip: '동기화 안함' };
+    try {
+      const apiKeyHeader = { 'x-api-key': import.meta.env.VITE_SENSOR_API_KEY || 'smartfarm-sensor-key' };
+      try {
+        await axios.post(`${getApiBase()}/config/sync-action/${farmId}`, { action }, { timeout: 10000, headers: apiKeyHeader });
+      } catch {
+        const rpiUrl = getRpiApiBase();
+        if (action === 'start') await axiosBase.post(`${rpiUrl}/sync/start`, {}, { timeout: 10000 });
+        else if (action === 'stop') await axiosBase.post(`${rpiUrl}/sync/stop`, {}, { timeout: 10000 });
+        else await axiosBase.post(`${rpiUrl}/sync/skip`, {}, { timeout: 10000 });
+      }
+      setActionMsg({ type: 'success', text: `${labels[action]} 명령을 전송했습니다` });
+      // 빠른 폴링: 2초 간격 5회로 결과 즉시 반영
+      for (let i = 1; i <= 5; i++) setTimeout(loadStatus, i * 2000);
+    } catch (err) {
+      setActionMsg({ type: 'error', text: `${labels[action]} 실패: ${err.message}` });
+    } finally { setActionLoading(null); }
+  };
+
+  // 5초 후 메시지 자동 숨김
+  useEffect(() => {
+    if (!actionMsg) return;
+    const t = setTimeout(() => setActionMsg(null), 5000);
+    return () => clearTimeout(t);
+  }, [actionMsg]);
+
+  const formatTime = (ts) => {
+    if (!ts) return '-';
+    const d = new Date(ts);
+    const now = new Date();
+    const diff = Math.floor((now - d) / 60000);
+    if (diff < 1) return '방금 전';
+    if (diff < 60) return `${diff}분 전`;
+    if (diff < 1440) return `${Math.floor(diff / 60)}시간 전`;
+    return `${Math.floor(diff / 1440)}일 전`;
+  };
+
+  if (loading) return <div className="max-w-2xl glass-card p-6"><div className="skeleton h-32 rounded-xl" /></div>;
+
+  const s = syncStatus || {};
+  const last = s.lastSyncResult;
+
+  return (
+    <div className="max-w-2xl space-y-4 animate-fade-in-up">
+      {/* 미동기화 현황 카드 */}
+      <div className="glass-card p-5">
+        <h2 className="text-lg font-bold text-gray-800 mb-4">데이터 동기화 현황</h2>
+
+        <div className="grid grid-cols-3 gap-4 mb-4">
+          <div className="text-center p-4 bg-orange-50 rounded-xl border border-orange-200">
+            <p className="text-3xl font-extrabold text-orange-600">{s.unsynced != null ? s.unsynced.toLocaleString() : '-'}</p>
+            <p className="text-xs text-orange-500 mt-1 font-semibold">미동기화</p>
+          </div>
+          <div className="text-center p-4 bg-green-50 rounded-xl border border-green-200">
+            <p className="text-3xl font-extrabold text-green-600">{s.synced != null ? s.synced.toLocaleString() : '-'}</p>
+            <p className="text-xs text-green-500 mt-1 font-semibold">동기화 완료</p>
+          </div>
+          <div className="text-center p-4 bg-gray-50 rounded-xl border border-gray-200">
+            <p className="text-3xl font-extrabold text-gray-600">{s.total != null ? s.total.toLocaleString() : '-'}</p>
+            <p className="text-xs text-gray-500 mt-1 font-semibold">전체</p>
+          </div>
+        </div>
+
+        {s.unsynced > 0 && s.oldestUnsynced && (
+          <p className="text-xs text-gray-500 mb-2">
+            가장 오래된 미동기화: <span className="font-bold text-orange-600">{formatTime(s.oldestUnsynced)}</span>
+            <span className="text-gray-400 ml-2">({new Date(s.oldestUnsynced).toLocaleString('ko-KR')})</span>
+          </p>
+        )}
+
+        <div className="flex items-center gap-2 text-xs text-gray-400">
+          <span className={`w-2 h-2 rounded-full ${s.syncPaused ? 'bg-gray-400' : 'bg-green-500 animate-pulse'}`} />
+          {s.syncPaused ? '자동 동기화 중지됨' : '자동 동기화 활성 (5분 간격)'}
+          <span className="mx-1">·</span>
+          모드: {s.operationMode || '알 수 없음'}
+        </div>
+      </div>
+
+      {/* 최근 동기화 이력 */}
+      {last && (
+        <div className="glass-card p-4">
+          <h3 className="text-sm font-bold text-gray-700 mb-2">최근 동기화</h3>
+          <div className="flex items-center gap-3">
+            <span className={`text-lg ${last.success ? '' : ''}`}>{last.success ? '✅' : '❌'}</span>
+            <div>
+              <p className="text-sm font-semibold text-gray-800">
+                {last.success ? `${last.count}건 전송 성공` : `전송 실패 (${last.error || '오류'})`}
+              </p>
+              <p className="text-xs text-gray-400">{last.time ? new Date(last.time).toLocaleString('ko-KR') : '-'}</p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 명령 결과 메시지 */}
+      {actionMsg && (
+        <div className={`px-4 py-3 rounded-xl text-sm font-semibold flex items-center gap-2 animate-fade-in-up ${
+          actionMsg.type === 'success'
+            ? 'bg-green-50 text-green-700 border border-green-200'
+            : 'bg-red-50 text-red-700 border border-red-200'
+        }`}>
+          <span>{actionMsg.type === 'success' ? '✅' : '❌'}</span>
+          {actionMsg.text}
+        </div>
+      )}
+
+      {/* 제어 버튼 */}
+      <div className="grid grid-cols-3 gap-3">
+        <button
+          onClick={() => handleAction('start')}
+          disabled={actionLoading || (s.unsynced === 0)}
+          className={`py-3 rounded-xl text-sm font-bold transition-all active:scale-[0.97] ${
+            s.unsynced > 0 && !actionLoading
+              ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/20 hover:bg-blue-700'
+              : 'bg-gray-100 text-gray-400 cursor-default'
+          }`}
+        >
+          {actionLoading === 'start' ? '시작 중...' : '🔄 동기화 시작'}
+        </button>
+        <button
+          onClick={() => handleAction('stop')}
+          disabled={actionLoading}
+          className="py-3 rounded-xl text-sm font-bold bg-gray-200 text-gray-600 hover:bg-gray-300 transition-all active:scale-[0.97]"
+        >
+          {actionLoading === 'stop' ? '중지 중...' : '⏸️ 동기화 중지'}
+        </button>
+        <button
+          onClick={() => handleAction('skip')}
+          disabled={actionLoading || (s.unsynced === 0)}
+          className={`py-3 rounded-xl text-sm font-bold transition-all active:scale-[0.97] ${
+            s.unsynced > 0 && !actionLoading
+              ? 'bg-orange-50 text-orange-600 border border-orange-200 hover:bg-orange-100'
+              : 'bg-gray-100 text-gray-400 cursor-default'
+          }`}
+        >
+          {actionLoading === 'skip' ? '처리 중...' : '⏭️ 동기화 안함'}
+        </button>
+      </div>
+
+      <p className="text-xs text-gray-400 text-center">
+        동기화 시작: 미전송 데이터를 서버로 즉시 전송 · 중지: 자동 동기화 일시 중지 · 동기화 안함: 미전송 데이터를 전송하지 않고 완료 처리
+      </p>
     </div>
   );
 };

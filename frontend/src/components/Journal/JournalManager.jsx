@@ -460,6 +460,7 @@ function JournalSearch(){const FARM_ID=useContext(FarmIdCtx);
                 <div className="p-4 flex items-center gap-3" onClick={()=>setExpandedId(isOpen?null:entry._id)}>
                   <span className={`text-xs transition-transform ${isOpen?"rotate-90":""}`}>▶</span>
                   <span className="text-sm text-gray-400 w-24 shrink-0">{toKR(entry.date)}</span>
+                  {entry.houseId&&<span className="px-2 py-0.5 rounded-full text-xs font-medium bg-violet-500/20 text-violet-400">{entry.houseName||entry.houseId}</span>}
                   <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-emerald-500/20 text-emerald-400">{entry.workType}</span>
                   {entry.growthStage&&<span className="px-2 py-0.5 rounded-full text-xs bg-blue-500/20 text-blue-400">{entry.growthStage}</span>}
                   {entry.weather&&<span className="text-xs text-gray-500">☁ {entry.weather}</span>}
@@ -469,6 +470,7 @@ function JournalSearch(){const FARM_ID=useContext(FarmIdCtx);
                 {isOpen&&(
                   <div className="px-4 pb-4 pt-0 border-t border-white/5 detail-expand">
                     <div className="mt-3 space-y-2">
+                      {entry.houseId&&<DetailRow label="하우스" value={entry.houseName||entry.houseId} color="text-violet-400" />}
                       <DetailRow label="작업 내용" value={entry.content} color="text-white" />
                       <DetailRow label="날씨" value={entry.weather} />
                       <DetailRow label="온도" value={(entry.tempMin||entry.tempMax)?`${entry.tempMin||"-"} ~ ${entry.tempMax||"-"} °C`:null} />
@@ -503,16 +505,19 @@ function JournalWrite(){const FARM_ID=useContext(FarmIdCtx);
 // ━━━ 영농일지 폼 ━━━
 function JournalForm({entry,onSave,onCancel}){const FARM_ID=useContext(FarmIdCtx);
   const today=new Date().toISOString().split("T")[0];
-  const[form,setForm]=useState({date:entry?.date?new Date(entry.date).toISOString().split("T")[0]:today,weather:entry?.weather||"",tempMin:entry?.tempMin||"",tempMax:entry?.tempMax||"",humidity:entry?.humidity||"",workType:entry?.workType||"관리",growthStage:entry?.growthStage||"",content:entry?.content||"",pest:entry?.pest||"",notes:entry?.notes||"",photos:entry?.photos||[]});
+  const[houses,setHouses]=useState([]);
+  const[form,setForm]=useState({houseId:entry?.houseId||"",date:entry?.date?new Date(entry.date).toISOString().split("T")[0]:today,weather:entry?.weather||"",tempMin:entry?.tempMin||"",tempMax:entry?.tempMax||"",humidity:entry?.humidity||"",workType:entry?.workType||"관리",growthStage:entry?.growthStage||"",content:entry?.content||"",pest:entry?.pest||"",notes:entry?.notes||"",photos:entry?.photos||[]});
   const[uploading,setUploading]=useState(false);
+  useEffect(()=>{api(`/config/farm/${FARM_ID}`).then(r=>{const h=r.data||[];setHouses(h);if(!form.houseId&&h.length>0)set("houseId",h[0].houseId)}).catch(()=>{})},[FARM_ID]);
   const set=(k,v)=>setForm(p=>({...p,[k]:v}));
   const handlePhotoUpload=async e=>{const files=e.target.files;if(!files?.length)return;setUploading(true);try{const fd=new FormData();for(const f of files)fd.append("photos",f);const res=await fetch(`${API_BASE}/journal/${FARM_ID}/photos`,{method:"POST",headers:{Authorization:`Bearer ${getToken()}`},body:fd});const data=await res.json();if(data.success)set("photos",[...form.photos,...data.data])}catch(err){alert("업로드 실패")}finally{setUploading(false)}};
-  const handleSubmit=async()=>{if(!form.content.trim()){alert("작업 내용을 입력하세요");return}await onSave(form);if(!entry)setForm({date:today,weather:"",tempMin:"",tempMax:"",humidity:"",workType:"관리",growthStage:"",content:"",pest:"",notes:"",photos:[]})};
+  const handleSubmit=async()=>{if(!form.content.trim()){alert("작업 내용을 입력하세요");return}await onSave(form);if(!entry)setForm({houseId:houses[0]?.houseId||"",date:today,weather:"",tempMin:"",tempMax:"",humidity:"",workType:"관리",growthStage:"",content:"",pest:"",notes:"",photos:[]})};
   return(
     <div className="glass-card p-5 space-y-4">
       <h3 className="text-lg font-semibold text-white">{entry?"일지 수정":"새 일지 작성"}</h3>
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+      <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
         <div><label className="text-xs text-gray-400 mb-1 block">날짜 *</label><input type="date" value={form.date} onChange={e=>set("date",e.target.value)} className="input-field text-sm w-full" /></div>
+        <div><label className="text-xs text-gray-400 mb-1 block">하우스 *</label><select value={form.houseId} onChange={e=>set("houseId",e.target.value)} className={SC}><option value="">전체(공통)</option>{houses.map(h=><option key={h.houseId} value={h.houseId}>{h.houseName||h.houseId}</option>)}</select></div>
         <div><label className="text-xs text-gray-400 mb-1 block">작업유형 *</label><select value={form.workType} onChange={e=>set("workType",e.target.value)} className={SC}>{WORK_TYPES.map(w=><option key={w} value={w}>{w}</option>)}</select></div>
         <div><label className="text-xs text-gray-400 mb-1 block">날씨</label><select value={form.weather} onChange={e=>set("weather",e.target.value)} className={SC}><option value="">선택</option>{WEATHER_OPTIONS.map(w=><option key={w} value={w}>{w}</option>)}</select></div>
         <div><label className="text-xs text-gray-400 mb-1 block">생육단계</label><select value={form.growthStage} onChange={e=>set("growthStage",e.target.value)} className={SC}><option value="">선택</option>{GROWTH_STAGES.map(g=><option key={g} value={g}>{g}</option>)}</select></div>

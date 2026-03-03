@@ -4,7 +4,13 @@
         "type": "tab",
         "label": "데이터 동기화",
         "disabled": false,
-        "info": "오프라인 → 온라인 전환 시 미동기화 데이터 배치 전송\n- synced=0인 sensor_data를 200건씩 서버에 전송\n- 성공 시 synced=1로 마킹\n- 자동화 규칙: CRUD 변경 시 즉시 RPi→PC 동기화"
+        "info": "오프라인 → 온라인 전환 시 미동기화 데이터 배치 전송\n- synced=0인 sensor_data를 200건씩 서버에 전송\n- 성공 시 synced=1로 마킹\n- 자동화 규칙: CRUD 변경 시 즉시 RPi→PC 동기화",
+        "env": [
+            { "name": "SENSOR_API_KEY", "value": "smartfarm-sensor-key", "type": "str" },
+            { "name": "SERVER_URL", "value": "http://192.168.137.1:3000", "type": "str" },
+            { "name": "FARM_ID", "value": "farm_0001", "type": "str" },
+            { "name": "HOUSE_ID", "value": "house_0001", "type": "str" }
+        ]
     },
     {
         "id": "comment_sync",
@@ -58,7 +64,7 @@
         "type": "function",
         "z": "sync_flow",
         "name": "온라인 체크",
-        "func": "const mode = global.get('operationMode') || 'online';\n\nif (mode !== 'online') {\n    node.status({ fill: 'yellow', shape: 'ring', text: '오프라인 - 동기화 대기' });\n    return null;\n}\n\n// 온라인이면 미동기화 데이터 조회 (200건 배치)\nmsg.topic = `SELECT id, timestamp, farm_id, house_id, sensor_id, value\nFROM sensor_data\nWHERE synced = 0\nORDER BY timestamp ASC\nLIMIT 200`;\n\nreturn msg;",
+        "func": "const mode = global.get('operationMode') || 'online';\n\nif (mode !== 'online') {\n    node.status({ fill: 'yellow', shape: 'ring', text: '오프라인 - 동기화 대기' });\n    return null;\n}\n\n// 기본값 true (중지) — 프론트엔드에서 시작 버튼 눌러야 동기화\nconst paused = global.get('syncPaused');\nif (paused === undefined || paused === null || paused === true) {\n    node.status({ fill: 'grey', shape: 'ring', text: '동기화 대기 (수동 시작 필요)' });\n    return null;\n}\n\n// 온라인이면 미동기화 데이터 조회 (200건 배치)\nmsg.topic = `SELECT id, timestamp, farm_id, house_id, sensor_id, value\nFROM sensor_data\nWHERE synced IS NULL OR synced = 0\nORDER BY timestamp ASC\nLIMIT 200`;\n\nreturn msg;",
         "outputs": 1,
         "x": 410,
         "y": 160,
@@ -81,7 +87,7 @@
         "type": "function",
         "z": "sync_flow",
         "name": "배치 전송 준비",
-        "func": "const rows = msg.payload || [];\n\nif (rows.length === 0) {\n    node.status({ fill: 'green', shape: 'dot', text: '동기화 완료 (0건)' });\n    return null;\n}\n\nconst SERVER_URL = env.get('SERVER_URL') || 'http://192.168.137.1:3000';\nconst API_KEY = env.get('SENSOR_API_KEY') || '';\n\n// 하우스별로 분리\nconst byHouse = {};\nfor (const row of rows) {\n    const houseKey = row.farm_id + '_' + row.house_id;\n    if (!byHouse[houseKey]) {\n        byHouse[houseKey] = { farmId: row.farm_id, houseId: row.house_id, rows: [] };\n    }\n    byHouse[houseKey].rows.push(row);\n}\n\n// 하우스별 배치 메시지 생성\nconst messages = [];\nfor (const house of Object.values(byHouse)) {\n    // 타임스탬프별로 그룹핑\n    const grouped = {};\n    for (const row of house.rows) {\n        if (!grouped[row.timestamp]) {\n            grouped[row.timestamp] = {\n                timestamp: row.timestamp,\n                data: {},\n                deviceInfo: { deviceId: 'rpi_0001', ip: '192.168.137.30', version: '1.0.0' }\n            };\n        }\n        grouped[row.timestamp].data[row.sensor_id] = row.value;\n    }\n\n    messages.push({\n        url: SERVER_URL + '/api/sensors/batch',\n        method: 'POST',\n        headers: { 'Content-Type': 'application/json', 'x-api-key': API_KEY },\n        payload: {\n            farmId: house.farmId,\n            houseId: house.houseId,\n            dataArray: Object.values(grouped)\n        },\n        _syncIds: house.rows.map(r => r.id),\n        _syncCount: house.rows.length\n    });\n}\n\nconst houseCount = Object.keys(byHouse).length;\nnode.warn('📤 동기화 전송: ' + rows.length + '건 (' + houseCount + '개 하우스)');\nnode.status({ fill: 'blue', shape: 'dot', text: '전송 중: ' + rows.length + '건' });\n\n// 배열로 반환 → 하우스별 순차 전송\nreturn [messages];",
+        "func": "const rows = msg.payload || [];\n\nif (rows.length === 0) {\n    node.status({ fill: 'green', shape: 'dot', text: '동기화 완료 (0건)' });\n    return null;\n}\n\nconst SERVER_URL = env.get('SERVER_URL') || 'http://192.168.137.1:3000';\nconst API_KEY = env.get('SENSOR_API_KEY') || '';\n\n// ID 정규화: _NNN (3자리 이하) → _NNNN (4자리)\nfunction pad4(id) {\n    if (!id) return id;\n    return id.replace(/_(\\d{1,3})$/, function(m, n) { return '_' + n.padStart(4, '0'); });\n}\n\n// 하우스별로 분리\nconst byHouse = {};\nfor (const row of rows) {\n    const fid = pad4(row.farm_id);\n    const hid = pad4(row.house_id);\n    const houseKey = fid + '_' + hid;\n    if (!byHouse[houseKey]) {\n        byHouse[houseKey] = { farmId: fid, houseId: hid, rows: [] };\n    }\n    byHouse[houseKey].rows.push(row);\n}\n\n// 하우스별 배치 메시지 큐 생성\nconst queue = [];\nfor (const house of Object.values(byHouse)) {\n    const grouped = {};\n    for (const row of house.rows) {\n        if (!grouped[row.timestamp]) {\n            grouped[row.timestamp] = {\n                timestamp: row.timestamp,\n                data: {},\n                deviceInfo: { deviceId: 'rpi_0001', ip: '192.168.137.30', version: '1.0.0' }\n            };\n        }\n        grouped[row.timestamp].data[pad4(row.sensor_id)] = row.value;\n    }\n    queue.push({\n        url: SERVER_URL + '/api/sensors/batch',\n        method: 'POST',\n        headers: { 'Content-Type': 'application/json', 'x-api-key': API_KEY },\n        payload: {\n            farmId: house.farmId,\n            houseId: house.houseId,\n            dataArray: Object.values(grouped)\n        },\n        _syncIds: house.rows.map(r => r.id),\n        _syncCount: house.rows.length\n    });\n}\n\n// 큐를 global에 저장, 첫 번째만 전송 (순차 처리)\nglobal.set('syncQueueTotal', queue.length);\nglobal.set('syncQueue', queue);\nconst houseCount = queue.length;\nnode.warn('📤 동기화 큐 생성: ' + rows.length + '건 (' + houseCount + '개 하우스, 순차 전송)');\nnode.status({ fill: 'blue', shape: 'dot', text: '전송 중: 1/' + houseCount });\n\n// 첫 번째 메시지만 반환\nvar first = queue.shift();\nglobal.set('syncQueue', queue);\nreturn first;",
         "outputs": 1,
         "x": 810,
         "y": 160,
@@ -112,7 +118,7 @@
         "type": "function",
         "z": "sync_flow",
         "name": "동기화 결과 처리",
-        "func": "if (msg.statusCode === 201 || msg.statusCode === 200) {\n    // 성공 → synced=1 마킹\n    const ids = msg._syncIds || [];\n    if (ids.length > 0) {\n        // ID는 SQLite 자동증가 INTEGER이므로 숫자만 허용\n        const safeIds = ids.filter(id => Number.isInteger(id) && id > 0);\n        if (safeIds.length === 0) { return [null, null]; }\n        // 파라미터화 쿼리: placeholder 동적 생성\n        const placeholders = safeIds.map((_, i) => '$' + (i + 1)).join(',');\n        msg.topic = 'UPDATE sensor_data SET synced = 1 WHERE id IN (' + placeholders + ')';\n        msg.payload = safeIds;\n        node.warn('✅ 동기화 성공: ' + msg._syncCount + '건 synced=1');\n        node.status({ fill: 'green', shape: 'dot', text: '동기화 완료: ' + msg._syncCount + '건' });\n        return [msg, null];\n    }\n} else {\n    node.warn('⚠️ 동기화 실패 (' + msg.statusCode + '): 다음 주기에 재시도');\n    node.status({ fill: 'red', shape: 'ring', text: '실패: ' + msg.statusCode });\n}\n\nreturn [null, null];",
+        "func": "if (msg.statusCode === 201 || msg.statusCode === 200) {\n    // 성공 → synced=1 마킹\n    const ids = msg._syncIds || [];\n    if (ids.length > 0) {\n        const safeIds = ids.filter(id => Number.isInteger(id) && id > 0);\n        if (safeIds.length === 0) { return [null, null]; }\n        const placeholders = safeIds.map((_, i) => '$' + (i + 1)).join(',');\n        msg.topic = 'UPDATE sensor_data SET synced = 1 WHERE id IN (' + placeholders + ')';\n        msg.payload = safeIds;\n        global.set('lastSyncResult', { time: new Date().toISOString(), success: true, count: msg._syncCount });\n        node.warn('✅ 동기화 성공: ' + msg._syncCount + '건 synced=1');\n        node.status({ fill: 'green', shape: 'dot', text: '동기화 완료: ' + msg._syncCount + '건' });\n        return [msg, null];\n    }\n} else {\n    global.set('lastSyncResult', { time: new Date().toISOString(), success: false, count: 0, error: msg.statusCode });\n    node.warn('⚠️ 동기화 실패 (' + msg.statusCode + '): 다음 주기에 재시도');\n    node.status({ fill: 'red', shape: 'ring', text: '실패: ' + msg.statusCode });\n}\n\nreturn [null, null];",
         "outputs": 2,
         "outputLabels": ["synced 업데이트", "다음 배치"],
         "x": 650,
@@ -136,11 +142,12 @@
         "type": "function",
         "z": "sync_flow",
         "name": "다음 배치 확인",
-        "func": "setTimeout(function() { node.send({ payload: \"next_batch\" }); }, 1000);\nreturn null;",
-        "outputs": 1,
+        "func": "// 큐에 남은 항목이 있으면 다음 전송 (output1), 없으면 다음 200건 배치 조회 (output2)\nvar queue = global.get('syncQueue') || [];\nif (queue.length > 0) {\n    var next = queue.shift();\n    global.set('syncQueue', queue);\n    var total = (global.get('syncQueueTotal') || 0);\n    node.status({ fill: 'blue', shape: 'dot', text: '전송 중: ' + (total - queue.length) + '/' + total });\n    // 1초 대기 후 다음 하우스 전송 (DB 부하 분산)\n    setTimeout(function() { node.send([next, null]); }, 1000);\n    return null;\n} else {\n    node.status({ fill: 'green', shape: 'dot', text: '큐 완료, 다음 배치 확인' });\n    // 1초 대기 후 다음 200건 배치 조회\n    setTimeout(function() { node.send([null, { payload: 'next_batch' }]); }, 1000);\n    return null;\n}",
+        "outputs": 2,
+        "outputLabels": ["다음 큐 항목", "다음 배치"],
         "x": 1070,
         "y": 260,
-        "wires": [["sync_check"]]
+        "wires": [["http_sync_send"], ["sync_check"]]
     },
     {
         "id": "comment_rule_sync",
@@ -290,7 +297,7 @@
         "type": "function",
         "z": "sync_flow",
         "name": "동기화 상태 쿼리",
-        "func": "msg.topic = `SELECT\n  COUNT(*) as total,\n  SUM(CASE WHEN synced = 1 THEN 1 ELSE 0 END) as synced,\n  SUM(CASE WHEN synced = 0 THEN 1 ELSE 0 END) as unsynced,\n  MIN(CASE WHEN synced = 0 THEN timestamp END) as oldest_unsynced\nFROM sensor_data`;\nreturn msg;",
+        "func": "msg.topic = `SELECT\n  SUM(CASE WHEN synced = 1 THEN 1 ELSE 0 END) as synced,\n  SUM(CASE WHEN synced IS NULL OR synced = 0 THEN 1 ELSE 0 END) as unsynced,\n  COUNT(*) as total,\n  MIN(CASE WHEN synced IS NULL OR synced = 0 THEN timestamp END) as oldest_unsynced\nFROM sensor_data`;\nreturn msg;",
         "outputs": 1,
         "x": 430,
         "y": 760,
@@ -313,7 +320,7 @@
         "type": "function",
         "z": "sync_flow",
         "name": "응답",
-        "func": "const row = msg.payload[0] || {};\nmsg.payload = {\n    success: true,\n    data: {\n        total: row.total || 0,\n        synced: row.synced || 0,\n        unsynced: row.unsynced || 0,\n        oldestUnsynced: row.oldest_unsynced || null,\n        operationMode: global.get('operationMode') || 'unknown'\n    }\n};\nmsg.headers = { 'Access-Control-Allow-Origin': '*' };\nreturn msg;",
+        "func": "const row = msg.payload[0] || {};\nmsg.payload = {\n    success: true,\n    data: {\n        total: row.total || 0,\n        synced: row.synced || 0,\n        unsynced: row.unsynced || 0,\n        oldestUnsynced: row.oldest_unsynced || null,\n        operationMode: global.get('operationMode') || 'unknown',\n        syncPaused: global.get('syncPaused') || false,\n        lastSyncResult: global.get('lastSyncResult') || null\n    }\n};\nmsg.headers = { 'Access-Control-Allow-Origin': '*' };\nreturn msg;",
         "outputs": 1,
         "x": 830,
         "y": 760,
@@ -340,5 +347,118 @@
         "x": 440,
         "y": 340,
         "wires": [["sync_result"]]
+    },
+    {
+        "id": "comment_sync_control",
+        "type": "comment",
+        "z": "sync_flow",
+        "name": "━━━ 동기화 제어 API (시작/중지/삭제) ━━━",
+        "x": 230,
+        "y": 840,
+        "wires": []
+    },
+    {
+        "id": "http_sync_start",
+        "type": "http in",
+        "z": "sync_flow",
+        "name": "POST /api/sync/start",
+        "url": "/api/sync/start",
+        "method": "post",
+        "upload": false,
+        "x": 180,
+        "y": 900,
+        "wires": [["fn_sync_start"]]
+    },
+    {
+        "id": "fn_sync_start",
+        "type": "function",
+        "z": "sync_flow",
+        "name": "동기화 시작",
+        "func": "global.set('syncPaused', false);\nnode.warn('▶️ 동기화 수동 시작');\nmsg._res = msg.res;\nvar triggerMsg = {};\nnode.send([null, triggerMsg]);\nmsg.payload = { success: true, message: '동기화를 시작했습니다' };\nmsg.headers = { 'Access-Control-Allow-Origin': '*' };\nreturn [msg, null];",
+        "outputs": 2,
+        "outputLabels": ["HTTP 응답", "sync_check 트리거"],
+        "x": 430,
+        "y": 900,
+        "wires": [["http_res_sync_ctrl"], ["sync_check"]]
+    },
+    {
+        "id": "http_sync_stop",
+        "type": "http in",
+        "z": "sync_flow",
+        "name": "POST /api/sync/stop",
+        "url": "/api/sync/stop",
+        "method": "post",
+        "upload": false,
+        "x": 180,
+        "y": 960,
+        "wires": [["fn_sync_stop"]]
+    },
+    {
+        "id": "fn_sync_stop",
+        "type": "function",
+        "z": "sync_flow",
+        "name": "동기화 중지",
+        "func": "global.set('syncPaused', true);\nnode.warn('⏸️ 동기화 일시 중지');\nmsg.payload = { success: true, message: '동기화를 중지했습니다' };\nmsg.headers = { 'Access-Control-Allow-Origin': '*' };\nreturn msg;",
+        "outputs": 1,
+        "x": 430,
+        "y": 960,
+        "wires": [["http_res_sync_ctrl"]]
+    },
+    {
+        "id": "http_sync_delete",
+        "type": "http in",
+        "z": "sync_flow",
+        "name": "POST /api/sync/skip",
+        "url": "/api/sync/skip",
+        "method": "post",
+        "upload": false,
+        "x": 180,
+        "y": 1020,
+        "wires": [["fn_sync_delete"]]
+    },
+    {
+        "id": "fn_sync_delete",
+        "type": "function",
+        "z": "sync_flow",
+        "name": "미동기화 스킵",
+        "func": "msg.topic = 'UPDATE sensor_data SET synced = 1 WHERE synced IS NULL OR synced = 0';\nreturn msg;",
+        "outputs": 1,
+        "x": 430,
+        "y": 1020,
+        "wires": [["sqlite_sync_delete"]]
+    },
+    {
+        "id": "sqlite_sync_delete",
+        "type": "sqlite",
+        "z": "sync_flow",
+        "name": "삭제 실행",
+        "mydb": "sqlite_db",
+        "sqlquery": "msg.topic",
+        "sql": "",
+        "x": 640,
+        "y": 1020,
+        "wires": [["fn_sync_delete_res"]]
+    },
+    {
+        "id": "fn_sync_delete_res",
+        "type": "function",
+        "z": "sync_flow",
+        "name": "스킵 응답",
+        "func": "node.warn('⏭️ 미동기화 데이터 동기화 안함 처리 완료');\nmsg.payload = { success: true, message: '미동기화 데이터를 동기화 안함으로 처리했습니다' };\nmsg.headers = { 'Access-Control-Allow-Origin': '*' };\nreturn msg;",
+        "outputs": 1,
+        "x": 840,
+        "y": 1020,
+        "wires": [["http_res_sync_ctrl"]]
+    },
+    {
+        "id": "http_res_sync_ctrl",
+        "type": "http response",
+        "z": "sync_flow",
+        "name": "제어 응답",
+        "statusCode": "",
+        "headers": {},
+        "x": 830,
+        "y": 900,
+        "wires": []
     }
 ]

@@ -295,6 +295,8 @@ export const AuthProvider = ({ children }) => {
 
   const logout = async () => {
     if (isFarmLocalMode()) {
+      const { setFarmLocalMode } = await import('../services/apiSwitcher.js');
+      setFarmLocalMode(false);
       window.location.reload();
       return;
     }

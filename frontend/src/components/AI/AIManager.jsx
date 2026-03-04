@@ -33,16 +33,16 @@ export default function AIManager({ farmId = import.meta.env.VITE_FARM_ID || "fa
         <h1 className="text-xl md:text-2xl font-bold text-gray-800 tracking-tight">🤖 AI 농업 도우미</h1>
         <p className="text-gray-500 text-xs md:text-sm mt-0.5">인공지능 기반 스마트팜 분석 및 상담</p>
       </div>
-      <div className="flex gap-2 overflow-x-auto pb-1 -mx-4 px-4 md:mx-0 md:px-0">
+      <div className="flex gap-1.5">
         {tabs.map(tab => (
           <button key={tab.key} onClick={() => setActiveTab(tab.key)}
-            className={`flex items-center gap-2.5 px-4 md:px-5 py-2.5 rounded-xl font-medium
-                       whitespace-nowrap transition-all duration-200 text-sm flex-shrink-0
+            className={`flex items-center gap-1.5 px-2 md:px-4 py-2 rounded-xl font-medium
+                       transition-all duration-200 text-sm min-w-0
                        active:scale-[0.97] ${activeTab === tab.key
               ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/20'
               : 'bg-white border border-gray-200 text-gray-600 hover:bg-gray-50 shadow-sm'}`}>
-            <span className="text-base">{tab.icon}</span>
-            <span>{tab.label}</span>
+            <span className="text-base flex-shrink-0">{tab.icon}</span>
+            <span className="truncate">{tab.label}</span>
           </button>
         ))}
       </div>
@@ -139,12 +139,21 @@ function PestAnalysis() {
                 <button onClick={reset} className="absolute top-2 right-2 bg-red-500 text-white text-xs w-6 h-6 rounded-full flex items-center justify-center">×</button>
               </div>
             ) : (
-              <label className="flex flex-col items-center justify-center w-full h-48 border-2 border-dashed border-white/20 rounded-lg cursor-pointer hover:border-emerald-400/50 transition-colors bg-white/[0.02]">
+              <div className="flex flex-col items-center justify-center w-full h-48 border-2 border-dashed border-white/20 rounded-lg bg-white/[0.02]">
                 <span className="text-4xl mb-2">📸</span>
                 <span className="text-sm text-gray-400">사진을 업로드하세요</span>
-                <span className="text-xs text-gray-600 mt-1">작물 잎, 줄기, 열매 등</span>
-                <input ref={fileRef} type="file" accept="image/*" capture="environment" onChange={handleFileChange} className="hidden" />
-              </label>
+                <span className="text-xs text-gray-600 mt-1 mb-3">작물 잎, 줄기, 열매 등</span>
+                <div className="flex gap-2">
+                  <label className="px-3 py-1.5 rounded-lg text-xs font-medium cursor-pointer bg-white/5 text-gray-400 border border-white/10 hover:bg-white/10 transition-colors">
+                    + 갤러리
+                    <input type="file" accept="image/*" multiple={false} onChange={handleFileChange} className="hidden" />
+                  </label>
+                  <label className="px-3 py-1.5 rounded-lg text-xs font-medium cursor-pointer bg-white/5 text-gray-400 border border-white/10 hover:bg-blue-500/20 hover:text-blue-300 transition-colors">
+                    📷 촬영
+                    <input ref={fileRef} type="file" accept="image/*" capture="environment" onChange={handleFileChange} className="hidden" />
+                  </label>
+                </div>
+              </div>
             )}
           </div>
           {/* 추가 정보 */}
@@ -482,10 +491,27 @@ function AIChat() {
   ]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
+  const [models, setModels] = useState([]);
+  const [selectedModel, setSelectedModel] = useState("");
   const chatEndRef = useRef(null);
+  const chatContainerRef = useRef(null);
   const inputRef = useRef(null);
+  const isFirstRender = useRef(true);
 
-  useEffect(() => { chatEndRef.current?.scrollIntoView({ behavior: "smooth" }); }, [messages]);
+  useEffect(() => {
+    api(`/ai/models`).then(r => {
+      if (r.data?.models?.length) {
+        setModels(r.data.models);
+        setSelectedModel(r.data.defaultModel || r.data.models[0].name);
+      }
+    }).catch(() => {});
+  }, [FARM_ID]);
+
+  useEffect(() => {
+    if (isFirstRender.current) { isFirstRender.current = false; return; }
+    const container = chatContainerRef.current;
+    if (container) container.scrollTop = container.scrollHeight;
+  }, [messages]);
 
   const quickQuestions = [
     "토마토 잎이 말리는 원인은?",
@@ -504,18 +530,18 @@ function AIChat() {
     try {
       // 최근 3개 대화를 컨텍스트로 전달
       const recentContext = messages.slice(-6).map(m => `${m.role === "user" ? "사용자" : "AI"}: ${m.text}`).join("\n");
-      const res = await api(`/ai/${FARM_ID}/chat`, { method: "POST", body: JSON.stringify({ message: msg, context: recentContext }) });
+      const res = await api(`/ai/${FARM_ID}/chat`, { method: "POST", body: JSON.stringify({ message: msg, context: recentContext, model: selectedModel || undefined }) });
       setMessages(prev => [...prev, { role: "ai", text: res.data.reply, time: new Date() }]);
     } catch (e) {
       setMessages(prev => [...prev, { role: "ai", text: `❌ 오류: ${e.message}\n\nAI 서버가 실행 중인지 확인해주세요.`, time: new Date(), error: true }]);
     } finally {
       setLoading(false);
-      inputRef.current?.focus();
+      inputRef.current?.focus({ preventScroll: true });
     }
   };
 
   return (
-    <div className="glass-card flex flex-col" style={{ height: "calc(100vh - 280px)", minHeight: "500px" }}>
+    <div className="glass-card flex flex-col">
       {/* 헤더 */}
       <div className="p-4 border-b border-white/5 flex items-center gap-3">
         <div className="w-10 h-10 rounded-full bg-gradient-to-br from-purple-500 to-pink-500 flex items-center justify-center text-xl">🤖</div>
@@ -523,11 +549,21 @@ function AIChat() {
           <h3 className="text-sm font-semibold text-white">AI 농업 상담</h3>
           <p className="text-xs text-gray-500">무엇이든 질문하세요</p>
         </div>
-        <div className={`ml-auto w-2 h-2 rounded-full ${loading ? "bg-yellow-400 animate-pulse" : "bg-emerald-400"}`}></div>
+        {models.length > 1 && (
+          <select value={selectedModel} onChange={e => setSelectedModel(e.target.value)}
+            className="ml-auto px-2 py-1 rounded-lg text-xs bg-white/5 text-gray-400 border border-white/10 outline-none cursor-pointer hover:bg-white/10">
+            {models.map(m => (
+              <option key={m.name} value={m.name} className="bg-gray-800 text-gray-200">
+                {m.provider === "gemini" ? `☁️ ${m.name}` : `💻 ${m.name}`} ({m.details?.parameter_size || ''})
+              </option>
+            ))}
+          </select>
+        )}
+        <div className={`${models.length <= 1 ? 'ml-auto' : ''} w-2 h-2 rounded-full ${loading ? "bg-yellow-400 animate-pulse" : "bg-emerald-400"}`}></div>
       </div>
 
       {/* 대화 영역 */}
-      <div className="flex-1 overflow-y-auto p-4 space-y-4">
+      <div ref={chatContainerRef} className="overflow-y-auto p-4 space-y-4" style={{ height: "calc(100vh - 480px)", minHeight: "250px" }}>
         {messages.map((msg, i) => (
           <div key={i} className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}>
             <div className={`max-w-[80%] rounded-2xl px-4 py-3 ${msg.role === "user"

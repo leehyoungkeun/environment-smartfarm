@@ -1,5 +1,5 @@
 // src/components/Journal/JournalManager.jsx
-import { useState, useEffect, useCallback, useMemo, createContext, useContext } from "react";
+import { useState, useEffect, useCallback, useMemo, createContext, useContext, useRef } from "react";
 import Pagination from "./Pagination.jsx";
 
 if (!document.getElementById("journal-select-fix")) {
@@ -300,7 +300,7 @@ export default function JournalManager({ farmId = import.meta.env.VITE_FARM_ID |
     <FarmIdCtx.Provider value={farmId}>
     <div className="space-y-6">
       <div><h2 className="text-2xl font-bold text-white">영농일지</h2><p className="text-gray-400 mt-1">작업 기록, 수확, 투입물 관리</p></div>
-      <div className="flex gap-2 flex-wrap">{tabs.map(tab=>(<button key={tab.key} onClick={()=>setActiveTab(tab.key)} className={`px-4 py-2 rounded-lg font-medium transition-all ${activeTab===tab.key?"bg-emerald-600 text-white":"bg-white/5 text-gray-400 hover:bg-white/10 hover:text-white"}`}>{tab.icon} {tab.label}</button>))}</div>
+      <div className="flex gap-1.5">{tabs.map(tab=>(<button key={tab.key} onClick={()=>setActiveTab(tab.key)} className={`flex items-center gap-1.5 px-2 md:px-4 py-2 rounded-xl font-medium transition-all text-sm min-w-0 active:scale-[0.97] ${activeTab===tab.key?"bg-blue-600 text-white shadow-lg shadow-blue-600/20":"bg-white border border-gray-200 text-gray-600 hover:bg-gray-50 shadow-sm"}`}><span className="flex-shrink-0">{tab.icon}</span><span className="truncate">{tab.label}</span></button>))}</div>
       {activeTab==="journal"&&<JournalTab />}
       {activeTab==="harvest"&&<HarvestTab />}
       {activeTab==="input"&&<InputTab />}
@@ -381,9 +381,9 @@ function DetailRow({label,value,color}){if(!value&&value!==0)return null;return(
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 function JournalTab(){
   const[subTab,setSubTab]=useState("list");
-  return(<div className="space-y-4"><div className="flex gap-2">
-    <button onClick={()=>setSubTab("list")} className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${subTab==="list"?"bg-blue-600 text-white":"bg-white/5 text-gray-400 hover:bg-white/10"}`}>📋 일지 조회</button>
-    <button onClick={()=>setSubTab("write")} className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${subTab==="write"?"bg-blue-600 text-white":"bg-white/5 text-gray-400 hover:bg-white/10"}`}>✏️ 일지 작성</button>
+  return(<div className="space-y-4"><div className="flex gap-1.5">
+    <button onClick={()=>setSubTab("list")} className={`flex items-center gap-1.5 px-2 md:px-4 py-2 rounded-xl text-sm font-medium transition-all min-w-0 active:scale-[0.97] ${subTab==="list"?"bg-blue-600 text-white shadow-lg shadow-blue-600/20":"bg-white border border-gray-200 text-gray-600 hover:bg-gray-50 shadow-sm"}`}><span className="flex-shrink-0">📋</span><span className="truncate">일지 조회</span></button>
+    <button onClick={()=>setSubTab("write")} className={`flex items-center gap-1.5 px-2 md:px-4 py-2 rounded-xl text-sm font-medium transition-all min-w-0 active:scale-[0.97] ${subTab==="write"?"bg-blue-600 text-white shadow-lg shadow-blue-600/20":"bg-white border border-gray-200 text-gray-600 hover:bg-gray-50 shadow-sm"}`}><span className="flex-shrink-0">✏️</span><span className="truncate">일지 작성</span></button>
   </div>{subTab==="list"&&<JournalSearch />}{subTab==="write"&&<JournalWrite />}</div>);
 }
 
@@ -508,6 +508,19 @@ function JournalForm({entry,onSave,onCancel}){const FARM_ID=useContext(FarmIdCtx
   const[houses,setHouses]=useState([]);
   const[form,setForm]=useState({houseId:entry?.houseId||"",date:entry?.date?new Date(entry.date).toISOString().split("T")[0]:today,weather:entry?.weather||"",tempMin:entry?.tempMin||"",tempMax:entry?.tempMax||"",humidity:entry?.humidity||"",workType:entry?.workType||"관리",growthStage:entry?.growthStage||"",content:entry?.content||"",pest:entry?.pest||"",notes:entry?.notes||"",photos:entry?.photos||[]});
   const[uploading,setUploading]=useState(false);
+  const[listening,setListening]=useState(false);
+  const recognitionRef=useRef(null);
+  const contentRef=useRef(form.content);
+  useEffect(()=>{contentRef.current=form.content},[form.content]);
+  const toggleSTT=()=>{
+    const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
+    if(!SR){alert('이 브라우저는 음성인식을 지원하지 않습니다');return}
+    if(listening){recognitionRef.current?.stop();return}
+    const r=new SR();r.lang='ko-KR';r.continuous=true;r.interimResults=false;
+    r.onresult=(e)=>{const last=e.results[e.results.length-1];if(last.isFinal){const text=last[0].transcript.trim();const prev=contentRef.current;set('content',prev?prev+' '+text:text)}};
+    r.onend=()=>setListening(false);r.onerror=()=>setListening(false);
+    recognitionRef.current=r;r.start();setListening(true);
+  };
   useEffect(()=>{api(`/config/farm/${FARM_ID}`).then(r=>{const h=r.data||[];setHouses(h);if(!form.houseId&&h.length>0)set("houseId",h[0].houseId)}).catch(()=>{})},[FARM_ID]);
   const set=(k,v)=>setForm(p=>({...p,[k]:v}));
   const handlePhotoUpload=async e=>{const files=e.target.files;if(!files?.length)return;setUploading(true);try{const fd=new FormData();for(const f of files)fd.append("photos",f);const res=await fetch(`${API_BASE}/journal/${FARM_ID}/photos`,{method:"POST",headers:{Authorization:`Bearer ${getToken()}`},body:fd});const data=await res.json();if(data.success)set("photos",[...form.photos,...data.data])}catch(err){alert("업로드 실패")}finally{setUploading(false)}};
@@ -527,14 +540,27 @@ function JournalForm({entry,onSave,onCancel}){const FARM_ID=useContext(FarmIdCtx
         <div><label className="text-xs text-gray-400 mb-1 block">최고 온도</label><input type="number" step="0.1" value={form.tempMax} onChange={e=>set("tempMax",e.target.value)} placeholder="°C" className="input-field text-sm w-full" /></div>
         <div><label className="text-xs text-gray-400 mb-1 block">습도</label><input type="number" step="0.1" value={form.humidity} onChange={e=>set("humidity",e.target.value)} placeholder="%" className="input-field text-sm w-full" /></div>
       </div>
-      <div><label className="text-xs text-gray-400 mb-1 block">작업 내용 *</label><textarea value={form.content} onChange={e=>set("content",e.target.value)} rows={4} placeholder="오늘의 작업 내용을 기록하세요..." className="input-field text-sm w-full resize-none" /></div>
+      <div>
+        <div className="flex items-center gap-2 mb-1">
+          <label className="text-xs text-gray-400">작업 내용 *</label>
+          {(window.SpeechRecognition||window.webkitSpeechRecognition)&&(
+            <button type="button" onClick={toggleSTT} className={`px-2 py-0.5 rounded-md text-xs font-medium transition-all ${listening?'bg-red-500/20 text-red-400 border border-red-500/30 animate-pulse':'bg-white/5 text-gray-400 border border-white/10 hover:bg-white/10'}`}>
+              🎙️ {listening?'듣는 중...':'음성입력'}
+            </button>
+          )}
+        </div>
+        <textarea value={form.content} onChange={e=>set("content",e.target.value)} rows={4} placeholder="오늘의 작업 내용을 기록하세요..." className="input-field text-sm w-full resize-none" />
+      </div>
       <div className="grid grid-cols-2 gap-3">
         <div><label className="text-xs text-gray-400 mb-1 block">병해충</label><input type="text" value={form.pest} onChange={e=>set("pest",e.target.value)} placeholder="발견된 병해충" className="input-field text-sm w-full" /></div>
         <div><label className="text-xs text-gray-400 mb-1 block">비고</label><input type="text" value={form.notes} onChange={e=>set("notes",e.target.value)} className="input-field text-sm w-full" /></div>
       </div>
       <div><label className="text-xs text-gray-400 mb-1 block">사진</label><div className="flex gap-2 items-center flex-wrap">
         {form.photos.map((photo,i)=>(<div key={i} className="relative"><img src={photoUrl(photo)} alt="" className="w-20 h-20 object-cover rounded-lg border border-white/10" /><button onClick={()=>set("photos",form.photos.filter((_,j)=>j!==i))} className="absolute -top-1 -right-1 bg-red-500 text-white text-xs w-5 h-5 rounded-full flex items-center justify-center">×</button></div>))}
-        {form.photos.length<5&&(<label className="w-20 h-20 flex items-center justify-center border-2 border-dashed border-white/20 rounded-lg cursor-pointer hover:border-emerald-400/50 transition-colors"><input type="file" accept="image/*" multiple onChange={handlePhotoUpload} className="hidden" />{uploading?<span className="text-xs text-gray-400">...</span>:<span className="text-2xl text-gray-500">+</span>}</label>)}
+        {form.photos.length<5&&(<>
+          <label className="w-20 h-20 flex flex-col items-center justify-center border-2 border-dashed border-white/20 rounded-lg cursor-pointer hover:border-emerald-400/50 transition-colors"><input type="file" accept="image/*" multiple onChange={handlePhotoUpload} className="hidden" />{uploading?<span className="text-xs text-gray-400">...</span>:<><span className="text-2xl text-gray-500">+</span><span className="text-[10px] text-gray-500 mt-0.5">갤러리</span></>}</label>
+          <label className="w-20 h-20 flex flex-col items-center justify-center border-2 border-dashed border-white/20 rounded-lg cursor-pointer hover:border-blue-400/50 transition-colors"><input type="file" accept="image/*" capture="environment" onChange={handlePhotoUpload} className="hidden" />{uploading?<span className="text-xs text-gray-400">...</span>:<><span className="text-2xl">📷</span><span className="text-[10px] text-gray-500 mt-0.5">촬영</span></>}</label>
+        </>)}
       </div></div>
       <div className="flex justify-end gap-2">{onCancel&&<button onClick={onCancel} className="btn-secondary">취소</button>}<button onClick={handleSubmit} className="btn-primary">{entry?"수정":"저장"}</button></div>
     </div>
@@ -546,9 +572,9 @@ function JournalForm({entry,onSave,onCancel}){const FARM_ID=useContext(FarmIdCtx
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 function HarvestTab(){
   const[subTab,setSubTab]=useState("list");
-  return(<div className="space-y-4"><div className="flex gap-2">
-    <button onClick={()=>setSubTab("list")} className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${subTab==="list"?"bg-blue-600 text-white":"bg-white/5 text-gray-400 hover:bg-white/10"}`}>📋 수확 조회</button>
-    <button onClick={()=>setSubTab("write")} className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${subTab==="write"?"bg-blue-600 text-white":"bg-white/5 text-gray-400 hover:bg-white/10"}`}>✏️ 수확 기록</button>
+  return(<div className="space-y-4"><div className="flex gap-1.5">
+    <button onClick={()=>setSubTab("list")} className={`flex items-center gap-1.5 px-2 md:px-4 py-2 rounded-xl text-sm font-medium transition-all min-w-0 active:scale-[0.97] ${subTab==="list"?"bg-blue-600 text-white shadow-lg shadow-blue-600/20":"bg-white border border-gray-200 text-gray-600 hover:bg-gray-50 shadow-sm"}`}><span className="flex-shrink-0">📋</span><span className="truncate">수확 조회</span></button>
+    <button onClick={()=>setSubTab("write")} className={`flex items-center gap-1.5 px-2 md:px-4 py-2 rounded-xl text-sm font-medium transition-all min-w-0 active:scale-[0.97] ${subTab==="write"?"bg-blue-600 text-white shadow-lg shadow-blue-600/20":"bg-white border border-gray-200 text-gray-600 hover:bg-gray-50 shadow-sm"}`}><span className="flex-shrink-0">✏️</span><span className="truncate">수확 기록</span></button>
   </div>{subTab==="list"&&<HarvestSearch />}{subTab==="write"&&<HarvestWrite />}</div>);
 }
 
@@ -694,9 +720,9 @@ function HarvestForm({record,onSave,onCancel}){
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 function InputTab(){
   const[subTab,setSubTab]=useState("list");
-  return(<div className="space-y-4"><div className="flex gap-2">
-    <button onClick={()=>setSubTab("list")} className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${subTab==="list"?"bg-blue-600 text-white":"bg-white/5 text-gray-400 hover:bg-white/10"}`}>📋 투입물 조회</button>
-    <button onClick={()=>setSubTab("write")} className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${subTab==="write"?"bg-blue-600 text-white":"bg-white/5 text-gray-400 hover:bg-white/10"}`}>✏️ 투입물 기록</button>
+  return(<div className="space-y-4"><div className="flex gap-1.5">
+    <button onClick={()=>setSubTab("list")} className={`flex items-center gap-1.5 px-2 md:px-4 py-2 rounded-xl text-sm font-medium transition-all min-w-0 active:scale-[0.97] ${subTab==="list"?"bg-blue-600 text-white shadow-lg shadow-blue-600/20":"bg-white border border-gray-200 text-gray-600 hover:bg-gray-50 shadow-sm"}`}><span className="flex-shrink-0">📋</span><span className="truncate">투입물 조회</span></button>
+    <button onClick={()=>setSubTab("write")} className={`flex items-center gap-1.5 px-2 md:px-4 py-2 rounded-xl text-sm font-medium transition-all min-w-0 active:scale-[0.97] ${subTab==="write"?"bg-blue-600 text-white shadow-lg shadow-blue-600/20":"bg-white border border-gray-200 text-gray-600 hover:bg-gray-50 shadow-sm"}`}><span className="flex-shrink-0">✏️</span><span className="truncate">투입물 기록</span></button>
   </div>{subTab==="list"&&<InputSearch />}{subTab==="write"&&<InputWrite />}</div>);
 }
 

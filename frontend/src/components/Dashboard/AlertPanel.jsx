@@ -4,7 +4,7 @@ import { useAuth } from '../../contexts/AuthContext';
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3000/api';
 
-const AlertPanel = ({ farmId, houseId, showPanel, setShowPanel, isMobile = false }) => {
+const AlertPanel = ({ farmId, houseId, showPanel, setShowPanel, isMobile = false, fullWidth = false }) => {
   const [alerts, setAlerts] = useState([]);
   const [unacknowledgedCount, setUnacknowledgedCount] = useState(0);
   const [totalCount, setTotalCount] = useState(0);
@@ -283,12 +283,12 @@ const AlertPanel = ({ farmId, houseId, showPanel, setShowPanel, isMobile = false
 
   // 데스크톱: 버튼 + 드롭다운 패널
   return (
-    <div className="relative">
+    <div className={`relative ${fullWidth ? 'h-full' : ''}`}>
       {/* 알림 버튼 (항상 표시) */}
       <button
         ref={buttonRef}
         onClick={() => setShowPanel(!showPanel)}
-        className={`relative py-2 rounded-xl font-medium transition-all duration-200 flex items-center justify-center gap-1 whitespace-nowrap ${
+        className={`relative rounded-xl font-medium transition-all duration-200 flex items-center justify-center gap-1 whitespace-nowrap ${fullWidth ? 'h-full' : 'py-2'} ${
           showPanel
             ? 'tab-active'
             : unacknowledgedCount > 0
@@ -297,7 +297,7 @@ const AlertPanel = ({ farmId, houseId, showPanel, setShowPanel, isMobile = false
                 ? 'bg-amber-50 text-amber-700 border border-amber-200'
                 : 'tab-inactive'
         }`}
-        style={{ width: 96, paddingLeft: 4, paddingRight: 4, fontSize: 13 }}
+        style={fullWidth ? { width: '100%', fontSize: 13 } : { width: 96, paddingLeft: 4, paddingRight: 4, fontSize: 13 }}
       >
         <span>🔔</span>
         알림

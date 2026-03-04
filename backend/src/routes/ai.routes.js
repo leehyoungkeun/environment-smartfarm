@@ -14,12 +14,13 @@ const router = express.Router();
 
 // ━━━ AI 프로바이더 설정 ━━━
 const AI_CONFIG = {
-  provider: process.env.AI_PROVIDER || "ollama", // ollama | openai | claude
+  provider: process.env.AI_PROVIDER || "ollama", // ollama | openai | claude | gemini
   ollamaUrl: process.env.OLLAMA_URL || "http://localhost:11434",
   ollamaModel: process.env.OLLAMA_MODEL || "llama3",
   ollamaVisionModel: process.env.OLLAMA_VISION_MODEL || "llava",
   openaiKey: process.env.OPENAI_API_KEY || "",
   claudeKey: process.env.CLAUDE_API_KEY || "",
+  geminiKey: process.env.GEMINI_API_KEY || "",
 };
 
 // farmId 경로 탐색 방지
@@ -58,21 +59,28 @@ const upload = multer({
 
 // ━━━ AI 호출 공통 함수 ━━━
 async function callAI(prompt, options = {}) {
-  const { image, systemPrompt } = options;
+  const { image, systemPrompt, model } = options;
+
+  // 모델 이름으로 프로바이더 자동 감지
+  if (model?.startsWith("gemini-") && AI_CONFIG.geminiKey) {
+    return callGemini(prompt, image, systemPrompt, model);
+  }
 
   if (AI_CONFIG.provider === "ollama") {
-    return callOllama(prompt, image, systemPrompt);
+    return callOllama(prompt, image, systemPrompt, model);
   } else if (AI_CONFIG.provider === "openai") {
     return callOpenAI(prompt, image, systemPrompt);
   } else if (AI_CONFIG.provider === "claude") {
     return callClaude(prompt, image, systemPrompt);
+  } else if (AI_CONFIG.provider === "gemini") {
+    return callGemini(prompt, image, systemPrompt);
   }
   throw new Error("지원하지 않는 AI 프로바이더입니다");
 }
 
 // ━━━ Ollama 호출 ━━━
-async function callOllama(prompt, imagePath, systemPrompt) {
-  const model = imagePath ? AI_CONFIG.ollamaVisionModel : AI_CONFIG.ollamaModel;
+async function callOllama(prompt, imagePath, systemPrompt, overrideModel) {
+  const model = overrideModel || (imagePath ? AI_CONFIG.ollamaVisionModel : AI_CONFIG.ollamaModel);
   const body = {
     model,
     prompt: systemPrompt ? `${systemPrompt}\n\n${prompt}` : prompt,
@@ -146,6 +154,45 @@ async function callClaude(prompt, imagePath, systemPrompt) {
   return data.content[0].text;
 }
 
+// ━━━ Google Gemini 호출 ━━━
+async function callGemini(prompt, imagePath, systemPrompt, overrideModel) {
+  const model = overrideModel || "gemini-2.5-flash";
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${AI_CONFIG.geminiKey}`;
+
+  const parts = [];
+  if (systemPrompt) parts.push({ text: systemPrompt + "\n\n" });
+  parts.push({ text: prompt });
+
+  if (imagePath) {
+    const imgBuf = fs.readFileSync(imagePath);
+    const ext = path.extname(imagePath).toLowerCase();
+    const mimeType = ext === ".png" ? "image/png" : ext === ".gif" ? "image/gif" : ext === ".webp" ? "image/webp" : "image/jpeg";
+    parts.push({ inline_data: { mime_type: mimeType, data: imgBuf.toString("base64") } });
+  }
+
+  const reqBody = {
+    contents: [{ parts }],
+    generationConfig: { maxOutputTokens: 8192 },
+  };
+  // 2.5 모델은 thinking을 끄면 훨씬 빠름
+  if (model.includes("2.5")) {
+    reqBody.generationConfig.thinkingConfig = { thinkingBudget: 0 };
+  }
+
+  const res = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(reqBody),
+  });
+
+  if (!res.ok) {
+    const err = await res.text();
+    throw new Error(`Gemini 오류: ${res.status} - ${err}`);
+  }
+  const data = await res.json();
+  return data.candidates?.[0]?.content?.parts?.[0]?.text || "응답을 생성하지 못했습니다.";
+}
+
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // 1. 병해충 사진 분석
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -162,6 +209,30 @@ const PEST_SYSTEM_PROMPT = `당신은 농업 병해충 전문가입니다.
   "additionalInfo": "추가 참고 사항"
 }
 JSON만 출력하세요. 다른 텍스트 없이 JSON만 응답하세요.`;
+
+// ━━━ 모델 목록 (Ollama + Gemini) ━━━
+router.get("/models", authenticate, async (req, res) => {
+  const models = [];
+  // Ollama 로컬 모델
+  try {
+    const r = await fetch(`${AI_CONFIG.ollamaUrl}/api/tags`);
+    if (r.ok) {
+      const data = await r.json();
+      (data.models || []).forEach(m => models.push({
+        name: m.name, provider: "ollama",
+        details: { parameter_size: m.details?.parameter_size, quantization_level: m.details?.quantization_level },
+      }));
+    }
+  } catch {}
+  // Gemini 클라우드 모델
+  if (AI_CONFIG.geminiKey) {
+    models.push(
+      { name: "gemini-2.5-flash", provider: "gemini", details: { parameter_size: "클라우드", desc: "빠르고 무료" } },
+      { name: "gemini-2.5-pro", provider: "gemini", details: { parameter_size: "클라우드", desc: "고성능" } },
+    );
+  }
+  res.json({ success: true, data: { models, defaultModel: AI_CONFIG.geminiKey ? "gemini-2.5-flash" : AI_CONFIG.ollamaModel } });
+});
 
 router.post("/:farmId/pest-analysis", authenticate, upload.single("photo"), async (req, res) => {
   try {
@@ -408,7 +479,7 @@ const CHAT_SYSTEM_PROMPT = `당신은 친절하고 전문적인 농업 상담 AI
 
 router.post("/:farmId/chat", authenticate, async (req, res) => {
   try {
-    const { message, context } = req.body;
+    const { message, context, model } = req.body;
     if (!message) return res.status(400).json({ success: false, error: "메시지를 입력해주세요" });
 
     let enrichedPrompt = message;
@@ -418,7 +489,7 @@ router.post("/:farmId/chat", authenticate, async (req, res) => {
       enrichedPrompt = `[이전 대화 컨텍스트]\n${context}\n\n[사용자 질문]\n${message}`;
     }
 
-    const result = await callAI(enrichedPrompt, { systemPrompt: CHAT_SYSTEM_PROMPT });
+    const result = await callAI(enrichedPrompt, { systemPrompt: CHAT_SYSTEM_PROMPT, model });
 
     res.json({ success: true, data: { reply: result, timestamp: new Date() } });
   } catch (error) {
@@ -438,6 +509,7 @@ router.get("/config", authenticate, (req, res) => {
       ollamaVisionModel: AI_CONFIG.ollamaVisionModel,
       hasOpenAI: !!AI_CONFIG.openaiKey,
       hasClaude: !!AI_CONFIG.claudeKey,
+      hasGemini: !!AI_CONFIG.geminiKey,
     },
   });
 });

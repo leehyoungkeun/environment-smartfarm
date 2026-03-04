@@ -45,10 +45,10 @@ async function rpiApi(method, path, data) {
 
 // 통일 서브탭 바 (모든 탭에서 재사용)
 export const SubTabBar = ({ tabs, activeTab, onChange, trailing }) => (
-  <div className="flex items-center gap-2 mb-4">
+  <div className="flex flex-wrap items-center gap-1.5 md:gap-2 mb-4">
     {tabs.map(tab => (
       <button key={tab.id} onClick={() => onChange(tab.id)}
-        className={`flex items-center gap-1.5 px-4 py-2.5 rounded-lg text-sm font-bold transition-all ${
+        className={`flex items-center gap-1 md:gap-1.5 px-2.5 md:px-4 py-2 md:py-2.5 rounded-lg text-xs md:text-sm font-bold transition-all ${
           activeTab === tab.id
             ? 'bg-blue-600 text-white shadow-md shadow-blue-600/25'
             : 'bg-gray-100 text-gray-500 hover:bg-gray-200'
@@ -231,12 +231,12 @@ const ConfigurationManager = ({ farmId = import.meta.env.VITE_FARM_ID || 'farm_0
       </div>
 
       {/* 탭 네비게이션 + 탭별 액션 버튼 */}
-      <div className="flex items-center gap-2 mb-5 animate-fade-in-up">
+      <div className="grid grid-cols-4 gap-1.5 md:flex md:items-center md:gap-2 mb-5 animate-fade-in-up">
         {tabs.map(tab => (
           <button
             key={tab.id}
             onClick={() => { setActiveTab(tab.id); localStorage.setItem('settings_activeTab', tab.id); }}
-            className={`flex items-center gap-2 px-5 py-2.5 rounded-xl text-base font-bold
+            className={`flex items-center justify-center gap-1 md:gap-2 px-2 md:px-5 py-2.5 rounded-xl text-xs md:text-base font-bold
                        whitespace-nowrap transition-all active:scale-[0.97] ${
               activeTab === tab.id
                 ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/20'

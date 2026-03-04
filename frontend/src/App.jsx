@@ -261,6 +261,9 @@ function AppContent() {
     ? [
         { id: 'dashboard', label: '대시보드', icon: '📊', permission: 'dashboard' },
         { id: 'control', label: '제어', icon: '🎛️', permission: 'control' },
+        { id: 'journal', label: '영농일지', icon: '📝', permission: 'journal' },
+        { id: 'report', label: '보고서', icon: '📄', permission: 'report' },
+        { id: 'ai', label: 'AI도우미', icon: '🤖', permission: 'ai' },
         { id: 'settings', label: '설정', icon: '⚙️', permission: 'settings' },
       ]
     : [
@@ -274,6 +277,106 @@ function AppContent() {
         { id: 'settings', label: '설정', icon: '⚙️', permission: 'settings' },
       ];
   const navItems = allNavItems.filter(item => hasPermission(item.permission));
+
+  // 역할별 2줄 네비 그리드 계산
+  const isStaff = isSystemWide; // superadmin, manager
+  const navGrid = (() => {
+    if (farmLocal) return null; // farmLocal은 기존 유지
+    if (isStaff) {
+      // 회사직원: 5열, row1=nav앞5개, row2=나머지nav+알림+관리자
+      const row1 = navItems.slice(0, 5);
+      const row2 = [
+        ...navItems.slice(5),
+        { id: '__alert__', type: 'alert' },
+        { id: '__user__', type: 'user' },
+      ];
+      return { row1, row2, columns: 5 };
+    } else {
+      // 농장사람: 4열, row1=로고+nav앞3개, row2=나머지nav+알림+관리자
+      const row1 = [
+        { id: '__logo__', type: 'logo' },
+        ...navItems.slice(0, 3),
+      ];
+      const row2 = [
+        ...navItems.slice(3),
+        { id: '__alert__', type: 'alert' },
+        { id: '__user__', type: 'user' },
+      ];
+      return { row1, row2, columns: 4 };
+    }
+  })();
+
+  // 그리드 셀 렌더링
+  const renderNavCell = (cell, isMobile = false) => {
+    const btnBase = isMobile
+      ? 'py-1.5 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-1 whitespace-nowrap w-full'
+      : 'py-2 rounded-xl text-sm font-medium transition-all duration-200 flex items-center justify-center gap-1 whitespace-nowrap w-full';
+
+    if (cell.type === 'logo') {
+      return (
+        <div key="__logo__" className={`${btnBase} h-full gap-1.5`}>
+          <div className={`${isMobile ? 'w-5 h-5 text-xs' : 'w-7 h-7 text-sm'} bg-gradient-to-br from-emerald-400 to-blue-500 rounded-lg flex items-center justify-center shadow-lg shadow-emerald-500/20`}>
+            🌱
+          </div>
+          <span className={`${isMobile ? 'text-xs' : 'text-sm'} font-bold text-gray-800`}>SmartFarm</span>
+        </div>
+      );
+    }
+
+    if (cell.type === 'alert') {
+      return (
+        <div key="__alert__" className="relative h-full">
+          <AlertPanel farmId={farmId} showPanel={showAlertPanel} setShowPanel={setShowAlertPanel} isMobile={isMobile} fullWidth={true} />
+        </div>
+      );
+    }
+
+    if (cell.type === 'user') {
+      return (
+        <div key="__user__" className="relative h-full">
+          <button
+            onClick={() => setShowUserMenu(!showUserMenu)}
+            className={`${btnBase} h-full ${showUserMenu ? 'tab-active' : 'tab-inactive'}`}
+          >
+            <span className={`${isMobile ? 'w-5 h-5 text-[10px]' : 'w-6 h-6 text-xs'} bg-gradient-to-br from-blue-400 to-violet-500 rounded-lg flex items-center justify-center text-white font-bold flex-shrink-0`}>
+              {user.name?.charAt(0) || '?'}
+            </span>
+            관리자
+          </button>
+          {showUserMenu && (
+            <>
+              <div className="fixed inset-0 z-[90]" onClick={() => setShowUserMenu(false)} />
+              <div className={`absolute right-0 ${isMobile ? 'top-9 w-44' : 'top-12 w-52'} bg-white border border-gray-200 rounded-2xl p-2 z-[100] animate-fade-in-up shadow-xl`}>
+                <div className="px-3 py-2 border-b border-gray-100 mb-1">
+                  <p className="text-sm font-semibold text-gray-800">{user.name}</p>
+                  <p className="text-xs text-gray-500">{user.username} · {roleLabel}</p>
+                </div>
+                {hasPermission('users') && (
+                  <button onClick={() => { setCurrentPage('users'); setShowUserMenu(false); }}
+                    className="w-full text-left px-3 py-2 text-sm text-gray-600 hover:bg-gray-100 rounded-lg transition-all">
+                    👥 사용자 관리
+                  </button>
+                )}
+                <button onClick={() => { logout(); setShowUserMenu(false); }}
+                  className="w-full text-left px-3 py-2 text-sm text-rose-600 hover:bg-rose-50 rounded-lg transition-all">
+                  🚪 로그아웃
+                </button>
+              </div>
+            </>
+          )}
+        </div>
+      );
+    }
+
+    // 일반 네비 버튼
+    return (
+      <button key={cell.id} onClick={() => setCurrentPage(cell.id)}
+        className={`${btnBase} ${currentPage === cell.id ? 'tab-active' : 'tab-inactive'}`}>
+        <span>{cell.icon}</span>
+        {cell.label}
+      </button>
+    );
+  };
 
   return (
     <div className="min-h-screen bg-mesh safe-top">
@@ -310,114 +413,146 @@ function AppContent() {
 
       {/* 데스크톱 네비게이션 */}
       <nav className="hidden md:block glass-nav sticky top-0 z-50">
-        <div className="max-w-7xl mx-auto px-6">
-          <div className="flex items-center justify-between h-16">
-            <div className="flex items-center gap-3">
-              <div className="w-9 h-9 bg-gradient-to-br from-emerald-400 to-blue-500 rounded-xl 
-                            flex items-center justify-center text-lg shadow-lg shadow-emerald-500/20">
-                🌱
-              </div>
-              <span className="text-xl font-bold text-gray-800 tracking-tight">
-                SmartFarm
-                {farmLocal && <span className="text-xs text-emerald-600 font-bold ml-1.5 bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-200">팜로컬</span>}
-              </span>
-              {!farmLocal && !isSystemWide && farms.length > 1 && (
-                <FarmSelector farms={farms} selectedFarmId={selectedFarmId} onSelect={selectFarm} />
+        <div className="max-w-7xl mx-auto px-4 lg:px-6 py-1.5">
+          {navGrid ? (
+            <>
+              {/* 회사직원: 로고바 */}
+              {isStaff && (
+                <div className="flex items-center gap-2 pb-1.5 mb-1 border-b border-gray-100">
+                  <div className="w-7 h-7 bg-gradient-to-br from-emerald-400 to-blue-500 rounded-lg flex items-center justify-center text-sm shadow-lg shadow-emerald-500/20">🌱</div>
+                  <span className="text-base font-bold text-gray-800">SmartFarm</span>
+                  {farms.length > 1 && (
+                    <FarmSelector farms={farms} selectedFarmId={selectedFarmId} onSelect={selectFarm} />
+                  )}
+                </div>
               )}
-            </div>
-
-            <div className="flex items-center gap-1.5">
-              {navItems.map((item) => (
-                <button
-                  key={item.id}
-                  onClick={() => setCurrentPage(item.id)}
-                  className={`py-2 rounded-xl font-medium transition-all duration-200 flex items-center justify-center gap-1 whitespace-nowrap ${currentPage === item.id ? 'tab-active' : 'tab-inactive'
-                    }`}
-                  style={{ width: 96, paddingLeft: 4, paddingRight: 4, fontSize: 13 }}
-                >
-                  <span>{item.icon}</span>
-                  {item.label}
-                </button>
-              ))}
-
-              <div className="w-px h-6 bg-gray-200 mx-1" />
-
-              <AlertPanel
-                farmId={farmId}
-                showPanel={showAlertPanel}
-                setShowPanel={setShowAlertPanel}
-              />
-
-              {/* 사용자 메뉴 */}
-              <div className="relative ml-1">
-                <button
-                  onClick={() => setShowUserMenu(!showUserMenu)}
-                  className="flex items-center gap-2 px-3 py-2 rounded-xl text-sm font-medium
-                           bg-gray-100 text-gray-600 hover:bg-gray-200 transition-all border border-gray-200"
-                >
-                  <span className="w-7 h-7 bg-gradient-to-br from-blue-400 to-violet-500 rounded-lg
-                                 flex items-center justify-center text-xs text-white font-bold">
-                    {user.name?.charAt(0) || '?'}
-                  </span>
-                  <span className="hidden lg:inline">{user.name}</span>
-                </button>
-                {showUserMenu && (
-                  <>
-                    <div className="fixed inset-0 z-[90]" onClick={() => setShowUserMenu(false)} />
-                    <div className="absolute right-0 top-12 w-52 bg-white border border-gray-200 rounded-2xl p-2 z-[100] animate-fade-in-up shadow-xl">
-                      <div className="px-3 py-2 border-b border-gray-100 mb-1">
-                        <p className="text-sm font-semibold text-gray-800">{user.name}</p>
-                        <p className="text-xs text-gray-500">{user.username} · {roleLabel}</p>
+              {/* 2줄 그리드 */}
+              <div className="grid gap-1 mb-1" style={{ gridTemplateColumns: `repeat(${navGrid.columns}, 1fr)` }}>
+                {navGrid.row1.map(cell => renderNavCell(cell, false))}
+              </div>
+              <div className="grid gap-1" style={{ gridTemplateColumns: `repeat(${navGrid.columns}, 1fr)` }}>
+                {navGrid.row2.map(cell => renderNavCell(cell, false))}
+              </div>
+            </>
+          ) : (
+            /* farmLocal: 간단한 1줄 */
+            <div className="flex items-center justify-between h-14">
+              <div className="flex items-center gap-3">
+                <div className="w-8 h-8 bg-gradient-to-br from-emerald-400 to-blue-500 rounded-xl flex items-center justify-center text-base shadow-lg shadow-emerald-500/20">🌱</div>
+                <span className="text-lg font-bold text-gray-800">SmartFarm<span className="text-xs text-emerald-600 font-bold ml-1.5 bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-200">팜로컬</span></span>
+              </div>
+              <div className="flex items-center gap-1">
+                {navItems.map(item => (
+                  <button key={item.id} onClick={() => setCurrentPage(item.id)}
+                    className={`py-2 px-4 rounded-xl text-sm font-medium transition-all flex items-center gap-1 ${currentPage === item.id ? 'tab-active' : 'tab-inactive'}`}>
+                    <span>{item.icon}</span>{item.label}
+                  </button>
+                ))}
+                {/* 알림 */}
+                <div className="relative">
+                  <AlertPanel farmId={farmId} showPanel={showAlertPanel} setShowPanel={setShowAlertPanel} isMobile={false} fullWidth={false} />
+                </div>
+                {/* 사용자 메뉴 */}
+                <div className="relative">
+                  <button onClick={() => setShowUserMenu(!showUserMenu)}
+                    className={`py-2 px-4 rounded-xl text-sm font-medium transition-all flex items-center gap-1 ${showUserMenu ? 'tab-active' : 'tab-inactive'}`}>
+                    <span className="w-6 h-6 text-xs bg-gradient-to-br from-blue-400 to-violet-500 rounded-lg flex items-center justify-center text-white font-bold flex-shrink-0">
+                      {user.name?.charAt(0) || '?'}
+                    </span>
+                    관리자
+                  </button>
+                  {showUserMenu && (
+                    <>
+                      <div className="fixed inset-0 z-[90]" onClick={() => setShowUserMenu(false)} />
+                      <div className="absolute right-0 top-12 w-52 bg-white border border-gray-200 rounded-2xl p-2 z-[100] animate-fade-in-up shadow-xl">
+                        <div className="px-3 py-2 border-b border-gray-100 mb-1">
+                          <p className="text-sm font-semibold text-gray-800">{user.name}</p>
+                          <p className="text-xs text-gray-500">{user.username} · {roleLabel}</p>
+                        </div>
+                        <button onClick={() => { logout(); setShowUserMenu(false); }}
+                          className="w-full text-left px-3 py-2 text-sm text-blue-600 hover:bg-blue-50 rounded-lg transition-all">
+                          ☁️ 클라우드 전환
+                        </button>
                       </div>
-                      {hasPermission('users') && (
-                        <button
-                          onClick={() => { setCurrentPage('users'); setShowUserMenu(false); }}
-                          className="w-full text-left px-3 py-2 text-sm text-gray-600 hover:bg-gray-100 rounded-lg transition-all"
-                        >
-                          👥 사용자 관리
-                        </button>
-                      )}
-                      {!farmLocal && (
-                        <button
-                          onClick={() => { logout(); setShowUserMenu(false); }}
-                          className="w-full text-left px-3 py-2 text-sm text-rose-600 hover:bg-rose-50 rounded-lg transition-all"
-                        >
-                          🚪 로그아웃
-                        </button>
-                      )}
-                    </div>
-                  </>
-                )}
+                    </>
+                  )}
+                </div>
               </div>
             </div>
-          </div>
+          )}
         </div>
       </nav>
 
       {/* 모바일 상단 헤더 */}
       <header className="md:hidden glass-nav sticky top-0 z-50 safe-top">
-        <div className="px-4 py-3 flex items-center justify-between">
-          <div className="flex items-center gap-2.5">
-            <div className="w-8 h-8 bg-gradient-to-br from-emerald-400 to-blue-500 rounded-lg 
-                          flex items-center justify-center text-base shadow-lg shadow-emerald-500/20">
-              🌱
+        <div className="px-2 py-1.5">
+          {navGrid ? (
+            <>
+              {/* 회사직원: 로고바 */}
+              {isStaff && (
+                <div className="flex items-center gap-2 pb-1 mb-1 border-b border-gray-100">
+                  <div className="w-6 h-6 bg-gradient-to-br from-emerald-400 to-blue-500 rounded-md flex items-center justify-center text-xs shadow-md">🌱</div>
+                  <span className="text-xs font-bold text-gray-800">SmartFarm</span>
+                </div>
+              )}
+              {/* 2줄 그리드 */}
+              <div className="grid gap-1 mb-1" style={{ gridTemplateColumns: `repeat(${navGrid.columns}, 1fr)` }}>
+                {navGrid.row1.map(cell => renderNavCell(cell, true))}
+              </div>
+              <div className="grid gap-1" style={{ gridTemplateColumns: `repeat(${navGrid.columns}, 1fr)` }}>
+                {navGrid.row2.map(cell => renderNavCell(cell, true))}
+              </div>
+            </>
+          ) : (
+            /* farmLocal: 간단한 레이아웃 */
+            <div className="flex items-center justify-between py-1">
+              <div className="flex items-center gap-2">
+                <div className="w-7 h-7 bg-gradient-to-br from-emerald-400 to-blue-500 rounded-lg flex items-center justify-center text-sm shadow-lg shadow-emerald-500/20">🌱</div>
+                <span className="text-sm font-bold text-gray-800">SmartFarm<span className="text-[10px] text-emerald-600 font-bold ml-1 bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200">팜로컬</span></span>
+              </div>
+              <div className="flex items-center gap-1">
+                {navItems.map(item => (
+                  <button key={item.id} onClick={() => setCurrentPage(item.id)}
+                    className={`py-1.5 px-2.5 rounded-lg text-xs font-bold transition-all ${currentPage === item.id ? 'tab-active' : 'tab-inactive'}`}>
+                    <span>{item.icon}</span> {item.label}
+                  </button>
+                ))}
+                {/* 알림 */}
+                <div className="relative">
+                  <AlertPanel farmId={farmId} showPanel={showAlertPanel} setShowPanel={setShowAlertPanel} isMobile={true} fullWidth={false} />
+                </div>
+                {/* 사용자 */}
+                <div className="relative">
+                  <button onClick={() => setShowUserMenu(!showUserMenu)}
+                    className={`py-1.5 px-2.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1 ${showUserMenu ? 'tab-active' : 'tab-inactive'}`}>
+                    <span className="w-5 h-5 text-[10px] bg-gradient-to-br from-blue-400 to-violet-500 rounded-lg flex items-center justify-center text-white font-bold flex-shrink-0">
+                      {user.name?.charAt(0) || '?'}
+                    </span>
+                  </button>
+                  {showUserMenu && (
+                    <>
+                      <div className="fixed inset-0 z-[90]" onClick={() => setShowUserMenu(false)} />
+                      <div className="absolute right-0 top-9 w-44 bg-white border border-gray-200 rounded-2xl p-2 z-[100] animate-fade-in-up shadow-xl">
+                        <div className="px-3 py-2 border-b border-gray-100 mb-1">
+                          <p className="text-sm font-semibold text-gray-800">{user.name}</p>
+                          <p className="text-xs text-gray-500">{user.username} · {roleLabel}</p>
+                        </div>
+                        <button onClick={() => { logout(); setShowUserMenu(false); }}
+                          className="w-full text-left px-3 py-2 text-sm text-blue-600 hover:bg-blue-50 rounded-lg transition-all">
+                          ☁️ 클라우드 전환
+                        </button>
+                      </div>
+                    </>
+                  )}
+                </div>
+              </div>
             </div>
-            <span className="text-base font-bold text-gray-800 tracking-tight">
-              SmartFarm
-              {farmLocal && <span className="text-[10px] text-emerald-600 font-bold ml-1 bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200">팜로컬</span>}
-            </span>
-          </div>
-          <button
-            onClick={() => setShowAlertPanel(!showAlertPanel)}
-            className="relative p-2 rounded-xl bg-gray-100 text-gray-700 active:scale-95 transition-transform border border-gray-200"
-          >
-            🔔
-          </button>
+          )}
         </div>
       </header>
 
       {/* 메인 콘텐츠 */}
-      <main className="relative z-10 pb-24 md:pb-8">
+      <main className="relative z-10 pb-8">
         {/* 선택된 농장 정보 배너 */}
         {selectedFarmInfo && currentPage !== 'farms' && !(isSystemWide && !selectedFarmId) && (
           <div className="max-w-7xl mx-auto px-4 md:px-6 pt-3 md:pt-4">
@@ -486,31 +621,7 @@ function AppContent() {
         )}
       </main>
 
-      {/* 모바일 하단 네비게이션 */}
-      <nav className="md:hidden fixed bottom-0 left-0 right-0 glass-nav z-50 safe-bottom">
-        <div className={`grid h-16 overflow-x-auto`} style={{ gridTemplateColumns: `repeat(${navItems.length + 1}, minmax(0, 1fr))` }}>
-          {navItems.map((item) => (
-            <button
-              key={item.id}
-              onClick={() => setCurrentPage(item.id)}
-              className={`flex flex-col items-center justify-center gap-0.5 transition-all active:scale-90 ${currentPage === item.id
-                  ? 'text-blue-600'
-                  : 'text-gray-400'
-                }`}
-            >
-              <span className="text-xl">{item.icon}</span>
-              <span className="text-xs font-semibold tracking-wide">{item.label}</span>
-            </button>
-          ))}
-          <button
-            onClick={() => setShowAlertPanel(true)}
-            className="flex flex-col items-center justify-center gap-0.5 text-gray-400 transition-all active:scale-90"
-          >
-            <span className="text-xl">🔔</span>
-            <span className="text-xs font-semibold tracking-wide">알림</span>
-          </button>
-        </div>
-      </nav>
+      {/* 모바일 하단 네비 제거 — 모든 메뉴가 상단 헤더에 통합됨 */}
 
       {/* 모바일 알림 패널 */}
       <div className="md:hidden">

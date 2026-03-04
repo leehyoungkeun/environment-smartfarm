@@ -349,7 +349,7 @@ model userFarm {
 }
 
 model user {
-  id            String     @id
+  id            String     @id @default(dbgenerated("(gen_random_uuid())::text"))
   username      String     @unique
   password      String
   name          String

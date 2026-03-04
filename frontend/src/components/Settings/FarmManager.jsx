@@ -1504,9 +1504,9 @@ export default function FarmManager({ onNavigateFarm }) {
               {hasFilters && `검색결과 ${filteredFarms.length}건 / `}총 {farms.length}건
             </span>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1.5 flex-wrap">
             <button onClick={() => { setShowAlertFeed(true); fetchAlertFeed(); }}
-              className="relative px-3 py-1.5 rounded text-xs font-medium border bg-white text-gray-500 border-gray-300 hover:bg-gray-50 transition-colors">
+              className="relative px-3 py-1.5 rounded-lg text-xs font-semibold border border-gray-200 bg-white text-gray-600 hover:bg-gray-50 transition-all">
               🔔 알림
               {alertSummary.recentAlerts > 0 && (
                 <span className="absolute -top-1.5 -right-1.5 min-w-[18px] h-[18px] flex items-center justify-center px-1 rounded-full bg-red-500 text-white text-[10px] font-bold leading-none">
@@ -1515,16 +1515,15 @@ export default function FarmManager({ onNavigateFarm }) {
               )}
             </button>
             <button onClick={() => setShowMap(true)}
-              className="px-3 py-1.5 rounded text-xs font-medium border bg-white text-gray-500 border-gray-300 hover:bg-gray-50 transition-colors">
-              지도
+              className="px-3 py-1.5 rounded-lg text-xs font-semibold border border-gray-200 bg-white text-gray-600 hover:bg-gray-50 transition-all">
+              🗺️ 지도
             </button>
             <button onClick={() => {
                 setShowKeys(k => !k);
-                // Sync with column visibility
                 if (!isCol('apiKey')) setVisibleColumns(prev => [...prev, 'apiKey']);
                 else setVisibleColumns(prev => prev.filter(x => x !== 'apiKey'));
               }}
-              className={`px-3 py-1.5 rounded text-xs font-medium border transition-colors ${isCol('apiKey') ? 'bg-amber-50 text-amber-700 border-amber-300' : 'bg-white text-gray-500 border-gray-300 hover:bg-gray-50'}`}
+              className={`px-3 py-1.5 rounded-lg text-xs font-semibold border transition-all ${isCol('apiKey') ? 'bg-amber-50 text-amber-700 border-amber-200' : 'border-gray-200 bg-white text-gray-600 hover:bg-gray-50'}`}
               title={isCol('apiKey') ? 'API Key 숨기기' : 'API Key 표시'}>
               {isCol('apiKey') ? '🔓 Key 표시중' : '🔒 Key 숨김'}
             </button>
@@ -1539,14 +1538,13 @@ export default function FarmManager({ onNavigateFarm }) {
                   } catch (err) { setTrashFarms([]); setError(err.response?.data?.error || '휴지통 조회 실패'); }
                 }
               }}
-                className={`px-3 py-1.5 rounded text-xs font-medium border transition-colors ${showTrash ? 'bg-red-50 text-red-700 border-red-300' : 'bg-white text-gray-500 border-gray-300 hover:bg-gray-50'}`}>
+                className={`px-3 py-1.5 rounded-lg text-xs font-semibold border transition-all ${showTrash ? 'bg-red-50 text-red-700 border-red-200' : 'border-gray-200 bg-white text-gray-600 hover:bg-gray-50'}`}>
                 🗑️ 휴지통 ({trashCount})
               </button>
             )}
-            {/* Column Settings */}
             <div className="relative" ref={columnSettingsRef}>
               <button onClick={() => setShowColumnSettings(v => !v)}
-                className={`px-3 py-1.5 rounded text-xs font-medium border transition-colors ${showColumnSettings ? 'bg-slate-100 text-slate-700 border-slate-400' : 'bg-white text-gray-500 border-gray-300 hover:bg-gray-50'}`}
+                className={`px-3 py-1.5 rounded-lg text-xs font-semibold border transition-all ${showColumnSettings ? 'bg-slate-100 text-slate-700 border-slate-300' : 'border-gray-200 bg-white text-gray-600 hover:bg-gray-50'}`}
                 title="컬럼 설정">
                 <svg className="w-3.5 h-3.5 inline -mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.066 2.573c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.573 1.066c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.066-2.573c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
                 {' '}컬럼
@@ -1573,11 +1571,11 @@ export default function FarmManager({ onNavigateFarm }) {
               )}
             </div>
             <select value={perPage} onChange={e => { setPerPage(Number(e.target.value)); setCurrentPage(1); }}
-              className="px-2 py-1.5 border border-gray-300 rounded text-xs bg-white">
+              className="px-2.5 py-1.5 border border-gray-200 rounded-lg text-xs font-semibold text-gray-600 bg-white hover:bg-gray-50 transition-all">
               {PER_PAGE_OPTIONS.map(n => <option key={n} value={n}>{n}개씩 보기</option>)}
             </select>
             <button onClick={openNewForm}
-              className="px-4 py-1.5 bg-indigo-600 text-white rounded text-xs font-medium hover:bg-indigo-700 transition-colors">
+              className="px-4 py-1.5 bg-indigo-600 text-white rounded-lg text-xs font-semibold hover:bg-indigo-700 transition-all shadow-sm">
               + 농장 등록
             </button>
           </div>

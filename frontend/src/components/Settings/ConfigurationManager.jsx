@@ -730,25 +730,25 @@ const HouseDetailEditor = ({ house, onUpdate }) => {
  * 제어 장치 관리 컴포넌트
  */
 const DEVICE_TYPES = [
-  { value: 'window', label: '1창', icon: '🪟', commands: 'open/stop/close' },
-  { value: 'side_window', label: '측창', icon: '🪟', commands: 'open/stop/close' },
-  { value: 'top_window', label: '천창', icon: '🪟', commands: 'open/stop/close' },
-  { value: 'shade', label: '차광', icon: '🌑', commands: 'open/stop/close' },
-  { value: 'screen', label: '스크린', icon: '🎞️', commands: 'open/stop/close' },
-  { value: 'pump', label: '펌프', icon: '🔧', commands: 'on/off' },
-  { value: 'motor', label: '모터', icon: '⚙️', commands: 'on/off' },
-  { value: 'light', label: '조명', icon: '💡', commands: 'on/off' },
-  { value: 'fan', label: '순환팬', icon: '🌀', commands: 'on/off' },
-  { value: 'nutrient', label: '양액공급', icon: '💧', commands: 'on/off' },
-  { value: 'solution', label: '배양액', icon: '🧪', commands: 'on/off' },
-  { value: 'light_ctrl', label: '조명제어', icon: '🔆', commands: 'on/off' },
-  { value: 'sprayer', label: '무인방제기', icon: '🚿', commands: 'on/off' },
-  { value: 'heater', label: '온풍기', icon: '🔥', commands: 'on/off' },
-  { value: 'cooler', label: '냉방기', icon: '❄️', commands: 'on/off' },
-  { value: 'co2_supply', label: 'CO2공급기', icon: '💨', commands: 'on/off' },
-  { value: 'mist', label: '분무제어', icon: '🌫️', commands: 'on/off' },
-  { value: 'valve', label: '관수밸브', icon: '🚰', commands: 'open/stop/close' },
-  { value: 'etc_device', label: '기타', icon: '🔧', commands: 'on/off' },
+  { value: 'window', label: '1창', icon: '🪟', commands: 'open/stop/close', defaultControlType: 'bidir' },
+  { value: 'side_window', label: '측창', icon: '🪟', commands: 'open/stop/close', defaultControlType: 'bidir' },
+  { value: 'top_window', label: '천창', icon: '🪟', commands: 'open/stop/close', defaultControlType: 'bidir' },
+  { value: 'shade', label: '차광', icon: '🌑', commands: 'open/stop/close', defaultControlType: 'bidir' },
+  { value: 'screen', label: '스크린', icon: '🎞️', commands: 'open/stop/close', defaultControlType: 'bidir' },
+  { value: 'pump', label: '펌프', icon: '🔧', commands: 'on/off', defaultControlType: 'single' },
+  { value: 'motor', label: '모터', icon: '⚙️', commands: 'on/off', defaultControlType: 'single' },
+  { value: 'light', label: '조명', icon: '💡', commands: 'on/off', defaultControlType: 'single' },
+  { value: 'fan', label: '순환팬', icon: '🌀', commands: 'on/off', defaultControlType: 'single' },
+  { value: 'nutrient', label: '양액공급', icon: '💧', commands: 'on/off', defaultControlType: 'single' },
+  { value: 'solution', label: '배양액', icon: '🧪', commands: 'on/off', defaultControlType: 'single' },
+  { value: 'light_ctrl', label: '조명제어', icon: '🔆', commands: 'on/off', defaultControlType: 'single' },
+  { value: 'sprayer', label: '무인방제기', icon: '🚿', commands: 'on/off', defaultControlType: 'single' },
+  { value: 'heater', label: '온풍기', icon: '🔥', commands: 'on/off', defaultControlType: 'single' },
+  { value: 'cooler', label: '냉방기', icon: '❄️', commands: 'on/off', defaultControlType: 'single' },
+  { value: 'co2_supply', label: 'CO2공급기', icon: '💨', commands: 'on/off', defaultControlType: 'single' },
+  { value: 'mist', label: '분무제어', icon: '🌫️', commands: 'on/off', defaultControlType: 'single' },
+  { value: 'valve', label: '관수밸브', icon: '🚰', commands: 'open/stop/close', defaultControlType: 'bidir' },
+  { value: 'etc_device', label: '기타', icon: '🔧', commands: 'on/off', defaultControlType: 'single' },
 ];
 
 const getDeviceIcon = (type) => {
@@ -761,6 +761,7 @@ const getDeviceLabel = (type) => {
 
 const DeviceManager = ({ house, setEditedHouse, onUpdate, isDirty, saving, onSave }) => {
   const [showAddDevice, setShowAddDevice] = useState(false);
+  const [expandedDevice, setExpandedDevice] = useState(null);
   const [newDevice, setNewDevice] = useState({
     type: 'window', name: '', enabled: true
   });
@@ -775,13 +776,95 @@ const DeviceManager = ({ house, setEditedHouse, onUpdate, isDirty, saving, onSav
     return `${type}${nextNum}`;
   };
 
+  // 특정 장치를 제외하고, 해당 unitId에서 사용 중인 CH 주소 목록 반환
+  const getUsedChannels = (excludeDeviceId, unitId) => {
+    const used = [];
+    devices.forEach(d => {
+      if (d.deviceId === excludeDeviceId) return;
+      const m = d.modbus;
+      if (!m || (m.unitId || 1) !== unitId) return;
+      if (m.address !== null && m.address !== undefined) used.push(m.address);
+      if (m.address2 !== null && m.address2 !== undefined) used.push(m.address2);
+    });
+    return used;
+  };
+
+  const updateDeviceModbus = (deviceId, modbusData) => {
+    const current = devices.find(d => d.deviceId === deviceId);
+    const dtInfo = DEVICE_TYPES.find(dt => dt.value === current?.type);
+    const defaultModbus = { unitId: 1, controlType: dtInfo?.defaultControlType || 'single', address: null, address2: null };
+    const merged = { ...defaultModbus, ...current?.modbus, ...modbusData };
+    const unitId = merged.unitId || 1;
+    const usedChs = getUsedChannels(deviceId, unitId);
+
+    // CH 중복 검증
+    if (modbusData.address !== undefined && modbusData.address !== null && usedChs.includes(modbusData.address)) {
+      const conflictDev = devices.find(d => d.deviceId !== deviceId && d.modbus &&
+        (d.modbus.unitId || 1) === unitId && (d.modbus.address === modbusData.address || d.modbus.address2 === modbusData.address));
+      alert(`CH${modbusData.address}은(는) "${conflictDev?.name}"에서 사용 중입니다.`);
+      return;
+    }
+    if (modbusData.address2 !== undefined && modbusData.address2 !== null && usedChs.includes(modbusData.address2)) {
+      const conflictDev = devices.find(d => d.deviceId !== deviceId && d.modbus &&
+        (d.modbus.unitId || 1) === unitId && (d.modbus.address === modbusData.address2 || d.modbus.address2 === modbusData.address2));
+      alert(`CH${modbusData.address2}은(는) "${conflictDev?.name}"에서 사용 중입니다.`);
+      return;
+    }
+
+    const updatedDevices = devices.map(d =>
+      d.deviceId === deviceId ? { ...d, modbus: merged } : d
+    );
+    setEditedHouse({ ...house, devices: updatedDevices });
+  };
+
+  // Modbus 연결 테스트
+  const [modbusTestResult, setModbusTestResult] = useState({}); // { [deviceId]: 'testing'|'ok'|'fail' }
+  const testModbusConnection = async (deviceId) => {
+    const device = devices.find(d => d.deviceId === deviceId);
+    const m = device?.modbus;
+    if (!m || m.address == null) return;
+
+    setModbusTestResult(prev => ({ ...prev, [deviceId]: 'testing' }));
+    try {
+      const rpiBase = getRpiApiBase();
+      const moduleType = m.moduleType || 'waveshare';
+      const unitId = m.unitId || 1;
+      let res;
+
+      if (moduleType === 'eletechsup') {
+        res = await axiosBase.get(`${rpiBase}/relay/reg-status`, {
+          params: { unitId, register: 0, quantity: 1 }, timeout: 5000,
+        });
+      } else {
+        res = await axiosBase.get(`${rpiBase}/relay/status`, {
+          params: { unitId, quantity: 8 }, timeout: 5000,
+        });
+      }
+
+      if (res.data?.success) {
+        setModbusTestResult(prev => ({ ...prev, [deviceId]: 'ok' }));
+      } else {
+        setModbusTestResult(prev => ({ ...prev, [deviceId]: 'fail' }));
+      }
+    } catch {
+      setModbusTestResult(prev => ({ ...prev, [deviceId]: 'fail' }));
+    }
+  };
+
   const addDevice = () => {
     const deviceId = generateDeviceId(newDevice.type);
     const name = newDevice.name || `${getDeviceLabel(newDevice.type)} ${devices.filter(d => d.type === newDevice.type).length + 1}`;
+    const dtInfo = DEVICE_TYPES.find(d => d.value === newDevice.type);
 
     const updatedDevices = [...devices, {
       deviceId, name, type: newDevice.type,
       icon: getDeviceIcon(newDevice.type), enabled: true, order: devices.length,
+      modbus: {
+        unitId: 1,
+        controlType: dtInfo?.defaultControlType || 'single',
+        address: null,
+        address2: null,
+      },
     }];
     setEditedHouse({ ...house, devices: updatedDevices, deviceCount: updatedDevices.length });
     setNewDevice({ type: 'window', name: '', enabled: true });
@@ -873,34 +956,165 @@ const DeviceManager = ({ house, setEditedHouse, onUpdate, isDirty, saving, onSav
         </div>
       ) : (
         <div className="space-y-2">
-          {devices.map(device => (
-            <div
-              key={device.deviceId}
-              className="flex items-center gap-3 bg-gray-50 border border-gray-200
-                        rounded-xl px-4 py-3 hover:bg-gray-100 transition-all"
-            >
-              <span className="text-2xl">{device.icon || getDeviceIcon(device.type)}</span>
-              <div className="flex-1 min-w-0">
-                <p className="text-base font-bold text-gray-800">{device.name}</p>
-                <p className="text-xs text-gray-500 truncate">
-                  {device.deviceId} · {getDeviceLabel(device.type)} ·
-                  {DEVICE_TYPES.find(d => d.value === device.type)?.commands || 'on/off'}
-                </p>
+          {devices.map(device => {
+            const isExpanded = expandedDevice === device.deviceId;
+            const modbus = device.modbus || {};
+            const isBidir = modbus.controlType === 'bidir';
+            const hasModbus = modbus.address !== null && modbus.address !== undefined && modbus.address !== '';
+            return (
+              <div key={device.deviceId} className="bg-gray-50 border border-gray-200 rounded-xl overflow-hidden transition-all">
+                <div
+                  className="flex items-center gap-3 px-4 py-3 hover:bg-gray-100 transition-all cursor-pointer"
+                  onClick={() => setExpandedDevice(isExpanded ? null : device.deviceId)}
+                >
+                  <span className="text-2xl">{device.icon || getDeviceIcon(device.type)}</span>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-base font-bold text-gray-800">{device.name}</p>
+                    <p className="text-xs text-gray-500 truncate">
+                      {device.deviceId} · {getDeviceLabel(device.type)} ·
+                      {DEVICE_TYPES.find(d => d.value === device.type)?.commands || 'on/off'}
+                      {hasModbus && (
+                        <span className="ml-1 text-emerald-600 font-semibold">
+                          · U{modbus.unitId || 1}:CH{modbus.address}{isBidir ? `+${modbus.address2}` : ''} ({modbus.moduleType === 'eletechsup' ? 'FC06' : 'FC15'})
+                        </span>
+                      )}
+                    </p>
+                  </div>
+                  <span className={`text-gray-400 text-xs transition-transform ${isExpanded ? 'rotate-180' : ''}`}>▼</span>
+                  <button
+                    onClick={(e) => { e.stopPropagation(); removeDevice(device.deviceId); }}
+                    className="p-2 rounded-lg text-gray-400 hover:text-rose-500 hover:bg-rose-50
+                             transition-all text-base border border-transparent hover:border-rose-200"
+                  >
+                    🗑️
+                  </button>
+                </div>
+
+                {/* Modbus 채널 설정 패널 */}
+                {isExpanded && (
+                  <div className="px-4 pb-4 pt-1 border-t border-gray-200 bg-white animate-fade-in-up">
+                    <p className="text-xs font-bold text-gray-600 mb-2">⚡ Modbus 릴레이 채널 설정</p>
+                    <div className="grid grid-cols-3 gap-3">
+                      <div>
+                        <label className="text-xs text-gray-500 mb-1 block">릴레이 모듈</label>
+                        <select
+                          value={modbus.moduleType || 'waveshare'}
+                          onChange={(e) => updateDeviceModbus(device.deviceId, { moduleType: e.target.value })}
+                          className="input-field text-sm"
+                        >
+                          <option value="waveshare">Waveshare (FC15)</option>
+                          <option value="eletechsup">Eletechsup (FC06)</option>
+                        </select>
+                      </div>
+                      <div>
+                        <label className="text-xs text-gray-500 mb-1 block">릴레이 ID (Unit-Id)</label>
+                        <input
+                          type="number" min="1" max="247"
+                          placeholder="1~247"
+                          value={modbus.unitId ?? 1}
+                          onChange={(e) => updateDeviceModbus(device.deviceId, {
+                            unitId: e.target.value === '' ? 1 : parseInt(e.target.value),
+                          })}
+                          className="input-field text-sm"
+                        />
+                      </div>
+                      <div>
+                        <label className="text-xs text-gray-500 mb-1 block">제어 방식</label>
+                        <select
+                          value={modbus.controlType || 'single'}
+                          onChange={(e) => {
+                            const ct = e.target.value;
+                            updateDeviceModbus(device.deviceId, {
+                              controlType: ct,
+                              address2: ct === 'single' ? null : modbus.address2,
+                            });
+                          }}
+                          className="input-field text-sm"
+                        >
+                          <option value="single">단방향 (ON/OFF)</option>
+                          <option value="bidir">양방향 (열기/닫기)</option>
+                        </select>
+                      </div>
+                      <div>
+                        <label className="text-xs text-gray-500 mb-1 block">
+                          {modbus.controlType === 'bidir' ? 'CH1 주소 (열기)' : 'CH 주소'}
+                        </label>
+                        <input
+                          type="number"
+                          min={(modbus.moduleType || 'waveshare') === 'eletechsup' ? 1 : 0}
+                          max={(modbus.moduleType || 'waveshare') === 'eletechsup' ? 8 : 255}
+                          placeholder={(modbus.moduleType || 'waveshare') === 'eletechsup' ? '1~8' : '0~255'}
+                          value={modbus.address ?? ''}
+                          onChange={(e) => updateDeviceModbus(device.deviceId, {
+                            address: e.target.value === '' ? null : parseInt(e.target.value),
+                          })}
+                          className="input-field text-sm"
+                        />
+                      </div>
+                      {modbus.controlType === 'bidir' && (
+                        <div>
+                          <label className="text-xs text-gray-500 mb-1 block">CH2 주소 (닫기)</label>
+                          <input
+                            type="number"
+                            min={(modbus.moduleType || 'waveshare') === 'eletechsup' ? 1 : 0}
+                            max={(modbus.moduleType || 'waveshare') === 'eletechsup' ? 8 : 255}
+                            placeholder={(modbus.moduleType || 'waveshare') === 'eletechsup' ? '1~8' : '0~255'}
+                            value={modbus.address2 ?? ''}
+                            onChange={(e) => updateDeviceModbus(device.deviceId, {
+                              address2: e.target.value === '' ? null : parseInt(e.target.value),
+                            })}
+                            className="input-field text-sm"
+                          />
+                        </div>
+                      )}
+                    </div>
+                    {hasModbus && (
+                      <div className="mt-2 px-3 py-2 bg-emerald-50 border border-emerald-200 rounded-lg flex items-center justify-between gap-2">
+                        <p className="text-xs text-emerald-700">
+                          ✅ {device.name}: 릴레이#{modbus.unitId || 1} {isBidir
+                            ? `CH${modbus.address}(열기) + CH${modbus.address2}(닫기)`
+                            : `CH${modbus.address}(ON/OFF)`
+                          } — {modbus.moduleType === 'eletechsup' ? 'FC06' : 'FC15'}
+                        </p>
+                        <button
+                          onClick={(e) => { e.stopPropagation(); testModbusConnection(device.deviceId); }}
+                          disabled={modbusTestResult[device.deviceId] === 'testing'}
+                          className={`px-3 py-1 rounded-lg text-xs font-bold whitespace-nowrap transition-all ${
+                            modbusTestResult[device.deviceId] === 'testing' ? 'bg-gray-200 text-gray-500' :
+                            modbusTestResult[device.deviceId] === 'ok' ? 'bg-emerald-500 text-white' :
+                            modbusTestResult[device.deviceId] === 'fail' ? 'bg-rose-500 text-white' :
+                            'bg-blue-500 text-white hover:bg-blue-600'
+                          }`}
+                        >
+                          {modbusTestResult[device.deviceId] === 'testing' ? '테스트 중...' :
+                           modbusTestResult[device.deviceId] === 'ok' ? '연결 OK' :
+                           modbusTestResult[device.deviceId] === 'fail' ? '연결 실패!' :
+                           '연결 테스트'}
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
-              <button
-                onClick={() => removeDevice(device.deviceId)}
-                className="p-2 rounded-lg text-gray-400 hover:text-rose-500 hover:bg-rose-50
-                         transition-all text-base border border-transparent hover:border-rose-200"
-              >
-                🗑️
-              </button>
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
 
       {/* 장치 저장 버튼 */}
-      <button onClick={onSave} disabled={!isDirty || saving}
+      <button onClick={async () => {
+        // 저장 전 Modbus 연결 안 된 장치 경고
+        const modbusDevices = devices.filter(d => d.modbus?.address != null);
+        const untestedDevices = modbusDevices.filter(d => modbusTestResult[d.deviceId] === 'fail');
+        if (untestedDevices.length > 0) {
+          const names = untestedDevices.map(d => `${d.name} (U${d.modbus.unitId || 1})`).join(', ');
+          const proceed = window.confirm(
+            `다음 장치의 Modbus 연결이 확인되지 않았습니다:\n${names}\n\n연결 안 된 장치가 있으면 릴레이 폴링 오류가 발생합니다.\n그래도 저장하시겠습니까?`
+          );
+          if (!proceed) return;
+        }
+        onSave();
+      }} disabled={!isDirty || saving}
         className={`w-full mt-3 py-2.5 rounded-xl text-base font-bold transition-all
           ${isDirty ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/20 hover:bg-blue-700 active:scale-[0.97]'
             : 'bg-gray-100 text-gray-400 border border-gray-200 cursor-default'}`}>

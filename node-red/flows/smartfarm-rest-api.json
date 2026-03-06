@@ -4,7 +4,7 @@
         "type": "tab",
         "label": "REST API (오프라인)",
         "disabled": false,
-        "info": "React 대시보드용 REST API 엔드포인트\nSQLite 기반으로 서버 다운 시 대체 API 제공\n\n엔드포인트:\n- GET /api/sensors/latest/:farmId/:houseId\n- GET /api/sensors/:farmId/:houseId/history\n- GET /api/sensors/:farmId/:houseId/count\n- GET /api/alerts/:farmId\n- GET /api/health\n- POST /api/control/local\n- GET/POST /api/automation/:farmId\n- PUT/DELETE /api/automation/:farmId/:ruleId\n- PATCH /api/automation/:farmId/:ruleId/toggle\n\n※ Config CRUD API는 Config CRUD 탭으로 이관됨",
+        "info": "React 대시보드용 REST API 엔드포인트\nSQLite 기반으로 서버 다운 시 대체 API 제공\n\n엔드포인트:\n- GET /api/sensors/latest/:farmId/:houseId\n- GET /api/sensors/:farmId/:houseId/history\n- GET /api/sensors/:farmId/:houseId/count\n- GET /api/alerts/:farmId\n- GET /api/health\n- POST /api/control/local\n- GET /api/relay/status?unitId=1&quantity=8\n- GET/POST /api/automation/:farmId\n- PUT/DELETE /api/automation/:farmId/:ruleId\n- PATCH /api/automation/:farmId/:ruleId/toggle\n\n※ Config CRUD API는 Config CRUD 탭으로 이관됨",
         "env": [
             { "name": "SENSOR_API_KEY", "value": "smartfarm-sensor-key", "type": "str" },
             { "name": "SERVER_URL", "value": "http://192.168.137.1:3000", "type": "str" },
@@ -597,12 +597,87 @@
         "wires": []
     },
     {
+        "id": "comment_relay_status",
+        "type": "comment",
+        "z": "rest_api_flow",
+        "name": "━━━ 릴레이 상태 조회 API (FC1 Read Coils) ━━━",
+        "x": 240,
+        "y": 1380,
+        "wires": []
+    },
+    {
+        "id": "http_relay_status",
+        "type": "http in",
+        "z": "rest_api_flow",
+        "name": "GET /api/relay/status",
+        "url": "/api/relay/status",
+        "method": "get",
+        "upload": false,
+        "x": 180,
+        "y": 1440,
+        "wires": [["relay_status_build_request"]]
+    },
+    {
+        "id": "relay_status_build_request",
+        "type": "function",
+        "z": "rest_api_flow",
+        "name": "Modbus FC1 요청 생성",
+        "func": "const unitId = parseInt(msg.req.query.unitId) || 1;\nconst quantity = parseInt(msg.req.query.quantity) || 8;\n\nmsg.payload = {\n    fc: 1,\n    unitid: unitId,\n    address: 0,\n    quantity: quantity\n};\n\nmsg._unitId = unitId;\nmsg._quantity = quantity;\nreturn msg;",
+        "outputs": 1,
+        "x": 440,
+        "y": 1440,
+        "wires": [["relay_modbus_read"]]
+    },
+    {
+        "id": "relay_modbus_read",
+        "type": "modbus-flex-getter",
+        "z": "rest_api_flow",
+        "name": "Coil 상태 읽기",
+        "showStatusActivities": false,
+        "showErrors": true,
+        "showWarnings": true,
+        "logIOActivities": false,
+        "server": "50e39fdca05a8399",
+        "useIOFile": false,
+        "ioFile": "",
+        "useIOForPayload": false,
+        "emptyMsgOnFail": false,
+        "keepMsgProperties": true,
+        "delayOnStart": false,
+        "startDelayTime": "",
+        "x": 690,
+        "y": 1440,
+        "wires": [["relay_status_response"], []]
+    },
+    {
+        "id": "relay_status_response",
+        "type": "function",
+        "z": "rest_api_flow",
+        "name": "릴레이 상태 응답",
+        "func": "const data = msg.payload;\nconst unitId = msg._unitId || 1;\nconst quantity = msg._quantity || 8;\n\n// modbus-flex-getter 결과: data = [true, false, true, ...] (coil 상태 배열)\nconst coils = {};\nfor (let i = 0; i < quantity; i++) {\n    coils[i] = Array.isArray(data) ? (!!data[i]) : false;\n}\n\nmsg.payload = {\n    success: true,\n    data: {\n        unitId: unitId,\n        coils: coils,\n        raw: Array.isArray(data) ? data.slice(0, quantity) : [],\n        timestamp: new Date().toISOString()\n    }\n};\nmsg.headers = { 'Access-Control-Allow-Origin': '*' };\nreturn msg;",
+        "outputs": 1,
+        "x": 930,
+        "y": 1440,
+        "wires": [["http_res_relay_status"]]
+    },
+    {
+        "id": "http_res_relay_status",
+        "type": "http response",
+        "z": "rest_api_flow",
+        "name": "릴레이 상태 응답",
+        "statusCode": "",
+        "headers": {},
+        "x": 1150,
+        "y": 1440,
+        "wires": []
+    },
+    {
         "id": "comment_cors_api",
         "type": "comment",
         "z": "rest_api_flow",
         "name": "━━━ CORS 지원 ━━━",
         "x": 140,
-        "y": 1380,
+        "y": 1560,
         "wires": []
     },
     {
@@ -614,7 +689,7 @@
         "method": "options",
         "upload": false,
         "x": 160,
-        "y": 1440,
+        "y": 1620,
         "wires": [["cors_all"]]
     },
     {
@@ -625,7 +700,7 @@
         "func": "msg.headers = {\n    'Access-Control-Allow-Origin': '*',\n    'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, PATCH, OPTIONS',\n    'Access-Control-Allow-Headers': 'Content-Type, x-api-key, Authorization'\n};\nmsg.payload = '';\nmsg.statusCode = 204;\nreturn msg;",
         "outputs": 1,
         "x": 380,
-        "y": 1440,
+        "y": 1620,
         "wires": [["http_res_cors_all"]]
     },
     {
@@ -636,7 +711,7 @@
         "statusCode": "",
         "headers": {},
         "x": 590,
-        "y": 1440,
+        "y": 1620,
         "wires": []
     }
 ]

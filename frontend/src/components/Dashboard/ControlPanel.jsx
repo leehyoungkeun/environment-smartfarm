@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import axios from 'axios';
 import { useAuth } from '../../contexts/AuthContext';
-import { sendControlCommand, getControlLogs } from '../../services/controlApi';
+import { sendControlCommand, getControlLogs, getRelayStatus, warmupLambda } from '../../services/controlApi';
 import { getSystemMode, getApiBase, getRpiApiBase } from '../../services/apiSwitcher';
 
 const DEVICE_TYPE_INFO = {
@@ -36,7 +36,11 @@ const ControlPanel = ({ farmId, houseId, houseConfig }) => {
     return match ? `house${parseInt(match[1])}` : houseId;
   })();
 
-  const [deviceStates, setDeviceStates] = useState({});
+  const statesKey = `deviceStates_${farmId}_${houseId}`;
+  const [deviceStates, setDeviceStates] = useState(() => {
+    try { return JSON.parse(localStorage.getItem(statesKey)) || {}; }
+    catch { return {}; }
+  });
   const [controlHistory, setControlHistory] = useState([]);
   const [loading, setLoading] = useState({});
   const timerRefs = React.useRef({});
@@ -151,6 +155,113 @@ const ControlPanel = ({ farmId, houseId, houseConfig }) => {
 
   useEffect(() => { loadAutoRules(); }, [loadAutoRules]);
 
+  // deviceStates 변경 시 localStorage 저장
+  useEffect(() => {
+    if (Object.keys(deviceStates).length > 0) {
+      try { localStorage.setItem(statesKey, JSON.stringify(deviceStates)); } catch {}
+    }
+  }, [deviceStates, statesKey]);
+
+  // 릴레이 실제 상태 폴링
+  const relayCoilsRef = React.useRef({});
+  const [relayOnline, setRelayOnline] = useState(null);
+  const isFetchingRef = React.useRef(false);
+
+  const fetchRelayStatus = useCallback(async () => {
+    // 중복 호출 방지 (이전 요청이 타임아웃 대기 중이면 건너뜀)
+    if (isFetchingRef.current) return;
+    isFetchingRef.current = true;
+
+    try {
+      const modbusDevices = devices.filter(d => d.modbus?.address != null);
+      if (modbusDevices.length === 0) return;
+
+      const waveshareUnits = [...new Set(modbusDevices.filter(d => (d.modbus.moduleType || 'waveshare') === 'waveshare').map(d => d.modbus.unitId || 1))];
+      const eletechsupUnits = [...new Set(modbusDevices.filter(d => d.modbus.moduleType === 'eletechsup').map(d => d.modbus.unitId || 1))];
+
+      let anySuccess = false;
+      const newCoils = { ...relayCoilsRef.current };
+
+      // Waveshare: FC1 (Read Coils)
+      for (const unitId of waveshareUnits) {
+        const res = await getRelayStatus(unitId, 8);
+        if (res.success && res.data?.coils) {
+          newCoils[unitId] = res.data.coils;
+          anySuccess = true;
+        }
+      }
+
+      // Eletechsup: FC03 register 0은 릴레이 상태가 아닌 설정값(76) 반환
+      // → 소프트웨어 상태 추적 사용 (handleControl에서 제어 명령 기반으로 상태 설정)
+      // Eletechsup 장치가 있으면 폴링 성공으로 표시 (오프라인 판정 방지)
+      if (eletechsupUnits.length > 0) anySuccess = true;
+
+      relayCoilsRef.current = newCoils;
+      setRelayOnline(anySuccess);
+
+      if (anySuccess) {
+        setDeviceStates(prev => {
+          const updated = { ...prev };
+          devices.forEach(d => {
+            const m = d.modbus;
+            if (!m || m.address == null) return;
+            // Eletechsup은 FC03 상태 읽기 불가 → 소프트웨어 상태 사용
+            if (m.moduleType === 'eletechsup') {
+              // 이전 FC03 폴링이 설정한 잘못된 상태 정리
+              if (prev[d.deviceId]?.relayVerified) {
+                updated[d.deviceId] = { ...updated[d.deviceId], status: 'idle', relayVerified: false };
+              }
+              return;
+            }
+            const uid = m.unitId || 1;
+            const coils = newCoils[uid];
+            if (!coils) return;
+
+            const currentState = prev[d.deviceId]?.status;
+            if (['opening', 'closing', 'stopping', 'turning_on', 'turning_off'].includes(currentState)) return;
+
+            if (m.controlType === 'bidir') {
+              const ch1On = !!coils[m.address];
+              const ch2On = !!coils[m.address2];
+              const status = ch1On ? 'open' : ch2On ? 'closed' : 'idle';
+              updated[d.deviceId] = { ...updated[d.deviceId], status, relayVerified: true };
+            } else {
+              const chOn = !!coils[m.address];
+              const status = chOn ? 'on' : 'off';
+              updated[d.deviceId] = { ...updated[d.deviceId], status, relayVerified: true };
+            }
+          });
+          return updated;
+        });
+      }
+    } finally {
+      isFetchingRef.current = false;
+    }
+  }, [devices]);
+
+  const relayIntervalRef = React.useRef(null);
+
+  const startRelayPolling = useCallback(() => {
+    if (relayIntervalRef.current) return;
+    relayIntervalRef.current = setInterval(fetchRelayStatus, 10000);
+  }, [fetchRelayStatus]);
+
+  const stopRelayPolling = useCallback(() => {
+    if (relayIntervalRef.current) {
+      clearInterval(relayIntervalRef.current);
+      relayIntervalRef.current = null;
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchRelayStatus();
+    startRelayPolling();
+    // Lambda 콜드 스타트 방지: 페이지 진입 시 미리 워밍업
+    const mode = getSystemMode();
+    if (!mode.isFarmLocal && mode.serverOnline) warmupLambda();
+    return () => stopRelayPolling();
+  }, [fetchRelayStatus, startRelayPolling, stopRelayPolling]);
+
   // unmount 시 모든 타이머 정리
   useEffect(() => {
     const refs = timerRefs.current;
@@ -213,6 +324,9 @@ const ControlPanel = ({ farmId, houseId, houseConfig }) => {
   }, [houseId, devices.length]);
 
   const handleControl = useCallback(async (deviceId, command) => {
+    // Modbus 직렬 큐 충돌 방지: 제어 중 폴링 중지
+    stopRelayPolling();
+
     const loadingKey = `${deviceId}_${command}`;
     if (command === 'stop') {
       if (timerRefs.current[deviceId]) { clearTimeout(timerRefs.current[deviceId]); timerRefs.current[deviceId] = null; }
@@ -231,6 +345,9 @@ const ControlPanel = ({ farmId, houseId, houseConfig }) => {
       const mode = getSystemMode();
       let result;
 
+      const targetDevice = devices.find(d => d.deviceId === deviceId);
+      const modbusConfig = targetDevice?.modbus || null;
+
       if (mode.isFarmLocal || mode.mode === 'offline') {
         // 오프라인: RPi Node-RED 로컬 제어 API 호출
         const rpiApi = getApiBase();
@@ -239,15 +356,17 @@ const ControlPanel = ({ farmId, houseId, houseConfig }) => {
           device_id: deviceId,
           command,
           operator: operatorName,
+          modbus: modbusConfig,
         }, { timeout: 10000 });
         result = { success: res.data.success, requestId: res.data.data?.request_id };
       } else {
         // 온라인: AWS IoT 경유 (기존)
         result = await sendControlCommand(controlHouseId, deviceId, command, 'web_dashboard', {
           farmId, originalHouseId: houseId,
-          deviceType: devices.find(d => d.deviceId === deviceId)?.type || 'unknown',
-          deviceName: devices.find(d => d.deviceId === deviceId)?.name || deviceId,
+          deviceType: targetDevice?.type || 'unknown',
+          deviceName: targetDevice?.name || deviceId,
           operatorName,
+          modbus: modbusConfig,
         });
       }
 
@@ -266,8 +385,13 @@ const ControlPanel = ({ farmId, houseId, houseConfig }) => {
       setDeviceStates(prev => ({ ...prev, [deviceId]: { ...prev[deviceId], status: 'error' } }));
     } finally {
       setLoading(prev => ({ ...prev, [loadingKey]: false }));
+      // 제어 완료 후 2초 대기 → 릴레이 상태 확인 + 폴링 재개
+      setTimeout(() => {
+        fetchRelayStatus();
+        startRelayPolling();
+      }, 2000);
     }
-  }, [controlHouseId, farmId, houseId, devices, user]);
+  }, [controlHouseId, farmId, houseId, devices, user, stopRelayPolling, startRelayPolling, fetchRelayStatus]);
 
   const getStatusDisplay = (status) => {
     const map = {
@@ -354,8 +478,24 @@ const ControlPanel = ({ farmId, houseId, houseConfig }) => {
   return (
     <div className="glass-card p-4 md:p-5">
       <div className="flex items-center justify-between mb-4">
-        <h2 style={{fontSize:18,fontWeight:800,color:'#111827',letterSpacing:'-0.01em'}} className="flex items-center gap-2">🎛️ 제어 패널</h2>
         <div className="flex items-center gap-2">
+          <h2 style={{fontSize:18,fontWeight:800,color:'#111827',letterSpacing:'-0.01em'}} className="flex items-center gap-2">🎛️ 제어 패널</h2>
+          {relayOnline !== null && (
+            <span style={{
+              fontSize:10,fontWeight:700,padding:'2px 8px',borderRadius:6,
+              background: relayOnline ? '#dcfce7' : '#fef2f2',
+              color: relayOnline ? '#047857' : '#be123c',
+              border: `1px solid ${relayOnline ? '#bbf7d0' : '#fecaca'}`,
+            }}>
+              {relayOnline ? '릴레이 연결됨' : '릴레이 미연결'}
+            </span>
+          )}
+        </div>
+        <div className="flex items-center gap-2">
+          <button onClick={() => fetchRelayStatus()}
+            style={{fontSize:12,color:'#4b5563',background:'#f3f4f6',padding:'4px 12px',borderRadius:8,border:'1px solid #e5e7eb',cursor:'pointer',fontWeight:600}}>
+            🔄 릴레이 조회
+          </button>
           <button onClick={() => { setHistoryModal(true); loadHistory(1); }}
             style={{fontSize:12,color:'#4b5563',background:'#f3f4f6',padding:'4px 12px',borderRadius:8,border:'1px solid #e5e7eb',cursor:'pointer',fontWeight:600}}>
             📋 제어이력
@@ -436,6 +576,11 @@ const ControlPanel = ({ farmId, houseId, houseConfig }) => {
                         <div className="flex items-center gap-2">
                           <span style={{fontSize:20}}>{device.icon || typeInfo.icon}</span>
                           <span style={{fontSize:16,fontWeight:800,color:'#0f172a'}}>{device.name}</span>
+                          {device.modbus?.address != null && (
+                            <span style={{fontSize:10,fontWeight:700,color:'#6b7280',background:'#f1f5f9',padding:'2px 6px',borderRadius:6}}>
+                              R{device.modbus.unitId||1}:CH{device.modbus.address+1}{device.modbus.controlType==='bidir'?`+${device.modbus.address2+1}`:''}
+                            </span>
+                          )}
                         </div>
                         <div className="flex items-center gap-2">
                           {/* 수동/자동 모드 토글 */}
@@ -464,6 +609,9 @@ const ControlPanel = ({ farmId, houseId, houseConfig }) => {
                           <div style={{display:'flex',alignItems:'center',gap:6,background:statusDisplay.animate ? `${statusDisplay.color}15` : '#f8fafc',padding:'4px 12px',borderRadius:8,border:`2px solid ${statusDisplay.animate ? statusDisplay.color : '#e2e8f0'}`}}>
                             <span style={{width:8,height:8,borderRadius:'50%',background:statusDisplay.color,display:'inline-block',boxShadow:`0 0 6px ${statusDisplay.color}`}} className={statusDisplay.animate ? 'animate-pulse' : ''} />
                             <span style={{fontSize:13,fontWeight:700,color:statusDisplay.color}}>{statusDisplay.text}</span>
+                            {state.relayVerified && (
+                              <span title="Modbus FC1 실제 확인" style={{fontSize:9,fontWeight:700,color:'#047857',background:'#dcfce7',padding:'1px 4px',borderRadius:4,marginLeft:2}}>HW</span>
+                            )}
                           </div>
                         </div>
                       </div>

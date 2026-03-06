@@ -11,7 +11,7 @@
  */
 
 import axios from 'axios';
-import { getSystemMode, getApiBase } from './apiSwitcher';
+import { getSystemMode, getApiBase, getRpiApiBase } from './apiSwitcher';
 
 const AWS_CONTROL_ENDPOINT = import.meta.env.VITE_AWS_CONTROL_ENDPOINT;
 const RPI_CONTROL_URL = (import.meta.env.VITE_RPI_API_URL || 'http://192.168.137.30:1880/api') + '/control/local';
@@ -44,7 +44,7 @@ export const sendControlCommand = async (houseId, deviceId, command, operator = 
   }
 
   // 온라인 모드 → AWS 우선, 실패 시 로컬 폴백
-  const result = await sendAwsControl(houseId, deviceId, command, operator);
+  const result = await sendAwsControl(houseId, deviceId, command, operator, meta);
 
   if (!result.success) {
     console.log(`⚠️ AWS 제어 실패, 로컬 폴백 시도...`);
@@ -81,7 +81,7 @@ export const sendControlCommand = async (houseId, deviceId, command, operator = 
 /**
  * AWS IoT Core를 통한 제어
  */
-const sendAwsControl = async (houseId, deviceId, command, operator) => {
+const sendAwsControl = async (houseId, deviceId, command, operator, meta = {}) => {
   const requestId = `${Date.now()}-${Math.random().toString(36).substring(2, 10)}`;
   const timestamp = new Date().toISOString();
 
@@ -92,6 +92,7 @@ const sendAwsControl = async (houseId, deviceId, command, operator) => {
     operator,
     request_id: requestId,
     timestamp,
+    modbus: meta.modbus || null,
   };
 
   if (!AWS_CONTROL_ENDPOINT) {
@@ -256,8 +257,71 @@ export const getControlStats = async (farmId, options = {}) => {
   }
 };
 
+/**
+ * 릴레이 실제 상태 조회 (Modbus FC1 Read Coils)
+ * RPi Node-RED를 통해 실제 릴레이 코일 상태를 읽어옴
+ *
+ * @param {number} unitId - Modbus Unit ID (기본 1)
+ * @param {number} quantity - 읽을 코일 수 (기본 8)
+ * @returns {{ success: boolean, data?: { unitId, coils: {[ch]: boolean}, raw: boolean[], timestamp } }}
+ */
+export const getRelayStatus = async (unitId = 1, quantity = 8) => {
+  try {
+    const rpiBase = getRpiApiBase();
+    const res = await axios.get(`${rpiBase}/relay/status`, {
+      params: { unitId, quantity },
+      timeout: 5000,
+    });
+    return res.data;
+  } catch (error) {
+    console.warn('릴레이 상태 조회 실패:', error.message);
+    return { success: false, error: error.message };
+  }
+};
+
+/**
+ * 릴레이 상태 조회 - Eletechsup (Modbus FC03 Read Holding Registers)
+ * 레지스터 값을 비트맵으로 해석하여 coils 형태로 반환
+ */
+export const getRelayRegStatus = async (unitId = 2, register = 0, quantity = 1) => {
+  try {
+    const rpiBase = getRpiApiBase();
+    const res = await axios.get(`${rpiBase}/relay/reg-status`, {
+      params: { unitId, register, quantity },
+      timeout: 5000,
+    });
+    return res.data;
+  } catch (error) {
+    console.warn('레지스터 상태 조회 실패:', error.message);
+    return { success: false, error: error.message };
+  }
+};
+
+/**
+ * Lambda 워밍업 (콜드 스타트 방지)
+ * 빈 ping 요청으로 Lambda 컨테이너를 미리 깨움
+ */
+export const warmupLambda = async () => {
+  if (!AWS_CONTROL_ENDPOINT) return;
+  try {
+    await axios.post(AWS_CONTROL_ENDPOINT, {
+      command: 'ping',
+      house_id: 'warmup',
+      window_id: 'warmup',
+      operator: 'warmup',
+      request_id: 'warmup',
+    }, { timeout: 10000, headers: { 'Content-Type': 'application/json' } });
+    console.log('🔥 Lambda 워밍업 완료');
+  } catch (e) {
+    // 워밍업 실패는 무시
+  }
+};
+
 export default {
   sendControlCommand,
   getControlLogs,
   getControlStats,
+  getRelayStatus,
+  getRelayRegStatus,
+  warmupLambda,
 };

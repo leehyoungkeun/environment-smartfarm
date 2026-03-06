@@ -1,0 +1,38 @@
+[
+    {
+        "id": "modbus_sensor_prep",
+        "type": "function",
+        "z": "collection_offline_flow",
+        "name": "Modbus 센서 읽기 준비",
+        "func": "// config 보존 + Modbus 온습도 센서 읽기 요청\nmsg.config = msg.config || global.get('houseConfig');\nmsg.payload = {\n    fc: 3,\n    unitid: 3,\n    address: 0,\n    quantity: 2\n};\nreturn msg;",
+        "outputs": 1,
+        "timeout": "",
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 430,
+        "y": 260,
+        "wires": [["modbus_sensor_read"]]
+    },
+    {
+        "id": "modbus_sensor_read",
+        "type": "modbus-flex-getter",
+        "z": "collection_offline_flow",
+        "name": "온습도 Modbus Read",
+        "showStatusActivities": true,
+        "showErrors": true,
+        "showWarnings": true,
+        "server": "",
+        "useIOFile": false,
+        "ioFile": "",
+        "useIOForPayload": false,
+        "emptyMsgOnFail": true,
+        "keepMsgProperties": true,
+        "delayOnStart": false,
+        "startDelayTime": "",
+        "x": 670,
+        "y": 260,
+        "wires": [[], []]
+    }
+]

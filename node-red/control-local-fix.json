@@ -1,0 +1,27 @@
+[
+    {
+        "id": "control_handler",
+        "type": "function",
+        "z": "rest_api_flow",
+        "name": "로컬 제어 실행",
+        "func": "const { house_id, device_id, command, operator, modbus } = msg.payload;\n\n// 입력 검증\nif (!device_id || !command) {\n    msg.payload = { success: false, error: 'device_id, command 필수' };\n    msg.statusCode = 400;\n    msg.headers = { 'Access-Control-Allow-Origin': '*' };\n    return [msg, null, null];\n}\n\n// 허용된 명령어만 통과\nconst ALLOWED_COMMANDS = ['open', 'close', 'stop', 'on', 'off'];\nif (!ALLOWED_COMMANDS.includes(command)) {\n    msg.payload = { success: false, error: '허용되지 않는 명령: ' + command };\n    msg.statusCode = 400;\n    msg.headers = { 'Access-Control-Allow-Origin': '*' };\n    return [msg, null, null];\n}\n\n// device_id 형식 검증 (영숫자+언더스코어만)\nif (!/^[a-zA-Z0-9_]+$/.test(device_id)) {\n    msg.payload = { success: false, error: '잘못된 device_id 형식' };\n    msg.statusCode = 400;\n    msg.headers = { 'Access-Control-Allow-Origin': '*' };\n    return [msg, null, null];\n}\n\nconst houseId = house_id || 'house1';\nconst ts = new Date().toISOString();\nconst requestId = `local_${Date.now()}`;\n\n// Modbus 제어 메시지 (function 2 형식 — 동일 경로 사용)\nconst controlMsg = {\n    payload: {\n        modbus: modbus || null,\n        command: command,\n        device_id: device_id,\n        house_id: houseId,\n        operator: operator || 'local_dashboard',\n        request_id: requestId\n    }\n};\n\n// SQLite 로그 저장\nvar logMsg = {};\nlogMsg.topic = 'INSERT INTO control_logs (timestamp, device_id, command, source, synced) VALUES ($1, $2, $3, $4, 0)';\nlogMsg.payload = [ts, device_id, command, 'local'];\n\n// HTTP 응답\nmsg.payload = {\n    success: true,\n    data: {\n        request_id: requestId,\n        device_id: device_id,\n        command: command,\n        executed_at: ts,\n        mode: 'local'\n    }\n};\nmsg.headers = { 'Access-Control-Allow-Origin': '*' };\n\nnode.warn(`로컬 제어: ${device_id} ${command} by ${operator || 'local'} modbus:${modbus ? 'yes' : 'no'}`);\n\nreturn [msg, controlMsg, logMsg];",
+        "outputs": 3,
+        "timeout": "",
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 440,
+        "y": 540,
+        "wires": [
+            ["http_res_control"],
+            ["link_gpio_control"],
+            ["sqlite_control_log"]
+        ],
+        "outputLabels": [
+            "HTTP 응답",
+            "Modbus 제어",
+            "SQLite 로그"
+        ]
+    }
+]

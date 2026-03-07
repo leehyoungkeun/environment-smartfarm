@@ -222,6 +222,19 @@ export const AuthProvider = ({ children }) => {
             console.log('[Auth] 서버 연결 불가 → 오프라인 모드 (캐시된 사용자 정보 사용)');
             setUser(cachedUser);
             setOfflineMode(true);
+          } else if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
+            // RPi 로컬 접속 + PC 서버 없음 + 캐시 없음 → 로컬 농장관리자로 자동 진입
+            console.log('[Auth] 로컬 접속 + 서버 없음 → 로컬 모드 자동 진입');
+            const localUser = {
+              id: 'local-user',
+              username: 'farmer',
+              name: '농장관리자',
+              role: 'owner',
+              farmId: import.meta.env.VITE_FARM_ID || 'farm_0001',
+            };
+            setUser(localUser);
+            cacheUser(localUser);
+            setOfflineMode(true);
           }
         }
       } finally {
@@ -326,7 +339,7 @@ export const AuthProvider = ({ children }) => {
   const ROLE_PERMISSIONS = {
     superadmin: ['dashboard', 'control', 'automation', 'history', 'journal', 'report', 'ai', 'settings', 'users', 'farms', 'server'],
     manager:    ['dashboard', 'control', 'automation', 'history', 'journal', 'report', 'ai', 'settings', 'users', 'farms'],
-    owner:      ['dashboard', 'control', 'automation', 'history', 'journal', 'report', 'ai', 'users'],
+    owner:      ['dashboard', 'control', 'automation', 'history', 'journal', 'report', 'ai', 'settings', 'users'],
     worker:     ['dashboard', 'control', 'automation', 'history', 'journal', 'report', 'ai'],
   };
 

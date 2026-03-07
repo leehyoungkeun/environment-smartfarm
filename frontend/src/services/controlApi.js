@@ -148,7 +148,7 @@ const sendLocalControl = async (houseId, deviceId, command, operator) => {
   const timestamp = new Date().toISOString();
 
   try {
-    const controlUrl = getApiBase() + '/control/local';
+    const controlUrl = getRpiApiBase() + '/control/local';
     const response = await axios.post(controlUrl, {
       house_id: houseId,
       device_id: deviceId,

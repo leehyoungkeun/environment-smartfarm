@@ -165,16 +165,25 @@ const ControlPanel = ({ farmId, houseId, houseConfig }) => {
   // 릴레이 실제 상태 폴링
   const relayCoilsRef = React.useRef({});
   const [relayOnline, setRelayOnline] = useState(null);
+  const [relayFetching, setRelayFetching] = useState(false);
+  const [relayMessage, setRelayMessage] = useState(null); // { type: 'ok'|'warn'|'err', text }
   const isFetchingRef = React.useRef(false);
 
-  const fetchRelayStatus = useCallback(async () => {
+  const fetchRelayStatus = useCallback(async (manual = false) => {
     // 중복 호출 방지 (이전 요청이 타임아웃 대기 중이면 건너뜀)
-    if (isFetchingRef.current) return;
+    if (isFetchingRef.current) {
+      if (manual) setRelayMessage({ type: 'warn', text: '이전 조회 진행 중...' });
+      return;
+    }
     isFetchingRef.current = true;
+    if (manual) { setRelayFetching(true); setRelayMessage(null); }
 
     try {
       const modbusDevices = devices.filter(d => d.modbus?.address != null);
-      if (modbusDevices.length === 0) return;
+      if (modbusDevices.length === 0) {
+        if (manual) setRelayMessage({ type: 'warn', text: 'Modbus 장치 없음' });
+        return;
+      }
 
       const waveshareUnits = [...new Set(modbusDevices.filter(d => (d.modbus.moduleType || 'waveshare') === 'waveshare').map(d => d.modbus.unitId || 1))];
       const eletechsupUnits = [...new Set(modbusDevices.filter(d => d.modbus.moduleType === 'eletechsup').map(d => d.modbus.unitId || 1))];
@@ -198,6 +207,14 @@ const ControlPanel = ({ farmId, houseId, houseConfig }) => {
 
       relayCoilsRef.current = newCoils;
       setRelayOnline(anySuccess);
+      if (manual) {
+        const wCount = waveshareUnits.length;
+        const eCount = eletechsupUnits.length;
+        setRelayMessage(anySuccess
+          ? { type: 'ok', text: `조회 완료 (W:${wCount} E:${eCount})` }
+          : { type: 'err', text: '릴레이 응답 없음' });
+        setTimeout(() => setRelayMessage(null), 3000);
+      }
 
       if (anySuccess) {
         setDeviceStates(prev => {
@@ -234,8 +251,14 @@ const ControlPanel = ({ farmId, houseId, houseConfig }) => {
           return updated;
         });
       }
+    } catch (e) {
+      if (manual) {
+        setRelayMessage({ type: 'err', text: '조회 실패: ' + (e.message || '네트워크 오류') });
+        setTimeout(() => setRelayMessage(null), 3000);
+      }
     } finally {
       isFetchingRef.current = false;
+      if (manual) setRelayFetching(false);
     }
   }, [devices]);
 
@@ -348,9 +371,10 @@ const ControlPanel = ({ farmId, houseId, houseConfig }) => {
       const targetDevice = devices.find(d => d.deviceId === deviceId);
       const modbusConfig = targetDevice?.modbus || null;
 
-      if (mode.isFarmLocal || mode.mode === 'offline') {
-        // 오프라인: RPi Node-RED 로컬 제어 API 호출
-        const rpiApi = getApiBase();
+      const isLocalHost = ['localhost', '127.0.0.1'].includes(window.location.hostname);
+      if (isLocalHost || mode.isFarmLocal || mode.mode === 'offline') {
+        // RPi 로컬 접속 또는 오프라인: Node-RED 직접 제어 (AWS 우회)
+        const rpiApi = getRpiApiBase();
         const res = await axios.post(`${rpiApi}/control/local`, {
           house_id: controlHouseId,
           device_id: deviceId,
@@ -393,6 +417,16 @@ const ControlPanel = ({ farmId, houseId, houseConfig }) => {
     }
   }, [controlHouseId, farmId, houseId, devices, user, stopRelayPolling, startRelayPolling, fetchRelayStatus]);
 
+  // 전체 제어: 순차 실행 + Modbus 충돌 방지 딜레이
+  const handleBatchControl = useCallback(async (deviceList, command) => {
+    stopRelayPolling();
+    for (let i = 0; i < deviceList.length; i++) {
+      if (i > 0) await new Promise(r => setTimeout(r, 300));
+      await handleControl(deviceList[i].deviceId, command);
+    }
+    setTimeout(() => { fetchRelayStatus(); startRelayPolling(); }, 2000);
+  }, [handleControl, stopRelayPolling, startRelayPolling, fetchRelayStatus]);
+
   const getStatusDisplay = (status) => {
     const map = {
       opening:    { text: '열리는 중...', color: '#047857', animate: true },
@@ -413,7 +447,7 @@ const ControlPanel = ({ farmId, houseId, houseConfig }) => {
   devices.forEach(d => { const type = d.type || 'window'; if (!groupedDevices[type]) groupedDevices[type] = []; groupedDevices[type].push(d); });
 
   // 대시보드 통일 스타일
-  const btnBase = { padding: '11px 0', borderRadius: '10px', fontSize: '14px', fontWeight: 700, transition: 'all 0.15s', cursor: 'pointer', textAlign: 'center', border: '2px solid transparent', letterSpacing: '-0.01em' };
+  const btnBase = { padding: '14px 0', borderRadius: '10px', fontSize: '14px', fontWeight: 700, transition: 'all 0.15s', cursor: 'pointer', textAlign: 'center', border: '2px solid transparent', letterSpacing: '-0.01em', minHeight: '44px' };
 
   // 장치 유형별 컬러 테마 [from, to] — 대시보드 팔레트 기반
   const typeTheme = {
@@ -462,7 +496,7 @@ const ControlPanel = ({ farmId, houseId, houseConfig }) => {
         <div className="flex items-center justify-between mb-4">
           <h2 className="text-base md:text-lg font-bold flex items-center gap-2" style={{color:'#111827'}}>🎛️ 제어 패널</h2>
           <button onClick={() => { setHistoryModal(true); loadHistory(1); }}
-            style={{fontSize:12,color:'#4b5563',background:'#f3f4f6',padding:'4px 12px',borderRadius:8,border:'1px solid #e5e7eb',cursor:'pointer',fontWeight:600}}>
+            style={{fontSize:12,color:'#4b5563',background:'#f3f4f6',padding:'8px 14px',borderRadius:8,border:'1px solid #e5e7eb',cursor:'pointer',fontWeight:600,minHeight:36}}>
             📋 제어이력
           </button>
         </div>
@@ -492,12 +526,19 @@ const ControlPanel = ({ farmId, houseId, houseConfig }) => {
           )}
         </div>
         <div className="flex items-center gap-2">
-          <button onClick={() => fetchRelayStatus()}
-            style={{fontSize:12,color:'#4b5563',background:'#f3f4f6',padding:'4px 12px',borderRadius:8,border:'1px solid #e5e7eb',cursor:'pointer',fontWeight:600}}>
-            🔄 릴레이 조회
+          <button onClick={() => fetchRelayStatus(true)} disabled={relayFetching}
+            style={{fontSize:12,color: relayFetching ? '#9ca3af' : '#4b5563',background: relayFetching ? '#e5e7eb' : '#f3f4f6',padding:'8px 14px',borderRadius:8,border:'1px solid #e5e7eb',cursor: relayFetching ? 'default' : 'pointer',fontWeight:600,transition:'all 0.2s',minHeight:36}}>
+            {relayFetching ? '⏳ 조회 중...' : '🔄 릴레이 조회'}
           </button>
+          {relayMessage && (
+            <span style={{fontSize:11,fontWeight:600,padding:'3px 8px',borderRadius:12,
+              background: relayMessage.type === 'ok' ? '#d1fae5' : relayMessage.type === 'warn' ? '#fef3c7' : '#fee2e2',
+              color: relayMessage.type === 'ok' ? '#059669' : relayMessage.type === 'warn' ? '#d97706' : '#dc2626'}}>
+              {relayMessage.text}
+            </span>
+          )}
           <button onClick={() => { setHistoryModal(true); loadHistory(1); }}
-            style={{fontSize:12,color:'#4b5563',background:'#f3f4f6',padding:'4px 12px',borderRadius:8,border:'1px solid #e5e7eb',cursor:'pointer',fontWeight:600}}>
+            style={{fontSize:12,color:'#4b5563',background:'#f3f4f6',padding:'8px 14px',borderRadius:8,border:'1px solid #e5e7eb',cursor:'pointer',fontWeight:600,minHeight:36}}>
             📋 제어이력
           </button>
           {/* 자동화 적용/중지 상태 표시 */}
@@ -589,7 +630,7 @@ const ControlPanel = ({ farmId, houseId, houseConfig }) => {
                             disabled={automationActive}
                             style={{
                               display:'flex',alignItems:'center',gap:5,
-                              padding:'4px 10px',borderRadius:8,fontSize:12,fontWeight:700,
+                              padding:'8px 12px',borderRadius:8,fontSize:12,fontWeight:700,minHeight:36,
                               border:`2px solid ${isAuto ? '#bbf7d0' : '#e2e8f0'}`,
                               background: isAuto ? '#f0fdf4' : '#f8fafc',
                               color: isAuto ? '#047857' : '#6b7280',
@@ -692,12 +733,12 @@ const ControlPanel = ({ farmId, houseId, houseConfig }) => {
                   </div>
                   {isToggleType ? (
                     <div className="flex gap-2">
-                      <button onClick={() => manualDevices.forEach(d => handleControl(d.deviceId, 'on'))}
+                      <button onClick={() => handleBatchControl(manualDevices, 'on')}
                         disabled={allAuto}
                         style={{...btnBase,flex:1,background: allAuto ? '#e5e7eb' : accent,color: allAuto ? '#9ca3af' : '#fff',boxShadow: allAuto ? 'none' : `0 2px 8px ${accent}35`, cursor: allAuto ? 'not-allowed' : 'pointer'}}>
                         전체 ON
                       </button>
-                      <button onClick={() => manualDevices.forEach(d => handleControl(d.deviceId, 'off'))}
+                      <button onClick={() => handleBatchControl(manualDevices, 'off')}
                         disabled={allAuto}
                         style={{...btnBase,flex:1,background: allAuto ? '#e5e7eb' : '#64748b',color: allAuto ? '#9ca3af' : '#fff',boxShadow: allAuto ? 'none' : '0 2px 8px rgba(100,116,139,0.35)', cursor: allAuto ? 'not-allowed' : 'pointer'}}>
                         전체 OFF
@@ -705,17 +746,17 @@ const ControlPanel = ({ farmId, houseId, houseConfig }) => {
                     </div>
                   ) : (
                     <div className="flex gap-2">
-                      <button onClick={() => manualDevices.forEach(d => handleControl(d.deviceId, 'open'))}
+                      <button onClick={() => handleBatchControl(manualDevices, 'open')}
                         disabled={allAuto}
                         style={{...btnBase,flex:1,background: allAuto ? '#e5e7eb' : accent,color: allAuto ? '#9ca3af' : '#fff',boxShadow: allAuto ? 'none' : `0 2px 8px ${accent}35`, cursor: allAuto ? 'not-allowed' : 'pointer'}}>
                         ▲ 전체 열기
                       </button>
-                      <button onClick={() => manualDevices.forEach(d => handleControl(d.deviceId, 'stop'))}
+                      <button onClick={() => handleBatchControl(manualDevices, 'stop')}
                         disabled={allAuto}
                         style={{...btnBase,flex:1,background: allAuto ? '#e5e7eb' : '#d97706',color: allAuto ? '#9ca3af' : '#fff',boxShadow: allAuto ? 'none' : '0 2px 8px rgba(217,119,6,0.35)', cursor: allAuto ? 'not-allowed' : 'pointer'}}>
                         ■ 전체 정지
                       </button>
-                      <button onClick={() => manualDevices.forEach(d => handleControl(d.deviceId, 'close'))}
+                      <button onClick={() => handleBatchControl(manualDevices, 'close')}
                         disabled={allAuto}
                         style={{...btnBase,flex:1,background: allAuto ? '#e5e7eb' : theme[1],color: allAuto ? '#9ca3af' : '#fff',boxShadow: allAuto ? 'none' : `0 2px 8px ${theme[1]}35`, cursor: allAuto ? 'not-allowed' : 'pointer'}}>
                         ▼ 전체 닫기

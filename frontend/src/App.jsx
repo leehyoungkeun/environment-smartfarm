@@ -16,6 +16,7 @@ import FarmManager from './components/Settings/FarmManager';
 import FarmOverviewWidget from './components/Dashboard/FarmOverviewWidget';
 import ReportPage from './components/Dashboard/ReportPage';
 import { getApiBase, isFarmLocalMode } from './services/apiSwitcher';
+import TouchKeyboard from './components/Common/TouchKeyboard';
 
 /**
  * Error Boundary — 컴포넌트 렌더 에러 시 하얀 화면 방지
@@ -256,14 +257,12 @@ function AppContent() {
   };
 
   const farmLocal = isFarmLocalMode();
+  const isTouchPanel = ['localhost', '127.0.0.1'].includes(window.location.hostname) && ['80', '443', ''].includes(window.location.port);
 
-  const allNavItems = farmLocal
+  const allNavItems = (farmLocal || isTouchPanel)
     ? [
         { id: 'dashboard', label: '대시보드', icon: '📊', permission: 'dashboard' },
         { id: 'control', label: '제어', icon: '🎛️', permission: 'control' },
-        { id: 'journal', label: '영농일지', icon: '📝', permission: 'journal' },
-        { id: 'report', label: '보고서', icon: '📄', permission: 'report' },
-        { id: 'ai', label: 'AI도우미', icon: '🤖', permission: 'ai' },
         { id: 'settings', label: '설정', icon: '⚙️', permission: 'settings' },
       ]
     : [
@@ -281,7 +280,7 @@ function AppContent() {
   // 역할별 2줄 네비 그리드 계산
   const isStaff = isSystemWide; // superadmin, manager
   const navGrid = (() => {
-    if (farmLocal) return null; // farmLocal은 기존 유지
+    if (farmLocal || isTouchPanel) return null; // farmLocal/터치패널은 1줄 레이아웃
     if (isStaff) {
       // 회사직원: 5열, row1=nav앞5개, row2=나머지nav+알림+관리자
       const row1 = navItems.slice(0, 5);
@@ -309,8 +308,8 @@ function AppContent() {
   // 그리드 셀 렌더링
   const renderNavCell = (cell, isMobile = false) => {
     const btnBase = isMobile
-      ? 'py-1.5 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-1 whitespace-nowrap w-full'
-      : 'py-2 rounded-xl text-sm font-medium transition-all duration-200 flex items-center justify-center gap-1 whitespace-nowrap w-full';
+      ? 'py-2 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-1 whitespace-nowrap w-full min-h-[40px]'
+      : 'py-2.5 rounded-xl text-sm font-medium transition-all duration-200 flex items-center justify-center gap-1 whitespace-nowrap w-full min-h-[44px]';
 
     if (cell.type === 'logo') {
       return (
@@ -444,6 +443,7 @@ function AppContent() {
               <div className="flex items-center gap-1">
                 {navItems.map(item => (
                   <button key={item.id} onClick={() => setCurrentPage(item.id)}
+                    style={{ minHeight: 44 }}
                     className={`py-2 px-4 rounded-xl text-sm font-medium transition-all flex items-center gap-1 ${currentPage === item.id ? 'tab-active' : 'tab-inactive'}`}>
                     <span>{item.icon}</span>{item.label}
                   </button>
@@ -513,7 +513,8 @@ function AppContent() {
               <div className="flex items-center gap-1">
                 {navItems.map(item => (
                   <button key={item.id} onClick={() => setCurrentPage(item.id)}
-                    className={`py-1.5 px-2.5 rounded-lg text-xs font-bold transition-all ${currentPage === item.id ? 'tab-active' : 'tab-inactive'}`}>
+                    style={{ minHeight: 40 }}
+                    className={`py-2 px-2.5 rounded-lg text-xs font-bold transition-all ${currentPage === item.id ? 'tab-active' : 'tab-inactive'}`}>
                     <span>{item.icon}</span> {item.label}
                   </button>
                 ))}
@@ -653,6 +654,7 @@ function App() {
     <ErrorBoundary>
       <AuthProvider>
         <AppContent />
+        <TouchKeyboard />
       </AuthProvider>
     </ErrorBoundary>
   );

@@ -364,6 +364,8 @@ const HouseDetailEditor = ({ house, onUpdate }) => {
   const [editedHouse, setEditedHouse] = useState(house);
   const [editingSensor, setEditingSensor] = useState(null);
   const [showAddSensor, setShowAddSensor] = useState(false);
+  const [expandedSensor, setExpandedSensor] = useState(null);
+  const [sensorTestResult, setSensorTestResult] = useState({}); // { [sensorId]: 'testing'|{value}|'fail' }
   const [saving, setSaving] = useState(false);
 
   // 섹션별 변경 감지
@@ -453,6 +455,52 @@ const HouseDetailEditor = ({ house, onUpdate }) => {
       ...editedHouse,
       sensors: editedHouse.sensors.filter(s => s.sensorId !== sensorId)
     });
+  };
+
+  const updateSensorModbus = (sensorId, modbusData) => {
+    const updatedSensors = editedHouse.sensors.map(s => {
+      if (s.sensorId !== sensorId) return s;
+      const defaultModbus = { unitId: 3, fc: 3, address: 0, divider: 10, signed: false };
+      const merged = { ...defaultModbus, ...s.modbus, ...modbusData };
+      return { ...s, modbus: merged };
+    });
+    setEditedHouse({ ...editedHouse, sensors: updatedSensors });
+  };
+
+  const removeSensorModbus = (sensorId) => {
+    const updatedSensors = editedHouse.sensors.map(s =>
+      s.sensorId === sensorId ? { ...s, modbus: undefined } : s
+    );
+    setEditedHouse({ ...editedHouse, sensors: updatedSensors });
+    setSensorTestResult(prev => { const n = { ...prev }; delete n[sensorId]; return n; });
+  };
+
+  const testSensorModbus = async (sensorId) => {
+    const sensor = editedHouse.sensors.find(s => s.sensorId === sensorId);
+    const m = sensor?.modbus;
+    if (!m) return;
+    setSensorTestResult(prev => ({ ...prev, [sensorId]: 'testing' }));
+    try {
+      const rpiUrl = getRpiApiBase();
+      // Node-RED /api/relay/reg-status: FC03 기반 범용 레지스터 읽기
+      const res = await axiosBase.get(`${rpiUrl}/relay/reg-status`, {
+        params: { unitId: m.unitId, register: m.address, quantity: 1 },
+        timeout: 5000,
+      });
+      if (res.data?.success) {
+        const raw = res.data.data?.raw;
+        let rawValue = Array.isArray(raw) ? raw[0] : (res.data.data?.regValue ?? 0);
+        let parsed = rawValue;
+        if (m.signed && rawValue > 0x7FFF) parsed = -(0xFFFF - rawValue + 1);
+        if (m.divider && m.divider !== 1) parsed = parsed / m.divider;
+        parsed = Math.round(parsed * 100) / 100;
+        setSensorTestResult(prev => ({ ...prev, [sensorId]: { raw: rawValue, value: parsed } }));
+      } else {
+        setSensorTestResult(prev => ({ ...prev, [sensorId]: 'fail' }));
+      }
+    } catch {
+      setSensorTestResult(prev => ({ ...prev, [sensorId]: 'fail' }));
+    }
   };
 
   return (
@@ -670,7 +718,13 @@ const HouseDetailEditor = ({ house, onUpdate }) => {
 
         {/* 센서 리스트 */}
         <div className="space-y-2">
-          {editedHouse.sensors.map(sensor => (
+          {editedHouse.sensors.map(sensor => {
+            const mb = sensor.modbus || {};
+            const hasModbus = mb.unitId != null && mb.address != null;
+            const isExpanded = expandedSensor === sensor.sensorId;
+            const testRes = sensorTestResult[sensor.sensorId];
+
+            return (
             <div key={sensor.sensorId}>
               {editingSensor === sensor.sensorId ? (
                 <SensorEditForm
@@ -679,35 +733,135 @@ const HouseDetailEditor = ({ house, onUpdate }) => {
                   onCancel={() => setEditingSensor(null)}
                 />
               ) : (
-                <div className="flex items-center gap-3 bg-gray-50 border border-gray-200
-                              rounded-xl px-4 py-3 hover:bg-gray-100 transition-all">
-                  <span className="text-2xl">{sensor.icon}</span>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-base font-bold text-gray-800">{sensor.name}</p>
-                    <p className="text-xs text-gray-500 truncate">
-                      {sensor.sensorId} · {sensor.unit} · 범위: {sensor.min}~{sensor.max}
-                    </p>
+                <div className={`bg-gray-50 border rounded-xl transition-all
+                  ${isExpanded ? 'border-blue-300 bg-blue-50/30' : 'border-gray-200 hover:bg-gray-100'}`}>
+                  <div className="flex items-center gap-3 px-4 py-3 cursor-pointer"
+                    onClick={() => setExpandedSensor(isExpanded ? null : sensor.sensorId)}>
+                    <span className="text-2xl">{sensor.icon}</span>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-base font-bold text-gray-800">{sensor.name}</p>
+                      <p className="text-xs text-gray-500 truncate">
+                        {sensor.sensorId} · {sensor.unit} · 범위: {sensor.min}~{sensor.max}
+                        {hasModbus && (
+                          <span className="text-blue-600 font-semibold">
+                            {' '}· U{mb.unitId}:R{mb.address} (FC{mb.fc || 3}) ÷{mb.divider || 1}{mb.signed ? ' ±' : ''}
+                          </span>
+                        )}
+                      </p>
+                    </div>
+                    <div className="flex gap-2 flex-shrink-0" onClick={e => e.stopPropagation()}>
+                      <button
+                        onClick={() => setEditingSensor(sensor.sensorId)}
+                        className="p-2 rounded-lg text-gray-400 hover:text-blue-600 hover:bg-blue-50
+                                 transition-all text-base border border-transparent hover:border-blue-200"
+                      >✏️</button>
+                      <button
+                        onClick={() => removeSensor(sensor.sensorId)}
+                        className="p-2 rounded-lg text-gray-400 hover:text-rose-500 hover:bg-rose-50
+                                 transition-all text-base border border-transparent hover:border-rose-200"
+                      >🗑️</button>
+                    </div>
                   </div>
-                  <div className="flex gap-2 flex-shrink-0">
-                    <button
-                      onClick={() => setEditingSensor(sensor.sensorId)}
-                      className="p-2 rounded-lg text-gray-400 hover:text-blue-600 hover:bg-blue-50
-                               transition-all text-base border border-transparent hover:border-blue-200"
-                    >
-                      ✏️
-                    </button>
-                    <button
-                      onClick={() => removeSensor(sensor.sensorId)}
-                      className="p-2 rounded-lg text-gray-400 hover:text-rose-500 hover:bg-rose-50
-                               transition-all text-base border border-transparent hover:border-rose-200"
-                    >
-                      🗑️
-                    </button>
-                  </div>
+
+                  {/* Modbus 센서 설정 패널 */}
+                  {isExpanded && (
+                    <div className="px-4 pb-4 border-t border-gray-200 mt-1 pt-3 animate-fade-in-up">
+                      <div className="flex items-center justify-between mb-2">
+                        <p className="text-xs font-bold text-gray-600">📡 Modbus 센서 설정</p>
+                        {sensor.modbus && (
+                          <button onClick={() => removeSensorModbus(sensor.sensorId)}
+                            className="text-[10px] text-rose-400 hover:text-rose-600">설정 해제</button>
+                        )}
+                      </div>
+                      <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                        <div>
+                          <label className="text-[10px] text-gray-500 mb-0.5 block">Unit-Id (슬레이브)</label>
+                          <input type="number" min={1} max={247}
+                            value={mb.unitId ?? ''}
+                            onChange={(e) => updateSensorModbus(sensor.sensorId, {
+                              unitId: e.target.value === '' ? null : parseInt(e.target.value)
+                            })}
+                            placeholder="예: 3"
+                            className="input-field text-sm" />
+                        </div>
+                        <div>
+                          <label className="text-[10px] text-gray-500 mb-0.5 block">FC (기능코드)</label>
+                          <select
+                            value={mb.fc ?? 3}
+                            onChange={(e) => updateSensorModbus(sensor.sensorId, { fc: parseInt(e.target.value) })}
+                            className="input-field text-sm">
+                            <option value={3}>FC03 (Holding)</option>
+                            <option value={4}>FC04 (Input)</option>
+                          </select>
+                        </div>
+                        <div>
+                          <label className="text-[10px] text-gray-500 mb-0.5 block">레지스터 주소</label>
+                          <input type="number" min={0} max={65535}
+                            value={mb.address ?? ''}
+                            onChange={(e) => updateSensorModbus(sensor.sensorId, {
+                              address: e.target.value === '' ? null : parseInt(e.target.value)
+                            })}
+                            placeholder="예: 0"
+                            className="input-field text-sm" />
+                        </div>
+                        <div>
+                          <label className="text-[10px] text-gray-500 mb-0.5 block">나누기 (divider)</label>
+                          <input type="number" min={1} max={1000} step={1}
+                            value={mb.divider ?? 10}
+                            onChange={(e) => updateSensorModbus(sensor.sensorId, {
+                              divider: e.target.value === '' ? 1 : parseInt(e.target.value)
+                            })}
+                            className="input-field text-sm" />
+                        </div>
+                        <div className="flex items-end pb-1">
+                          <label className="flex items-center gap-2 cursor-pointer">
+                            <input type="checkbox" checked={mb.signed || false}
+                              onChange={(e) => updateSensorModbus(sensor.sensorId, { signed: e.target.checked })}
+                              className="w-4 h-4 rounded border-gray-300 text-blue-600" />
+                            <span className="text-xs text-gray-600">음수 허용 (signed)</span>
+                          </label>
+                        </div>
+                      </div>
+
+                      {/* 요약 + 테스트 */}
+                      <div className="mt-3 flex items-center gap-2 flex-wrap">
+                        {hasModbus ? (
+                          <span className="text-xs text-gray-600">
+                            ✅ U{mb.unitId}:FC{mb.fc || 3} R{mb.address} ÷{mb.divider || 1}{mb.signed ? ' (±)' : ''}
+                          </span>
+                        ) : (
+                          <span className="text-xs text-gray-400">
+                            Unit-Id와 레지스터 주소를 입력하세요
+                          </span>
+                        )}
+                        {testRes && testRes !== 'testing' && testRes !== 'fail' && (
+                          <span className="px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700 text-xs font-bold">
+                            {testRes.value}{sensor.unit} (raw:{testRes.raw})
+                          </span>
+                        )}
+                        {testRes === 'fail' && (
+                          <span className="px-2 py-0.5 rounded-full bg-rose-100 text-rose-600 text-xs font-bold">
+                            읽기 실패
+                          </span>
+                        )}
+                        <button
+                          onClick={(e) => { e.stopPropagation(); testSensorModbus(sensor.sensorId); }}
+                          disabled={!hasModbus || testRes === 'testing'}
+                          className={`ml-auto px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                            !hasModbus ? 'bg-gray-100 text-gray-300 cursor-default' :
+                            testRes === 'testing' ? 'bg-gray-200 text-gray-500' :
+                            'bg-blue-100 text-blue-700 hover:bg-blue-200'
+                          }`}>
+                          {testRes === 'testing' ? '읽는 중...' : '🔍 테스트 읽기'}
+                        </button>
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
             </div>
-          ))}
+            );
+          })}
         </div>
 
         {/* 센서 저장 버튼 */}
@@ -1795,11 +1949,14 @@ const SyncPanel = ({ farmId }) => {
     } finally { setLoading(false); }
   }, [farmId]);
 
+  // 동기화 진행 중이면 3초, 아니면 15초 폴링
+  const isRunning = syncStatus?.syncRunning;
   useEffect(() => {
     loadStatus();
-    const id = setInterval(loadStatus, 15000);
+    const interval = isRunning ? 3000 : 15000;
+    const id = setInterval(loadStatus, interval);
     return () => clearInterval(id);
-  }, [loadStatus]);
+  }, [loadStatus, isRunning]);
 
   const handleAction = async (action) => {
     if (action === 'skip' && !window.confirm('미동기화 데이터를 동기화 안함으로 처리하시겠습니까?\n해당 데이터는 서버에 전송되지 않습니다.')) return;
@@ -1817,8 +1974,9 @@ const SyncPanel = ({ farmId }) => {
         else await axiosBase.post(`${rpiUrl}/sync/skip`, {}, { timeout: 10000 });
       }
       setActionMsg({ type: 'success', text: `${labels[action]} 명령을 전송했습니다` });
-      // 빠른 폴링: 2초 간격 5회로 결과 즉시 반영
-      for (let i = 1; i <= 5; i++) setTimeout(loadStatus, i * 2000);
+      // 빠른 폴링으로 즉시 반영
+      setTimeout(loadStatus, 500);
+      setTimeout(loadStatus, 2000);
     } catch (err) {
       setActionMsg({ type: 'error', text: `${labels[action]} 실패: ${err.message}` });
     } finally { setActionLoading(null); }
@@ -1875,9 +2033,28 @@ const SyncPanel = ({ farmId }) => {
           </p>
         )}
 
+        {/* 동기화 진행 상태 */}
+        {s.syncRunning && s.syncInitialCount > 0 && (
+          <div className="mb-3">
+            <div className="flex justify-between text-xs text-blue-600 font-semibold mb-1">
+              <span>동기화 진행 중...</span>
+              <span>{(s.syncedSoFar || 0).toLocaleString()} / {s.syncInitialCount.toLocaleString()}</span>
+            </div>
+            <div className="w-full h-2.5 bg-blue-100 rounded-full overflow-hidden">
+              <div
+                className="h-full bg-blue-500 rounded-full transition-all duration-500"
+                style={{ width: `${Math.min(100, ((s.syncedSoFar || 0) / s.syncInitialCount) * 100)}%` }}
+              />
+            </div>
+            <p className="text-xs text-blue-400 mt-1">
+              {Math.round(((s.syncedSoFar || 0) / s.syncInitialCount) * 100)}% 완료
+            </p>
+          </div>
+        )}
+
         <div className="flex items-center gap-2 text-xs text-gray-400">
-          <span className={`w-2 h-2 rounded-full ${s.syncPaused ? 'bg-gray-400' : 'bg-green-500 animate-pulse'}`} />
-          {s.syncPaused ? '자동 동기화 중지됨' : '자동 동기화 활성 (5분 간격)'}
+          <span className={`w-2 h-2 rounded-full ${s.syncRunning ? 'bg-blue-500 animate-pulse' : s.syncPaused ? 'bg-gray-400' : 'bg-green-500 animate-pulse'}`} />
+          {s.syncRunning ? '동기화 진행 중' : s.syncPaused ? '자동 동기화 중지됨' : '자동 동기화 활성 (5분 간격)'}
           <span className="mx-1">·</span>
           모드: {s.operationMode || '알 수 없음'}
         </div>
@@ -1915,27 +2092,31 @@ const SyncPanel = ({ farmId }) => {
       <div className="grid grid-cols-3 gap-3">
         <button
           onClick={() => handleAction('start')}
-          disabled={actionLoading || (s.unsynced === 0)}
+          disabled={actionLoading || s.unsynced === 0 || s.syncRunning}
           className={`py-3 rounded-xl text-sm font-bold transition-all active:scale-[0.97] ${
-            s.unsynced > 0 && !actionLoading
+            s.unsynced > 0 && !actionLoading && !s.syncRunning
               ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/20 hover:bg-blue-700'
               : 'bg-gray-100 text-gray-400 cursor-default'
           }`}
         >
-          {actionLoading === 'start' ? '시작 중...' : '🔄 동기화 시작'}
+          {actionLoading === 'start' ? '시작 중...' : s.syncRunning ? '진행 중...' : '🔄 동기화 시작'}
         </button>
         <button
           onClick={() => handleAction('stop')}
-          disabled={actionLoading}
-          className="py-3 rounded-xl text-sm font-bold bg-gray-200 text-gray-600 hover:bg-gray-300 transition-all active:scale-[0.97]"
+          disabled={actionLoading || !s.syncRunning}
+          className={`py-3 rounded-xl text-sm font-bold transition-all active:scale-[0.97] ${
+            s.syncRunning && !actionLoading
+              ? 'bg-red-500 text-white shadow-lg shadow-red-500/20 hover:bg-red-600'
+              : 'bg-gray-200 text-gray-400 cursor-default'
+          }`}
         >
           {actionLoading === 'stop' ? '중지 중...' : '⏸️ 동기화 중지'}
         </button>
         <button
           onClick={() => handleAction('skip')}
-          disabled={actionLoading || (s.unsynced === 0)}
+          disabled={actionLoading || s.unsynced === 0 || s.syncRunning}
           className={`py-3 rounded-xl text-sm font-bold transition-all active:scale-[0.97] ${
-            s.unsynced > 0 && !actionLoading
+            s.unsynced > 0 && !actionLoading && !s.syncRunning
               ? 'bg-orange-50 text-orange-600 border border-orange-200 hover:bg-orange-100'
               : 'bg-gray-100 text-gray-400 cursor-default'
           }`}

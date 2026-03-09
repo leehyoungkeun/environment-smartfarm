@@ -15,7 +15,9 @@
     "jspdf": "^4.1.0",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
+    "react-simple-keyboard": "^3.8.170",
     "recharts": "^2.10.3",
+    "simple-keyboard": "^3.8.118",
     "xlsx": "^0.18.5"
   },
   "devDependencies": {

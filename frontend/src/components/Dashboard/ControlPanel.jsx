@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import axios from 'axios';
 import { useAuth } from '../../contexts/AuthContext';
-import { sendControlCommand, getControlLogs, getRelayStatus, warmupLambda } from '../../services/controlApi';
+import { sendControlCommand, getControlLogs, getRelayStatus, warmupLambda, saveControlLog } from '../../services/controlApi';
 import { getSystemMode, getApiBase, getRpiApiBase } from '../../services/apiSwitcher';
 
 const DEVICE_TYPE_INFO = {
@@ -383,6 +383,21 @@ const ControlPanel = ({ farmId, houseId, houseConfig }) => {
           modbus: modbusConfig,
         }, { timeout: 10000 });
         result = { success: res.data.success, requestId: res.data.data?.request_id };
+        // 로컬 제어 이력 PC 백엔드에 저장 (비동기)
+        if (result.success) {
+          saveControlLog({
+            farmId,
+            houseId,
+            controlHouseId,
+            deviceId,
+            deviceType: targetDevice?.type || 'unknown',
+            deviceName: targetDevice?.name || deviceId,
+            command,
+            success: true,
+            operator: 'web_dashboard',
+            operatorName,
+          });
+        }
       } else {
         // 온라인: AWS IoT 경유 (기존)
         result = await sendControlCommand(controlHouseId, deviceId, command, 'web_dashboard', {

@@ -1,7 +1,7 @@
 // src/models/SensorData.js
 // 센서 데이터 모델 - TimescaleDB (raw SQL) 버전
 
-import { pool } from "../db.js";
+import { pool, remoteQuery } from "../db.js";
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // 응답 포맷 (MongoDB 호환)
@@ -29,20 +29,24 @@ const SensorData = {
    * Mongoose의 new SensorData() + save() 패턴을 함수로 대체
    */
   async create(data) {
-    const result = await pool.query(
-      `INSERT INTO sensor_data (timestamp, farm_id, house_id, data, metadata)
+    const params = [
+      data.timestamp || new Date(),
+      data.farmId,
+      data.houseId,
+      JSON.stringify(data.data),
+      JSON.stringify(data.metadata || {}),
+    ];
+    const sql = `INSERT INTO sensor_data (timestamp, farm_id, house_id, data, metadata)
        VALUES ($1, $2, $3, $4, $5)
        ON CONFLICT (timestamp, farm_id, house_id) DO UPDATE
          SET data = EXCLUDED.data, metadata = EXCLUDED.metadata
-       RETURNING *`,
-      [
-        data.timestamp || new Date(),
-        data.farmId,
-        data.houseId,
-        JSON.stringify(data.data),
-        JSON.stringify(data.metadata || {}),
-      ]
-    );
+       RETURNING *`;
+
+    const result = await pool.query(sql, params);
+
+    // 원격 DB에도 비동기 저장 (실패 무시)
+    remoteQuery(sql, params);
+
     return formatSensorData(result.rows[0]);
   },
 
@@ -75,6 +79,10 @@ const SensorData = {
        RETURNING *`;
 
     const result = await pool.query(sql, params);
+
+    // 원격 DB에도 비동기 저장 (실패 무시)
+    remoteQuery(sql, params);
+
     return result.rows.map(formatSensorData);
   },
 
@@ -125,8 +133,9 @@ const SensorData = {
    * 시간 범위 내 데이터 건수 조회 (COUNT만 반환, 전체 row를 가져오지 않음)
    */
   async getCount(farmId, houseId, startDate, endDate) {
+    // 센서별 카운트: 각 행의 data JSON 키 수를 합산 (SQLite 개별 행과 일치)
     let sql =
-      "SELECT COUNT(*)::int AS count FROM sensor_data WHERE farm_id = $1 AND house_id = $2";
+      "SELECT COALESCE(SUM((SELECT count(*)::int FROM jsonb_each_text(sd.data))), 0)::int AS count FROM sensor_data sd WHERE sd.farm_id = $1 AND sd.house_id = $2";
     const params = [farmId, houseId];
     let idx = 3;
 

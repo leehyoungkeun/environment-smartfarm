@@ -26,14 +26,24 @@ router.post("/collect", async (req, res, next) => {
       });
     }
 
-    // 1. 하우스 설정 조회
-    const config = await Config.findOne({ farmId, houseId });
+    // 1. 하우스 설정 조회 (없으면 자동 생성)
+    let config = await Config.findOne({ farmId, houseId });
 
     if (!config) {
-      return res.status(404).json({
-        success: false,
-        error: "House configuration not found",
-      });
+      try {
+        logger.info(`Auto-creating config for ${farmId}/${houseId}`);
+        config = await Config.create({
+          farmId,
+          houseId,
+          houseName: houseId,
+          sensors: Object.keys(data).map(key => ({ id: key, name: key, type: 'number' })),
+          enabled: true,
+        });
+      } catch (e) {
+        // 레이스 컨디션: 동시 요청으로 이미 생성됨 → 다시 조회
+        config = await Config.findOne({ farmId, houseId });
+        if (!config) throw e;
+      }
     }
 
     if (!config.enabled) {

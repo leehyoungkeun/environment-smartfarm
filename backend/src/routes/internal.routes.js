@@ -133,22 +133,49 @@ router.get("/config", async (req, res) => {
 
 /**
  * POST /internal/alarm
- * 경보 생성 (f5 경보 처리)
+ * 경보 생성 (Node-RED → 백엔드)
+ * 지원 필드: alarm_type, severity, message, alarm_value, threshold_value,
+ *           sensorId, metadata, cooldownMinutes
  */
 router.post("/alarm", async (req, res) => {
   try {
     const { farmId, houseId } = resolveFarmHouse(req);
     const alarm = req.body;
-    logger.warn("경보 수신:", alarm.alarm_type, alarm.message);
+    const alertType = alarm.alarm_type || alarm.alertType;
+    const severity = (alarm.severity || "WARNING").toUpperCase();
+
+    logger.warn("경보 수신:", alertType, severity, alarm.message);
+
+    // 쿨다운 중복 방지: cooldownMinutes가 있으면 최근 알림 체크
+    if (alarm.cooldownMinutes && alarm.cooldownMinutes > 0) {
+      const cooldownMs = alarm.cooldownMinutes * 60 * 1000;
+      const now = Date.now();
+      const recent = await Alert.find(
+        { farmId, houseId: alarm.houseId || houseId },
+        { limit: 10 }
+      );
+      const duplicate = recent.find(
+        (a) =>
+          a.alertType === alertType &&
+          (!alarm.sensorId || a.sensorId === alarm.sensorId) &&
+          a.createdAt &&
+          now - new Date(a.createdAt).getTime() < cooldownMs
+      );
+      if (duplicate) {
+        return res.json({ success: true, skipped: true, reason: "cooldown" });
+      }
+    }
 
     const alert = await Alert.create({
       farmId,
-      houseId,
-      alertType: alarm.alarm_type,
-      severity: "warning",
+      houseId: alarm.houseId || houseId,
+      sensorId: alarm.sensorId || null,
+      alertType,
+      severity,
       message: alarm.message,
-      value: alarm.alarm_value,
-      threshold: alarm.threshold_value,
+      value: alarm.alarm_value ?? alarm.value,
+      threshold: alarm.threshold_value ?? alarm.threshold,
+      metadata: alarm.metadata || {},
       acknowledged: false,
     });
 

@@ -31,9 +31,17 @@ const CONFIG_CACHE_TTL_MS = 10 * 60 * 1000;
 
 /**
  * 팜로컬 모드 확인 (RPi 단독 운영, 인터넷 없음)
+ * 1) localStorage에 명시적으로 설정된 경우
+ * 2) 터치패널 자동 감지: localhost/127.0.0.1 + port 80/443/빈값
+ *    → PC 서버 의존 없이 항상 로컬 모드로 동작 (농장 현장 안정성)
  */
 export function isFarmLocalMode() {
-  return localStorage.getItem(FARM_LOCAL_KEY) === 'true';
+  if (localStorage.getItem(FARM_LOCAL_KEY) === 'true') return true;
+  // 터치패널 자동 감지 (nginx port 80)
+  const host = window.location.hostname;
+  const port = window.location.port;
+  return ['localhost', '127.0.0.1'].includes(host)
+    && ['80', '443', ''].includes(port);
 }
 
 /**

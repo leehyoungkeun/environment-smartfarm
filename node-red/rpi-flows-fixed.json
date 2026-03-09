@@ -4192,7 +4192,7 @@
     "type": "function",
     "z": "rest_api_flow",
     "name": "오늘 수집 건수 쿼리",
-    "func": "const farmId = msg.req.params.farmId;\nconst houseId = msg.req.params.houseId;\nconst today = new Date();\ntoday.setHours(0, 0, 0, 0);\n\nmsg.topic = 'SELECT COUNT(DISTINCT timestamp) as count FROM sensor_data WHERE farm_id = $1 AND house_id = $2 AND timestamp >= $3';\nmsg.payload = [farmId, houseId, today.toISOString()];\n\nreturn msg;",
+    "func": "const farmId = msg.req.params.farmId;\nconst houseId = msg.req.params.houseId;\nconst startDate = msg.req.query.startDate;\nconst endDate = msg.req.query.endDate;\n\nlet sql = 'SELECT COUNT(DISTINCT timestamp) as count FROM sensor_data WHERE farm_id = $1 AND house_id = $2';\nconst params = [farmId, houseId];\nlet idx = 3;\n\nif (startDate) {\n    sql += ' AND timestamp >= $' + idx++;\n    params.push(startDate);\n}\nif (endDate) {\n    sql += ' AND timestamp <= $' + idx++;\n    params.push(endDate);\n}\n\nmsg.topic = sql;\nmsg.payload = params;\nreturn msg;",
     "outputs": 1,
     "x": 540,
     "y": 260,

@@ -195,14 +195,11 @@ const ControlHistory = ({ farmId }) => {
 
   const formatTime = (isoString) => {
     const date = new Date(isoString);
-    const now = new Date();
-    const isToday = date.toDateString() === now.toDateString();
-    
-    if (isToday) {
-      return date.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-    }
-    return date.toLocaleDateString('ko-KR', { month: 'short', day: 'numeric' }) + ' ' +
-           date.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' });
+    const y = date.getFullYear();
+    const m = String(date.getMonth() + 1).padStart(2, '0');
+    const d = String(date.getDate()).padStart(2, '0');
+    const time = date.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    return `${y}-${m}-${d} ${time}`;
   };
 
   const summary = stats?.summary || {};

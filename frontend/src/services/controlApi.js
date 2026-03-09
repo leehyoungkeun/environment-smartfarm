@@ -34,16 +34,30 @@ const RETRY_ATTEMPTS = 2;
 export const sendControlCommand = async (houseId, deviceId, command, operator = 'web_dashboard', meta = {}) => {
   const mode = getSystemMode();
 
-  // 팜로컬/오프라인/로컬 모드 → 로컬 제어 직접 사용
-  if (mode.isFarmLocal || !mode.serverOnline || mode.manualOverride || mode.isUsingRpi) {
-    console.log(`🎮 로컬 모드 제어: ${houseId}/${deviceId} ${command.toUpperCase()}`);
+  // 팜로컬 모드 → RPi 로컬 제어 직접 사용 (현장 터치패널, 인터넷 없음)
+  if (mode.isFarmLocal) {
+    console.log(`🎮 팜로컬 제어: ${houseId}/${deviceId} ${command.toUpperCase()}`);
     const result = await sendLocalControl(houseId, deviceId, command, operator);
 
-    // 로컬 제어 로그는 RPi SQLite에 자동 저장됨 (Node-RED에서 처리)
+    // PC 서버 온라인이면 이력 저장 (비동기)
+    if (result.success && mode.serverOnline) {
+      saveControlLog({
+        farmId: meta.farmId,
+        houseId: meta.originalHouseId || houseId,
+        controlHouseId: houseId,
+        deviceId,
+        deviceType: meta.deviceType || guessDeviceType(deviceId),
+        deviceName: meta.deviceName || deviceId,
+        command,
+        success: true,
+        operator,
+        operatorName: meta.operatorName || null,
+      });
+    }
     return result;
   }
 
-  // 온라인 모드 → AWS 우선, 실패 시 로컬 폴백
+  // 일반 모드 → AWS 우선, 실패 시 로컬 폴백 (서버 상태 무관)
   const result = await sendAwsControl(houseId, deviceId, command, operator, meta);
 
   if (!result.success) {
@@ -51,6 +65,18 @@ export const sendControlCommand = async (houseId, deviceId, command, operator = 
     const localResult = await sendLocalControl(houseId, deviceId, command, operator);
     if (localResult.success) {
       localResult.fallback = true; // 폴백으로 성공했음을 표시
+      saveControlLog({
+        farmId: meta.farmId,
+        houseId: meta.originalHouseId || houseId,
+        controlHouseId: houseId,
+        deviceId,
+        deviceType: meta.deviceType || guessDeviceType(deviceId),
+        deviceName: meta.deviceName || deviceId,
+        command,
+        success: true,
+        operator,
+        operatorName: meta.operatorName || null,
+      });
       return localResult;
     }
     // 로컬도 실패하면 AWS 결과 반환
@@ -211,7 +237,7 @@ const guessDeviceType = (deviceId) => {
 /**
  * 제어 이력 저장 (SmartFarm 백엔드 → TimescaleDB)
  */
-const saveControlLog = async (logData) => {
+export const saveControlLog = async (logData) => {
   try {
     await axios.post(`${API_BASE_URL}/control-logs`, logData, { timeout: 5000 });
     console.log(`📝 이력 저장 완료: ${logData.deviceId} ${logData.command}`);

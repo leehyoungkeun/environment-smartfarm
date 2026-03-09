@@ -460,7 +460,7 @@ const HouseDetailEditor = ({ house, onUpdate }) => {
   const updateSensorModbus = (sensorId, modbusData) => {
     const updatedSensors = editedHouse.sensors.map(s => {
       if (s.sensorId !== sensorId) return s;
-      const defaultModbus = { unitId: 3, fc: 3, address: 0, divider: 10, signed: false };
+      const defaultModbus = { unitId: 3, fc: 3, address: 0, quantity: 1, registerIndex: 0, divider: 10, signed: false };
       const merged = { ...defaultModbus, ...s.modbus, ...modbusData };
       return { ...s, modbus: merged };
     });
@@ -484,12 +484,13 @@ const HouseDetailEditor = ({ house, onUpdate }) => {
       const rpiUrl = getRpiApiBase();
       // Node-RED /api/relay/reg-status: FC03 기반 범용 레지스터 읽기
       const res = await axiosBase.get(`${rpiUrl}/relay/reg-status`, {
-        params: { unitId: m.unitId, register: m.address, quantity: 1 },
+        params: { unitId: m.unitId, register: m.address, quantity: m.quantity || 1 },
         timeout: 5000,
       });
       if (res.data?.success) {
         const raw = res.data.data?.raw;
-        let rawValue = Array.isArray(raw) ? raw[0] : (res.data.data?.regValue ?? 0);
+        const regIdx = m.registerIndex || 0;
+        let rawValue = Array.isArray(raw) ? (raw[regIdx] ?? raw[0]) : (res.data.data?.regValue ?? 0);
         let parsed = rawValue;
         if (m.signed && rawValue > 0x7FFF) parsed = -(0xFFFF - rawValue + 1);
         if (m.divider && m.divider !== 1) parsed = parsed / m.divider;
@@ -744,7 +745,7 @@ const HouseDetailEditor = ({ house, onUpdate }) => {
                         {sensor.sensorId} · {sensor.unit} · 범위: {sensor.min}~{sensor.max}
                         {hasModbus && (
                           <span className="text-blue-600 font-semibold">
-                            {' '}· U{mb.unitId}:R{mb.address} (FC{mb.fc || 3}) ÷{mb.divider || 1}{mb.signed ? ' ±' : ''}
+                            {' '}· U{mb.unitId}:R{mb.address} Q{mb.quantity || 1}[{mb.registerIndex || 0}] (FC{mb.fc || 3}) ÷{mb.divider || 1}{mb.signed ? ' ±' : ''}
                           </span>
                         )}
                       </p>
@@ -805,6 +806,24 @@ const HouseDetailEditor = ({ house, onUpdate }) => {
                             className="input-field text-sm" />
                         </div>
                         <div>
+                          <label className="text-[10px] text-gray-500 mb-0.5 block">읽기 수량 (quantity)</label>
+                          <input type="number" min={1} max={20}
+                            value={mb.quantity ?? 1}
+                            onChange={(e) => updateSensorModbus(sensor.sensorId, {
+                              quantity: e.target.value === '' ? 1 : parseInt(e.target.value)
+                            })}
+                            className="input-field text-sm" />
+                        </div>
+                        <div>
+                          <label className="text-[10px] text-gray-500 mb-0.5 block">배열 인덱스 (registerIndex)</label>
+                          <input type="number" min={0} max={19}
+                            value={mb.registerIndex ?? 0}
+                            onChange={(e) => updateSensorModbus(sensor.sensorId, {
+                              registerIndex: e.target.value === '' ? 0 : parseInt(e.target.value)
+                            })}
+                            className="input-field text-sm" />
+                        </div>
+                        <div>
                           <label className="text-[10px] text-gray-500 mb-0.5 block">나누기 (divider)</label>
                           <input type="number" min={1} max={1000} step={1}
                             value={mb.divider ?? 10}
@@ -827,7 +846,7 @@ const HouseDetailEditor = ({ house, onUpdate }) => {
                       <div className="mt-3 flex items-center gap-2 flex-wrap">
                         {hasModbus ? (
                           <span className="text-xs text-gray-600">
-                            ✅ U{mb.unitId}:FC{mb.fc || 3} R{mb.address} ÷{mb.divider || 1}{mb.signed ? ' (±)' : ''}
+                            ✅ U{mb.unitId}:FC{mb.fc || 3} R{mb.address} Q{mb.quantity || 1}[{mb.registerIndex || 0}] ÷{mb.divider || 1}{mb.signed ? ' (±)' : ''}
                           </span>
                         ) : (
                           <span className="text-xs text-gray-400">
@@ -1560,10 +1579,11 @@ const SystemSettings = ({ farmId }) => {
       <SubTabBar
         tabs={[
           { id: 'farmlocal', label: '팜로컬', icon: '🌿' },
-          { id: 'server', label: '서버 연결', icon: '🖥️' },
           { id: 'collection', label: '수집 주기', icon: '📡' },
           { id: 'retention', label: '보관 기간', icon: '💾' },
           { id: 'sync', label: '동기화', icon: '🔄' },
+          { id: 'modbus', label: 'Modbus 현황', icon: '🔌' },
+          { id: 'sysmanage', label: '시스템 관리', icon: '🛠️' },
         ]}
         activeTab={systemSubTab}
         onChange={setSystemSubTab}
@@ -1627,123 +1647,6 @@ const SystemSettings = ({ farmId }) => {
         )}
       </div>
       </div>}
-
-      {/* 서버 연결 설정 */}
-      {systemSubTab === 'server' && !farmLocal && <div className="max-w-2xl">
-      <div className="glass-card p-4 md:p-5">
-        <h2 className="text-lg font-bold text-gray-800 mb-4">서버 연결 설정</h2>
-
-        {/* 서버 연결 타임아웃 */}
-        <div className="mb-4">
-          <label className="text-sm text-gray-600 font-semibold mb-1.5 block">
-            서버 연결 타임아웃
-          </label>
-          <p className="text-xs text-gray-400 mb-3">
-            서버 연결이 <span className="text-red-500 font-bold">{formatTime(timeoutSec)}</span> 이상 끊기면 대시보드에 경고 알림을 표시합니다
-          </p>
-
-          <div className="flex flex-wrap gap-2 mb-2">
-            {TIMEOUT_PRESETS.map(preset => (
-              <button
-                key={preset.value}
-                onClick={() => handleChange(preset.value)}
-                className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-all border
-                  ${timeoutSec === preset.value
-                    ? 'bg-blue-600 text-white border-blue-600 shadow-sm'
-                    : 'bg-white text-gray-600 border-gray-200 hover:border-blue-300 hover:bg-blue-50'
-                  }`}
-              >
-                {preset.label}
-              </button>
-            ))}
-          </div>
-
-          <div className="flex items-center gap-3">
-            <input
-              type="number"
-              value={timeoutSec}
-              onChange={(e) => {
-                const val = parseInt(e.target.value);
-                if (!isNaN(val)) handleChange(val);
-              }}
-              className="input-field w-28"
-              min="30" max="1800"
-            />
-            <span className="text-sm text-gray-500">초 (30~1800)</span>
-          </div>
-          <p className="text-xs text-gray-400 mt-1.5">
-            {TIMEOUT_PRESETS.find(p => p.value === timeoutSec)?.desc || `${formatTime(timeoutSec)} 간격`}
-            {' · '}헬스체크 주기 10초
-          </p>
-        </div>
-
-        {/* 대시보드 폴링 주기 */}
-        <div className="mb-4">
-          <label className="text-sm text-gray-600 font-semibold mb-1.5 block">
-            대시보드 데이터 갱신 주기
-          </label>
-          <p className="text-xs text-gray-400 mb-3">
-            대시보드가 <span className="text-blue-500 font-bold">{formatTime(pollingSec)}</span>마다 서버에서 최신 센서 데이터를 가져옵니다
-          </p>
-
-          <div className="flex flex-wrap gap-2 mb-2">
-            {POLLING_PRESETS.map(preset => (
-              <button
-                key={preset.value}
-                onClick={() => handlePollingChange(preset.value)}
-                className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-all border
-                  ${pollingSec === preset.value
-                    ? 'bg-blue-600 text-white border-blue-600 shadow-sm'
-                    : 'bg-white text-gray-600 border-gray-200 hover:border-blue-300 hover:bg-blue-50'
-                  }`}
-              >
-                {preset.label}
-              </button>
-            ))}
-          </div>
-
-          <div className="flex items-center gap-3">
-            <input
-              type="number"
-              value={pollingSec}
-              onChange={(e) => {
-                const val = parseInt(e.target.value);
-                if (!isNaN(val)) handlePollingChange(val);
-              }}
-              className="input-field w-28"
-              min="3" max="300"
-            />
-            <span className="text-sm text-gray-500">초 (3~300)</span>
-          </div>
-          <p className="text-xs text-gray-400 mt-1.5">
-            {POLLING_PRESETS.find(p => p.value === pollingSec)?.desc || `${formatTime(pollingSec)} 간격`}
-            {' · '}짧을수록 실시간 반영, 길수록 네트워크 부하 감소
-          </p>
-        </div>
-
-        {/* 안내 */}
-        <div className="bg-red-50 border border-red-200 rounded-xl p-3.5 mb-4">
-          <div className="flex items-center gap-2">
-            <span className="text-lg">⚠️</span>
-            <div>
-              <p className="text-sm font-bold text-red-700">알림 동작</p>
-              <p className="text-xs text-red-600">
-                설정 시간이 지나면 대시보드 상단에 빨간 경고 배너가 나타나고,
-                "로컬 운영 전환" 버튼으로 즉시 로컬 모드로 전환할 수 있습니다.
-                서버가 복구되면 알림이 자동으로 사라집니다.
-              </p>
-            </div>
-          </div>
-        </div>
-      </div>
-      </div>}
-
-      {systemSubTab === 'server' && farmLocal && (
-        <div className="max-w-2xl glass-card p-8 text-center">
-          <div className="text-4xl mb-4 opacity-30">🖥️</div>
-          <p className="text-gray-400 text-base">팜로컬 모드에서는 서버 연결 설정을 사용하지 않습니다</p>
-        </div>
-      )}
 
       {/* 데이터 수집 주기 (농장 전체) */}
       {systemSubTab === 'collection' && <div className="max-w-2xl">
@@ -1921,6 +1824,379 @@ const SystemSettings = ({ farmId }) => {
 
       {/* 동기화 관리 */}
       {systemSubTab === 'sync' && <SyncPanel farmId={farmId} />}
+
+      {/* Modbus 현황 */}
+      {systemSubTab === 'modbus' && <ModbusOverviewPanel farmId={farmId} />}
+
+      {/* 시스템 관리 */}
+      {systemSubTab === 'sysmanage' && <SystemManagePanel />}
+    </div>
+  );
+};
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// ModbusOverviewPanel — RS-485 버스 전체 현황 + 충돌 감지
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+const ModbusOverviewPanel = ({ farmId }) => {
+  const [houses, setHouses] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    loadAllConfigs();
+  }, []);
+
+  const loadAllConfigs = async () => {
+    setLoading(true);
+    try {
+      const rpiUrl = getRpiApiBase();
+      const res = await axiosBase.get(`${rpiUrl}/config/farm/${farmId}`, { timeout: 5000 });
+      if (res.data?.success && Array.isArray(res.data.data)) {
+        setHouses(res.data.data);
+      }
+    } catch (err) {
+      console.warn('Modbus 현황 로드 실패:', err.message);
+    }
+    setLoading(false);
+  };
+
+  // 센서 Modbus 목록 수집
+  const sensorModbus = [];
+  const deviceModbus = [];
+  for (const house of houses) {
+    for (const s of (house.sensors || [])) {
+      if (s.modbus && s.modbus.unitId != null) {
+        sensorModbus.push({ houseId: house.houseId, houseName: house.houseName, ...s, kind: 'sensor' });
+      }
+    }
+    for (const d of (house.devices || [])) {
+      if (d.modbus && (d.modbus.address != null || d.modbus.unitId != null)) {
+        deviceModbus.push({ houseId: house.houseId, houseName: house.houseName, ...d, kind: 'device' });
+      }
+    }
+  }
+
+  // 센서 충돌 감지: 같은 unitId인데 address/quantity/registerIndex가 다른 센서 그룹
+  const sensorGroups = {};
+  for (const s of sensorModbus) {
+    const key = s.sensorId + ':U' + s.modbus.unitId;
+    if (!sensorGroups[key]) sensorGroups[key] = [];
+    sensorGroups[key].push(s);
+  }
+  const sensorConflicts = new Set();
+  for (const [, group] of Object.entries(sensorGroups)) {
+    if (group.length < 2) continue;
+    const base = group[0].modbus;
+    for (let i = 1; i < group.length; i++) {
+      const m = group[i].modbus;
+      if (m.address !== base.address || m.quantity !== base.quantity || m.registerIndex !== base.registerIndex) {
+        group.forEach(s => sensorConflicts.add(s.houseId + ':' + s.sensorId));
+      }
+    }
+  }
+
+  // 장치 채널 충돌 감지: 같은 unitId 내 address 중복
+  const deviceChMap = {};
+  const deviceConflicts = new Set();
+  for (const d of deviceModbus) {
+    const uid = d.modbus.unitId || 1;
+    const channels = [d.modbus.address];
+    if (d.modbus.address2 != null) channels.push(d.modbus.address2);
+    for (const ch of channels) {
+      const key = uid + ':' + ch;
+      if (deviceChMap[key]) {
+        deviceConflicts.add(d.houseId + ':' + d.deviceId);
+        deviceConflicts.add(deviceChMap[key]);
+      } else {
+        deviceChMap[key] = d.houseId + ':' + d.deviceId;
+      }
+    }
+  }
+
+  // Unit-Id별 장치 요약
+  const unitSummary = {};
+  for (const s of sensorModbus) {
+    const uid = s.modbus.unitId;
+    if (!unitSummary[uid]) unitSummary[uid] = { sensors: 0, devices: 0, type: '센서' };
+    unitSummary[uid].sensors++;
+  }
+  for (const d of deviceModbus) {
+    const uid = d.modbus.unitId || 1;
+    if (!unitSummary[uid]) unitSummary[uid] = { sensors: 0, devices: 0, type: '장치' };
+    unitSummary[uid].devices++;
+  }
+
+  if (loading) {
+    return <div className="text-center py-8 text-gray-400">로딩 중...</div>;
+  }
+
+  const hasConflicts = sensorConflicts.size > 0 || deviceConflicts.size > 0;
+
+  return (
+    <div className="space-y-4 max-w-4xl">
+      {/* RS-485 버스 요약 */}
+      <div className="glass-card p-4">
+        <div className="flex items-center justify-between mb-3">
+          <h2 className="text-lg font-bold text-gray-800">🔌 RS-485 버스 현황</h2>
+          <button onClick={loadAllConfigs} className="text-xs text-blue-500 hover:text-blue-700">🔄 새로고침</button>
+        </div>
+        <div className="flex flex-wrap gap-3">
+          {Object.entries(unitSummary).sort((a, b) => Number(a[0]) - Number(b[0])).map(([uid, info]) => (
+            <div key={uid} className="bg-gray-50 border border-gray-200 rounded-xl px-4 py-2.5 text-center min-w-[100px]">
+              <p className="text-xs text-gray-500">Unit-Id {uid}</p>
+              <p className="text-sm font-bold text-gray-800">
+                {info.sensors > 0 && <span className="text-blue-600">센서 {info.sensors}</span>}
+                {info.sensors > 0 && info.devices > 0 && ' + '}
+                {info.devices > 0 && <span className="text-purple-600">장치 {info.devices}</span>}
+              </p>
+            </div>
+          ))}
+        </div>
+        {hasConflicts && (
+          <div className="mt-3 bg-rose-50 border border-rose-200 rounded-xl p-3">
+            <p className="text-sm font-bold text-rose-700">⚠️ 설정 충돌 감지됨 — 아래에서 확인하세요</p>
+          </div>
+        )}
+        {!hasConflicts && sensorModbus.length + deviceModbus.length > 0 && (
+          <div className="mt-3 bg-emerald-50 border border-emerald-200 rounded-xl p-3">
+            <p className="text-sm font-bold text-emerald-700">✅ 충돌 없음</p>
+          </div>
+        )}
+      </div>
+
+      {/* 센서 Modbus 현황 */}
+      {sensorModbus.length > 0 && (
+        <div className="glass-card p-4">
+          <h3 className="text-base font-bold text-gray-800 mb-3">📡 센서 Modbus 설정 ({sensorModbus.length})</h3>
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs">
+              <thead>
+                <tr className="text-left text-gray-500 border-b border-gray-200">
+                  <th className="pb-2 pr-2">하우스</th>
+                  <th className="pb-2 pr-2">센서</th>
+                  <th className="pb-2 pr-2">Unit-Id</th>
+                  <th className="pb-2 pr-2">FC</th>
+                  <th className="pb-2 pr-2">Addr</th>
+                  <th className="pb-2 pr-2">Qty</th>
+                  <th className="pb-2 pr-2">Index</th>
+                  <th className="pb-2 pr-2">÷</th>
+                  <th className="pb-2 pr-2">±</th>
+                  <th className="pb-2">상태</th>
+                </tr>
+              </thead>
+              <tbody>
+                {sensorModbus.map((s, i) => {
+                  const conflict = sensorConflicts.has(s.houseId + ':' + s.sensorId);
+                  return (
+                    <tr key={i} className={`border-b border-gray-100 ${conflict ? 'bg-rose-50' : ''}`}>
+                      <td className="py-2 pr-2 font-medium">{s.houseName || s.houseId}</td>
+                      <td className="py-2 pr-2">{s.icon} {s.name}</td>
+                      <td className="py-2 pr-2 font-mono">{s.modbus.unitId}</td>
+                      <td className="py-2 pr-2 font-mono">{s.modbus.fc || 3}</td>
+                      <td className="py-2 pr-2 font-mono">{s.modbus.address}</td>
+                      <td className="py-2 pr-2 font-mono">{s.modbus.quantity || 1}</td>
+                      <td className="py-2 pr-2 font-mono">{s.modbus.registerIndex || 0}</td>
+                      <td className="py-2 pr-2 font-mono">{s.modbus.divider || 1}</td>
+                      <td className="py-2 pr-2">{s.modbus.signed ? '✓' : ''}</td>
+                      <td className="py-2">
+                        {conflict
+                          ? <span className="px-1.5 py-0.5 rounded bg-rose-100 text-rose-700 font-bold">⚠️ 불일치</span>
+                          : <span className="px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-700 font-bold">✅</span>}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* 장치 Modbus 현황 */}
+      {deviceModbus.length > 0 && (
+        <div className="glass-card p-4">
+          <h3 className="text-base font-bold text-gray-800 mb-3">⚡ 장치 Modbus 설정 ({deviceModbus.length})</h3>
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs">
+              <thead>
+                <tr className="text-left text-gray-500 border-b border-gray-200">
+                  <th className="pb-2 pr-2">하우스</th>
+                  <th className="pb-2 pr-2">장치</th>
+                  <th className="pb-2 pr-2">Unit-Id</th>
+                  <th className="pb-2 pr-2">모듈</th>
+                  <th className="pb-2 pr-2">제어</th>
+                  <th className="pb-2 pr-2">CH1</th>
+                  <th className="pb-2 pr-2">CH2</th>
+                  <th className="pb-2">상태</th>
+                </tr>
+              </thead>
+              <tbody>
+                {deviceModbus.map((d, i) => {
+                  const conflict = deviceConflicts.has(d.houseId + ':' + d.deviceId);
+                  return (
+                    <tr key={i} className={`border-b border-gray-100 ${conflict ? 'bg-rose-50' : ''}`}>
+                      <td className="py-2 pr-2 font-medium">{d.houseName || d.houseId}</td>
+                      <td className="py-2 pr-2">{d.icon} {d.name}</td>
+                      <td className="py-2 pr-2 font-mono">{d.modbus.unitId || 1}</td>
+                      <td className="py-2 pr-2 text-[10px]">{d.modbus.moduleType || 'waveshare'}</td>
+                      <td className="py-2 pr-2 text-[10px]">{d.modbus.controlType || 'single'}</td>
+                      <td className="py-2 pr-2 font-mono">{d.modbus.address ?? '-'}</td>
+                      <td className="py-2 pr-2 font-mono">{d.modbus.address2 ?? '-'}</td>
+                      <td className="py-2">
+                        {conflict
+                          ? <span className="px-1.5 py-0.5 rounded bg-rose-100 text-rose-700 font-bold">⚠️ 중복</span>
+                          : <span className="px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-700 font-bold">✅</span>}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {sensorModbus.length === 0 && deviceModbus.length === 0 && (
+        <div className="glass-card p-8 text-center text-gray-400">
+          <p className="text-4xl mb-2">🔌</p>
+          <p>Modbus 설정된 센서/장치가 없습니다</p>
+        </div>
+      )}
+    </div>
+  );
+};
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// SystemManagePanel — 시스템 관리 (Node-RED 재시작, 상태 확인)
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+const SystemManagePanel = () => {
+  const [status, setStatus] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [actionLoading, setActionLoading] = useState(null);
+  const [actionMsg, setActionMsg] = useState(null);
+
+  // 시스템 관리 API는 Node-RED(1880)와 별도 포트(3100)에서 동작
+  const sysUrl = getRpiApiBase().replace(/:\d+\/api.*$/, '') + ':3100/api';
+
+  const loadStatus = useCallback(async () => {
+    try {
+      const res = await axiosBase.get(`${sysUrl}/system/status`, { timeout: 5000 });
+      const d = res.data;
+      if (d?.nodeRed || d?.rpiExpress) {
+        // uptime 계산
+        const fmtUptime = (ms) => {
+          if (!ms) return '';
+          const sec = Math.floor((Date.now() - ms) / 1000);
+          if (sec < 60) return `${sec}초`;
+          if (sec < 3600) return `${Math.floor(sec/60)}분`;
+          return `${Math.floor(sec/3600)}시간 ${Math.floor((sec%3600)/60)}분`;
+        };
+        setStatus({
+          nodeRed: d.nodeRed ? { online: d.nodeRed.status === 'online', uptime: fmtUptime(d.nodeRed.uptime), restarts: d.nodeRed.restarts } : null,
+          rpiExpress: d.rpiExpress ? { online: d.rpiExpress.status === 'online', uptime: fmtUptime(d.rpiExpress.uptime) } : null,
+        });
+      }
+    } catch (err) {
+      setStatus(null);
+      console.warn('[SystemManage] status load failed:', err.message);
+    } finally { setLoading(false); }
+  }, [sysUrl]);
+
+  useEffect(() => {
+    loadStatus();
+    const interval = setInterval(loadStatus, 15000);
+    return () => clearInterval(interval);
+  }, [loadStatus]);
+
+  const handleAction = async (action, label) => {
+    if (!confirm(`${label} 하시겠습니까?`)) return;
+    setActionLoading(action);
+    setActionMsg(null);
+    try {
+      const res = await axiosBase.post(`${sysUrl}/system/${action}`, {}, { timeout: 30000 });
+      if (res.data?.success !== false) {
+        setActionMsg({ type: 'success', text: `${label} 완료` });
+        setTimeout(loadStatus, 5000);
+      } else {
+        setActionMsg({ type: 'error', text: res.data?.error || '실패' });
+      }
+    } catch (err) {
+      setActionMsg({ type: 'error', text: err.message });
+    } finally { setActionLoading(null); }
+  };
+
+  const StatusBadge = ({ online, label }) => (
+    <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold ${
+      online ? 'bg-emerald-100 text-emerald-700' : 'bg-rose-100 text-rose-700'
+    }`}>
+      <span className={`w-2 h-2 rounded-full ${online ? 'bg-emerald-500' : 'bg-rose-500'}`} />
+      {label || (online ? '온라인' : '오프라인')}
+    </span>
+  );
+
+  return (
+    <div className="max-w-2xl space-y-4">
+      {/* 시스템 상태 */}
+      <div className="glass-card p-4 md:p-5">
+        <h2 className="text-lg font-bold text-gray-800 mb-3">시스템 상태</h2>
+        {loading ? (
+          <div className="flex items-center justify-center py-8">
+            <div className="w-8 h-8 border-2 border-blue-300 border-t-blue-600 rounded-full animate-spin" />
+          </div>
+        ) : !status ? (
+          <div className="text-center py-6">
+            <p className="text-gray-500 text-sm">RPi 연결 불가</p>
+            <button onClick={loadStatus} className="mt-2 text-blue-600 text-sm font-medium hover:underline">재시도</button>
+          </div>
+        ) : (
+          <div className="grid grid-cols-2 gap-3">
+            <div className="bg-gray-50 rounded-xl p-3">
+              <p className="text-xs text-gray-500 mb-1">Node-RED</p>
+              <StatusBadge online={status.nodeRed?.online} />
+              {status.nodeRed?.uptime && <p className="text-xs text-gray-400 mt-1">가동 {status.nodeRed.uptime}</p>}
+              {status.nodeRed?.restarts > 0 && <p className="text-xs text-gray-400">재시작 {status.nodeRed.restarts}회</p>}
+            </div>
+            <div className="bg-gray-50 rounded-xl p-3">
+              <p className="text-xs text-gray-500 mb-1">RPi Express</p>
+              <StatusBadge online={status.rpiExpress?.online} />
+              {status.rpiExpress?.uptime && <p className="text-xs text-gray-400 mt-1">가동 {status.rpiExpress.uptime}</p>}
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* 제어 버튼 */}
+      <div className="glass-card p-4 md:p-5">
+        <h2 className="text-lg font-bold text-gray-800 mb-3">서비스 제어</h2>
+        <div className="space-y-3">
+          <div className="flex items-center justify-between p-3 bg-amber-50 rounded-xl border border-amber-200">
+            <div>
+              <p className="text-sm font-bold text-gray-800">Node-RED 재시작</p>
+              <p className="text-xs text-gray-500">Modbus 통신 장애 시 사용</p>
+            </div>
+            <button onClick={() => handleAction('restart-nodered', 'Node-RED 재시작')}
+              disabled={!!actionLoading}
+              className="px-4 py-2 rounded-lg text-sm font-bold bg-amber-500 text-white hover:bg-amber-600 disabled:opacity-50 transition-all active:scale-95">
+              {actionLoading === 'restart-nodered' ? '재시작 중...' : '재시작'}
+            </button>
+          </div>
+          <div className="flex items-center justify-between p-3 bg-blue-50 rounded-xl border border-blue-200">
+            <div>
+              <p className="text-sm font-bold text-gray-800">RPi Express 재시작</p>
+              <p className="text-xs text-gray-500">RPi API 서버 재시작</p>
+            </div>
+            <button onClick={() => handleAction('restart-express', 'RPi Express 재시작')}
+              disabled={!!actionLoading}
+              className="px-4 py-2 rounded-lg text-sm font-bold bg-blue-500 text-white hover:bg-blue-600 disabled:opacity-50 transition-all active:scale-95">
+              {actionLoading === 'restart-express' ? '재시작 중...' : '재시작'}
+            </button>
+          </div>
+        </div>
+        {actionMsg && (
+          <div className={`mt-3 p-2.5 rounded-lg text-sm font-medium ${
+            actionMsg.type === 'success' ? 'bg-emerald-100 text-emerald-700' : 'bg-rose-100 text-rose-700'
+          }`}>{actionMsg.text}</div>
+        )}
+      </div>
     </div>
   );
 };
@@ -2153,9 +2429,66 @@ const CRITICAL_PRESETS = [
   { value: 0.7, label: '70%', desc: '둔감' },
 ];
 
+const OFFLINE_THRESHOLD_PRESETS = [
+  { value: 5, label: '5분' },
+  { value: 10, label: '10분' },
+  { value: 15, label: '15분' },
+  { value: 30, label: '30분' },
+];
+const OFFLINE_CRITICAL_PRESETS = [
+  { value: 30, label: '30분' },
+  { value: 60, label: '1시간' },
+  { value: 120, label: '2시간' },
+  { value: 180, label: '3시간' },
+];
+const OFFLINE_COOLDOWN_PRESETS = [
+  { value: 30, label: '30분' },
+  { value: 60, label: '1시간' },
+  { value: 120, label: '2시간' },
+  { value: 240, label: '4시간' },
+];
+const MAINTENANCE_DAY_OPTIONS = [
+  { value: 90, label: 'D-90' },
+  { value: 60, label: 'D-60' },
+  { value: 30, label: 'D-30' },
+  { value: 14, label: 'D-14' },
+  { value: 7, label: 'D-7' },
+  { value: 3, label: 'D-3' },
+  { value: 0, label: 'D-Day' },
+];
+
 const AlertSettingsTab = ({ farmId, houses, onHousesUpdate }) => {
+  const farmLocal = isFarmLocalMode();
+
+  // 서버 연결 설정 (localStorage)
+  const [timeoutSec, setTimeoutSec] = useState(() => {
+    try { const v = parseInt(localStorage.getItem('smartfarm_serverTimeout')); return (!isNaN(v) && v >= 30) ? v : 180; } catch { return 180; }
+  });
+  const [pollingSec, setPollingSec] = useState(() => {
+    try { const v = parseInt(localStorage.getItem('smartfarm_pollingInterval')); return (!isNaN(v) && v >= 3) ? v : 10; } catch { return 10; }
+  });
+  const [serverSaved, setServerSaved] = useState(true);
+  const formatTimeSec = (sec) => {
+    if (sec >= 3600) return `${Math.floor(sec/3600)}시간 ${Math.floor((sec%3600)/60)}분`;
+    if (sec >= 60) return `${Math.floor(sec/60)}분 ${sec%60 ? sec%60+'초' : ''}`.trim();
+    return `${sec}초`;
+  };
+  const handleTimeoutChange = (val) => { const c = Math.max(30, Math.min(1800, val)); setTimeoutSec(c); setServerSaved(false); };
+  const handlePollingChange = (val) => { const c = Math.max(3, Math.min(300, val)); setPollingSec(c); setServerSaved(false); };
+  const saveServerSettings = () => {
+    localStorage.setItem('smartfarm_serverTimeout', String(timeoutSec));
+    localStorage.setItem('smartfarm_pollingInterval', String(pollingSec));
+    setServerSaved(true);
+  };
+
   const [alertConfig, setAlertConfig] = useState({ enabled: true, checkIntervalMinutes: 5, cooldownMinutes: 15, criticalRatio: 0.5 });
+  const [offlineConfig, setOfflineConfig] = useState({ enabled: true, offlineThresholdMin: 10, criticalThresholdMin: 60, cooldownMinutes: 60 });
+  const [maintenanceConfig, setMaintenanceConfig] = useState({ enabled: true, alertDays: [30, 7, 0] });
+  const [deviceFailureConfig, setDeviceFailureConfig] = useState({ enabled: true, observationWindowMinutes: 30, controlFailureThreshold: 3, cooldownMinutes: 60 });
   const [serverConfig, setServerConfig] = useState(null);
+  const [serverOfflineConfig, setServerOfflineConfig] = useState(null);
+  const [serverMaintenanceConfig, setServerMaintenanceConfig] = useState(null);
+  const [serverDeviceFailureConfig, setServerDeviceFailureConfig] = useState(null);
   const [configLoading, setConfigLoading] = useState(true);
   const [saving, setSaving] = useState(false);
 
@@ -2164,16 +2497,34 @@ const AlertSettingsTab = ({ farmId, houses, onHousesUpdate }) => {
   const [sensorsDirty, setSensorsDirty] = useState(false);
   const [sensorSaving, setSensorSaving] = useState(false);
 
-  // 농장 알림 설정 로드
+  // 농장 알림 설정 로드 (센서 + 오프라인 + 유지보수)
   useEffect(() => {
     (async () => {
       setConfigLoading(true);
       try {
         const res = await axios.get(`${getApiBase()}/config/system-settings/${farmId}`, { timeout: 5000 });
-        if (res.data.success && res.data.data?.alertConfig) {
-          const cfg = { enabled: true, checkIntervalMinutes: 5, cooldownMinutes: 15, criticalRatio: 0.5, ...res.data.data.alertConfig };
-          setAlertConfig(cfg);
-          setServerConfig(cfg);
+        if (res.data.success) {
+          const data = res.data.data || {};
+          if (data.alertConfig) {
+            const cfg = { enabled: true, checkIntervalMinutes: 5, cooldownMinutes: 15, criticalRatio: 0.5, ...data.alertConfig };
+            setAlertConfig(cfg);
+            setServerConfig(cfg);
+          }
+          if (data.offlineConfig) {
+            const cfg = { enabled: true, offlineThresholdMin: 10, criticalThresholdMin: 60, cooldownMinutes: 60, ...data.offlineConfig };
+            setOfflineConfig(cfg);
+            setServerOfflineConfig(cfg);
+          }
+          if (data.maintenanceConfig) {
+            const cfg = { enabled: true, alertDays: [30, 7, 0], ...data.maintenanceConfig };
+            setMaintenanceConfig(cfg);
+            setServerMaintenanceConfig(cfg);
+          }
+          if (data.deviceFailureConfig) {
+            const cfg = { enabled: true, observationWindowMinutes: 30, controlFailureThreshold: 3, cooldownMinutes: 60, ...data.deviceFailureConfig };
+            setDeviceFailureConfig(cfg);
+            setServerDeviceFailureConfig(cfg);
+          }
         }
       } catch (e) { console.warn('알림 설정 로드 실패:', e.message); }
       finally { setConfigLoading(false); }
@@ -2181,14 +2532,26 @@ const AlertSettingsTab = ({ farmId, houses, onHousesUpdate }) => {
   }, [farmId]);
 
   const configDirty = serverConfig ? JSON.stringify(alertConfig) !== JSON.stringify(serverConfig) : false;
+  const offlineDirty = serverOfflineConfig ? JSON.stringify(offlineConfig) !== JSON.stringify(serverOfflineConfig) : true;
+  const maintenanceDirty = serverMaintenanceConfig ? JSON.stringify(maintenanceConfig) !== JSON.stringify(serverMaintenanceConfig) : true;
+  const deviceFailureDirty = serverDeviceFailureConfig ? JSON.stringify(deviceFailureConfig) !== JSON.stringify(serverDeviceFailureConfig) : true;
 
-  const saveConfig = async () => {
+  const saveConfig = async (type) => {
     setSaving(true);
     try {
-      const res = await rpiApi('put', `/config/system-settings/${farmId}`, { alertConfig });
+      const payload = {};
+      if (type === 'alert') payload.alertConfig = alertConfig;
+      else if (type === 'offline') payload.offlineConfig = offlineConfig;
+      else if (type === 'maintenance') payload.maintenanceConfig = maintenanceConfig;
+      else if (type === 'deviceFailure') payload.deviceFailureConfig = deviceFailureConfig;
+
+      const res = await rpiApi('put', `/config/system-settings/${farmId}`, payload);
       if (res.data.success) {
-        setServerConfig({ ...alertConfig });
-        alert('알림 설정이 저장되었습니다.');
+        if (type === 'alert') setServerConfig({ ...alertConfig });
+        else if (type === 'offline') setServerOfflineConfig({ ...offlineConfig });
+        else if (type === 'maintenance') setServerMaintenanceConfig({ ...maintenanceConfig });
+        else if (type === 'deviceFailure') setServerDeviceFailureConfig({ ...deviceFailureConfig });
+        alert('설정이 저장되었습니다.');
       }
     } catch (e) { alert('저장 실패: ' + (e.response?.data?.error || e.message)); }
     finally { setSaving(false); }
@@ -2238,8 +2601,12 @@ const AlertSettingsTab = ({ farmId, houses, onHousesUpdate }) => {
     <div className="animate-fade-in-up">
       <SubTabBar
         tabs={[
-          { id: 'farm', label: '농장 설정', icon: '🏭' },
-          { id: 'sensors', label: '센서 임계값', icon: '📊' },
+          { id: 'farm', label: '센서 알림', icon: '📊' },
+          { id: 'offline', label: '오프라인 알림', icon: '📡' },
+          { id: 'server', label: '서버 연결 경고', icon: '🖥️' },
+          { id: 'maintenance', label: '유지보수 알림', icon: '🔧' },
+          { id: 'deviceFailure', label: '장비 고장', icon: '🔴' },
+          { id: 'sensors', label: '센서 임계값', icon: '🎚️' },
         ]}
         activeTab={alertSubTab}
         onChange={setAlertSubTab}
@@ -2298,10 +2665,274 @@ const AlertSettingsTab = ({ farmId, houses, onHousesUpdate }) => {
                   </div>
                 </>
               )}
-              <button onClick={saveConfig} disabled={!configDirty || saving}
+              <button onClick={() => saveConfig('alert')} disabled={!configDirty || saving}
                 className={`w-full py-2.5 rounded-xl text-base font-bold transition-all active:scale-[0.97] ${
                   configDirty ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/20 hover:bg-blue-700' : 'bg-gray-100 text-gray-400 border border-gray-200 cursor-default'
                 }`}>{saving ? '저장 중...' : configDirty ? '💾 설정 저장' : '저장 완료'}</button>
+            </>
+          )}
+        </div>
+      )}
+
+      {/* 오프라인 알림 설정 */}
+      {alertSubTab === 'offline' && (
+        <div className="max-w-2xl glass-card p-4 md:p-5">
+          <h2 className="text-lg font-bold text-gray-800 mb-4">오프라인 감지 알림</h2>
+          {configLoading ? (
+            <div className="space-y-3">{[...Array(3)].map((_, i) => <div key={i} className="skeleton h-12 rounded-xl" />)}</div>
+          ) : (
+            <>
+              {/* ON/OFF */}
+              <div className="flex items-center justify-between bg-gray-50 rounded-xl p-4 border border-gray-200 mb-4">
+                <div className="flex items-center gap-3">
+                  <span className="text-2xl">📡</span>
+                  <div>
+                    <p className="text-sm font-bold text-gray-800">오프라인 알림</p>
+                    <p className="text-xs text-gray-500">{offlineConfig.enabled ? '활성 - 농장 미접속 시 알림 생성' : '비활성 - 알림 중지됨'}</p>
+                  </div>
+                </div>
+                <button onClick={() => setOfflineConfig(p => ({ ...p, enabled: !p.enabled }))}
+                  className={`relative w-14 h-7 rounded-full transition-all ${offlineConfig.enabled ? 'bg-blue-500' : 'bg-gray-300'}`}>
+                  <span className={`absolute top-0.5 w-6 h-6 bg-white rounded-full shadow transition-all ${offlineConfig.enabled ? 'left-7' : 'left-0.5'}`} />
+                </button>
+              </div>
+
+              {offlineConfig.enabled && (
+                <>
+                  <div className="mb-4">
+                    <label className="text-sm text-gray-600 font-semibold mb-1 block">경고(WARNING) 기준</label>
+                    <p className="text-xs text-gray-400 mb-2">농장이 <span className="text-amber-600 font-bold">{offlineConfig.offlineThresholdMin}분</span> 이상 미접속 시 경고</p>
+                    <PresetButtons presets={OFFLINE_THRESHOLD_PRESETS} value={offlineConfig.offlineThresholdMin}
+                      onChange={v => setOfflineConfig(p => ({ ...p, offlineThresholdMin: v }))}
+                      activeColor="bg-amber-500 text-white border-amber-500" />
+                  </div>
+                  <div className="mb-4">
+                    <label className="text-sm text-gray-600 font-semibold mb-1 block">심각(CRITICAL) 기준</label>
+                    <p className="text-xs text-gray-400 mb-2">농장이 <span className="text-red-500 font-bold">{offlineConfig.criticalThresholdMin}분</span> 이상 미접속 시 긴급</p>
+                    <PresetButtons presets={OFFLINE_CRITICAL_PRESETS} value={offlineConfig.criticalThresholdMin}
+                      onChange={v => setOfflineConfig(p => ({ ...p, criticalThresholdMin: v }))}
+                      activeColor="bg-red-500 text-white border-red-500" />
+                  </div>
+                  <div className="mb-4">
+                    <label className="text-sm text-gray-600 font-semibold mb-1 block">중복 알림 방지 (쿨다운)</label>
+                    <p className="text-xs text-gray-400 mb-2">같은 농장 <span className="text-orange-500 font-bold">{offlineConfig.cooldownMinutes}분</span> 이내 중복 차단</p>
+                    <PresetButtons presets={OFFLINE_COOLDOWN_PRESETS} value={offlineConfig.cooldownMinutes}
+                      onChange={v => setOfflineConfig(p => ({ ...p, cooldownMinutes: v }))}
+                      activeColor="bg-orange-500 text-white border-orange-500" />
+                  </div>
+                  <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 mb-4">
+                    <p className="text-xs text-amber-700"><span className="font-bold">💡 동작:</span> RPi가 {offlineConfig.offlineThresholdMin}분간 데이터를 보내지 않으면 WARNING, {offlineConfig.criticalThresholdMin}분 이상이면 CRITICAL 알림이 생성됩니다.</p>
+                  </div>
+                </>
+              )}
+              <button onClick={() => saveConfig('offline')} disabled={!offlineDirty || saving}
+                className={`w-full py-2.5 rounded-xl text-base font-bold transition-all active:scale-[0.97] ${
+                  offlineDirty ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/20 hover:bg-blue-700' : 'bg-gray-100 text-gray-400 border border-gray-200 cursor-default'
+                }`}>{saving ? '저장 중...' : offlineDirty ? '💾 설정 저장' : '저장 완료'}</button>
+            </>
+          )}
+        </div>
+      )}
+
+      {/* 서버 연결 설정 */}
+      {alertSubTab === 'server' && !farmLocal && (
+        <div className="max-w-2xl glass-card p-4 md:p-5">
+          <h2 className="text-lg font-bold text-gray-800 mb-4">서버 연결 경고 설정</h2>
+
+          {/* 서버 연결 타임아웃 */}
+          <div className="mb-4">
+            <label className="text-sm text-gray-600 font-semibold mb-1.5 block">서버 연결 타임아웃</label>
+            <p className="text-xs text-gray-400 mb-3">
+              서버 연결이 <span className="text-red-500 font-bold">{formatTimeSec(timeoutSec)}</span> 이상 끊기면 대시보드에 경고 알림을 표시합니다
+            </p>
+            <div className="flex flex-wrap gap-2 mb-2">
+              {TIMEOUT_PRESETS.map(preset => (
+                <button key={preset.value} onClick={() => handleTimeoutChange(preset.value)}
+                  className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-all border ${
+                    timeoutSec === preset.value ? 'bg-blue-600 text-white border-blue-600 shadow-sm' : 'bg-white text-gray-600 border-gray-200 hover:border-blue-300 hover:bg-blue-50'
+                  }`}>{preset.label}</button>
+              ))}
+            </div>
+            <div className="flex items-center gap-3">
+              <input type="number" value={timeoutSec} onChange={(e) => { const val = parseInt(e.target.value); if (!isNaN(val)) handleTimeoutChange(val); }}
+                className="input-field w-28" min="30" max="1800" />
+              <span className="text-sm text-gray-500">초 (30~1800)</span>
+            </div>
+            <p className="text-xs text-gray-400 mt-1.5">
+              {TIMEOUT_PRESETS.find(p => p.value === timeoutSec)?.desc || `${formatTimeSec(timeoutSec)} 간격`}{' · '}헬스체크 주기 10초
+            </p>
+          </div>
+
+          {/* 대시보드 폴링 주기 */}
+          <div className="mb-4">
+            <label className="text-sm text-gray-600 font-semibold mb-1.5 block">대시보드 데이터 갱신 주기</label>
+            <p className="text-xs text-gray-400 mb-3">
+              대시보드가 <span className="text-blue-500 font-bold">{formatTimeSec(pollingSec)}</span>마다 서버에서 최신 센서 데이터를 가져옵니다
+            </p>
+            <div className="flex flex-wrap gap-2 mb-2">
+              {POLLING_PRESETS.map(preset => (
+                <button key={preset.value} onClick={() => handlePollingChange(preset.value)}
+                  className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-all border ${
+                    pollingSec === preset.value ? 'bg-blue-600 text-white border-blue-600 shadow-sm' : 'bg-white text-gray-600 border-gray-200 hover:border-blue-300 hover:bg-blue-50'
+                  }`}>{preset.label}</button>
+              ))}
+            </div>
+            <div className="flex items-center gap-3">
+              <input type="number" value={pollingSec} onChange={(e) => { const val = parseInt(e.target.value); if (!isNaN(val)) handlePollingChange(val); }}
+                className="input-field w-28" min="3" max="300" />
+              <span className="text-sm text-gray-500">초 (3~300)</span>
+            </div>
+            <p className="text-xs text-gray-400 mt-1.5">
+              {POLLING_PRESETS.find(p => p.value === pollingSec)?.desc || `${formatTimeSec(pollingSec)} 간격`}{' · '}짧을수록 실시간 반영, 길수록 네트워크 부하 감소
+            </p>
+          </div>
+
+          {/* 안내 */}
+          <div className="bg-red-50 border border-red-200 rounded-xl p-3.5 mb-4">
+            <div className="flex items-center gap-2">
+              <span className="text-lg">⚠️</span>
+              <div>
+                <p className="text-sm font-bold text-red-700">알림 동작</p>
+                <p className="text-xs text-red-600">
+                  설정 시간이 지나면 대시보드 상단에 빨간 경고 배너가 나타나고,
+                  "로컬 운영 전환" 버튼으로 즉시 로컬 모드로 전환할 수 있습니다.
+                  서버가 복구되면 알림이 자동으로 사라집니다.
+                </p>
+              </div>
+            </div>
+          </div>
+          <button onClick={saveServerSettings} disabled={serverSaved}
+            className={`w-full py-2.5 rounded-xl text-base font-bold transition-all active:scale-[0.97] ${
+              !serverSaved ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/20 hover:bg-blue-700' : 'bg-gray-100 text-gray-400 border border-gray-200 cursor-default'
+            }`}>{!serverSaved ? '💾 설정 저장' : '저장 완료'}</button>
+        </div>
+      )}
+
+      {alertSubTab === 'server' && farmLocal && (
+        <div className="max-w-2xl glass-card p-8 text-center">
+          <div className="text-4xl mb-4 opacity-30">🖥️</div>
+          <p className="text-gray-400 text-base">팜로컬 모드에서는 서버 연결 설정을 사용하지 않습니다</p>
+        </div>
+      )}
+
+      {/* 유지보수 만료 알림 설정 */}
+      {alertSubTab === 'maintenance' && (
+        <div className="max-w-2xl glass-card p-4 md:p-5">
+          <h2 className="text-lg font-bold text-gray-800 mb-4">유지보수 만료 알림</h2>
+          {configLoading ? (
+            <div className="space-y-3">{[...Array(3)].map((_, i) => <div key={i} className="skeleton h-12 rounded-xl" />)}</div>
+          ) : (
+            <>
+              {/* ON/OFF */}
+              <div className="flex items-center justify-between bg-gray-50 rounded-xl p-4 border border-gray-200 mb-4">
+                <div className="flex items-center gap-3">
+                  <span className="text-2xl">🔧</span>
+                  <div>
+                    <p className="text-sm font-bold text-gray-800">유지보수 만료 알림</p>
+                    <p className="text-xs text-gray-500">{maintenanceConfig.enabled ? '활성 - 계약 만료 전 알림 생성' : '비활성 - 알림 중지됨'}</p>
+                  </div>
+                </div>
+                <button onClick={() => setMaintenanceConfig(p => ({ ...p, enabled: !p.enabled }))}
+                  className={`relative w-14 h-7 rounded-full transition-all ${maintenanceConfig.enabled ? 'bg-blue-500' : 'bg-gray-300'}`}>
+                  <span className={`absolute top-0.5 w-6 h-6 bg-white rounded-full shadow transition-all ${maintenanceConfig.enabled ? 'left-7' : 'left-0.5'}`} />
+                </button>
+              </div>
+
+              {maintenanceConfig.enabled && (
+                <>
+                  <div className="mb-4">
+                    <label className="text-sm text-gray-600 font-semibold mb-1 block">알림 발송일</label>
+                    <p className="text-xs text-gray-400 mb-2">유지보수 만료 전 알림을 보낼 시점을 선택하세요</p>
+                    <div className="flex flex-wrap gap-2">
+                      {MAINTENANCE_DAY_OPTIONS.map(opt => {
+                        const isSelected = maintenanceConfig.alertDays.includes(opt.value);
+                        return (
+                          <button key={opt.value}
+                            onClick={() => {
+                              setMaintenanceConfig(p => ({
+                                ...p,
+                                alertDays: isSelected
+                                  ? p.alertDays.filter(d => d !== opt.value)
+                                  : [...p.alertDays, opt.value].sort((a, b) => b - a)
+                              }));
+                            }}
+                            className={`px-3 py-1.5 rounded-lg text-sm font-semibold transition-all border ${
+                              isSelected
+                                ? (opt.value === 0 ? 'bg-red-500 text-white border-red-500' : opt.value <= 7 ? 'bg-amber-500 text-white border-amber-500' : 'bg-blue-600 text-white border-blue-600') + ' shadow-sm'
+                                : 'bg-white text-gray-600 border-gray-200 hover:border-blue-300 hover:bg-blue-50'
+                            }`}>
+                            {opt.label}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                  <div className="bg-violet-50 border border-violet-200 rounded-xl p-3 mb-4">
+                    <p className="text-xs text-violet-700">
+                      <span className="font-bold">💡 동작:</span> 매일 오전 9시에 유지보수 만료일 체크 →
+                      {maintenanceConfig.alertDays.length > 0
+                        ? ` ${maintenanceConfig.alertDays.map(d => d === 0 ? 'D-Day' : `D-${d}`).join(', ')}에 알림`
+                        : ' 선택된 알림일이 없습니다'}
+                    </p>
+                  </div>
+                </>
+              )}
+              <button onClick={() => saveConfig('maintenance')} disabled={!maintenanceDirty || saving}
+                className={`w-full py-2.5 rounded-xl text-base font-bold transition-all active:scale-[0.97] ${
+                  maintenanceDirty ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/20 hover:bg-blue-700' : 'bg-gray-100 text-gray-400 border border-gray-200 cursor-default'
+                }`}>{saving ? '저장 중...' : maintenanceDirty ? '💾 설정 저장' : '저장 완료'}</button>
+            </>
+          )}
+        </div>
+      )}
+
+      {alertSubTab === 'deviceFailure' && (
+        <div className="bg-white border border-gray-200 rounded-2xl shadow-sm p-4 md:p-6">
+          {configLoading ? (
+            <div className="flex items-center justify-center py-8">
+              <div className="w-8 h-8 border-2 border-blue-300 border-t-blue-600 rounded-full animate-spin" />
+            </div>
+          ) : (
+            <>
+              <div className="flex items-center justify-between mb-5">
+                <div>
+                  <p className="text-base font-bold text-gray-800">장비 고장 감지</p>
+                  <p className="text-xs text-gray-500">{deviceFailureConfig.enabled ? '활성 - 제어 연속 실패 시 알림 생성' : '비활성 - 알림 중지됨'}</p>
+                </div>
+                <button onClick={() => setDeviceFailureConfig(prev => ({ ...prev, enabled: !prev.enabled }))}
+                  className={`relative w-14 h-7 rounded-full transition-all ${deviceFailureConfig.enabled ? 'bg-blue-500' : 'bg-gray-300'}`}>
+                  <span className={`absolute top-0.5 w-6 h-6 bg-white rounded-full shadow transition-all ${deviceFailureConfig.enabled ? 'left-7' : 'left-0.5'}`} />
+                </button>
+              </div>
+              {deviceFailureConfig.enabled && (
+                <div className="space-y-4">
+                  <div>
+                    <p className="text-sm font-semibold text-gray-700 mb-1">관찰 시간 (분)</p>
+                    <p className="text-xs text-gray-400 mb-2">최근 <span className="text-blue-600 font-bold">{deviceFailureConfig.observationWindowMinutes}분</span> 동안의 제어 실패를 분석</p>
+                    <PresetButtons presets={[{ value: 15, label: '15분' }, { value: 30, label: '30분' }, { value: 60, label: '1시간' }, { value: 120, label: '2시간' }]} value={deviceFailureConfig.observationWindowMinutes}
+                      onChange={(v) => setDeviceFailureConfig(prev => ({ ...prev, observationWindowMinutes: v }))} />
+                  </div>
+                  <div>
+                    <p className="text-sm font-semibold text-gray-700 mb-1">실패 횟수 기준</p>
+                    <p className="text-xs text-gray-400 mb-2">같은 장비가 <span className="text-red-500 font-bold">{deviceFailureConfig.controlFailureThreshold}회</span> 이상 실패하면 알림</p>
+                    <PresetButtons presets={[{ value: 2, label: '2회' }, { value: 3, label: '3회' }, { value: 5, label: '5회' }, { value: 10, label: '10회' }]} value={deviceFailureConfig.controlFailureThreshold}
+                      onChange={(v) => setDeviceFailureConfig(prev => ({ ...prev, controlFailureThreshold: v }))} />
+                  </div>
+                  <div>
+                    <p className="text-sm font-semibold text-gray-700 mb-1">중복 방지 (분)</p>
+                    <p className="text-xs text-gray-400 mb-2">같은 장비 <span className="text-orange-500 font-bold">{deviceFailureConfig.cooldownMinutes}분</span> 이내 중복 차단</p>
+                    <PresetButtons presets={[{ value: 30, label: '30분' }, { value: 60, label: '1시간' }, { value: 120, label: '2시간' }, { value: 240, label: '4시간' }]} value={deviceFailureConfig.cooldownMinutes}
+                      onChange={(v) => setDeviceFailureConfig(prev => ({ ...prev, cooldownMinutes: v }))} />
+                  </div>
+                  <div className="bg-red-50 border border-red-200 rounded-xl p-3">
+                    <p className="text-xs text-red-700"><span className="font-bold">💡 동작:</span> {deviceFailureConfig.observationWindowMinutes}분 동안 같은 장비가 {deviceFailureConfig.controlFailureThreshold}회 이상 제어 실패하면 DEVICE_FAILURE 알림을 생성합니다. {deviceFailureConfig.controlFailureThreshold * 2}회 이상이면 CRITICAL로 격상됩니다.</p>
+                  </div>
+                </div>
+              )}
+              <button onClick={() => saveConfig('deviceFailure')} disabled={!deviceFailureDirty || saving}
+                className={`w-full py-2.5 mt-4 rounded-xl text-base font-bold transition-all active:scale-[0.97] ${
+                  deviceFailureDirty ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/20 hover:bg-blue-700' : 'bg-gray-100 text-gray-400 border border-gray-200 cursor-default'
+                }`}>{saving ? '저장 중...' : deviceFailureDirty ? '💾 설정 저장' : '저장 완료'}</button>
             </>
           )}
         </div>

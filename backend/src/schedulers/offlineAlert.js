@@ -2,16 +2,40 @@
 // 농장 오프라인 감지 알림 스케줄러
 
 import cron from "node-cron";
-import { prisma } from "../db.js";
+import { prisma, pool } from "../db.js";
 import Alert from "../models/Alert.js";
 import logger from "../utils/logger.js";
 
-const OFFLINE_THRESHOLD_MIN = 10; // 10분 이상 미접속 → WARNING
-const CRITICAL_THRESHOLD_MIN = 60; // 60분 이상 미접속 → CRITICAL
-const COOLDOWN_MS = 60 * 60 * 1000; // 1시간 중복 방지
+// 기본 설정 (DB에 없을 때 사용)
+const DEFAULT_OFFLINE_CONFIG = {
+  enabled: true,
+  offlineThresholdMin: 10,    // 10분 이상 미접속 → WARNING
+  criticalThresholdMin: 60,   // 60분 이상 미접속 → CRITICAL
+  cooldownMinutes: 60,        // 1시간 중복 방지
+};
+
+// 농장별 offlineConfig를 DB에서 로드
+async function loadOfflineConfigs() {
+  const configs = {};
+  try {
+    const result = await pool.query(
+      "SELECT farm_id, settings FROM system_settings"
+    );
+    for (const row of result.rows) {
+      if (row.settings?.offlineConfig) {
+        configs[row.farm_id] = { ...DEFAULT_OFFLINE_CONFIG, ...row.settings.offlineConfig };
+      }
+    }
+  } catch (e) {
+    logger.warn("오프라인 알림 설정 로드 실패 (기본값 사용):", e.message);
+  }
+  return configs;
+}
 
 async function checkOfflineFarms() {
   try {
+    const offlineConfigs = await loadOfflineConfigs();
+
     const farms = await prisma.farm.findMany({
       where: { status: "active", lastSeenAt: { not: null } },
       select: { farmId: true, name: true, lastSeenAt: true },
@@ -20,12 +44,19 @@ async function checkOfflineFarms() {
     const now = Date.now();
 
     for (const farm of farms) {
+      const cfg = offlineConfigs[farm.farmId] || DEFAULT_OFFLINE_CONFIG;
+
+      // 농장별 오프라인 알림 비활성화 체크
+      if (cfg.enabled === false) continue;
+
       const diffMs = now - new Date(farm.lastSeenAt).getTime();
       const diffMin = Math.floor(diffMs / 60000);
 
-      if (diffMin < OFFLINE_THRESHOLD_MIN) continue;
+      if (diffMin < cfg.offlineThresholdMin) continue;
 
-      // 중복 체크: 최근 1시간 이내 FARM_OFFLINE 알림이 있으면 skip
+      const cooldownMs = cfg.cooldownMinutes * 60 * 1000;
+
+      // 중복 체크: 쿨다운 이내 FARM_OFFLINE 알림이 있으면 skip
       const recent = await Alert.find(
         { farmId: farm.farmId },
         { limit: 1 }
@@ -34,11 +65,11 @@ async function checkOfflineFarms() {
         (a) =>
           a.alertType === "FARM_OFFLINE" &&
           a.createdAt &&
-          now - new Date(a.createdAt).getTime() < COOLDOWN_MS
+          now - new Date(a.createdAt).getTime() < cooldownMs
       );
       if (recentOffline) continue;
 
-      const severity = diffMin >= CRITICAL_THRESHOLD_MIN ? "CRITICAL" : "WARNING";
+      const severity = diffMin >= cfg.criticalThresholdMin ? "CRITICAL" : "WARNING";
       const message =
         severity === "CRITICAL"
           ? `${farm.name} 농장이 ${diffMin}분째 오프라인입니다 (긴급).`

@@ -357,3 +357,17 @@ input[type=date].input-field::-webkit-calendar-picker-indicator { filter: none !
     -webkit-backdrop-filter: blur(12px);
   }
 }
+
+/* --- Touch-optimized UI for 1024x600 screens --- */
+@media (max-height: 650px) {
+  button, [role="button"], a.btn-primary, a.btn-secondary {
+    min-height: 40px;
+  }
+  input, select, textarea {
+    min-height: 40px;
+  }
+  .glass-nav {
+    padding-top: 2px;
+    padding-bottom: 2px;
+  }
+}

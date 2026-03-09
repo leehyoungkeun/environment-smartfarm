@@ -8,6 +8,7 @@ import cors from "cors";
 import helmet from "helmet";
 import compression from "compression";
 import rateLimit from "express-rate-limit";
+import promClient from "prom-client";
 import journalRoutes from "./routes/journal.routes.js";
 import aiRoutes from "./routes/ai.routes.js";
 import farmsRoutes from "./routes/farms.routes.js";
@@ -20,6 +21,7 @@ import sensorsRoutes from "./routes/sensors.js";
 import alertsRoutes from "./routes/alerts.js";
 import controlLogRoutes from "./routes/control-logs.js";
 import automationRoutes from "./routes/automation.routes.js";
+import auditLogRoutes from "./routes/audit-logs.js";
 import authRoutes from "./routes/auth.routes.js";
 import internalRoutes from "./routes/internal.routes.js";
 import {
@@ -34,6 +36,7 @@ import { startMaintenanceAlertScheduler } from "./schedulers/maintenanceAlert.js
 import { startOfflineAlertScheduler } from "./schedulers/offlineAlert.js";
 import { startTrashCleanupScheduler } from "./schedulers/trashCleanup.js";
 import { startSensorThresholdScheduler } from "./schedulers/sensorThresholdAlert.js";
+import { startDeviceFailureScheduler } from "./schedulers/deviceFailureAlert.js";
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -113,6 +116,43 @@ if (process.env.NODE_ENV !== "production") {
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// Prometheus Metrics
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+promClient.collectDefaultMetrics({ prefix: "smartfarm_" });
+
+const httpRequestDuration = new promClient.Histogram({
+  name: "smartfarm_http_request_duration_seconds",
+  help: "HTTP request duration in seconds",
+  labelNames: ["method", "route", "status"],
+  buckets: [0.01, 0.05, 0.1, 0.5, 1, 5],
+});
+
+const httpRequestTotal = new promClient.Counter({
+  name: "smartfarm_http_requests_total",
+  help: "Total HTTP requests",
+  labelNames: ["method", "route", "status"],
+});
+
+// Middleware: measure all requests
+app.use((req, res, next) => {
+  if (req.path === "/metrics") return next();
+  const end = httpRequestDuration.startTimer();
+  res.on("finish", () => {
+    const route = req.route?.path || req.path;
+    const labels = { method: req.method, route, status: res.statusCode };
+    end(labels);
+    httpRequestTotal.inc(labels);
+  });
+  next();
+});
+
+app.get("/metrics", async (req, res) => {
+  res.set("Content-Type", promClient.register.contentType);
+  res.end(await promClient.register.metrics());
+});
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // Health Check
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
@@ -175,6 +215,7 @@ app.use("/api/farms", authenticate, farmsRoutes);
 // JWT 인증 필수 API (테넌트 격리 적용)
 app.use("/api/alerts", authenticate, enforceTenant, alertsRoutes);
 app.use("/api/control-logs", authenticate, enforceTenant, controlLogRoutes);
+app.use("/api/audit-logs", authenticate, enforceTenant, auditLogRoutes);
 app.use("/api/reports", authenticate, enforceTenant, reportRoutes);
 
 app.use("/api/journal", authenticate, enforceTenant, journalRoutes);
@@ -321,8 +362,9 @@ async function startServer() {
     // 휴지통 자동 정리 스케줄러 시작
     startTrashCleanupScheduler();
     startSensorThresholdScheduler();
+    startDeviceFailureScheduler();
 
-    app.listen(PORT, "0.0.0.0", () => {
+    const server = app.listen(PORT, "0.0.0.0", () => {
       logger.info(`
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 🌱 Configurable SmartFarm Backend Server
@@ -332,6 +374,36 @@ async function startServer() {
    Database: PostgreSQL + TimescaleDB
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
       `);
+    });
+
+    server.on("error", async (err) => {
+      if (err.code === "EADDRINUSE") {
+        logger.warn(`⚠️ 포트 ${PORT} 사용 중 — 고아 프로세스 정리 시도...`);
+        try {
+          const { execSync } = await import("child_process");
+          const isWin = process.platform === "win32";
+          if (isWin) {
+            const result = execSync(`netstat -ano | findstr :${PORT} | findstr LISTEN`, { encoding: "utf8" }).trim();
+            const pid = result.split(/\s+/).pop();
+            if (pid && pid !== String(process.pid)) {
+              execSync(`taskkill /PID ${pid} /F`);
+              logger.info(`✅ 고아 프로세스(PID ${pid}) 종료 완료 — 3초 후 재시작`);
+            }
+          } else {
+            execSync(`fuser -k ${PORT}/tcp`);
+            logger.info(`✅ 포트 ${PORT} 점유 프로세스 종료 — 3초 후 재시작`);
+          }
+          setTimeout(() => {
+            server.listen(PORT, "0.0.0.0");
+          }, 3000);
+        } catch (killErr) {
+          logger.error("❌ 포트 정리 실패 — PM2 재시작에 의존:", killErr.message);
+          process.exit(1);
+        }
+      } else {
+        logger.error("❌ 서버 에러:", err);
+        process.exit(1);
+      }
     });
   } catch (error) {
     logger.error("❌ Server startup failed:", error);

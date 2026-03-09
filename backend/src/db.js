@@ -61,6 +61,46 @@ pool.on("error", (err) => {
 });
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// Remote DB Pool (이중 저장용 - 114 서버)
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+const remoteEnabled = process.env.REMOTE_DB_ENABLED === "true";
+
+const remotePool = remoteEnabled
+  ? new Pool({
+      host: process.env.REMOTE_DB_HOST,
+      port: parseInt(process.env.REMOTE_DB_PORT) || 5432,
+      user: process.env.REMOTE_DB_USER,
+      password: process.env.REMOTE_DB_PASSWORD,
+      database: process.env.REMOTE_DB_NAME || "smartfarm_db",
+      max: 5,
+      idleTimeoutMillis: 30000,
+      connectionTimeoutMillis: 5000,
+      statement_timeout: 10000,
+      application_name: "smartfarm-remote",
+    })
+  : null;
+
+if (remotePool) {
+  remotePool.on("error", (err) => {
+    logger.warn("Remote DB pool error (무시):", err.message);
+  });
+}
+
+/**
+ * 원격 DB에 비동기 저장 (실패 시 무시)
+ */
+export async function remoteQuery(text, params) {
+  if (!remotePool) return null;
+  try {
+    return await remotePool.query(text, params);
+  } catch (err) {
+    logger.warn(`Remote DB 저장 실패 (무시): ${err.message}`);
+    return null;
+  }
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // 연결 테스트
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 

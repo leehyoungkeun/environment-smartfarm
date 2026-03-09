@@ -2,6 +2,8 @@ import React, { useState, useRef, useCallback } from 'react';
 import axios from 'axios';
 import * as XLSX from 'xlsx';
 import ControlHistory from './ControlHistory';
+import AlertHistory from './AlertHistory';
+import AuditHistory from './AuditHistory';
 import {
   BarChart, Bar, LineChart, Line, PieChart, Pie, Cell,
   XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
@@ -233,6 +235,8 @@ export default function ReportPage({ farmId }) {
   const TABS = [
     { id: 'report', label: '센서 보고서', icon: '📄' },
     { id: 'control-history', label: '제어 이력', icon: '📋' },
+    { id: 'alert-history', label: '알림 이력', icon: '🔔' },
+    { id: 'audit-log', label: '감사 로그', icon: '🔍' },
   ];
 
   return (
@@ -255,6 +259,8 @@ export default function ReportPage({ farmId }) {
       </div>
 
       {activeTab === 'control-history' && <ControlHistory farmId={farmId} />}
+      {activeTab === 'alert-history' && <AlertHistory farmId={farmId} />}
+      {activeTab === 'audit-log' && <AuditHistory farmId={farmId} />}
 
       {activeTab === 'report' && <>
       {/* 컨트롤 바 */}

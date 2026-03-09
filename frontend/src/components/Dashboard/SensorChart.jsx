@@ -287,7 +287,7 @@ const ChartContent = React.memo(({ chartData, selectedSensors, getSensorInfo, ti
 
   return (
     <>
-      <ResponsiveContainer width="100%" height={400}>
+      <ResponsiveContainer width="100%" height={Math.min(400, Math.max(250, window.innerHeight * 0.42))}>
         <LineChart data={chartData} margin={{ left: 10, right: 10 }}>
           <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
           <XAxis

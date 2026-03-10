@@ -250,7 +250,7 @@ export default function ReportPage({ farmId }) {
             className={`flex-1 py-2.5 rounded-lg text-sm font-semibold transition-all flex items-center justify-center gap-1.5 ${
               activeTab === tab.id
                 ? 'bg-blue-600 text-white shadow-sm'
-                : 'text-gray-500 hover:text-gray-800 hover:bg-white/60'
+                : 'text-gray-600 bg-white hover:text-gray-900 hover:bg-gray-50 border border-gray-200'
             }`}
           >
             <span>{tab.icon}</span> {tab.label}

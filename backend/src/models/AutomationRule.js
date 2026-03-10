@@ -32,7 +32,7 @@ const AutomationRule = {
       houseId: data.houseId || null,
       name: data.name,
       description: data.description || "",
-      enabled: data.enabled !== undefined ? data.enabled : true,
+      enabled: data.enabled !== undefined ? data.enabled : false,
       conditionLogic: data.conditionLogic || "AND",
       groupLogic: data.groupLogic || "AND",
       conditions: data.conditions || [],

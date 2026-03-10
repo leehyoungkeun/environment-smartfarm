@@ -51,7 +51,7 @@ export const SubTabBar = ({ tabs, activeTab, onChange, trailing }) => (
         className={`flex items-center gap-1 md:gap-1.5 px-2.5 md:px-4 py-2 md:py-2.5 rounded-lg text-xs md:text-sm font-bold transition-all ${
           activeTab === tab.id
             ? 'bg-blue-600 text-white shadow-md shadow-blue-600/25'
-            : 'bg-gray-100 text-gray-500 hover:bg-gray-200'
+            : 'bg-white text-gray-600 border border-gray-200 hover:bg-gray-50 shadow-sm'
         }`}>
         <span>{tab.icon}</span> {tab.label}
         {tab.count != null && tab.count > 0 && (

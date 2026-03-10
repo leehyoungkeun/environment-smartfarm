@@ -57,11 +57,25 @@ const ControlPanel = ({ farmId, houseId, houseConfig }) => {
   });
   const [applyLoading, setApplyLoading] = useState(false);
 
+  // 자동 모드 장치 목록을 RPi에 전달
+  const syncAutoDevicesToRpi = async (rpiUrl, autoDeviceIds) => {
+    try {
+      await axios.post(`${rpiUrl}/automation/${farmId}/device-modes`, {
+        autoDevices: autoDeviceIds,
+        houseId
+      }, { timeout: 5000 }).catch(() => {});
+    } catch {}
+  };
+
   const handleApply = async () => {
     setApplyLoading(true);
     try {
-      // auto 모드 장치에 연결된 규칙들의 enabled 상태를 활성화
       const rpiUrl = getRpiApiBase();
+      const autoDeviceIds = devices
+        .filter(d => getDeviceMode(d.deviceId) === 'auto')
+        .map(d => d.deviceId);
+
+      // auto 모드 장치에 연결된 규칙들의 enabled 상태를 활성화
       const ruleIdsToEnable = new Set();
       devices.forEach(d => {
         if (getDeviceMode(d.deviceId) === 'auto') {
@@ -71,29 +85,36 @@ const ControlPanel = ({ farmId, houseId, houseConfig }) => {
       for (const ruleId of ruleIdsToEnable) {
         await axios.put(`${rpiUrl}/automation/${farmId}/${ruleId}`, { enabled: true }, { timeout: 5000 }).catch(() => {});
       }
+
+      // RPi에 자동 모드 장치 목록 전달
+      await syncAutoDevicesToRpi(rpiUrl, autoDeviceIds);
+
       setAutomationActive(true);
       localStorage.setItem(activeKey, 'true');
-      loadAutoRules(); // 규칙 상태 새로고침
+      loadAutoRules();
     } catch {} finally { setApplyLoading(false); }
   };
 
   const handleStop = async () => {
     setApplyLoading(true);
     try {
-      // auto 모드 장치에 연결된 규칙들을 비활성화 (설정은 유지)
       const rpiUrl = getRpiApiBase();
+
+      // 모든 활성 규칙 비활성화
       const ruleIdsToDisable = new Set();
       devices.forEach(d => {
-        if (getDeviceMode(d.deviceId) === 'auto') {
-          (selectedRuleMap[d.deviceId] || []).forEach(id => ruleIdsToDisable.add(id));
-        }
+        (selectedRuleMap[d.deviceId] || []).forEach(id => ruleIdsToDisable.add(id));
       });
       for (const ruleId of ruleIdsToDisable) {
         await axios.put(`${rpiUrl}/automation/${farmId}/${ruleId}`, { enabled: false }, { timeout: 5000 }).catch(() => {});
       }
+
+      // RPi에 자동 모드 장치 없음 전달
+      await syncAutoDevicesToRpi(rpiUrl, []);
+
       setAutomationActive(false);
       localStorage.setItem(activeKey, 'false');
-      loadAutoRules(); // 규칙 상태 새로고침
+      loadAutoRules();
     } catch {} finally { setApplyLoading(false); }
   };
 
@@ -114,6 +135,16 @@ const ControlPanel = ({ farmId, houseId, houseConfig }) => {
       const next = current === 'manual' ? 'auto' : 'manual';
       const updated = { ...prev, [deviceId]: next };
       localStorage.setItem(modeKey, JSON.stringify(updated));
+
+      // 자동화 활성 중일 때 RPi에 자동 모드 장치 목록 동기화
+      if (automationActive) {
+        const autoDeviceIds = devices
+          .filter(d => (d.deviceId === deviceId ? next : (updated[d.deviceId] || 'manual')) === 'auto')
+          .map(d => d.deviceId);
+        const rpiUrl = getRpiApiBase();
+        syncAutoDevicesToRpi(rpiUrl, autoDeviceIds);
+      }
+
       return updated;
     });
   };
@@ -446,13 +477,48 @@ const ControlPanel = ({ farmId, houseId, houseConfig }) => {
           setModbusStatus(prev => ({ ...prev, [deviceId]: 'verifying' }));
           setControlStage(prev => ({ ...prev, [deviceId]: 'verifying' }));
           const ok = await waitForModbusDone(result.requestId);
-          setModbusStatus(prev => ({ ...prev, [deviceId]: ok ? 'done' : 'timeout' }));
-          setControlStage(prev => ({ ...prev, [deviceId]: ok ? 'done' : 'timeout' }));
-          // Modbus 완료 시 즉시 최종 상태로 전환 (5초 타이머 취소)
           if (ok) {
+            setModbusStatus(prev => ({ ...prev, [deviceId]: 'done' }));
+            setControlStage(prev => ({ ...prev, [deviceId]: 'done' }));
+            // Modbus 완료 시 즉시 최종 상태로 전환 (5초 타이머 취소)
             const finalStatus = { open: 'open', close: 'closed', stop: 'idle', on: 'on', off: 'off' };
             if (timerRefs.current[deviceId]) { clearTimeout(timerRefs.current[deviceId]); timerRefs.current[deviceId] = null; }
             setDeviceStates(prev => ({ ...prev, [deviceId]: { ...prev[deviceId], status: finalStatus[command] || 'idle', commandLock: false } }));
+          } else {
+            // 타임아웃: 릴레이 상태 재확인으로 실제 동작 여부 검증
+            setControlStage(prev => ({ ...prev, [deviceId]: 'hw_check' }));
+            try {
+              await fetchRelayStatus();
+              const m = targetDevice?.modbus;
+              const coils = m ? relayCoilsRef.current[m.unitId || 1] : null;
+              if (coils && m) {
+                const finalStatus = { open: 'open', close: 'closed', stop: 'idle', on: 'on', off: 'off' };
+                const expectedStatus = finalStatus[command];
+                let actualStatus;
+                if (m.controlType === 'bidir') {
+                  actualStatus = coils[m.address] ? 'open' : coils[m.address2] ? 'closed' : 'idle';
+                } else {
+                  actualStatus = coils[m.address] ? 'on' : 'off';
+                }
+                if (actualStatus === expectedStatus) {
+                  // 실제로 동작했음 — 완료 처리
+                  setModbusStatus(prev => ({ ...prev, [deviceId]: 'done' }));
+                  setControlStage(prev => ({ ...prev, [deviceId]: 'done' }));
+                  if (timerRefs.current[deviceId]) { clearTimeout(timerRefs.current[deviceId]); timerRefs.current[deviceId] = null; }
+                  setDeviceStates(prev => ({ ...prev, [deviceId]: { ...prev[deviceId], status: expectedStatus, commandLock: false, relayVerified: true } }));
+                } else {
+                  setModbusStatus(prev => ({ ...prev, [deviceId]: 'timeout' }));
+                  setControlStage(prev => ({ ...prev, [deviceId]: 'timeout' }));
+                }
+              } else {
+                // Eletechsup 등 FC1 불가 장치 — 타임아웃 유지
+                setModbusStatus(prev => ({ ...prev, [deviceId]: 'timeout' }));
+                setControlStage(prev => ({ ...prev, [deviceId]: 'timeout' }));
+              }
+            } catch {
+              setModbusStatus(prev => ({ ...prev, [deviceId]: 'timeout' }));
+              setControlStage(prev => ({ ...prev, [deviceId]: 'timeout' }));
+            }
           }
         } else {
           setControlStage(prev => ({ ...prev, [deviceId]: result.success ? 'done' : 'timeout' }));
@@ -849,10 +915,11 @@ const ControlPanel = ({ farmId, houseId, houseConfig }) => {
                               border: `1px solid ${controlStage[device.deviceId] === 'done' ? '#a7f3d0' : controlStage[device.deviceId] === 'timeout' ? '#fde68a' : controlStage[device.deviceId]?.startsWith?.('retry') ? '#fde68a' : '#bfdbfe'}`,
                               transition:'all 0.3s',
                             }}>
-                              {['sending', 'executing', 'verifying'].includes(controlStage[device.deviceId]) || controlStage[device.deviceId]?.startsWith?.('retry') ? <span className="animate-spin" style={{display:'inline-block',width:9,height:9,border:'2px solid #93c5fd',borderTop:'2px solid #2563eb',borderRadius:'50%'}} /> : null}
+                              {['sending', 'executing', 'verifying', 'hw_check'].includes(controlStage[device.deviceId]) || controlStage[device.deviceId]?.startsWith?.('retry') ? <span className="animate-spin" style={{display:'inline-block',width:9,height:9,border:'2px solid #93c5fd',borderTop:'2px solid #2563eb',borderRadius:'50%'}} /> : null}
                               {controlStage[device.deviceId] === 'sending' && '전송중'}
                               {controlStage[device.deviceId] === 'executing' && '실행중'}
                               {controlStage[device.deviceId] === 'verifying' && 'Modbus 확인중'}
+                              {controlStage[device.deviceId] === 'hw_check' && 'HW 상태 확인중'}
                               {controlStage[device.deviceId] === 'retry_1' && '재시도 1/2'}
                               {controlStage[device.deviceId] === 'retry_2' && '재시도 2/2'}
                               {controlStage[device.deviceId] === 'done' && '✓ 완료'}
@@ -1197,6 +1264,80 @@ const OPERATOR_LABELS = { '>': '초과', '>=': '이상', '<': '미만', '<=': '�
 const COMMAND_LABELS = { open: '열기', close: '닫기', stop: '정지', on: 'ON', off: 'OFF' };
 const DAYS_LABELS = { 1: '월', 2: '화', 3: '수', 4: '목', 5: '금', 6: '토', 0: '일' };
 
+/** 다음 실행까지 카운트다운 */
+const NextRunCountdown = ({ timeConds }) => {
+  const [remaining, setRemaining] = useState('');
+
+  useEffect(() => {
+    if (!timeConds || timeConds.length === 0) return;
+    const calcNext = () => {
+      const now = new Date();
+      const nowDay = now.getDay(); // 0=일, 1=월...
+      const nowTotalMin = now.getHours() * 60 + now.getMinutes();
+      const nowSec = now.getSeconds();
+      let bestDiff = Infinity;
+
+      for (const cond of timeConds) {
+        // days: 숫자 배열로 정규화 (문자열 대응 + 빈 배열 대응)
+        const rawDays = Array.isArray(cond.days) && cond.days.length > 0 ? cond.days : [0,1,2,3,4,5,6];
+        const days = rawDays.map(Number);
+
+        // 실행 시각 목록 (분 단위)
+        let times = [];
+        if (cond.timeMode === 'interval') {
+          const [sh, sm] = (cond.startTime || '08:00').split(':').map(Number);
+          const [eh, em] = (cond.endTime || '18:00').split(':').map(Number);
+          const interval = cond.intervalMinutes || 30;
+          for (let m = sh * 60 + sm; m <= eh * 60 + em; m += interval) {
+            times.push(m);
+          }
+        } else if (cond.times?.length) {
+          times = cond.times.map(t => { const p = String(t).split(':').map(Number); return p[0] * 60 + (p[1] || 0); });
+        } else if (cond.time) {
+          const p = String(cond.time).split(':').map(Number);
+          times.push(p[0] * 60 + (p[1] || 0));
+        }
+        if (times.length === 0) continue;
+        times.sort((a, b) => a - b);
+
+        // 오늘~7일 이내 가장 가까운 실행 시각
+        for (let dayOffset = 0; dayOffset < 7; dayOffset++) {
+          const checkDay = (nowDay + dayOffset) % 7;
+          if (!days.includes(checkDay)) continue;
+          for (const t of times) {
+            if (dayOffset === 0 && (t < nowTotalMin || (t === nowTotalMin && nowSec > 0))) continue;
+            const diffSec = (dayOffset * 24 * 60 + t - nowTotalMin) * 60 - nowSec;
+            if (diffSec > 0 && diffSec < bestDiff) {
+              bestDiff = diffSec;
+              break; // times는 정렬됨 — 이 날의 최소 diff
+            }
+          }
+          if (bestDiff < Infinity) break; // 가장 가까운 날 찾음
+        }
+      }
+
+      if (bestDiff === Infinity) { setRemaining(''); return; }
+      const h = Math.floor(bestDiff / 3600);
+      const m = Math.floor((bestDiff % 3600) / 60);
+      const s = Math.floor(bestDiff % 60);
+      if (h > 0) setRemaining(`${h}시간 ${m}분`);
+      else if (m > 0) setRemaining(`${m}분 ${s}초`);
+      else setRemaining(`${s}초`);
+    };
+
+    calcNext();
+    const timer = setInterval(calcNext, 1000);
+    return () => clearInterval(timer);
+  }, [timeConds]);
+
+  if (!remaining) return null;
+  return (
+    <span style={{fontSize:10,fontWeight:700,padding:'2px 6px',borderRadius:8,background:'#fef3c7',color:'#b45309',border:'1px solid #fde68a',whiteSpace:'nowrap',animation:'pulse 2s ease-in-out infinite'}}>
+      ⏱ {remaining}
+    </span>
+  );
+};
+
 /** 장치 자동 모드 - 선택된 규칙 목록 표시 */
 const DeviceAutoRules = ({ deviceId, rules, expandedRuleId, onToggleExpand, onRemove, onOpenPicker, locked }) => {
   return (
@@ -1225,6 +1366,7 @@ const DeviceAutoRules = ({ deviceId, rules, expandedRuleId, onToggleExpand, onRe
                   background: rule.enabled ? '#dcfce7' : '#fee2e2',
                   color: rule.enabled ? '#15803d' : '#dc2626',
                 }}>{rule.enabled ? '활성' : '비활성'}</span>
+                {rule.enabled && timeConds.length > 0 && <NextRunCountdown timeConds={timeConds} />}
               </div>
               <div style={{display:'flex',alignItems:'center',gap:4,flexShrink:0}}>
                 {!locked && (
@@ -1265,24 +1407,41 @@ const DeviceAutoRules = ({ deviceId, rules, expandedRuleId, onToggleExpand, onRe
                 {timeConds.length > 0 && (
                   <div style={{marginTop: sensorConds.length > 0 ? 0 : 8}}>
                     <div style={{fontSize:11,fontWeight:700,color:'#d97706',marginBottom:4}}>시간 조건</div>
-                    <div style={{display:'flex',flexWrap:'wrap',gap:4}}>
-                      {timeConds.map((c, i) => {
-                        const daysStr = (c.days || []).sort((a, b) => (a || 7) - (b || 7)).map(d => DAYS_LABELS[d]).join(',');
-                        let timeStr;
-                        if (c.timeMode === 'interval') {
-                          timeStr = `${c.startTime || '08:00'}~${c.endTime || '18:00'} ${c.intervalMinutes || 30}분간격`;
-                        } else if (c.timeMode === 'specific') {
-                          timeStr = (c.times || []).join(', ');
-                        } else {
-                          timeStr = c.time || '--:--';
-                        }
-                        return (
-                          <span key={i} style={{fontSize:12,fontWeight:600,padding:'3px 8px',borderRadius:8,background:'#fffbeb',color:'#b45309',border:'1px solid #fde68a'}}>
-                            ⏰ {timeStr} ({daysStr})
-                          </span>
-                        );
-                      })}
-                    </div>
+                    {timeConds.map((c, i) => (
+                      <div key={i} style={{marginBottom:6}}>
+                        {/* 시간 뱃지 */}
+                        <div style={{display:'flex',flexWrap:'wrap',gap:3,marginBottom:4}}>
+                          {c.timeMode === 'interval' ? (
+                            <span style={{fontSize:11,fontWeight:700,padding:'2px 7px',borderRadius:6,background:'#fffbeb',color:'#b45309',border:'1px solid #fde68a'}}>
+                              ⏰ {c.startTime || '08:00'}~{c.endTime || '18:00'} / {c.intervalMinutes || 30}분 간격
+                            </span>
+                          ) : (c.times && c.times.length > 0) ? (
+                            c.times.map((t, ti) => (
+                              <span key={ti} style={{fontSize:11,fontWeight:700,padding:'2px 7px',borderRadius:6,background:'#fffbeb',color:'#b45309',border:'1px solid #fde68a'}}>
+                                {t}
+                              </span>
+                            ))
+                          ) : (
+                            <span style={{fontSize:11,fontWeight:700,padding:'2px 7px',borderRadius:6,background:'#fffbeb',color:'#b45309',border:'1px solid #fde68a'}}>
+                              {c.time || '--:--'}
+                            </span>
+                          )}
+                        </div>
+                        {/* 요일 뱃지 */}
+                        <div style={{display:'flex',gap:3}}>
+                          {[1,2,3,4,5,6,0].map(d => (
+                            <span key={d} style={{
+                              width:22,height:22,borderRadius:4,fontSize:10,fontWeight:700,
+                              display:'flex',alignItems:'center',justifyContent:'center',
+                              background: c.days?.includes(d) ? '#f59e0b' : '#f3f4f6',
+                              color: c.days?.includes(d) ? '#fff' : '#9ca3af',
+                            }}>
+                              {DAYS_LABELS[d]}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    ))}
                   </div>
                 )}
                 <div style={{marginTop:8}}>

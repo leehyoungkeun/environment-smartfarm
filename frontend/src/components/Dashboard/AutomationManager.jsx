@@ -510,26 +510,40 @@ const RuleCard = ({ rule, tabColor = 'violet', onEdit, onDelete }) => {
               </div>
             )}
             {/* 시간 조건 */}
-            {timeConds.length > 0 && (
-              <div className="flex flex-wrap items-center gap-1.5">
-                {timeConds.map((cond, i) => {
-                  const daysStr = DAYS_OPTIONS.filter(o => cond.days?.includes(o.value)).map(o => o.label).join(',');
-                  let timeStr;
-                  if (cond.timeMode === 'interval') {
-                    timeStr = `${cond.startTime || '08:00'}~${cond.endTime || '18:00'} ${cond.intervalMinutes || 30}분간격`;
-                  } else if (cond.times && cond.times.length > 0) {
-                    timeStr = cond.times.join(', ');
-                  } else {
-                    timeStr = cond.time || '--:--';
-                  }
-                  return (
-                    <span key={i} className="text-sm font-semibold bg-amber-50 text-amber-700 border border-amber-200 px-2.5 py-0.5 rounded-lg">
-                      ⏰ {timeStr} ({daysStr})
+            {timeConds.length > 0 && timeConds.map((cond, i) => (
+              <div key={i} className="mb-1.5">
+                {/* 시간 뱃지 */}
+                <div className="flex flex-wrap gap-1 mb-1.5">
+                  {cond.timeMode === 'interval' ? (
+                    <span className="text-xs font-bold bg-amber-50 text-amber-600 border border-amber-200 px-2 py-0.5 rounded">
+                      ⏰ {cond.startTime || '08:00'}~{cond.endTime || '18:00'} / {cond.intervalMinutes || 30}분 간격
                     </span>
-                  );
-                })}
+                  ) : (cond.times && cond.times.length > 0) ? (
+                    cond.times.map((t, ti) => (
+                      <span key={ti} className="text-xs font-bold bg-amber-50 text-amber-600 border border-amber-200 px-2 py-0.5 rounded">
+                        {t}
+                      </span>
+                    ))
+                  ) : (
+                    <span className="text-xs font-bold bg-amber-50 text-amber-600 border border-amber-200 px-2 py-0.5 rounded">
+                      {cond.time || '--:--'}
+                    </span>
+                  )}
+                </div>
+                {/* 요일 뱃지 */}
+                <div className="flex gap-1">
+                  {DAYS_OPTIONS.map(d => (
+                    <span key={d.value} className={`w-6 h-6 rounded text-xs font-bold flex items-center justify-center ${
+                      cond.days?.includes(d.value)
+                        ? 'bg-amber-500 text-white'
+                        : 'bg-gray-100 text-gray-400'
+                    }`}>
+                      {d.label}
+                    </span>
+                  ))}
+                </div>
               </div>
-            )}
+            ))}
           </div>
 
           {/* 동작 */}

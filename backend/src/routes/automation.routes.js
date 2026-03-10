@@ -125,6 +125,35 @@ router.patch("/:farmId/:ruleId/toggle", async (req, res) => {
 });
 
 // =========================================
+// 장치 자동/수동 모드 동기화
+// =========================================
+
+/**
+ * POST /api/automation/:farmId/device-modes
+ * 프론트에서 자동 모드 장치 목록을 RPi에 전달
+ */
+router.post("/:farmId/device-modes", async (req, res) => {
+  try {
+    const { autoDevices = [], houseId } = req.body;
+    const key = `autoDevices_${req.params.farmId}_${houseId || 'default'}`;
+
+    // global 변수에 저장 (Node-RED에서도 접근 가능하도록 DB에 저장)
+    const { default: db } = await import("../db/index.js");
+    await db.query(
+      `INSERT INTO system_settings (key, value) VALUES ($1, $2)
+       ON CONFLICT (key) DO UPDATE SET value = $2`,
+      [key, JSON.stringify(autoDevices)]
+    );
+
+    logger.info(`🔄 자동 모드 장치 동기화: ${autoDevices.join(', ') || '없음'}`);
+    res.json({ success: true, autoDevices });
+  } catch (error) {
+    logger.error("장치 모드 동기화 실패:", error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// =========================================
 // 규칙 평가 (Node-RED에서 호출)
 // =========================================
 
@@ -336,7 +365,7 @@ router.post("/:farmId/sync", async (req, res) => {
           houseId: rule.houseId,
           name: rule.name,
           description: rule.description || "",
-          enabled: rule.enabled !== undefined ? rule.enabled : true,
+          enabled: rule.enabled !== undefined ? rule.enabled : false,
           conditionLogic: rule.conditionLogic || "AND",
           groupLogic: rule.groupLogic || "AND",
           conditions: rule.conditions || [],

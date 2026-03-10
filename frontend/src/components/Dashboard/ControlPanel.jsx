@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import axios from 'axios';
 import { useAuth } from '../../contexts/AuthContext';
@@ -43,6 +43,10 @@ const ControlPanel = ({ farmId, houseId, houseConfig }) => {
   });
   const [controlHistory, setControlHistory] = useState([]);
   const [loading, setLoading] = useState({});
+  const [modbusStatus, setModbusStatus] = useState({}); // { [deviceId]: 'verifying' | 'done' | 'timeout' }
+  const [confirmAction, setConfirmAction] = useState(null); // { title, message, onConfirm }
+  const [controlStage, setControlStage] = useState({}); // { [deviceId]: 'sending' | 'executing' | 'verifying' | 'done' | 'timeout' }
+
   const timerRefs = React.useRef({});
 
   // 자동화 적용/중지 상태 (localStorage 기반)
@@ -235,6 +239,7 @@ const ControlPanel = ({ farmId, houseId, houseConfig }) => {
             if (!coils) return;
 
             const currentState = prev[d.deviceId]?.status;
+            if (prev[d.deviceId]?.commandLock) return;
             if (['opening', 'closing', 'stopping', 'turning_on', 'turning_off'].includes(currentState)) return;
 
             if (m.controlType === 'bidir') {
@@ -346,6 +351,57 @@ const ControlPanel = ({ farmId, houseId, houseConfig }) => {
     setDeviceStates(states);
   }, [houseId, devices.length]);
 
+  const batchModeRef = useRef(false);
+
+  // Modbus 완료 확인 폴링 (Node-RED flow context 기반)
+  const waitForModbusDone = useCallback(async (requestId, maxWait = 5000) => {
+    const rpiApi = getRpiApiBase();
+    const start = Date.now();
+    while (Date.now() - start < maxWait) {
+      try {
+        const res = await axios.get(`${rpiApi}/control/status/${requestId}`, { timeout: 2000 });
+        if (res.data?.done) return true;
+      } catch {}
+      await new Promise(r => setTimeout(r, 100)); // 100ms 간격 폴링
+    }
+    return false; // 타임아웃
+  }, []);
+
+  // 비상정지: 모든 장치 즉시 정지/OFF
+  const handleEmergencyStop = useCallback(async () => {
+    stopRelayPolling();
+    for (const device of devices) {
+      const typeInfo = DEVICE_TYPE_INFO[device.type] || { commands: ['on', 'off'] };
+      const stopCmd = typeInfo.commands.includes('stop') ? 'stop' : 'off';
+      try {
+        const rpiApi = getRpiApiBase();
+        const modbusConfig = device.modbus || null;
+        await axios.post(`${rpiApi}/control/local`, {
+          house_id: controlHouseId,
+          device_id: device.deviceId,
+          command: stopCmd,
+          operator: '비상정지',
+          modbus: modbusConfig,
+        }, { timeout: 5000 });
+        setDeviceStates(prev => ({ ...prev, [device.deviceId]: { ...prev[device.deviceId], status: stopCmd === 'stop' ? 'idle' : 'off', commandLock: false } }));
+      } catch {}
+    }
+    setTimeout(() => { fetchRelayStatus(); startRelayPolling(); }, 2000);
+  }, [devices, controlHouseId, stopRelayPolling, startRelayPolling, fetchRelayStatus]);
+
+  // error 상태 리셋
+  const handleErrorReset = useCallback((deviceId) => {
+    setDeviceStates(prev => ({ ...prev, [deviceId]: { ...prev[deviceId], status: 'idle', commandLock: false } }));
+    setModbusStatus(prev => ({ ...prev, [deviceId]: null }));
+    setControlStage(prev => ({ ...prev, [deviceId]: null }));
+  }, []);
+
+  // 장치 ID → 이름 변환
+  const getDeviceName = useCallback((deviceId) => {
+    const device = devices.find(d => d.deviceId === deviceId);
+    return device?.name || deviceId;
+  }, [devices]);
+
   const handleControl = useCallback(async (deviceId, command) => {
     // Modbus 직렬 큐 충돌 방지: 제어 중 폴링 중지
     stopRelayPolling();
@@ -356,6 +412,7 @@ const ControlPanel = ({ farmId, houseId, houseConfig }) => {
       setDeviceStates(prev => ({ ...prev, [deviceId]: { ...prev[deviceId], status: 'idle', lastCommand: 'stop', lastCommandTime: new Date().toISOString() } }));
     }
     setLoading(prev => ({ ...prev, [loadingKey]: true }));
+    setControlStage(prev => ({ ...prev, [deviceId]: 'sending' }));
     const statusMap = { open: 'opening', close: 'closing', stop: 'stopping', on: 'turning_on', off: 'turning_off' };
     if (command !== 'stop') {
       setDeviceStates(prev => ({ ...prev, [deviceId]: { ...prev[deviceId], status: statusMap[command] || 'idle', lastCommand: command, lastCommandTime: new Date().toISOString() } }));
@@ -383,6 +440,23 @@ const ControlPanel = ({ farmId, houseId, houseConfig }) => {
           modbus: modbusConfig,
         }, { timeout: 10000 });
         result = { success: res.data.success, requestId: res.data.data?.request_id };
+        setControlStage(prev => ({ ...prev, [deviceId]: 'executing' }));
+        // ★ Modbus 완료 대기 — Node-RED가 실제 쓰기 완료를 확인 + UI 표시
+        if (result.success && result.requestId) {
+          setModbusStatus(prev => ({ ...prev, [deviceId]: 'verifying' }));
+          setControlStage(prev => ({ ...prev, [deviceId]: 'verifying' }));
+          const ok = await waitForModbusDone(result.requestId);
+          setModbusStatus(prev => ({ ...prev, [deviceId]: ok ? 'done' : 'timeout' }));
+          setControlStage(prev => ({ ...prev, [deviceId]: ok ? 'done' : 'timeout' }));
+          // Modbus 완료 시 즉시 최종 상태로 전환 (5초 타이머 취소)
+          if (ok) {
+            const finalStatus = { open: 'open', close: 'closed', stop: 'idle', on: 'on', off: 'off' };
+            if (timerRefs.current[deviceId]) { clearTimeout(timerRefs.current[deviceId]); timerRefs.current[deviceId] = null; }
+            setDeviceStates(prev => ({ ...prev, [deviceId]: { ...prev[deviceId], status: finalStatus[command] || 'idle', commandLock: false } }));
+          }
+        } else {
+          setControlStage(prev => ({ ...prev, [deviceId]: result.success ? 'done' : 'timeout' }));
+        }
         // 로컬 제어 이력 PC 백엔드에 저장 (비동기)
         if (result.success) {
           saveControlLog({
@@ -414,33 +488,99 @@ const ControlPanel = ({ farmId, houseId, houseConfig }) => {
         if (timerRefs.current[deviceId]) clearTimeout(timerRefs.current[deviceId]);
         const finalStatus = { open: 'open', close: 'closed', stop: 'idle', on: 'on', off: 'off' };
         timerRefs.current[deviceId] = setTimeout(() => {
-          setDeviceStates(prev => ({ ...prev, [deviceId]: { ...prev[deviceId], status: finalStatus[command] || 'idle' } }));
+          setDeviceStates(prev => ({ ...prev, [deviceId]: { ...prev[deviceId], status: finalStatus[command] || 'idle', commandLock: false } }));
           timerRefs.current[deviceId] = null;
-        }, command === 'stop' ? 500 : 3000);
+        }, command === 'stop' ? 500 : 5000);
+        // 제어 후 5초간 폴링이 상태를 덮어쓰지 못하도록 잠금
+        setDeviceStates(prev => ({ ...prev, [deviceId]: { ...prev[deviceId], commandLock: true } }));
       } else {
-        setDeviceStates(prev => ({ ...prev, [deviceId]: { ...prev[deviceId], status: 'error' } }));
+        setDeviceStates(prev => ({ ...prev, [deviceId]: { ...prev[deviceId], status: 'error', errorReason: result.error || '제어 실패' } }));
+        setControlStage(prev => ({ ...prev, [deviceId]: null }));
       }
+      return result;
     } catch (error) {
-      setDeviceStates(prev => ({ ...prev, [deviceId]: { ...prev[deviceId], status: 'error' } }));
+      setDeviceStates(prev => ({ ...prev, [deviceId]: { ...prev[deviceId], status: 'error', errorReason: error.message || '네트워크 오류' } }));
+      setControlStage(prev => ({ ...prev, [deviceId]: null }));
+      return { success: false };
     } finally {
       setLoading(prev => ({ ...prev, [loadingKey]: false }));
-      // 제어 완료 후 2초 대기 → 릴레이 상태 확인 + 폴링 재개
-      setTimeout(() => {
-        fetchRelayStatus();
-        startRelayPolling();
-      }, 2000);
+      // 배치 모드에서는 개별 폴링 재개 건너뛰기 (handleBatchControl에서 일괄 처리)
+      if (!batchModeRef.current) {
+        setTimeout(() => {
+          fetchRelayStatus();
+          startRelayPolling();
+        }, 2000);
+      }
     }
-  }, [controlHouseId, farmId, houseId, devices, user, stopRelayPolling, startRelayPolling, fetchRelayStatus]);
+  }, [controlHouseId, farmId, houseId, devices, user, stopRelayPolling, startRelayPolling, fetchRelayStatus, waitForModbusDone]);
 
-  // 전체 제어: 순차 실행 + Modbus 충돌 방지 딜레이
-  const handleBatchControl = useCallback(async (deviceList, command) => {
-    stopRelayPolling();
-    for (let i = 0; i < deviceList.length; i++) {
-      if (i > 0) await new Promise(r => setTimeout(r, 300));
-      await handleControl(deviceList[i].deviceId, command);
+  // 에러 시 자동 재시도 (최대 2회)
+  const handleControlWithRetry = useCallback(async (deviceId, command, maxRetries = 2) => {
+    let lastResult;
+    for (let attempt = 0; attempt <= maxRetries; attempt++) {
+      if (attempt > 0) {
+        setControlStage(prev => ({ ...prev, [deviceId]: `retry_${attempt}` }));
+        setDeviceStates(prev => ({ ...prev, [deviceId]: { ...prev[deviceId], status: 'idle', errorReason: undefined } }));
+        await new Promise(r => setTimeout(r, 500)); // 재시도 전 500ms 대기
+      }
+      lastResult = await handleControl(deviceId, command);
+      if (lastResult?.success) return lastResult;
     }
-    setTimeout(() => { fetchRelayStatus(); startRelayPolling(); }, 2000);
-  }, [handleControl, stopRelayPolling, startRelayPolling, fetchRelayStatus]);
+    // 모든 재시도 실패
+    setDeviceStates(prev => ({
+      ...prev, [deviceId]: {
+        ...prev[deviceId], status: 'error',
+        errorReason: `${maxRetries + 1}회 시도 모두 실패`,
+      }
+    }));
+    setControlStage(prev => ({ ...prev, [deviceId]: null }));
+    return lastResult;
+  }, [handleControl]);
+
+  const [batchProgress, setBatchProgress] = useState(null); // { current, total, deviceName, done }
+
+  // 전체 제어: 순차 실행 + Modbus 완료 확인 + 진행 상태 표시
+  const handleBatchControl = useCallback(async (deviceList, command) => {
+    batchModeRef.current = true;
+    stopRelayPolling();
+    const COMMAND_LABELS_BATCH = { open: '열기', close: '닫기', stop: '정지', on: 'ON', off: 'OFF' };
+    for (let i = 0; i < deviceList.length; i++) {
+      const dev = deviceList[i];
+      const devName = dev.name || dev.deviceId;
+      setBatchProgress({ current: i + 1, total: deviceList.length, deviceName: devName, command: COMMAND_LABELS_BATCH[command] || command, done: false });
+      const result = await handleControlWithRetry(dev.deviceId, command);
+      // ★ handleControl이 이미 개별 Modbus 완료 대기를 함 — 배치 진행 상태만 업데이트
+      const reqId = result?.requestId;
+      if (reqId) {
+        setBatchProgress(prev => ({ ...prev, done: true, waiting: false, modbusOk: true }));
+      }
+    }
+    setBatchProgress({ current: deviceList.length, total: deviceList.length, done: true, command: COMMAND_LABELS_BATCH[command] || command, complete: true });
+    batchModeRef.current = false;
+    setTimeout(() => { fetchRelayStatus(); startRelayPolling(); setBatchProgress(null); }, 3000);
+  }, [handleControlWithRetry, stopRelayPolling, startRelayPolling, fetchRelayStatus, waitForModbusDone, controlHistory]);
+
+  // 일괄 제어 확인 대화상자
+  const confirmBatchControl = useCallback((deviceList, command) => {
+    const COMMAND_LABELS = { open: '열기', close: '닫기', stop: '정지', on: 'ON', off: 'OFF' };
+    const cmdLabel = COMMAND_LABELS[command] || command;
+    const deviceNames = deviceList.map(d => d.name || d.deviceId).join(', ');
+    setConfirmAction({
+      title: `전체 ${cmdLabel} 실행`,
+      message: `수동 ${deviceList.length}대(${deviceNames})에 전체 ${cmdLabel}을 실행합니다.\n계속하시겠습니까?`,
+      onConfirm: () => { setConfirmAction(null); handleBatchControl(deviceList, command); },
+    });
+  }, [handleBatchControl]);
+
+  // 비상정지 확인
+  const confirmEmergencyStop = useCallback(() => {
+    setConfirmAction({
+      title: '⚠ 비상정지',
+      message: `등록된 모든 장치(${devices.length}대)를 즉시 정지/OFF 합니다.\n계속하시겠습니까?`,
+      danger: true,
+      onConfirm: () => { setConfirmAction(null); handleEmergencyStop(); },
+    });
+  }, [devices, handleEmergencyStop]);
 
   const getStatusDisplay = (status) => {
     const map = {
@@ -460,6 +600,9 @@ const ControlPanel = ({ farmId, houseId, houseConfig }) => {
 
   const groupedDevices = {};
   devices.forEach(d => { const type = d.type || 'window'; if (!groupedDevices[type]) groupedDevices[type] = []; groupedDevices[type].push(d); });
+
+  // Modbus 작업 중 모든 제어 버튼 비활성화 (RS-485 half-duplex)
+  const anyModbusBusy = Object.values(modbusStatus).some(s => s === 'verifying');
 
   // 대시보드 통일 스타일
   const btnBase = { padding: '14px 0', borderRadius: '10px', fontSize: '14px', fontWeight: 700, transition: 'all 0.15s', cursor: 'pointer', textAlign: 'center', border: '2px solid transparent', letterSpacing: '-0.01em', minHeight: '44px' };
@@ -541,6 +684,21 @@ const ControlPanel = ({ farmId, houseId, houseConfig }) => {
           )}
         </div>
         <div className="flex items-center gap-2">
+          {/* 비상정지 버튼 */}
+          <button onClick={confirmEmergencyStop}
+            disabled={anyModbusBusy}
+            style={{
+              fontSize:13,fontWeight:900,color:'#fff',
+              background: anyModbusBusy ? '#fca5a5' : '#dc2626',
+              padding:'8px 16px',borderRadius:10,
+              border:'2px solid #991b1b',
+              cursor: anyModbusBusy ? 'not-allowed' : 'pointer',
+              boxShadow: anyModbusBusy ? 'none' : '0 2px 8px rgba(220,38,38,0.4)',
+              transition:'all 0.15s',minHeight:36,
+              letterSpacing:'0.02em',
+            }}>
+            ⛔ 비상정지
+          </button>
           <button onClick={() => fetchRelayStatus(true)} disabled={relayFetching}
             style={{fontSize:12,color: relayFetching ? '#9ca3af' : '#4b5563',background: relayFetching ? '#e5e7eb' : '#f3f4f6',padding:'8px 14px',borderRadius:8,border:'1px solid #e5e7eb',cursor: relayFetching ? 'default' : 'pointer',fontWeight:600,transition:'all 0.2s',minHeight:36}}>
             {relayFetching ? '⏳ 조회 중...' : '🔄 릴레이 조회'}
@@ -662,13 +820,45 @@ const ControlPanel = ({ farmId, houseId, houseConfig }) => {
                             {isAuto ? '자동' : '수동'}
                           </button>
                           {/* 상태 표시 */}
-                          <div style={{display:'flex',alignItems:'center',gap:6,background:statusDisplay.animate ? `${statusDisplay.color}15` : '#f8fafc',padding:'4px 12px',borderRadius:8,border:`2px solid ${statusDisplay.animate ? statusDisplay.color : '#e2e8f0'}`}}>
+                          <div style={{display:'flex',alignItems:'center',gap:6,background:statusDisplay.animate ? `${statusDisplay.color}15` : state.status === 'error' ? '#fef2f2' : '#f8fafc',padding:'4px 12px',borderRadius:8,border:`2px solid ${state.status === 'error' ? '#fecaca' : statusDisplay.animate ? statusDisplay.color : '#e2e8f0'}`}}>
                             <span style={{width:8,height:8,borderRadius:'50%',background:statusDisplay.color,display:'inline-block',boxShadow:`0 0 6px ${statusDisplay.color}`}} className={statusDisplay.animate ? 'animate-pulse' : ''} />
                             <span style={{fontSize:13,fontWeight:700,color:statusDisplay.color}}>{statusDisplay.text}</span>
                             {state.relayVerified && (
                               <span title="Modbus FC1 실제 확인" style={{fontSize:9,fontWeight:700,color:'#047857',background:'#dcfce7',padding:'1px 4px',borderRadius:4,marginLeft:2}}>HW</span>
                             )}
+                            {/* error 리셋 버튼 */}
+                            {state.status === 'error' && (
+                              <button onClick={() => handleErrorReset(device.deviceId)}
+                                style={{fontSize:10,fontWeight:700,color:'#dc2626',background:'#fee2e2',padding:'1px 6px',borderRadius:4,border:'1px solid #fca5a5',cursor:'pointer',marginLeft:2}}
+                                title={state.errorReason || '오류 발생'}>
+                                리셋
+                              </button>
+                            )}
                           </div>
+                          {/* error 원인 표시 */}
+                          {state.status === 'error' && state.errorReason && (
+                            <span style={{fontSize:10,color:'#dc2626',fontWeight:600}}>{state.errorReason}</span>
+                          )}
+                          {/* 단계별 제어 진행 상태 */}
+                          {controlStage[device.deviceId] && (
+                            <div style={{
+                              display:'flex',alignItems:'center',gap:3,
+                              padding:'3px 8px',borderRadius:6,fontSize:10,fontWeight:700,
+                              background: controlStage[device.deviceId] === 'done' ? '#ecfdf5' : controlStage[device.deviceId] === 'timeout' ? '#fef3c7' : controlStage[device.deviceId]?.startsWith?.('retry') ? '#fef3c7' : '#eff6ff',
+                              color: controlStage[device.deviceId] === 'done' ? '#047857' : controlStage[device.deviceId] === 'timeout' ? '#d97706' : controlStage[device.deviceId]?.startsWith?.('retry') ? '#d97706' : '#2563eb',
+                              border: `1px solid ${controlStage[device.deviceId] === 'done' ? '#a7f3d0' : controlStage[device.deviceId] === 'timeout' ? '#fde68a' : controlStage[device.deviceId]?.startsWith?.('retry') ? '#fde68a' : '#bfdbfe'}`,
+                              transition:'all 0.3s',
+                            }}>
+                              {['sending', 'executing', 'verifying'].includes(controlStage[device.deviceId]) || controlStage[device.deviceId]?.startsWith?.('retry') ? <span className="animate-spin" style={{display:'inline-block',width:9,height:9,border:'2px solid #93c5fd',borderTop:'2px solid #2563eb',borderRadius:'50%'}} /> : null}
+                              {controlStage[device.deviceId] === 'sending' && '전송중'}
+                              {controlStage[device.deviceId] === 'executing' && '실행중'}
+                              {controlStage[device.deviceId] === 'verifying' && 'Modbus 확인중'}
+                              {controlStage[device.deviceId] === 'retry_1' && '재시도 1/2'}
+                              {controlStage[device.deviceId] === 'retry_2' && '재시도 2/2'}
+                              {controlStage[device.deviceId] === 'done' && '✓ 완료'}
+                              {controlStage[device.deviceId] === 'timeout' && '⚠ 타임아웃'}
+                            </div>
+                          )}
                         </div>
                       </div>
 
@@ -696,32 +886,32 @@ const ControlPanel = ({ farmId, houseId, houseConfig }) => {
                         </div>
                       ) : isToggleType ? (
                         <div className="grid grid-cols-2 gap-3">
-                          <button onClick={() => handleControl(device.deviceId, 'on')}
-                            disabled={isProcessing || state.status === 'on'}
-                            style={{...btnBase, ...(state.status === 'on' || state.status === 'turning_on' ? s.onActive : s.onInactive), ...(isProcessing || state.status === 'on' ? {opacity:0.4,cursor:'not-allowed'} : {})}}>
+                          <button onClick={() => handleControlWithRetry(device.deviceId, 'on')}
+                            disabled={anyModbusBusy || isProcessing || state.status === 'on'}
+                            style={{...btnBase, ...(state.status === 'on' || state.status === 'turning_on' ? s.onActive : s.onInactive), ...(anyModbusBusy || isProcessing || state.status === 'on' ? {opacity:0.4,cursor:'not-allowed'} : {})}}>
                             {state.status === 'turning_on' ? '⏳ 전환중...' : state.status === 'on' ? '● ON' : '◉ ON'}
                           </button>
-                          <button onClick={() => handleControl(device.deviceId, 'off')}
-                            disabled={isProcessing || state.status === 'off' || state.status === 'idle'}
-                            style={{...btnBase, ...(state.status === 'off' || state.status === 'idle' || state.status === 'turning_off' ? s.offActive : s.offInactive), ...(isProcessing || state.status === 'off' || state.status === 'idle' ? {opacity:0.4,cursor:'not-allowed'} : {})}}>
+                          <button onClick={() => handleControlWithRetry(device.deviceId, 'off')}
+                            disabled={anyModbusBusy || isProcessing || state.status === 'off' || state.status === 'idle'}
+                            style={{...btnBase, ...(state.status === 'off' || state.status === 'idle' || state.status === 'turning_off' ? s.offActive : s.offInactive), ...(anyModbusBusy || isProcessing || state.status === 'off' || state.status === 'idle' ? {opacity:0.4,cursor:'not-allowed'} : {})}}>
                             {state.status === 'turning_off' ? '⏳ 전환중...' : '○ OFF'}
                           </button>
                         </div>
                       ) : (
                         <div className="grid grid-cols-3 gap-2">
-                          <button onClick={() => handleControl(device.deviceId, 'open')}
-                            disabled={isProcessing || state.status === 'open'}
-                            style={{...btnBase, ...(state.status === 'open' || state.status === 'opening' ? s.openActive : (isProcessing || state.status === 'open') ? s.openDisabled : s.openInactive)}}>
+                          <button onClick={() => handleControlWithRetry(device.deviceId, 'open')}
+                            disabled={anyModbusBusy || isProcessing || state.status === 'open'}
+                            style={{...btnBase, ...(state.status === 'open' || state.status === 'opening' ? s.openActive : (anyModbusBusy || isProcessing || state.status === 'open') ? s.openDisabled : s.openInactive)}}>
                             {state.status === 'opening' ? '⏳ 여는중...' : state.status === 'open' ? '● 열림' : '▲ 열기'}
                           </button>
-                          <button onClick={() => handleControl(device.deviceId, 'stop')}
-                            disabled={state.status === 'idle' || state.status === 'stopping'}
-                            style={{...btnBase, ...(state.status === 'stopping' ? s.stopActive : (state.status === 'opening' || state.status === 'closing') ? s.stopUrgent : (state.status === 'idle') ? s.stopDisabled : s.stopInactive)}}>
+                          <button onClick={() => handleControlWithRetry(device.deviceId, 'stop')}
+                            disabled={anyModbusBusy || state.status === 'idle' || state.status === 'stopping'}
+                            style={{...btnBase, ...(state.status === 'stopping' ? s.stopActive : (state.status === 'opening' || state.status === 'closing') ? s.stopUrgent : (anyModbusBusy || state.status === 'idle') ? s.stopDisabled : s.stopInactive)}}>
                             {state.status === 'stopping' ? '⏳ 정지중...' : (state.status === 'opening' || state.status === 'closing') ? '⛔ 정지' : '■ 정지'}
                           </button>
-                          <button onClick={() => handleControl(device.deviceId, 'close')}
-                            disabled={isProcessing || state.status === 'closed'}
-                            style={{...btnBase, ...(state.status === 'closed' || state.status === 'closing' ? s.closeActive : (isProcessing || state.status === 'closed') ? s.closeDisabled : s.closeInactive)}}>
+                          <button onClick={() => handleControlWithRetry(device.deviceId, 'close')}
+                            disabled={anyModbusBusy || isProcessing || state.status === 'closed'}
+                            style={{...btnBase, ...(state.status === 'closed' || state.status === 'closing' ? s.closeActive : (anyModbusBusy || isProcessing || state.status === 'closed') ? s.closeDisabled : s.closeInactive)}}>
                             {state.status === 'closing' ? '⏳ 닫는중...' : state.status === 'closed' ? '● 닫힘' : '▼ 닫기'}
                           </button>
                         </div>
@@ -748,32 +938,32 @@ const ControlPanel = ({ farmId, houseId, houseConfig }) => {
                   </div>
                   {isToggleType ? (
                     <div className="flex gap-2">
-                      <button onClick={() => handleBatchControl(manualDevices, 'on')}
-                        disabled={allAuto}
-                        style={{...btnBase,flex:1,background: allAuto ? '#e5e7eb' : accent,color: allAuto ? '#9ca3af' : '#fff',boxShadow: allAuto ? 'none' : `0 2px 8px ${accent}35`, cursor: allAuto ? 'not-allowed' : 'pointer'}}>
+                      <button onClick={() => confirmBatchControl(manualDevices, 'on')}
+                        disabled={anyModbusBusy || allAuto}
+                        style={{...btnBase,flex:1,background: (anyModbusBusy || allAuto) ? '#e5e7eb' : accent,color: (anyModbusBusy || allAuto) ? '#9ca3af' : '#fff',boxShadow: (anyModbusBusy || allAuto) ? 'none' : `0 2px 8px ${accent}35`, cursor: (anyModbusBusy || allAuto) ? 'not-allowed' : 'pointer'}}>
                         전체 ON
                       </button>
-                      <button onClick={() => handleBatchControl(manualDevices, 'off')}
-                        disabled={allAuto}
-                        style={{...btnBase,flex:1,background: allAuto ? '#e5e7eb' : '#64748b',color: allAuto ? '#9ca3af' : '#fff',boxShadow: allAuto ? 'none' : '0 2px 8px rgba(100,116,139,0.35)', cursor: allAuto ? 'not-allowed' : 'pointer'}}>
+                      <button onClick={() => confirmBatchControl(manualDevices, 'off')}
+                        disabled={anyModbusBusy || allAuto}
+                        style={{...btnBase,flex:1,background: (anyModbusBusy || allAuto) ? '#e5e7eb' : '#64748b',color: (anyModbusBusy || allAuto) ? '#9ca3af' : '#fff',boxShadow: (anyModbusBusy || allAuto) ? 'none' : '0 2px 8px rgba(100,116,139,0.35)', cursor: (anyModbusBusy || allAuto) ? 'not-allowed' : 'pointer'}}>
                         전체 OFF
                       </button>
                     </div>
                   ) : (
                     <div className="flex gap-2">
-                      <button onClick={() => handleBatchControl(manualDevices, 'open')}
-                        disabled={allAuto}
-                        style={{...btnBase,flex:1,background: allAuto ? '#e5e7eb' : accent,color: allAuto ? '#9ca3af' : '#fff',boxShadow: allAuto ? 'none' : `0 2px 8px ${accent}35`, cursor: allAuto ? 'not-allowed' : 'pointer'}}>
+                      <button onClick={() => confirmBatchControl(manualDevices, 'open')}
+                        disabled={anyModbusBusy || allAuto}
+                        style={{...btnBase,flex:1,background: (anyModbusBusy || allAuto) ? '#e5e7eb' : accent,color: (anyModbusBusy || allAuto) ? '#9ca3af' : '#fff',boxShadow: (anyModbusBusy || allAuto) ? 'none' : `0 2px 8px ${accent}35`, cursor: (anyModbusBusy || allAuto) ? 'not-allowed' : 'pointer'}}>
                         ▲ 전체 열기
                       </button>
-                      <button onClick={() => handleBatchControl(manualDevices, 'stop')}
-                        disabled={allAuto}
-                        style={{...btnBase,flex:1,background: allAuto ? '#e5e7eb' : '#d97706',color: allAuto ? '#9ca3af' : '#fff',boxShadow: allAuto ? 'none' : '0 2px 8px rgba(217,119,6,0.35)', cursor: allAuto ? 'not-allowed' : 'pointer'}}>
+                      <button onClick={() => confirmBatchControl(manualDevices, 'stop')}
+                        disabled={anyModbusBusy || allAuto}
+                        style={{...btnBase,flex:1,background: (anyModbusBusy || allAuto) ? '#e5e7eb' : '#d97706',color: (anyModbusBusy || allAuto) ? '#9ca3af' : '#fff',boxShadow: (anyModbusBusy || allAuto) ? 'none' : '0 2px 8px rgba(217,119,6,0.35)', cursor: (anyModbusBusy || allAuto) ? 'not-allowed' : 'pointer'}}>
                         ■ 전체 정지
                       </button>
-                      <button onClick={() => handleBatchControl(manualDevices, 'close')}
-                        disabled={allAuto}
-                        style={{...btnBase,flex:1,background: allAuto ? '#e5e7eb' : theme[1],color: allAuto ? '#9ca3af' : '#fff',boxShadow: allAuto ? 'none' : `0 2px 8px ${theme[1]}35`, cursor: allAuto ? 'not-allowed' : 'pointer'}}>
+                      <button onClick={() => confirmBatchControl(manualDevices, 'close')}
+                        disabled={anyModbusBusy || allAuto}
+                        style={{...btnBase,flex:1,background: (anyModbusBusy || allAuto) ? '#e5e7eb' : theme[1],color: (anyModbusBusy || allAuto) ? '#9ca3af' : '#fff',boxShadow: (anyModbusBusy || allAuto) ? 'none' : `0 2px 8px ${theme[1]}35`, cursor: (anyModbusBusy || allAuto) ? 'not-allowed' : 'pointer'}}>
                         ▼ 전체 닫기
                       </button>
                     </div>
@@ -786,6 +976,33 @@ const ControlPanel = ({ farmId, houseId, houseConfig }) => {
         );
       })}
 
+      {/* 배치 제어 진행 상태 */}
+      {batchProgress && (
+        <div style={{ margin: '12px 0', padding: '12px 16px', background: batchProgress.complete ? '#ecfdf5' : '#eff6ff', border: `1px solid ${batchProgress.complete ? '#a7f3d0' : '#bfdbfe'}`, borderRadius: 12, display: 'flex', alignItems: 'center', gap: 12 }}>
+          {!batchProgress.complete && (
+            <div style={{ width: 20, height: 20, border: '2px solid #93c5fd', borderTop: '2px solid #2563eb', borderRadius: '50%', animation: 'spin 1s linear infinite' }} />
+          )}
+          <div style={{ flex: 1 }}>
+            <div style={{ fontSize: 14, fontWeight: 700, color: batchProgress.complete ? '#047857' : '#1d4ed8' }}>
+              {batchProgress.complete
+                ? `전체 ${batchProgress.command} 완료 (${batchProgress.total}개)`
+                : `${batchProgress.command} 진행 중... (${batchProgress.current}/${batchProgress.total})`
+              }
+            </div>
+            {!batchProgress.complete && (
+              <div style={{ fontSize: 12, color: '#6b7280', marginTop: 2 }}>
+                {batchProgress.done
+                  ? `✓ Modbus 완료${batchProgress.modbusOk === false ? ' (타임아웃)' : ''} — 다음 명령 전송`
+                  : batchProgress.waiting
+                    ? `⏳ ${batchProgress.deviceName} Modbus 완료 대기 중...`
+                    : `→ ${batchProgress.deviceName} ${batchProgress.command} 중`}
+              </div>
+            )}
+          </div>
+          <div style={{ width: `${(batchProgress.current / batchProgress.total) * 100}%`, height: 4, background: batchProgress.complete ? '#10b981' : '#3b82f6', borderRadius: 2, minWidth: 20, maxWidth: 120, transition: 'width 0.3s' }} />
+        </div>
+      )}
+
       {/* 최근 제어 이력 */}
       {controlHistory.length > 0 && (
         <div style={{marginTop:16,paddingTop:16,borderTop:'2px solid #e5e7eb'}}>
@@ -795,7 +1012,7 @@ const ControlPanel = ({ farmId, houseId, houseConfig }) => {
               <div key={idx} style={{display:'flex',alignItems:'center',justifyContent:'space-between',fontSize:13,background:'#f9fafb',borderRadius:8,padding:'8px 12px',border:'1px solid #e5e7eb'}}>
                 <div className="flex items-center gap-2">
                   <span style={{color: log.success ? '#047857' : '#be123c'}}>{log.success ? '✔' : '✗'}</span>
-                  <span style={{color:'#6b7280'}}>{log.deviceId}</span>
+                  <span style={{color:'#6b7280'}}>{getDeviceName(log.deviceId)}</span>
                   <span style={{color:'#111827',fontWeight:700}}>{log.command.toUpperCase()}</span>
                   <span style={{color:'#9ca3af',borderLeft:'1px solid #e5e7eb',paddingLeft:6}}>
                     {log.operatorName || '수동'}
@@ -834,6 +1051,35 @@ const ControlPanel = ({ farmId, houseId, houseConfig }) => {
           onToggle={(ruleId) => toggleRuleSelection(rulePickerDevice, ruleId)}
           onClose={() => setRulePickerDevice(null)}
         />
+      )}
+
+      {/* 확인 대화상자 */}
+      {confirmAction && createPortal(
+        <div style={{position:'fixed',inset:0,zIndex:9999,display:'flex',alignItems:'center',justifyContent:'center',background:'rgba(0,0,0,0.5)',backdropFilter:'blur(4px)'}}>
+          <div style={{background:'#fff',borderRadius:16,padding:'24px 28px',maxWidth:420,width:'90%',boxShadow:'0 20px 60px rgba(0,0,0,0.3)'}}>
+            <h3 style={{fontSize:18,fontWeight:800,color: confirmAction.danger ? '#dc2626' : '#111827',marginBottom:12,display:'flex',alignItems:'center',gap:8}}>
+              {confirmAction.danger ? '⚠' : '🔔'} {confirmAction.title}
+            </h3>
+            <p style={{fontSize:14,color:'#4b5563',lineHeight:1.6,whiteSpace:'pre-line',marginBottom:20}}>
+              {confirmAction.message}
+            </p>
+            <div style={{display:'flex',gap:10,justifyContent:'flex-end'}}>
+              <button onClick={() => setConfirmAction(null)}
+                style={{padding:'10px 20px',borderRadius:10,fontSize:14,fontWeight:700,background:'#f3f4f6',color:'#4b5563',border:'1px solid #e5e7eb',cursor:'pointer',minWidth:80}}>
+                취소
+              </button>
+              <button onClick={confirmAction.onConfirm}
+                style={{padding:'10px 20px',borderRadius:10,fontSize:14,fontWeight:700,
+                  background: confirmAction.danger ? '#dc2626' : '#1d4ed8',
+                  color:'#fff',border:'none',cursor:'pointer',minWidth:80,
+                  boxShadow: `0 2px 8px ${confirmAction.danger ? 'rgba(220,38,38,0.4)' : 'rgba(29,78,216,0.35)'}`,
+                }}>
+                {confirmAction.danger ? '비상정지 실행' : '실행'}
+              </button>
+            </div>
+          </div>
+        </div>,
+        document.body
       )}
     </div>
   );

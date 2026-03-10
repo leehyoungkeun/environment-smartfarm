@@ -112,7 +112,7 @@ const HouseTabScroller = ({ houses, selectedHouse, onSelect, headerState, theme 
   });
 
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 16 }}>
+    <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: theme === 'light' ? 16 : 0 }}>
       <div onClick={() => scroll(-1)} style={chevronBox(canScrollLeft)}>
         <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
       </div>
@@ -136,7 +136,7 @@ const HouseTabScroller = ({ houses, selectedHouse, onSelect, headerState, theme 
   );
 };
 
-const DynamicDashboard = ({ farmId }) => {
+const DynamicDashboard = ({ farmId, isTouchPanel = false }) => {
   const [config, setConfig] = useState(null);
   const [selectedHouse, setSelectedHouse] = useState(null);
   const [latestData, setLatestData] = useState({});
@@ -462,7 +462,22 @@ const DynamicDashboard = ({ farmId }) => {
 
   return (
     <div className="max-w-7xl mx-auto px-4 md:px-6 py-4 md:py-6 space-y-5">
-      {/* 헤더 */}
+      {/* 헤더 — 터치패널에서는 컴팩트 파란 배경 */}
+      {isTouchPanel ? (
+        <div style={{
+          background: 'linear-gradient(135deg, #1e40af 0%, #3b82f6 100%)',
+          borderRadius: 12, padding: '4px 10px',
+          boxShadow: '0 2px 12px rgba(30,64,175,0.2)',
+          marginTop: -12,
+        }}>
+          <HouseTabScroller
+            houses={config.houses}
+            selectedHouse={selectedHouse}
+            onSelect={setSelectedHouse}
+            headerState={headerState}
+          />
+        </div>
+      ) : (
       <div className="animate-fade-in-up" style={{
         background: headerState === 'farm-local'
           ? 'linear-gradient(135deg, #065f46 0%, #059669 100%)'
@@ -561,6 +576,7 @@ const DynamicDashboard = ({ farmId }) => {
           headerState={headerState}
         />
       </div>
+      )}
 
       {/* 서버 연결 타임아웃 경고 배너 (팜로컬에서는 숨김) */}
       {showTimeoutBanner && !bannerDismissed && !systemMode.manualOverride && !isFarmLocal && (

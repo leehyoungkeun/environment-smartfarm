@@ -66,7 +66,7 @@ class ErrorBoundary extends React.Component {
 /**
  * 제어 페이지 - config에서 하우스별 deviceCount를 로드
  */
-const ControlPage = ({ farmId }) => {
+const ControlPage = ({ farmId, isTouchPanel = false }) => {
   const [config, setConfig] = useState(null);
   const [selectedHouse, setSelectedHouse] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -135,22 +135,40 @@ const ControlPage = ({ farmId }) => {
   }
 
   return (
-    <div className="max-w-7xl mx-auto px-4 md:px-6 py-4 md:py-6">
-      <div className="mb-5">
-        <h1 className="text-2xl md:text-2xl font-bold text-gray-800 tracking-tight">개폐기 제어</h1>
-        <p className="text-gray-500 text-sm md:text-base mt-0.5">시설하우스 창문 원격 제어</p>
-      </div>
+    <div className={`max-w-7xl mx-auto px-4 md:px-6 ${isTouchPanel ? 'py-2' : 'py-4 md:py-6'}`}>
+      {!isTouchPanel && (
+        <div className="mb-5">
+          <h1 className="text-2xl md:text-2xl font-bold text-gray-800 tracking-tight">개폐기 제어</h1>
+          <p className="text-gray-500 text-sm md:text-base mt-0.5">시설하우스 창문 원격 제어</p>
+        </div>
+      )}
 
       {/* 하우스 선택 */}
-      <div className="mb-5">
-        <HouseTabScroller
-          houses={config.houses.map(h => ({ ...h, name: h.houseName || h.name }))}
-          selectedHouse={selectedHouse?.houseId}
-          onSelect={(id) => setSelectedHouse(config.houses.find(h => h.houseId === id))}
-          headerState="control"
-          theme="light"
-        />
-      </div>
+      {isTouchPanel ? (
+        <div style={{
+          background: 'linear-gradient(135deg, #1e40af 0%, #3b82f6 100%)',
+          borderRadius: 12, padding: '4px 10px',
+          boxShadow: '0 2px 12px rgba(30,64,175,0.2)',
+          marginBottom: 8,
+        }}>
+          <HouseTabScroller
+            houses={config.houses.map(h => ({ ...h, name: h.houseName || h.name }))}
+            selectedHouse={selectedHouse?.houseId}
+            onSelect={(id) => setSelectedHouse(config.houses.find(h => h.houseId === id))}
+            headerState="control"
+          />
+        </div>
+      ) : (
+        <div className="mb-5">
+          <HouseTabScroller
+            houses={config.houses.map(h => ({ ...h, name: h.houseName || h.name }))}
+            selectedHouse={selectedHouse?.houseId}
+            onSelect={(id) => setSelectedHouse(config.houses.find(h => h.houseId === id))}
+            headerState="control"
+            theme="light"
+          />
+        </div>
+      )}
 
       {selectedHouse && (
         <ControlPanel
@@ -202,6 +220,7 @@ function AppContent() {
   const [deferredPrompt, setDeferredPrompt] = useState(null);
   const [showInstallBanner, setShowInstallBanner] = useState(false);
   const [rpiIp, setRpiIp] = useState(null);
+  const [clockTime, setClockTime] = useState(new Date());
 
   useEffect(() => {
     const handler = (e) => {
@@ -215,7 +234,7 @@ function AppContent() {
     return () => window.removeEventListener('beforeinstallprompt', handler);
   }, []);
 
-  // farmLocal/터치패널에서 RPi IP 주소 표시
+  // farmLocal/터치패널에서 RPi IP 주소 표시 + 시계
   useEffect(() => {
     const isLocal = isFarmLocalMode() || ['localhost', '127.0.0.1'].includes(window.location.hostname);
     if (!isLocal) return;
@@ -229,8 +248,10 @@ function AppContent() {
       }
     };
     fetchIp();
-    const interval = setInterval(fetchIp, 60000); // 1분마다 갱신
-    return () => clearInterval(interval);
+    const ipInterval = setInterval(fetchIp, 60000);
+    // 터치패널 시계 (30초마다 갱신)
+    const clockInterval = setInterval(() => setClockTime(new Date()), 30000);
+    return () => { clearInterval(ipInterval); clearInterval(clockInterval); };
   }, []);
 
   const VALID_PAGES = ['dashboard','control','history','journal','report','ai','farms','server','settings','users'];
@@ -453,12 +474,14 @@ function AppContent() {
               </div>
             </>
           ) : (
-            /* farmLocal: 간단한 1줄 */
+            /* farmLocal: 간단한 1줄 — 시간/날짜/IP 통합 */
             <div className="flex items-center justify-between h-14">
               <div className="flex items-center gap-3">
                 <div className="w-8 h-8 bg-gradient-to-br from-emerald-400 to-blue-500 rounded-xl flex items-center justify-center text-base shadow-lg shadow-emerald-500/20">🌱</div>
-                <span className="text-lg font-bold text-gray-800">SmartFarm<span className="text-xs text-emerald-600 font-bold ml-1.5 bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-200">팜로컬</span></span>
+                <span className="text-lg font-bold text-gray-800">SmartFarm</span>
                 {rpiIp && <span className="text-xs text-gray-400 font-mono ml-2">{rpiIp}</span>}
+                <span className="text-xs text-gray-400 ml-1">{clockTime.toLocaleTimeString('ko-KR', { hour:'2-digit', minute:'2-digit' })}</span>
+                <span className="text-xs text-gray-400">{clockTime.toLocaleDateString('ko-KR', { month:'long', day:'numeric', weekday:'short' })}</span>
               </div>
               <div className="flex items-center gap-1">
                 {navItems.map(item => (
@@ -524,12 +547,17 @@ function AppContent() {
               </div>
             </>
           ) : (
-            /* farmLocal: 간단한 레이아웃 */
+            /* farmLocal/터치패널: 1줄에 모든 정보 통합 */
             <div className="flex items-center justify-between py-1">
               <div className="flex items-center gap-2">
-                <div className="w-7 h-7 bg-gradient-to-br from-emerald-400 to-blue-500 rounded-lg flex items-center justify-center text-sm shadow-lg shadow-emerald-500/20">🌱</div>
-                <span className="text-sm font-bold text-gray-800">SmartFarm<span className="text-[10px] text-emerald-600 font-bold ml-1 bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200">팜로컬</span></span>
-                {rpiIp && <span className="text-[10px] text-gray-400 font-mono ml-1">{rpiIp}</span>}
+                <span className="text-[10px] text-emerald-600 font-bold bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200">팜로컬</span>
+                <span className="text-[10px] text-gray-400">
+                  {clockTime.toLocaleTimeString('ko-KR', { hour:'2-digit', minute:'2-digit' })}
+                </span>
+                <span className="text-[10px] text-gray-400">
+                  {clockTime.toLocaleDateString('ko-KR', { month:'long', day:'numeric', weekday:'short' })}
+                </span>
+                {rpiIp && <span className="text-[10px] text-gray-400 font-mono">{rpiIp}</span>}
               </div>
               <div className="flex items-center gap-1">
                 {navItems.map(item => (
@@ -576,7 +604,7 @@ function AppContent() {
       {/* 메인 콘텐츠 */}
       <main className="relative z-10 pb-8">
         {/* 선택된 농장 정보 배너 */}
-        {selectedFarmInfo && currentPage !== 'farms' && !(isSystemWide && !selectedFarmId) && (
+        {selectedFarmInfo && currentPage !== 'farms' && !(isSystemWide && !selectedFarmId) && !isTouchPanel && (
           <div className="max-w-7xl mx-auto px-4 md:px-6 pt-3 md:pt-4">
             <div className="flex items-center gap-2 text-base flex-wrap">
               {isSystemWide && selectedFarmId && (
@@ -605,11 +633,11 @@ function AppContent() {
               </button>
             </div>
           ) : (
-            <DynamicDashboard farmId={farmId} />
+            <DynamicDashboard farmId={farmId} isTouchPanel={isTouchPanel} />
           )
         )}
         {currentPage === 'control' && hasPermission('control') && (
-          <ControlPage farmId={farmId} />
+          <ControlPage farmId={farmId} isTouchPanel={isTouchPanel} />
         )}
         {currentPage === 'journal' && hasPermission('journal') && (
           <div className="max-w-7xl mx-auto px-4 md:px-6 py-4 md:py-6">

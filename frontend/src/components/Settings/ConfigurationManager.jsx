@@ -2336,19 +2336,34 @@ const SyncPanel = ({ farmId }) => {
         </div>
       </div>
 
-      {/* 최근 동기화 이력 */}
-      {last && (
+      {/* 현재 세션 동기화 현황 */}
+      {(s.syncRunning || s.syncedSoFar > 0 || last) && (
         <div className="glass-card p-4">
-          <h3 className="text-sm font-bold text-gray-700 mb-2">최근 동기화</h3>
-          <div className="flex items-center gap-3">
-            <span className={`text-lg ${last.success ? '' : ''}`}>{last.success ? '✅' : '❌'}</span>
-            <div>
-              <p className="text-sm font-semibold text-gray-800">
-                {last.success ? `${last.count}건 전송 성공` : `전송 실패 (${last.error || '오류'})`}
-              </p>
-              <p className="text-xs text-gray-400">{last.time ? new Date(last.time).toLocaleString('ko-KR') : '-'}</p>
+          <h3 className="text-sm font-bold text-gray-700 mb-2">동기화 현황</h3>
+          {s.syncedSoFar > 0 && (
+            <div className="flex items-center gap-3 mb-2">
+              <span className="text-lg">📊</span>
+              <div>
+                <p className="text-sm font-semibold text-blue-700">
+                  이번 세션: {(s.syncedSoFar || 0).toLocaleString()}건 전송 완료
+                </p>
+                <p className="text-xs text-gray-400">
+                  남은 건수: {(s.unsynced || 0).toLocaleString()}건
+                </p>
+              </div>
             </div>
-          </div>
+          )}
+          {last && (
+            <div className="flex items-center gap-3">
+              <span className="text-lg">{last.success ? '✅' : '❌'}</span>
+              <div>
+                <p className="text-sm font-semibold text-gray-800">
+                  {last.success ? `최근 배치: ${last.count}건 성공` : `전송 실패 (${last.error || '오류'})`}
+                </p>
+                <p className="text-xs text-gray-400">{last.time ? new Date(last.time).toLocaleString('ko-KR') : '-'}</p>
+              </div>
+            </div>
+          )}
         </div>
       )}
 

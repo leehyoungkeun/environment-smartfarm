@@ -309,7 +309,7 @@ const AlertPanel = ({ farmId, houseId, showPanel, setShowPanel, isMobile = false
       <button
         ref={buttonRef}
         onClick={() => setShowPanel(!showPanel)}
-        className={`relative rounded-xl font-medium transition-all duration-200 flex items-center justify-center gap-1 whitespace-nowrap ${fullWidth ? 'h-full' : 'py-2'} ${
+        className={`relative rounded-xl font-medium transition-all duration-200 flex items-center justify-center gap-1 whitespace-nowrap py-2 ${fullWidth ? 'h-full' : ''} ${
           showPanel
             ? 'tab-active'
             : unacknowledgedCount > 0

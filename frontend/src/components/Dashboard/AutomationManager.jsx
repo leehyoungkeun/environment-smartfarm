@@ -454,9 +454,9 @@ const ScheduleCard = ({ rule, onEdit, onDelete }) => {
         </div>
 
         {/* 액션 버튼 */}
-        <div className="flex items-center gap-1 flex-shrink-0">
-          <button onClick={onEdit} className="p-2 rounded-lg text-gray-500 hover:text-amber-400 hover:bg-amber-500/10 text-base transition-all">✏️</button>
-          <button onClick={onDelete} className="p-2 rounded-lg text-gray-500 hover:text-rose-400 hover:bg-rose-500/10 text-base transition-all">🗑️</button>
+        <div className="flex flex-col items-center gap-1 flex-shrink-0">
+          <button onClick={onEdit} className="px-3 py-1.5 rounded-lg text-sm font-medium text-blue-600 bg-blue-50 hover:bg-blue-100 border border-blue-200 transition-all">수정</button>
+          <button onClick={onDelete} className="px-3 py-1.5 rounded-lg text-sm font-medium text-rose-600 bg-rose-50 hover:bg-rose-100 border border-rose-200 transition-all">삭제</button>
         </div>
       </div>
     </div>
@@ -563,9 +563,9 @@ const RuleCard = ({ rule, tabColor = 'violet', onEdit, onDelete }) => {
         </div>
 
         {/* 액션 버튼 */}
-        <div className="flex items-center gap-1">
-          <button onClick={onEdit} className="p-2 rounded-lg text-gray-500 hover:text-blue-400 hover:bg-blue-500/10 text-base transition-all">✏️</button>
-          <button onClick={onDelete} className="p-2 rounded-lg text-gray-500 hover:text-rose-400 hover:bg-rose-500/10 text-base transition-all">🗑️</button>
+        <div className="flex flex-col items-center gap-1 flex-shrink-0">
+          <button onClick={onEdit} className="px-3 py-1.5 rounded-lg text-sm font-medium text-blue-600 bg-blue-50 hover:bg-blue-100 border border-blue-200 transition-all">수정</button>
+          <button onClick={onDelete} className="px-3 py-1.5 rounded-lg text-sm font-medium text-rose-600 bg-rose-50 hover:bg-rose-100 border border-rose-200 transition-all">삭제</button>
         </div>
       </div>
     </div>

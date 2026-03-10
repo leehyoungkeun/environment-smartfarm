@@ -483,22 +483,23 @@ function AppContent() {
                 <span className="text-xs text-gray-400 ml-1">{clockTime.toLocaleTimeString('ko-KR', { hour:'2-digit', minute:'2-digit' })}</span>
                 <span className="text-xs text-gray-400">{clockTime.toLocaleDateString('ko-KR', { month:'long', day:'numeric', weekday:'short' })}</span>
               </div>
-              <div className="flex items-center gap-1">
+              <div className="flex items-center gap-2">
                 {navItems.map(item => (
                   <button key={item.id} onClick={() => setCurrentPage(item.id)}
-                    style={{ minHeight: 44 }}
-                    className={`py-2 px-4 rounded-xl text-sm font-medium transition-all flex items-center gap-1 ${currentPage === item.id ? 'tab-active' : 'tab-inactive'}`}>
+                    style={{ height: 44, width: 100 }}
+                    className={`py-2 rounded-xl text-sm font-medium transition-all flex items-center justify-center gap-1 ${currentPage === item.id ? 'tab-active' : 'tab-inactive'}`}>
                     <span>{item.icon}</span>{item.label}
                   </button>
                 ))}
                 {/* 알림 */}
-                <div className="relative">
-                  <AlertPanel farmId={farmId} showPanel={showAlertPanel} setShowPanel={setShowAlertPanel} isMobile={false} fullWidth={false} />
+                <div className="relative" style={{ width: 100, height: 44 }}>
+                  <AlertPanel farmId={farmId} showPanel={showAlertPanel} setShowPanel={setShowAlertPanel} isMobile={false} fullWidth={true} />
                 </div>
                 {/* 사용자 메뉴 */}
-                <div className="relative">
+                <div className="relative" style={{ width: 100, height: 44 }}>
                   <button onClick={() => setShowUserMenu(!showUserMenu)}
-                    className={`py-2 px-4 rounded-xl text-sm font-medium transition-all flex items-center gap-1 ${showUserMenu ? 'tab-active' : 'tab-inactive'}`}>
+                    style={{ width: '100%', height: '100%' }}
+                    className={`rounded-xl text-sm font-medium transition-all flex items-center justify-center gap-1 ${showUserMenu ? 'tab-active' : 'tab-inactive'}`}>
                     <span className="w-6 h-6 text-xs bg-gradient-to-br from-blue-400 to-violet-500 rounded-lg flex items-center justify-center text-white font-bold flex-shrink-0">
                       {user.name?.charAt(0) || '?'}
                     </span>

@@ -201,6 +201,7 @@ function AppContent() {
   const [showUserMenu, setShowUserMenu] = useState(false);
   const [deferredPrompt, setDeferredPrompt] = useState(null);
   const [showInstallBanner, setShowInstallBanner] = useState(false);
+  const [rpiIp, setRpiIp] = useState(null);
 
   useEffect(() => {
     const handler = (e) => {
@@ -212,6 +213,24 @@ function AppContent() {
     };
     window.addEventListener('beforeinstallprompt', handler);
     return () => window.removeEventListener('beforeinstallprompt', handler);
+  }, []);
+
+  // farmLocal/터치패널에서 RPi IP 주소 표시
+  useEffect(() => {
+    const isLocal = isFarmLocalMode() || ['localhost', '127.0.0.1'].includes(window.location.hostname);
+    if (!isLocal) return;
+    const fetchIp = async () => {
+      try {
+        const rpiBase = import.meta.env.VITE_RPI_API_URL || '/api';
+        const res = await axios.get(`${rpiBase}/system/ip`, { timeout: 3000 });
+        if (res.data?.ip) setRpiIp(res.data.ip);
+      } catch (e) {
+        console.log('[App] RPi IP 조회 실패:', e.message);
+      }
+    };
+    fetchIp();
+    const interval = setInterval(fetchIp, 60000); // 1분마다 갱신
+    return () => clearInterval(interval);
   }, []);
 
   const VALID_PAGES = ['dashboard','control','history','journal','report','ai','farms','server','settings','users'];
@@ -439,6 +458,7 @@ function AppContent() {
               <div className="flex items-center gap-3">
                 <div className="w-8 h-8 bg-gradient-to-br from-emerald-400 to-blue-500 rounded-xl flex items-center justify-center text-base shadow-lg shadow-emerald-500/20">🌱</div>
                 <span className="text-lg font-bold text-gray-800">SmartFarm<span className="text-xs text-emerald-600 font-bold ml-1.5 bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-200">팜로컬</span></span>
+                {rpiIp && <span className="text-xs text-gray-400 font-mono ml-2">{rpiIp}</span>}
               </div>
               <div className="flex items-center gap-1">
                 {navItems.map(item => (
@@ -509,6 +529,7 @@ function AppContent() {
               <div className="flex items-center gap-2">
                 <div className="w-7 h-7 bg-gradient-to-br from-emerald-400 to-blue-500 rounded-lg flex items-center justify-center text-sm shadow-lg shadow-emerald-500/20">🌱</div>
                 <span className="text-sm font-bold text-gray-800">SmartFarm<span className="text-[10px] text-emerald-600 font-bold ml-1 bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200">팜로컬</span></span>
+                {rpiIp && <span className="text-[10px] text-gray-400 font-mono ml-1">{rpiIp}</span>}
               </div>
               <div className="flex items-center gap-1">
                 {navItems.map(item => (

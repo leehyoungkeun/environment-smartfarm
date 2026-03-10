@@ -1,0 +1,53 @@
+[
+    {
+        "id": "system_ip_http_in",
+        "type": "http in",
+        "z": "",
+        "name": "GET /api/system/ip",
+        "url": "/api/system/ip",
+        "method": "get",
+        "upload": false,
+        "swaggerDoc": "",
+        "x": 180,
+        "y": 80,
+        "wires": [["system_ip_exec"]]
+    },
+    {
+        "id": "system_ip_exec",
+        "type": "exec",
+        "z": "",
+        "command": "hostname -I",
+        "addpay": "",
+        "append": "",
+        "useSpawn": "false",
+        "timer": "3",
+        "winHide": false,
+        "oldrc": false,
+        "name": "hostname -I",
+        "x": 390,
+        "y": 80,
+        "wires": [["system_ip_format"], [], []]
+    },
+    {
+        "id": "system_ip_format",
+        "type": "function",
+        "z": "",
+        "name": "IP 포맷",
+        "func": "const ips = msg.payload.trim().split(/\\s+/);\nconst ip = ips[0] || 'unknown';\nmsg.payload = { ip: ip, allIps: ips };\nreturn msg;",
+        "outputs": 1,
+        "x": 570,
+        "y": 80,
+        "wires": [["system_ip_http_out"]]
+    },
+    {
+        "id": "system_ip_http_out",
+        "type": "http response",
+        "z": "",
+        "name": "응답",
+        "statusCode": "200",
+        "headers": { "Content-Type": "application/json" },
+        "x": 730,
+        "y": 80,
+        "wires": []
+    }
+]

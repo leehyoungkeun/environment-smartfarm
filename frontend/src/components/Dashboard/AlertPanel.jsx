@@ -4,6 +4,33 @@ import { useAuth } from '../../contexts/AuthContext';
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3000/api';
 
+// 전역 알림 캐시 — 여러 AlertPanel 인스턴스가 중복 요청하지 않도록
+const alertCache = { data: null, timestamp: 0, farmId: null, promise: null };
+const CACHE_TTL = 8000; // 8초 캐시
+
+const fetchAlertsShared = async (farmId, houseId) => {
+  const now = Date.now();
+  if (alertCache.data && alertCache.farmId === farmId && (now - alertCache.timestamp) < CACHE_TTL) {
+    return alertCache.data;
+  }
+  if (alertCache.promise && alertCache.farmId === farmId) {
+    return alertCache.promise;
+  }
+  let url = `${API_BASE_URL}/alerts/${farmId}?limit=100`;
+  if (houseId) url += `&houseId=${houseId}`;
+  alertCache.farmId = farmId;
+  alertCache.promise = axios.get(url).then(res => {
+    alertCache.data = res.data;
+    alertCache.timestamp = Date.now();
+    alertCache.promise = null;
+    return res.data;
+  }).catch(err => {
+    alertCache.promise = null;
+    throw err;
+  });
+  return alertCache.promise;
+};
+
 const AlertPanel = ({ farmId, houseId, showPanel, setShowPanel, isMobile = false, fullWidth = false }) => {
   const [alerts, setAlerts] = useState([]);
   const [unacknowledgedCount, setUnacknowledgedCount] = useState(0);
@@ -44,16 +71,10 @@ const AlertPanel = ({ farmId, houseId, showPanel, setShowPanel, isMobile = false
 
   const loadAlerts = async () => {
     try {
-      let url = `${API_BASE_URL}/alerts/${farmId}?limit=100`;
-      if (houseId) {
-        url += `&houseId=${houseId}`;
-      }
-
-      const response = await axios.get(url);
-
-      if (response.data.success) {
-        setAlerts(response.data.data);
-        const allAlerts = response.data.data.filter(a => a.alertType !== 'NORMAL');
+      const data = await fetchAlertsShared(farmId, houseId);
+      if (data.success) {
+        setAlerts(data.data);
+        const allAlerts = data.data.filter(a => a.alertType !== 'NORMAL');
         const unack = allAlerts.filter(a => !a.acknowledged);
         setTotalCount(allAlerts.length);
         setUnacknowledgedCount(unack.length);

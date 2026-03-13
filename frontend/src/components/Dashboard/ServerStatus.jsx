@@ -29,8 +29,8 @@ const ServerStatus = () => {
     }
     const start = Date.now();
     try {
-      // 빈 body POST → Lambda가 400/422 등 에러를 반환해도 "연결됨"
-      await axios.post(AWS_CONTROL_ENDPOINT, {}, { timeout: 5000 });
+      // ping 요청으로 연결 확인 (Lambda에서 제어 실행 없이 pong 응답)
+      await axios.post(AWS_CONTROL_ENDPOINT, { command: 'ping' }, { timeout: 5000 });
       setAwsStatus({ checked: true, connected: true, latency: Date.now() - start, error: null });
     } catch (err) {
       const elapsed = Date.now() - start;

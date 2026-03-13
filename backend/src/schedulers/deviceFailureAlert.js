@@ -76,8 +76,18 @@ async function checkDeviceFailures() {
         // 쿨다운 체크: 동일 farmId+deviceId에 DEVICE_FAILURE 알림이 최근에 있으면 skip
         const recent = await Alert.find(
           { farmId: device.farm_id, houseId: device.house_id },
-          { limit: 10 }
+          { limit: 50 }
         );
+
+        // 서킷 브레이커: 같은 장비의 미확인 알림이 3개 이상이면 스킵
+        const unackCount = recent.filter(
+          (a) =>
+            a.alertType === "DEVICE_FAILURE" &&
+            a.sensorId === device.device_id &&
+            !a.acknowledged
+        ).length;
+        if (unackCount >= 3) continue;
+
         const alreadySent = recent.find(
           (a) =>
             a.alertType === "DEVICE_FAILURE" &&

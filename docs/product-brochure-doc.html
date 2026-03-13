@@ -1,0 +1,694 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<title>SmartFarm 제품 소개서</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@300;400;500;700;900&display=swap');
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  @page { size: A4; margin: 0; }
+  body {
+    font-family: 'Noto Sans KR', sans-serif;
+    color: #222;
+    background: #eee;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+  .page {
+    width: 210mm;
+    min-height: 297mm;
+    margin: 20px auto;
+    background: white;
+    box-shadow: 0 2px 20px rgba(0,0,0,0.15);
+    position: relative;
+    overflow: hidden;
+  }
+  @media print {
+    body { background: white; }
+    .page { margin: 0; box-shadow: none; page-break-after: always; }
+    .page:last-child { page-break-after: auto; }
+    .no-print { display: none; }
+  }
+
+  /* Cover */
+  .cover {
+    height: 297mm;
+    background: linear-gradient(145deg, #0a3d2e 0%, #0f5c42 35%, #16a085 100%);
+    color: white;
+    display: flex; flex-direction: column; justify-content: center; align-items: center;
+    text-align: center; padding: 40px; position: relative;
+  }
+  .cover::before {
+    content: ''; position: absolute; width: 600px; height: 600px; border-radius: 50%;
+    background: rgba(255,255,255,0.03); top: -200px; right: -200px;
+  }
+  .cover::after {
+    content: ''; position: absolute; width: 400px; height: 400px; border-radius: 50%;
+    background: rgba(255,255,255,0.04); bottom: -100px; left: -100px;
+  }
+  .cover > * { position: relative; z-index: 1; }
+  .cover-badge {
+    border: 1px solid rgba(255,255,255,0.3); padding: 8px 28px; border-radius: 50px;
+    font-size: 12px; letter-spacing: 3px; margin-bottom: 40px; color: rgba(255,255,255,0.8);
+  }
+  .cover-logo { font-size: 64px; font-weight: 900; margin-bottom: 8px; }
+  .cover-logo span { color: #7dffcc; }
+  .cover-subtitle {
+    font-size: 20px; font-weight: 300; opacity: 0.85; margin-bottom: 60px; line-height: 1.7;
+  }
+  .cover-divider { width: 60px; height: 3px; background: #7dffcc; margin: 0 auto 60px; border-radius: 2px; }
+  .cover-info { font-size: 14px; opacity: 0.6; line-height: 2; }
+  .cover-stats { display: flex; gap: 32px; margin-bottom: 60px; flex-wrap: wrap; justify-content: center; }
+  .cover-stat-box {
+    background: rgba(255,255,255,0.1); backdrop-filter: blur(10px);
+    padding: 20px 28px; border-radius: 16px; border: 1px solid rgba(255,255,255,0.15); min-width: 110px;
+  }
+  .cover-stat-num { font-size: 32px; font-weight: 900; color: #7dffcc; }
+  .cover-stat-label { font-size: 11px; opacity: 0.7; margin-top: 4px; }
+
+  /* Page Common */
+  .page-content { padding: 30mm 18mm 18mm; min-height: 297mm; position: relative; }
+  .page-header {
+    position: absolute; top: 0; left: 0; right: 0; height: 16mm;
+    background: linear-gradient(90deg, #0f4c3a, #16a085);
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 0 18mm; color: white; font-size: 11px;
+  }
+  .page-header-logo { font-weight: 700; font-size: 13px; }
+  .page-header-logo span { color: #7dffcc; }
+  .page-footer {
+    position: absolute; bottom: 0; left: 0; right: 0; height: 10mm;
+    border-top: 1px solid #e5e5e5;
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 0 18mm; font-size: 9px; color: #aaa;
+  }
+  .page-title {
+    font-size: 24px; font-weight: 700; color: #0f4c3a; margin-bottom: 4px;
+    display: flex; align-items: center; gap: 10px;
+  }
+  .page-title-num {
+    background: linear-gradient(135deg, #0f4c3a, #16a085); color: white;
+    width: 34px; height: 34px; border-radius: 10px;
+    display: inline-flex; align-items: center; justify-content: center;
+    font-size: 15px; font-weight: 700;
+  }
+  .page-desc {
+    font-size: 13px; color: #888; margin-bottom: 20px;
+    padding-bottom: 12px; border-bottom: 2px solid #e8f5e9;
+  }
+
+  /* Screenshots */
+  .screenshot-container {
+    border: 1px solid #e0e0e0; border-radius: 12px; overflow: hidden;
+    box-shadow: 0 2px 12px rgba(0,0,0,0.08); margin-bottom: 16px;
+  }
+  .screenshot-container img {
+    width: 100%; display: block;
+  }
+  .screenshot-caption {
+    background: #f8f9fa; padding: 8px 14px; font-size: 11px; color: #666;
+    border-top: 1px solid #e0e0e0; display: flex; align-items: center; gap: 6px;
+  }
+  .screenshot-caption .cap-num {
+    background: #0f4c3a; color: white; width: 20px; height: 20px;
+    border-radius: 50%; display: inline-flex; align-items: center; justify-content: center;
+    font-size: 10px; font-weight: 700; flex-shrink: 0;
+  }
+  .ss-row {
+    display: flex; gap: 12px; margin-bottom: 16px;
+  }
+  .ss-row .screenshot-container { flex: 1; margin-bottom: 0; }
+  .ss-full { margin-bottom: 16px; }
+
+  /* Feature highlight */
+  .feat-highlight {
+    display: flex; gap: 12px; margin-bottom: 14px; flex-wrap: wrap;
+  }
+  .feat-pill {
+    background: linear-gradient(135deg, #e8f5e9, #c8e6c9); color: #2e7d32;
+    padding: 6px 14px; border-radius: 50px; font-size: 11px; font-weight: 500;
+  }
+  .section-intro {
+    font-size: 13px; color: #555; line-height: 1.8; margin-bottom: 16px;
+  }
+
+  /* Feature Blocks */
+  .feat-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .feat-box {
+    border: 1px solid #e8efe8; border-radius: 12px; padding: 16px; background: #fafffe;
+  }
+  .feat-box-header { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+  .feat-box-icon {
+    width: 32px; height: 32px; border-radius: 8px;
+    display: flex; align-items: center; justify-content: center; font-size: 17px; flex-shrink: 0;
+  }
+  .feat-box-icon.green { background: #e8f5e9; }
+  .feat-box-icon.blue { background: #e3f2fd; }
+  .feat-box-icon.purple { background: #f3e5f5; }
+  .feat-box-icon.orange { background: #fff3e0; }
+  .feat-box-icon.red { background: #fce4ec; }
+  .feat-box-icon.gray { background: #eceff1; }
+  .feat-box-icon.teal { background: #e0f2f1; }
+  .feat-box-icon.yellow { background: #fffde7; }
+  .feat-box h4 { font-size: 14px; font-weight: 700; color: #1a1a2e; }
+  .feat-box p { font-size: 11px; color: #666; line-height: 1.7; }
+  .feat-tags { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 8px; }
+  .feat-tags span {
+    background: #e8f5e9; color: #2e7d32; padding: 2px 8px; border-radius: 50px; font-size: 9px; font-weight: 500;
+  }
+
+  /* Architecture */
+  .arch-container {
+    background: #f8fdf8; border: 1px solid #e0ebe0; border-radius: 14px; padding: 20px; margin-bottom: 16px;
+  }
+  .arch-layer { margin-bottom: 8px; }
+  .arch-layer-title { font-size: 9px; color: #999; letter-spacing: 2px; margin-bottom: 6px; text-transform: uppercase; }
+  .arch-items { display: flex; gap: 8px; justify-content: center; }
+  .arch-item {
+    flex: 1; text-align: center; padding: 10px 6px; border-radius: 8px; font-size: 11px; font-weight: 500;
+  }
+  .arch-item small { display: block; font-size: 8px; font-weight: 400; margin-top: 2px; opacity: 0.7; }
+  .arch-item.ui { background: #dbeafe; color: #1e40af; }
+  .arch-item.cloud { background: #d1fae5; color: #065f46; }
+  .arch-item.edge { background: #fef3c7; color: #92400e; }
+  .arch-item.hw { background: #fce7f3; color: #9d174d; }
+  .arch-arrow-row { text-align: center; color: #ccc; font-size: 14px; margin: 4px 0; }
+
+  /* Deploy */
+  .deploy-row { display: flex; gap: 12px; margin-bottom: 16px; }
+  .deploy-box { flex: 1; border-radius: 12px; padding: 18px; text-align: center; border: 1px solid #e0e0e0; }
+  .deploy-box.featured { background: linear-gradient(135deg, #0f4c3a, #16a085); color: white; border: none; }
+  .deploy-box .deploy-em { font-size: 28px; margin-bottom: 8px; }
+  .deploy-box h4 { font-size: 14px; font-weight: 700; margin-bottom: 6px; }
+  .deploy-box.featured h4 { color: white; }
+  .deploy-box p { font-size: 10px; color: #666; line-height: 1.7; }
+  .deploy-box.featured p { color: rgba(255,255,255,0.85); }
+
+  /* Tech table */
+  .tech-table { width: 100%; border-collapse: collapse; font-size: 11px; margin-bottom: 14px; }
+  .tech-table th {
+    background: #0f4c3a; color: white; padding: 8px 12px; text-align: left;
+    font-weight: 500; font-size: 10px; letter-spacing: 1px;
+  }
+  .tech-table th:first-child { border-radius: 8px 0 0 0; }
+  .tech-table th:last-child { border-radius: 0 8px 0 0; }
+  .tech-table td { padding: 8px 12px; border-bottom: 1px solid #f0f0f0; vertical-align: top; }
+  .tech-table tr:nth-child(even) td { background: #fafffe; }
+  .tech-cat { font-weight: 700; color: #0f4c3a; white-space: nowrap; }
+
+  /* Flow */
+  .flow-box { background: #f8fdf8; border: 1px solid #e0ebe0; border-radius: 10px; padding: 14px; margin-bottom: 10px; }
+  .flow-box h4 { font-size: 12px; font-weight: 700; color: #0f4c3a; margin-bottom: 8px; }
+  .flow-chain { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; font-size: 10px; }
+  .flow-node { background: white; border: 1px solid #c8e6c9; padding: 4px 10px; border-radius: 6px; font-weight: 500; white-space: nowrap; }
+  .flow-node.highlight { background: #e8f5e9; border-color: #66bb6a; color: #2e7d32; }
+  .flow-arrow { color: #aaa; font-size: 12px; }
+
+  /* Summary */
+  .summary-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; margin-bottom: 16px; }
+  .summary-box {
+    text-align: center; padding: 14px; border-radius: 10px;
+    background: linear-gradient(135deg, #f0faf5, #e8f5e9); border: 1px solid #c8e6c9;
+  }
+  .summary-box .val { font-size: 26px; font-weight: 900; color: #0f4c3a; }
+  .summary-box .lbl { font-size: 10px; color: #666; margin-top: 2px; }
+  .closing-box {
+    background: linear-gradient(135deg, #0f4c3a, #16a085); color: white;
+    border-radius: 14px; padding: 28px; text-align: center;
+  }
+  .closing-box h3 { font-size: 20px; font-weight: 700; margin-bottom: 10px; }
+  .closing-box p { font-size: 12px; opacity: 0.85; line-height: 1.8; max-width: 420px; margin: 0 auto; }
+
+  .print-btn {
+    position: fixed; top: 20px; right: 20px; z-index: 999;
+    background: #0f4c3a; color: white; border: none;
+    padding: 12px 28px; border-radius: 10px; font-size: 14px;
+    font-family: 'Noto Sans KR', sans-serif; font-weight: 500;
+    cursor: pointer; box-shadow: 0 4px 16px rgba(0,0,0,0.2);
+  }
+  .print-btn:hover { background: #16a085; }
+</style>
+</head>
+<body>
+
+<button class="print-btn no-print" onclick="window.print()">PDF 저장 / 인쇄</button>
+
+<!-- ═══════════ PAGE 1: COVER ═══════════ -->
+<div class="page">
+  <div class="cover">
+    <div class="cover-badge">SMART AGRICULTURE PLATFORM</div>
+    <div class="cover-logo">Smart<span>Farm</span></div>
+    <div class="cover-subtitle">
+      스마트 농업 통합 관리 플랫폼<br>
+      실시간 모니터링 | 원격 제어 | AI 진단 | 자동화
+    </div>
+    <div class="cover-stats">
+      <div class="cover-stat-box"><div class="cover-stat-num">19+</div><div class="cover-stat-label">제어 장치 유형</div></div>
+      <div class="cover-stat-box"><div class="cover-stat-num">AI</div><div class="cover-stat-label">이중 AI 엔진</div></div>
+      <div class="cover-stat-box"><div class="cover-stat-num">24/7</div><div class="cover-stat-label">무인 자동화</div></div>
+      <div class="cover-stat-box"><div class="cover-stat-num">3</div><div class="cover-stat-label">배포 모드</div></div>
+    </div>
+    <div class="cover-divider"></div>
+    <div class="cover-info">제품 소개서 v1.0<br>2026년 3월</div>
+  </div>
+</div>
+
+<!-- ═══════════ PAGE 2: 대시보드 ═══════════ -->
+<div class="page">
+  <div class="page-header">
+    <div class="page-header-logo">Smart<span>Farm</span></div>
+    <div>제품 소개서</div>
+  </div>
+  <div class="page-content">
+    <div class="page-title"><span class="page-title-num">01</span> 실시간 대시보드</div>
+    <div class="page-desc">온도, 습도, CO2 등 센서 데이터를 실시간으로 모니터링하고, 하우스별 상태를 한눈에 파악합니다</div>
+
+    <div class="feat-highlight">
+      <span class="feat-pill">다중 하우스 모니터링</span>
+      <span class="feat-pill">오늘의 요약</span>
+      <span class="feat-pill">시스템 상태</span>
+      <span class="feat-pill">실시간 업데이트</span>
+    </div>
+
+    <div class="screenshot-container ss-full">
+      <img src="screenshots/00_대시보드_초기화면.PNG" alt="대시보드 초기화면">
+      <div class="screenshot-caption"><span class="cap-num">1</span> 대시보드 메인 화면 - 하우스 선택, 오늘의 요약, 시스템 상태 모니터링</div>
+    </div>
+
+    <div class="ss-row">
+      <div class="screenshot-container">
+        <img src="screenshots/02_대시보드_센서게이지.PNG" alt="센서 게이지">
+        <div class="screenshot-caption"><span class="cap-num">2</span> 센서별 실시간 게이지 위젯</div>
+      </div>
+      <div class="screenshot-container">
+        <img src="screenshots/01_대시보드_센서데이터추이.PNG" alt="센서 데이터 추이">
+        <div class="screenshot-caption"><span class="cap-num">3</span> 센서 데이터 시계열 추이 차트</div>
+      </div>
+    </div>
+
+    <div class="section-intro">
+      <strong>주요 기능:</strong> 다중 하우스 동시 모니터링 / 센서별 실시간 게이지 / 데이터 수집 현황 / 경보 통계 / 시스템 헬스체크 / 수집 주기 설정
+    </div>
+  </div>
+  <div class="page-footer"><span>SmartFarm 제품 소개서</span><span>2 / 10</span></div>
+</div>
+
+<!-- ═══════════ PAGE 3: 제어 패널 ═══════════ -->
+<div class="page">
+  <div class="page-header">
+    <div class="page-header-logo">Smart<span>Farm</span></div>
+    <div>제품 소개서</div>
+  </div>
+  <div class="page-content">
+    <div class="page-title"><span class="page-title-num">02</span> 원격 장치 제어</div>
+    <div class="page-desc">19종 이상의 장치를 웹/모바일에서 원격 제어하고, Modbus RTU 릴레이를 통한 하드웨어 직접 제어를 지원합니다</div>
+
+    <div class="feat-highlight">
+      <span class="feat-pill">19+ 장치 유형</span>
+      <span class="feat-pill">수동/자동 모드</span>
+      <span class="feat-pill">Modbus RTU</span>
+      <span class="feat-pill">제어 이력 추적</span>
+    </div>
+
+    <div class="screenshot-container ss-full">
+      <img src="screenshots/03_제어패널_초기화면.PNG" alt="제어 패널">
+      <div class="screenshot-caption"><span class="cap-num">4</span> 제어 패널 - 장치별 수동/자동 모드 전환, 열기/정지/닫기 및 ON/OFF 원격 제어</div>
+    </div>
+
+    <div class="screenshot-container ss-full">
+      <img src="screenshots/06_제어이력.PNG" alt="제어 이력">
+      <div class="screenshot-caption"><span class="cap-num">5</span> 제어 이력 - 모든 제어 명령의 실행 시간, 조작자, 성공 여부를 완벽히 기록</div>
+    </div>
+
+    <div class="section-intro">
+      <strong>지원 장치:</strong> 창문(1창/측창/천창) / 차광막 / 스크린 / 환풍기 / 히터 / 냉방기 / 관수밸브 / 양액공급 / 펌프 / 모터 / 조명 / CO2공급기 / 분무기 / 무인방제기 등
+    </div>
+  </div>
+  <div class="page-footer"><span>SmartFarm 제품 소개서</span><span>3 / 10</span></div>
+</div>
+
+<!-- ═══════════ PAGE 4: 영농일지 & 보고서 ═══════════ -->
+<div class="page">
+  <div class="page-header">
+    <div class="page-header-logo">Smart<span>Farm</span></div>
+    <div>제품 소개서</div>
+  </div>
+  <div class="page-content">
+    <div class="page-title"><span class="page-title-num">03</span> 영농일지 & 보고서</div>
+    <div class="page-desc">파종부터 수확까지 전 과정을 기록하고, 자동 생성 리포트로 농장 운영을 분석합니다</div>
+
+    <div class="feat-highlight">
+      <span class="feat-pill">사진 첨부 (5장)</span>
+      <span class="feat-pill">수확/자재 기록</span>
+      <span class="feat-pill">PDF/CSV 내보내기</span>
+      <span class="feat-pill">일/주/월 리포트</span>
+    </div>
+
+    <div class="ss-row">
+      <div class="screenshot-container">
+        <img src="screenshots/04_영농일지.PNG" alt="영농일지">
+        <div class="screenshot-caption"><span class="cap-num">6</span> 영농일지 - 작업 기록, 사진 첨부, 생육 단계 추적</div>
+      </div>
+      <div class="screenshot-container">
+        <img src="screenshots/05_보고서.PNG" alt="보고서">
+        <div class="screenshot-caption"><span class="cap-num">7</span> 보고서 - 센서 통계, 제어 빈도, 자동화 이력 분석</div>
+      </div>
+    </div>
+
+    <div class="section-intro" style="margin-top:8px;">
+      <strong>영농일지 기능:</strong> 7종 작업유형(파종/정식/관수/시비/방제/수확/관리) / 생육 단계 추적 / 기상 조건 기록 / 병충해 관찰 / 수확량 등급별 기록(특/상/보통/하) / 자재 사용량 추적<br>
+      <strong>보고서 기능:</strong> 일간/주간/월간 자동 리포트 / 하우스별 필터링 / 센서 min/max/avg 통계 / 장치 가동 시간 / PDF/Excel 내보내기
+    </div>
+  </div>
+  <div class="page-footer"><span>SmartFarm 제품 소개서</span><span>4 / 10</span></div>
+</div>
+
+<!-- ═══════════ PAGE 5: AI 도우미 (1) ═══════════ -->
+<div class="page">
+  <div class="page-header">
+    <div class="page-header-logo">Smart<span>Farm</span></div>
+    <div>제품 소개서</div>
+  </div>
+  <div class="page-content">
+    <div class="page-title"><span class="page-title-num">04</span> AI 농업 어시스턴트</div>
+    <div class="page-desc">Google Gemini (클라우드) + Ollama (로컬) 이중 AI 엔진으로 병충해 진단, 생육 예측, 작업 추천을 제공합니다</div>
+
+    <div class="feat-highlight">
+      <span class="feat-pill">병충해 진단</span>
+      <span class="feat-pill">생육 예측</span>
+      <span class="feat-pill">작업 추천</span>
+      <span class="feat-pill">AI 상담</span>
+      <span class="feat-pill">카메라/음성</span>
+    </div>
+
+    <div class="ss-row">
+      <div class="screenshot-container">
+        <img src="screenshots/07_AI도우미_병충해분석.PNG" alt="병충해 분석">
+        <div class="screenshot-caption"><span class="cap-num">8</span> 병충해 진단 - 사진 업로드 AI 자동 분석</div>
+      </div>
+      <div class="screenshot-container">
+        <img src="screenshots/08_AI도우미_생육예측.PNG" alt="생육 예측">
+        <div class="screenshot-caption"><span class="cap-num">9</span> 생육 예측 - AI 기반 성장 분석 및 수확 시기 예측</div>
+      </div>
+    </div>
+
+    <div class="ss-row">
+      <div class="screenshot-container">
+        <img src="screenshots/09_AI도우미_작업추천.PNG" alt="작업 추천">
+        <div class="screenshot-caption"><span class="cap-num">10</span> 작업 추천 - 센서 데이터 기반 맞춤 작업 제안</div>
+      </div>
+      <div class="screenshot-container">
+        <img src="screenshots/10_AI도우미_상담.PNG" alt="AI 상담">
+        <div class="screenshot-caption"><span class="cap-num">11</span> AI 상담 - 자유로운 농업 Q&A 채팅</div>
+      </div>
+    </div>
+
+    <div class="section-intro" style="margin-top:4px;">
+      <strong>AI 모델:</strong> Google Gemini 2.5-flash (빠른 무료 응답) / Gemini 2.5-pro (고성능 추론) / Ollama qwen2.5:7b (로컬 텍스트) / gemma3:4b (로컬 비전)<br>
+      <strong>특징:</strong> 카메라 직접 촬영 + 음성 입력(STT) / 모델 선택 드롭다운 / 오프라인 시 로컬 AI 자동 전환 / 비용 0원 운영
+    </div>
+  </div>
+  <div class="page-footer"><span>SmartFarm 제품 소개서</span><span>5 / 10</span></div>
+</div>
+
+<!-- ═══════════ PAGE 6: 설정 & 자동화 ═══════════ -->
+<div class="page">
+  <div class="page-header">
+    <div class="page-header-logo">Smart<span>Farm</span></div>
+    <div>제품 소개서</div>
+  </div>
+  <div class="page-content">
+    <div class="page-title"><span class="page-title-num">05</span> 설정 관리 & 자동화</div>
+    <div class="page-desc">하우스/센서/장치 설정과 복합 자동화 규칙을 직관적인 UI로 관리합니다</div>
+
+    <div class="feat-highlight">
+      <span class="feat-pill">하우스 관리</span>
+      <span class="feat-pill">센서 설정</span>
+      <span class="feat-pill">센서 기반 규칙</span>
+      <span class="feat-pill">시간대별 규칙</span>
+      <span class="feat-pill">쿨다운/우선순위</span>
+    </div>
+
+    <div class="screenshot-container ss-full">
+      <img src="screenshots/11_설정관리_하우스및 센서.PNG" alt="하우스 및 센서 설정">
+      <div class="screenshot-caption"><span class="cap-num">12</span> 설정 관리 - 하우스별 센서 구성, 수집 주기, 장치 관리</div>
+    </div>
+
+    <div class="ss-row">
+      <div class="screenshot-container">
+        <img src="screenshots/12_설정관리_자동화관리_센서별.PNG" alt="자동화 센서 규칙">
+        <div class="screenshot-caption"><span class="cap-num">13</span> 자동화 규칙 - 센서 조건 기반 자동 제어</div>
+      </div>
+      <div class="screenshot-container">
+        <img src="screenshots/13_설정관리_자동화관리_시간대별.PNG" alt="자동화 시간 규칙">
+        <div class="screenshot-caption"><span class="cap-num">14</span> 자동화 규칙 - 시간대별 스케줄 제어</div>
+      </div>
+    </div>
+
+    <div class="section-intro" style="margin-top:4px;">
+      <strong>설정:</strong> 다중 하우스 CRUD / 센서별 이름/단위/범위/아이콘 / 장치 유형/이름/활성화 / 수집 주기(초) / 알림 임계값<br>
+      <strong>자동화:</strong> 센서 조건 (if temp > 30) + 시간 조건 (매일 09:00) 조합 / AND/OR 로직 / 쿨다운 / 우선순위 / 지속시간 후 자동 역명령
+    </div>
+  </div>
+  <div class="page-footer"><span>SmartFarm 제품 소개서</span><span>6 / 10</span></div>
+</div>
+
+<!-- ═══════════ PAGE 7: 핵심 기능 요약 ═══════════ -->
+<div class="page">
+  <div class="page-header">
+    <div class="page-header-logo">Smart<span>Farm</span></div>
+    <div>제품 소개서</div>
+  </div>
+  <div class="page-content">
+    <div class="page-title"><span class="page-title-num">06</span> 핵심 기능 요약</div>
+    <div class="page-desc">SmartFarm이 제공하는 8대 핵심 기능을 한눈에 확인하세요</div>
+
+    <div class="feat-grid">
+      <div class="feat-box">
+        <div class="feat-box-header"><div class="feat-box-icon green">📊</div><h4>실시간 대시보드</h4></div>
+        <p>온도, 습도, CO2 등 센서 데이터를 실시간 게이지와 차트로 시각화. 다중 하우스 동시 모니터링.</p>
+        <div class="feat-tags"><span>실시간 게이지</span><span>다중 하우스</span><span>트렌드 분석</span></div>
+      </div>
+      <div class="feat-box">
+        <div class="feat-box-header"><div class="feat-box-icon blue">🎛️</div><h4>원격 장치 제어</h4></div>
+        <p>19종 이상 장치를 웹/모바일에서 원격 제어. Modbus RTU 릴레이 하드웨어 직접 제어 지원.</p>
+        <div class="feat-tags"><span>19+ 장치</span><span>Modbus RTU</span><span>수동/자동</span></div>
+      </div>
+      <div class="feat-box">
+        <div class="feat-box-header"><div class="feat-box-icon purple">🤖</div><h4>자동화 엔진</h4></div>
+        <p>센서 조건 + 시간 스케줄 조합으로 복합 규칙 설정. 쿨다운, 우선순위, 지속시간 제어.</p>
+        <div class="feat-tags"><span>센서 조건</span><span>시간 스케줄</span><span>AND/OR 로직</span></div>
+      </div>
+      <div class="feat-box">
+        <div class="feat-box-header"><div class="feat-box-icon orange">🧠</div><h4>AI 농업 어시스턴트</h4></div>
+        <p>Gemini + Ollama 이중 AI. 병충해 진단, 생육 예측, 작업 추천. 카메라/음성 입력 지원.</p>
+        <div class="feat-tags"><span>병충해 진단</span><span>Gemini 무료</span><span>카메라/음성</span></div>
+      </div>
+      <div class="feat-box">
+        <div class="feat-box-header"><div class="feat-box-icon red">📝</div><h4>영농일지</h4></div>
+        <p>파종~수확 전 과정 기록. 사진 첨부, 수확/자재 이력 관리, 캘린더 뷰, PDF 내보내기.</p>
+        <div class="feat-tags"><span>사진 첨부</span><span>수확 기록</span><span>PDF 내보내기</span></div>
+      </div>
+      <div class="feat-box">
+        <div class="feat-box-header"><div class="feat-box-icon gray">📄</div><h4>보고서 & 분석</h4></div>
+        <p>일/주/월 리포트 자동 생성. 센서 통계, 제어 빈도, 자동화 이력 시각화 차트.</p>
+        <div class="feat-tags"><span>일/주/월 리포트</span><span>시각화 차트</span><span>Excel 내보내기</span></div>
+      </div>
+      <div class="feat-box">
+        <div class="feat-box-header"><div class="feat-box-icon teal">🔔</div><h4>알림 & 경보</h4></div>
+        <p>센서 임계값 초과, 장비 이상 실시간 알림. 위험도별 분류 및 확인 추적.</p>
+        <div class="feat-tags"><span>실시간 알림</span><span>위험도 분류</span><span>이력 관리</span></div>
+      </div>
+      <div class="feat-box">
+        <div class="feat-box-header"><div class="feat-box-icon yellow">🔐</div><h4>사용자 & 권한</h4></div>
+        <p>4단계 RBAC(최고관리자/관리직원/농장대표/작업자). 다중 농장 격리, JWT 인증.</p>
+        <div class="feat-tags"><span>4단계 RBAC</span><span>다중 농장</span><span>JWT 인증</span></div>
+      </div>
+    </div>
+  </div>
+  <div class="page-footer"><span>SmartFarm 제품 소개서</span><span>7 / 10</span></div>
+</div>
+
+<!-- ═══════════ PAGE 8: 아키텍처 ═══════════ -->
+<div class="page">
+  <div class="page-header">
+    <div class="page-header-logo">Smart<span>Farm</span></div>
+    <div>제품 소개서</div>
+  </div>
+  <div class="page-content">
+    <div class="page-title"><span class="page-title-num">07</span> 시스템 아키텍처</div>
+    <div class="page-desc">클라우드와 엣지 컴퓨팅의 하이브리드 구조로 안정적인 무중단 운영을 보장합니다</div>
+
+    <div class="arch-container">
+      <div class="arch-layer">
+        <div class="arch-layer-title">User Interface</div>
+        <div class="arch-items">
+          <div class="arch-item ui">🖥️ 웹 대시보드<small>React + Vite + Tailwind CSS</small></div>
+          <div class="arch-item ui">📱 모바일 PWA<small>반응형 + 터치 + 오프라인</small></div>
+        </div>
+      </div>
+      <div class="arch-arrow-row">▼ ─── HTTPS / WebSocket ─── ▼</div>
+      <div class="arch-layer">
+        <div class="arch-layer-title">Cloud Services</div>
+        <div class="arch-items">
+          <div class="arch-item cloud">⚡ Express API<small>REST + JWT</small></div>
+          <div class="arch-item cloud">🗄️ PostgreSQL<small>TimescaleDB</small></div>
+          <div class="arch-item cloud">☁️ AWS IoT<small>MQTT 통신</small></div>
+          <div class="arch-item cloud">🧠 Gemini AI<small>클라우드 AI</small></div>
+        </div>
+      </div>
+      <div class="arch-arrow-row">▼ ─── MQTT / REST API ─── ▼</div>
+      <div class="arch-layer">
+        <div class="arch-layer-title">Edge Computing</div>
+        <div class="arch-items">
+          <div class="arch-item edge">🍓 Raspberry Pi<small>Node-RED</small></div>
+          <div class="arch-item edge">💾 SQLite<small>오프라인 저장</small></div>
+          <div class="arch-item edge">🧠 Ollama<small>로컬 AI</small></div>
+        </div>
+      </div>
+      <div class="arch-arrow-row">▼ ─── RS485 / GPIO ─── ▼</div>
+      <div class="arch-layer">
+        <div class="arch-layer-title">Hardware</div>
+        <div class="arch-items">
+          <div class="arch-item hw">🌡️ 센서 모듈<small>온도/습도/CO2</small></div>
+          <div class="arch-item hw">⚙️ Modbus 릴레이<small>RS485 8CH</small></div>
+          <div class="arch-item hw">🔌 구동장치<small>창문/팬/밸브</small></div>
+        </div>
+      </div>
+    </div>
+
+    <h3 style="font-size:14px; color:#0f4c3a; margin-bottom:10px;">제어 신호 흐름</h3>
+    <div class="flow-box">
+      <h4>온라인 모드 (AWS 경유)</h4>
+      <div class="flow-chain">
+        <span class="flow-node">웹 UI</span><span class="flow-arrow">&#8594;</span>
+        <span class="flow-node">AWS API Gateway</span><span class="flow-arrow">&#8594;</span>
+        <span class="flow-node">Lambda</span><span class="flow-arrow">&#8594;</span>
+        <span class="flow-node">IoT Core MQTT</span><span class="flow-arrow">&#8594;</span>
+        <span class="flow-node highlight">RPi Node-RED</span><span class="flow-arrow">&#8594;</span>
+        <span class="flow-node highlight">Modbus 릴레이</span>
+      </div>
+    </div>
+    <div class="flow-box">
+      <h4>팜로컬 모드 (직접 제어)</h4>
+      <div class="flow-chain">
+        <span class="flow-node">웹 UI</span><span class="flow-arrow">&#8594;</span>
+        <span class="flow-node highlight">RPi REST API</span><span class="flow-arrow">&#8594;</span>
+        <span class="flow-node highlight">Node-RED</span><span class="flow-arrow">&#8594;</span>
+        <span class="flow-node highlight">Modbus 릴레이</span>
+      </div>
+    </div>
+    <div class="flow-box">
+      <h4>하이브리드 모드 (이중화)</h4>
+      <div class="flow-chain">
+        <span class="flow-node">웹 UI</span><span class="flow-arrow">&#8594;</span>
+        <span class="flow-node">AWS 우선</span><span class="flow-arrow">&#8594;</span>
+        <span class="flow-node" style="color:#c00;">실패 시</span><span class="flow-arrow">&#8594;</span>
+        <span class="flow-node highlight">RPi 로컬 폴백</span><span class="flow-arrow">&#8594;</span>
+        <span class="flow-node highlight">Modbus 릴레이</span>
+      </div>
+    </div>
+  </div>
+  <div class="page-footer"><span>SmartFarm 제품 소개서</span><span>8 / 10</span></div>
+</div>
+
+<!-- ═══════════ PAGE 9: 배포 & 기술 스택 ═══════════ -->
+<div class="page">
+  <div class="page-header">
+    <div class="page-header-logo">Smart<span>Farm</span></div>
+    <div>제품 소개서</div>
+  </div>
+  <div class="page-content">
+    <div class="page-title"><span class="page-title-num">08</span> 배포 모드 & 기술 스택</div>
+    <div class="page-desc">환경에 맞는 최적의 운영 방식을 선택하고, 검증된 기술로 안정성을 확보합니다</div>
+
+    <h3 style="font-size:14px; color:#0f4c3a; margin-bottom:10px;">유연한 배포 모드</h3>
+    <div class="deploy-row">
+      <div class="deploy-box">
+        <div class="deploy-em">☁️</div>
+        <h4>클라우드 모드</h4>
+        <p>AWS 기반 완전한 클라우드 운영. 다중 농장 관리, 어디서든 접속 가능.</p>
+      </div>
+      <div class="deploy-box featured">
+        <div class="deploy-em">🔄</div>
+        <h4>하이브리드 모드</h4>
+        <p>클라우드 + 로컬 이중 운영. 장애 시 자동 폴백, 복구 시 자동 동기화.</p>
+      </div>
+      <div class="deploy-box">
+        <div class="deploy-em">🏠</div>
+        <h4>팜로컬 모드</h4>
+        <p>인터넷 없이 100% 독립 운영. RPi에서 제어, 센서, AI 모두 가능.</p>
+      </div>
+    </div>
+
+    <h3 style="font-size:14px; color:#0f4c3a; margin: 12px 0 10px;">기술 스택</h3>
+    <table class="tech-table">
+      <thead><tr><th style="width:100px;">구분</th><th>기술</th><th>설명</th></tr></thead>
+      <tbody>
+        <tr><td class="tech-cat">Frontend</td><td>React 18, Vite, Tailwind CSS</td><td>글래스모피즘 UI, PWA 지원, Recharts 시각화</td></tr>
+        <tr><td class="tech-cat">Backend</td><td>Node.js, Express, Prisma</td><td>REST API, JWT + RBAC 인증, Rate Limiting</td></tr>
+        <tr><td class="tech-cat">Database</td><td>PostgreSQL + TimescaleDB</td><td>시계열 최적화, 자동 파티셔닝 (7일/30일)</td></tr>
+        <tr><td class="tech-cat">Cloud</td><td>AWS IoT Core, Lambda</td><td>MQTT 실시간 통신, 서버리스 제어</td></tr>
+        <tr><td class="tech-cat">AI</td><td>Google Gemini, Ollama</td><td>무료 클라우드 AI + 오프라인 로컬 AI 이중 구성</td></tr>
+        <tr><td class="tech-cat">Edge</td><td>Raspberry Pi, Node-RED</td><td>비주얼 프로그래밍, SQLite 로컬 저장</td></tr>
+        <tr><td class="tech-cat">IoT</td><td>Modbus RTU (RS485)</td><td>Waveshare 8CH 릴레이, FC5/FC15 코일 제어</td></tr>
+        <tr><td class="tech-cat">지도</td><td>Kakao Maps API</td><td>농장 위치 시각화, 시설 배치</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <div class="page-footer"><span>SmartFarm 제품 소개서</span><span>9 / 10</span></div>
+</div>
+
+<!-- ═══════════ PAGE 10: 제품 요약 ═══════════ -->
+<div class="page">
+  <div class="page-header">
+    <div class="page-header-logo">Smart<span>Farm</span></div>
+    <div>제품 소개서</div>
+  </div>
+  <div class="page-content">
+    <div class="page-title"><span class="page-title-num">09</span> 제품 요약</div>
+    <div class="page-desc">SmartFarm이 제공하는 핵심 가치를 한눈에 확인하세요</div>
+
+    <div class="summary-grid">
+      <div class="summary-box"><div class="val">19+</div><div class="lbl">제어 가능 장치 유형</div></div>
+      <div class="summary-box"><div class="val">8</div><div class="lbl">핵심 기능 모듈</div></div>
+      <div class="summary-box"><div class="val">3</div><div class="lbl">배포 모드</div></div>
+      <div class="summary-box"><div class="val">4</div><div class="lbl">역할 기반 권한</div></div>
+      <div class="summary-box"><div class="val">2</div><div class="lbl">이중 AI 엔진</div></div>
+      <div class="summary-box"><div class="val">24/7</div><div class="lbl">자동화 운영</div></div>
+    </div>
+
+    <h3 style="font-size:14px; color:#0f4c3a; margin-bottom:10px;">핵심 차별점</h3>
+    <table class="tech-table" style="margin-bottom:20px;">
+      <thead><tr><th style="width:140px;">차별점</th><th>설명</th></tr></thead>
+      <tbody>
+        <tr><td class="tech-cat">오프라인 독립 운영</td><td>인터넷 없이도 RPi 기반 100% 로컬 운영 가능. 클라우드 장애 시 자동 폴백</td></tr>
+        <tr><td class="tech-cat">이중 AI 엔진</td><td>Gemini (무료 클라우드) + Ollama (로컬) 조합으로 비용 0원 AI 농업 진단</td></tr>
+        <tr><td class="tech-cat">하드웨어 직접 제어</td><td>Modbus RTU 릴레이를 통한 산업용 장비 직접 제어 (GPIO 대비 확장성 우수)</td></tr>
+        <tr><td class="tech-cat">완전한 이중화</td><td>AWS + 로컬 이중 경로, 자동 폴백, 데이터 자동 동기화로 무중단 운영</td></tr>
+        <tr><td class="tech-cat">올인원 플랫폼</td><td>모니터링, 제어, 자동화, AI, 영농기록, 보고서를 하나의 웹에서 통합 관리</td></tr>
+        <tr><td class="tech-cat">오픈소스 기반</td><td>React, Node.js, PostgreSQL 등 검증된 오픈소스로 라이선스 비용 최소화</td></tr>
+      </tbody>
+    </table>
+
+    <div class="closing-box">
+      <h3>스마트팜의 미래를 함께 만들어갑니다</h3>
+      <p>
+        클라우드와 엣지 컴퓨팅, AI가 결합된 차세대 스마트 농업 플랫폼.<br>
+        소규모 농가부터 대규모 시설원예까지,<br>
+        SmartFarm과 함께 농업의 디지털 전환을 시작하세요.
+      </p>
+    </div>
+
+    <div style="text-align:center; margin-top:30px; color:#999; font-size:11px; line-height:2;">
+      <strong style="color:#0f4c3a; font-size:13px;">SmartFarm</strong><br>
+      스마트 농업 통합 관리 플랫폼<br>
+      React + Node.js + AWS IoT + Raspberry Pi + AI<br>
+      &copy; 2026 SmartFarm. All rights reserved.
+    </div>
+  </div>
+  <div class="page-footer"><span>SmartFarm 제품 소개서</span><span>10 / 10</span></div>
+</div>
+
+</body>
+</html>

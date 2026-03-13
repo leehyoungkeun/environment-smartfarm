@@ -320,7 +320,7 @@ const ConfigurationManager = ({ farmId = import.meta.env.VITE_FARM_ID || 'farm_0
       {/* 자동화 탭 */}
       {activeTab === 'automation' && (
         <Suspense fallback={<div className="skeleton h-96 rounded-2xl" />}>
-          <AutomationManager farmId={farmId} />
+          <AutomationManager farmId={farmId} houses={houses} />
         </Suspense>
       )}
 
@@ -430,6 +430,13 @@ const HouseDetailEditor = ({ house, onUpdate }) => {
     );
     setEditedHouse({ ...editedHouse, sensors: updatedSensors });
     setEditingSensor(null);
+  };
+
+  const toggleSensorEnabled = (sensorId) => {
+    const updatedSensors = editedHouse.sensors.map(s =>
+      s.sensorId === sensorId ? { ...s, enabled: s.enabled === false ? true : false } : s
+    );
+    setEditedHouse({ ...editedHouse, sensors: updatedSensors });
   };
 
   const addSensor = () => {
@@ -738,9 +745,12 @@ const HouseDetailEditor = ({ house, onUpdate }) => {
                   ${isExpanded ? 'border-blue-300 bg-blue-50/30' : 'border-gray-200 hover:bg-gray-100'}`}>
                   <div className="flex items-center gap-3 px-4 py-3 cursor-pointer"
                     onClick={() => setExpandedSensor(isExpanded ? null : sensor.sensorId)}>
-                    <span className="text-2xl">{sensor.icon}</span>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-base font-bold text-gray-800">{sensor.name}</p>
+                    <span className={`text-2xl ${sensor.enabled === false ? 'opacity-40 grayscale' : ''}`}>{sensor.icon}</span>
+                    <div className={`flex-1 min-w-0 ${sensor.enabled === false ? 'opacity-50' : ''}`}>
+                      <p className="text-base font-bold text-gray-800">
+                        {sensor.name}
+                        {sensor.enabled === false && <span className="ml-2 text-xs text-orange-500 font-semibold">수집 중지</span>}
+                      </p>
                       <p className="text-xs text-gray-500 truncate">
                         {sensor.sensorId} · {sensor.unit} · 범위: {sensor.min}~{sensor.max}
                         {hasModbus && (
@@ -750,7 +760,14 @@ const HouseDetailEditor = ({ house, onUpdate }) => {
                         )}
                       </p>
                     </div>
-                    <div className="flex gap-2 flex-shrink-0" onClick={e => e.stopPropagation()}>
+                    <div className="flex items-center gap-2 flex-shrink-0" onClick={e => e.stopPropagation()}>
+                      <button
+                        onClick={() => toggleSensorEnabled(sensor.sensorId)}
+                        title={sensor.enabled === false ? '수집 활성화' : '수집 비활성화'}
+                        className={`relative w-10 h-5 rounded-full transition-all ${sensor.enabled === false ? 'bg-gray-300' : 'bg-green-500'}`}
+                      >
+                        <span className={`absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-all ${sensor.enabled === false ? 'left-0.5' : 'left-[22px]'}`} />
+                      </button>
                       <button
                         onClick={() => setEditingSensor(sensor.sensorId)}
                         className="p-2 rounded-lg text-gray-400 hover:text-blue-600 hover:bg-blue-50
@@ -2124,6 +2141,24 @@ const SystemManagePanel = () => {
     } finally { setActionLoading(null); }
   };
 
+  // 릴레이 전체 OFF — Node-RED /api/relay/reset-all 호출
+  const handleRelayReset = async () => {
+    if (!confirm('모든 릴레이를 OFF 하시겠습니까?\n(동작 중인 장치가 모두 정지됩니다)')) return;
+    setActionLoading('relay-reset');
+    setActionMsg(null);
+    try {
+      const rpiBase = getRpiApiBase();
+      const res = await axiosBase.post(`${rpiBase}/relay/reset-all`, {}, { timeout: 15000 });
+      if (res.data?.success) {
+        setActionMsg({ type: 'success', text: `릴레이 전체 OFF 완료 (${res.data.detail || ''})` });
+      } else {
+        setActionMsg({ type: 'error', text: res.data?.error || '릴레이 초기화 실패' });
+      }
+    } catch (err) {
+      setActionMsg({ type: 'error', text: err.message });
+    } finally { setActionLoading(null); }
+  };
+
   const StatusBadge = ({ online, label }) => (
     <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold ${
       online ? 'bg-emerald-100 text-emerald-700' : 'bg-rose-100 text-rose-700'
@@ -2188,6 +2223,17 @@ const SystemManagePanel = () => {
               disabled={!!actionLoading}
               className="px-4 py-2 rounded-lg text-sm font-bold bg-blue-500 text-white hover:bg-blue-600 disabled:opacity-50 transition-all active:scale-95">
               {actionLoading === 'restart-express' ? '재시작 중...' : '재시작'}
+            </button>
+          </div>
+          <div className="flex items-center justify-between p-3 bg-rose-50 rounded-xl border border-rose-200">
+            <div>
+              <p className="text-sm font-bold text-gray-800">릴레이 전체 OFF</p>
+              <p className="text-xs text-gray-500">모든 릴레이 초기화 (16채널)</p>
+            </div>
+            <button onClick={handleRelayReset}
+              disabled={!!actionLoading}
+              className="px-4 py-2 rounded-lg text-sm font-bold bg-rose-500 text-white hover:bg-rose-600 disabled:opacity-50 transition-all active:scale-95">
+              {actionLoading === 'relay-reset' ? '초기화 중...' : '초기화'}
             </button>
           </div>
         </div>

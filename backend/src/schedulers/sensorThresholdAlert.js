@@ -169,8 +169,18 @@ async function checkSensorThresholds() {
         // 중복 체크: 동일 farm+house+sensor에 쿨다운 이내 알림
         const recent = await Alert.find(
           { farmId: house.farmId, houseId: house.houseId },
-          { limit: 10 }
+          { limit: 50 }
         );
+
+        // 서킷 브레이커: 같은 유형+센서의 미확인 알림이 3개 이상이면 스킵
+        const unackCount = recent.filter(
+          (a) =>
+            a.alertType === "SENSOR_THRESHOLD" &&
+            a.sensorId === sensorId &&
+            !a.acknowledged
+        ).length;
+        if (unackCount >= 3) continue;
+
         const alreadySent = recent.find(
           (a) =>
             a.alertType === "SENSOR_THRESHOLD" &&

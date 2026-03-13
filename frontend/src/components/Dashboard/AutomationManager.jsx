@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import axios from 'axios';
-import { getApiBase, getPcApiBase, getRpiApiBase, isFarmLocalMode } from '../../services/apiSwitcher';
+import { getApiBase } from '../../services/apiSwitcher';
 
 const DEFAULT_SENSOR_OPTIONS = [
   { id: 'temp_0001', name: '온도', unit: '°C', icon: '🌡️' },
@@ -50,32 +50,10 @@ const COMMAND_LABELS = {
   open: '열기', close: '닫기', stop: '정지', on: 'ON', off: 'OFF',
 };
 
-// RPi-Primary API: 쓰기는 RPi에만 (PC 폴백 없음 → 중복 방지)
-// PC 동기화는 syncRulesToPC()로 별도 처리
-async function rpiApi(method, path, data) {
-  const rpiUrl = getRpiApiBase() + path;
-  return await axios({ method, url: rpiUrl, data, timeout: 8000 });
-}
-
-// RPi → PC 전체 규칙 동기화 (백그라운드)
-// x-api-key 헤더로 인증 → JWT 없는 팜로컬 모드에서도 동작
-const SYNC_API_KEY = import.meta.env.VITE_SENSOR_API_KEY;
-function syncRulesToPC(farmId) {
-  const rpiUrl = getRpiApiBase();
-  const pcUrl = getPcApiBase();
-  if (rpiUrl === pcUrl) return;
-
-  axios.get(`${rpiUrl}/automation/${farmId}`, { timeout: 5000 })
-    .then(res => {
-      if (res?.data?.success && Array.isArray(res.data.data) && res.data.data.length > 0) {
-        const rules = res.data.data.map(r => ({ ...r, id: r._id || r.id }));
-        return axios.post(`${pcUrl}/automation/${farmId}/sync`,
-          { rules },
-          { timeout: 10000, headers: { 'x-api-key': SYNC_API_KEY } }
-        );
-      }
-    })
-    .catch(err => { console.warn('[RulesSync] 동기화 실패:', err.message); });
+// PC Server API: 단일 진실 소스 (PC 서버 → MQTT 알림 → RPi pull)
+async function serverApi(method, path, data) {
+  const baseUrl = getApiBase() + path;
+  return await axios({ method, url: baseUrl, data, timeout: 8000 });
 }
 
 const TABS = [
@@ -85,12 +63,36 @@ const TABS = [
 ];
 
 
-const AutomationManager = ({ farmId }) => {
+// 시간/분 드롭다운 선택기
+const TimeSelect = ({ value, onChange }) => {
+  const [h, m] = (value || '08:00').split(':').map(Number);
+  const update = (newH, newM) => {
+    onChange(`${String(newH).padStart(2,'0')}:${String(newM).padStart(2,'0')}`);
+  };
+  return (
+    <span className="inline-flex items-center bg-white rounded-lg border border-gray-200 shadow-sm overflow-hidden">
+      <select value={h} onChange={e => update(+e.target.value, m)}
+        className="appearance-none bg-transparent text-center font-bold text-gray-800 px-2 py-1.5 cursor-pointer hover:bg-blue-50 transition-colors outline-none"
+        style={{fontSize:15}}>
+        {Array.from({length:24},(_,i)=>i).map(i => <option key={i} value={i}>{String(i).padStart(2,'0')}</option>)}
+      </select>
+      <span className="text-gray-400 font-bold">:</span>
+      <select value={m} onChange={e => update(h, +e.target.value)}
+        className="appearance-none bg-transparent text-center font-bold text-gray-800 px-2 py-1.5 cursor-pointer hover:bg-blue-50 transition-colors outline-none"
+        style={{fontSize:15}}>
+        {[0,5,10,15,20,25,30,35,40,45,50,55].map(i => <option key={i} value={i}>{String(i).padStart(2,'0')}</option>)}
+      </select>
+    </span>
+  );
+};
+
+const AutomationManager = ({ farmId, houses = [] }) => {
   const [rules, setRules] = useState([]);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState('sensor');
   const [showForm, setShowForm] = useState(false);
   const [editingRule, setEditingRule] = useState(null);
+  const [selectedHouseId, setSelectedHouseId] = useState(houses[0]?.houseId || 'house_0001');
   const mountedRef = useRef(true);
   const reloadTimerRef = useRef(null);
 
@@ -102,33 +104,14 @@ const AutomationManager = ({ farmId }) => {
     };
   }, []);
 
-  // 데이터 로드 (PC + RPi 병렬, RPi 우선 — RPi가 권한 기준)
+  // 데이터 로드 (PC 서버 = 단일 진실 소스)
   const loadData = useCallback(async () => {
     setLoading(true);
     try {
-      const rpiUrl = getRpiApiBase();
-      const pcUrl = getApiBase();
-      const isDual = rpiUrl !== pcUrl;
-
-      // PC + RPi 병렬 로드 (둘 다 동시 요청 → 지연 없음)
-      const [pcRulesRes, rpiRulesRes] = await Promise.all([
-        axios.get(`${pcUrl}/automation/${farmId}`, { timeout: 5000 }).catch(() => null),
-        isDual ? axios.get(`${rpiUrl}/automation/${farmId}`, { timeout: 5000 }).catch(() => null) : null,
-      ]);
-
+      const res = await serverApi('get', `/automation/${farmId}`);
       if (!mountedRef.current) return;
-
-      const pcRules = pcRulesRes?.data?.success ? pcRulesRes.data.data : [];
-      const rpiRules = rpiRulesRes?.data?.success ? rpiRulesRes.data.data : [];
-
-      // RPi가 권한 기준 → RPi 데이터 있으면 우선, 없으면 PC 폴백
-      const finalRules = rpiRules.length > 0 ? rpiRules : pcRules;
-      setRules(finalRules.map(r => ({ ...r, _id: r._id || r.id })));
-
-      // RPi와 PC 불일치 시 백그라운드 sync
-      if (isDual && rpiRules.length > 0 && rpiRules.length !== pcRules.length) {
-        syncRulesToPC(farmId);
-      }
+      const rules = res?.data?.success ? res.data.data : [];
+      setRules(rules.map(r => ({ ...r, _id: r._id || r.id })));
 
     } catch (error) {
       if (!mountedRef.current) return;
@@ -139,6 +122,16 @@ const AutomationManager = ({ farmId }) => {
   }, [farmId]);
 
   useEffect(() => { loadData(); }, [loadData]);
+
+  // houses 로드 시 selectedHouseId 초기화
+  useEffect(() => {
+    if (houses.length > 0 && !houses.find(h => h.houseId === selectedHouseId)) {
+      setSelectedHouseId(houses[0].houseId);
+    }
+  }, [houses]);
+
+  // 선택된 하우스의 규칙만 필터링
+  const houseRules = rules.filter(r => r.houseId === selectedHouseId);
 
   // 편집 중 다른 동작 차단 체크
   const isEditing = () => {
@@ -152,15 +145,25 @@ const AutomationManager = ({ farmId }) => {
     return false;
   };
 
+  // 규칙 활성화/비활성화 토글
+  const toggleRule = async (ruleId, currentEnabled) => {
+    if (isEditing()) return;
+    try {
+      await serverApi('put', `/automation/${farmId}/${ruleId}`, { enabled: !currentEnabled });
+      setRules(prev => prev.map(r => r._id === ruleId ? { ...r, enabled: !currentEnabled } : r));
+    } catch (error) {
+      alert('변경 실패: ' + error.message);
+      loadData();
+    }
+  };
+
   // 규칙 삭제 (RPi Primary → PC 동기화)
   const deleteRule = async (ruleId) => {
     if (isEditing()) return;
     if (!confirm('이 자동화 규칙을 삭제하시겠습니까?')) return;
     try {
-      await rpiApi('delete', `/automation/${farmId}/${ruleId}`);
+      await serverApi('delete', `/automation/${farmId}/${ruleId}`);
       setRules(prev => prev.filter(r => r._id !== ruleId));
-      // 삭제 후 RPi 전체 규칙을 PC에 동기화 (PC에 남은 규칙도 정리)
-      syncRulesToPC(farmId);
     } catch (error) {
       alert('삭제 실패: ' + error.message);
       loadData();
@@ -212,24 +215,43 @@ const AutomationManager = ({ farmId }) => {
     return 'sensor';
   };
 
-  const filteredRules = rules.filter(r => categorizeRule(r) === activeTab);
+  const filteredRules = houseRules.filter(r => categorizeRule(r) === activeTab);
   const currentTab = TABS.find(t => t.id === activeTab);
 
   return (
     <div>
+      {/* 하우스 선택 */}
+      {houses.length > 1 && (
+        <div className="flex items-center gap-2 mb-3">
+          {houses.map(h => (
+            <button
+              key={h.houseId}
+              onClick={() => { if (!isEditing()) setSelectedHouseId(h.houseId); }}
+              className={`px-3 py-1.5 rounded-lg text-sm font-bold transition-all border ${
+                selectedHouseId === h.houseId
+                  ? 'bg-green-600 text-white shadow-md border-green-700'
+                  : 'bg-gray-100 text-gray-500 hover:bg-gray-200 border-gray-300'
+              }`}
+            >
+              {h.name || `${parseInt(h.houseId.replace(/\D/g,''))}번 하우스`}
+            </button>
+          ))}
+        </div>
+      )}
+
       {/* 탭 네비게이션 + 새 규칙 */}
       <div className="flex items-center gap-2 mb-4">
         {TABS.map(tab => {
-          const count = rules.filter(r => categorizeRule(r) === tab.id).length;
+          const count = houseRules.filter(r => categorizeRule(r) === tab.id).length;
           const isActive = activeTab === tab.id;
           return (
             <button
               key={tab.id}
               onClick={() => setActiveTab(tab.id)}
-              className={`flex items-center gap-1.5 px-4 py-2.5 rounded-lg text-sm font-bold transition-all ${
+              className={`flex items-center gap-1.5 px-4 py-2.5 rounded-lg text-sm font-bold transition-all border ${
                 isActive
-                  ? 'bg-blue-600 text-white shadow-md shadow-blue-600/25'
-                  : 'bg-gray-100 text-gray-500 hover:bg-gray-200'
+                  ? 'bg-blue-600 text-white shadow-md shadow-blue-600/25 border-blue-700'
+                  : 'bg-gray-100 text-gray-500 hover:bg-gray-200 border-gray-300'
               }`}
             >
               <span>{tab.icon}</span>
@@ -258,9 +280,10 @@ const AutomationManager = ({ farmId }) => {
       {showForm && !editingRule && (
         <RuleForm
           farmId={farmId}
-
+          houseId={selectedHouseId}
+          houses={houses}
           rule={null}
-          existingRules={rules}
+          existingRules={houseRules}
           defaultTab={activeTab}
           onSave={handleFormSave}
           onCancel={() => { setShowForm(false); setEditingRule(null); }}
@@ -283,9 +306,10 @@ const AutomationManager = ({ farmId }) => {
                 <RuleForm
                   key={`edit-${rule._id}`}
                   farmId={farmId}
-        
+                  houseId={selectedHouseId}
+                  houses={houses}
                   rule={editingRule}
-                  existingRules={rules}
+                  existingRules={houseRules}
                   defaultTab={activeTab}
                   onSave={handleFormSave}
                   onCancel={() => { setShowForm(false); setEditingRule(null); }}
@@ -299,6 +323,7 @@ const AutomationManager = ({ farmId }) => {
                 rule={rule}
                 onEdit={() => startEdit(rule)}
                 onDelete={() => deleteRule(rule._id)}
+                onToggle={() => toggleRule(rule._id, rule.enabled)}
               />
             ) : (
               <RuleCard
@@ -307,6 +332,7 @@ const AutomationManager = ({ farmId }) => {
                 tabColor={currentTab?.color || 'violet'}
                 onEdit={() => startEdit(rule)}
                 onDelete={() => deleteRule(rule._id)}
+                onToggle={() => toggleRule(rule._id, rule.enabled)}
               />
             );
           })}
@@ -345,7 +371,7 @@ const EmptyState = ({ tab, onAdd }) => {
 /**
  * 시간대별 스케줄 카드 (타임라인 UI)
  */
-const ScheduleCard = ({ rule, onEdit, onDelete }) => {
+const ScheduleCard = ({ rule, onEdit, onDelete, onToggle }) => {
   // 시간 조건 추출
   const timeCond = rule.conditions?.find(c => c.type === 'time');
   const activeDays = timeCond?.days || [];
@@ -375,7 +401,7 @@ const ScheduleCard = ({ rule, onEdit, onDelete }) => {
   };
 
   return (
-    <div className="glass-card p-4 md:p-5 transition-all">
+    <div className={`glass-card p-4 md:p-5 transition-all ${!rule.enabled ? 'opacity-50' : ''}`}>
       <div className="flex items-start gap-4">
         {/* 시간 표시 (좌측 큰 시계) */}
         <div className="flex-shrink-0 w-24 h-24 rounded-2xl bg-amber-50 border border-amber-200 flex flex-col items-center justify-center">
@@ -388,6 +414,9 @@ const ScheduleCard = ({ rule, onEdit, onDelete }) => {
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 mb-2">
             <h3 className="text-lg font-extrabold text-gray-800 truncate">{rule.name}</h3>
+            <button onClick={onToggle} className={`ml-auto w-11 h-6 rounded-full transition-all flex-shrink-0 relative ${rule.enabled ? 'bg-green-500' : 'bg-gray-300'}`}>
+              <span className={`absolute top-0.5 w-5 h-5 bg-white rounded-full shadow transition-all ${rule.enabled ? 'left-5' : 'left-0.5'}`} />
+            </button>
             {/* 모드 뱃지 */}
             {timeCond?.timeMode === 'interval' && (
               <span className="text-[10px] font-bold bg-amber-100 text-amber-600 px-2 py-0.5 rounded-full">반복</span>
@@ -467,7 +496,7 @@ const ScheduleCard = ({ rule, onEdit, onDelete }) => {
 /**
  * 규칙 카드
  */
-const RuleCard = ({ rule, tabColor = 'violet', onEdit, onDelete }) => {
+const RuleCard = ({ rule, tabColor = 'violet', onEdit, onDelete, onToggle }) => {
   const icon = tabColor === 'emerald' ? '⚙️' : '🤖';
 
   // 조건 그룹 분리
@@ -475,13 +504,16 @@ const RuleCard = ({ rule, tabColor = 'violet', onEdit, onDelete }) => {
   const timeConds = (rule.conditions || []).filter(c => c.type === 'time');
 
   return (
-    <div className="glass-card p-4 md:p-5 transition-all">
+    <div className={`glass-card p-4 md:p-5 transition-all ${!rule.enabled ? 'opacity-50' : ''}`}>
       <div className="flex items-start justify-between gap-3">
         <div className="flex-1 min-w-0">
-          {/* 제목 */}
+          {/* 제목 + 활성화 토글 */}
           <div className="flex items-center gap-2 mb-2">
             <span className="text-2xl">{icon}</span>
             <h3 className="text-lg font-extrabold text-gray-800 truncate">{rule.name}</h3>
+            <button onClick={onToggle} className={`ml-auto w-11 h-6 rounded-full transition-all flex-shrink-0 relative ${rule.enabled ? 'bg-green-500' : 'bg-gray-300'}`}>
+              <span className={`absolute top-0.5 w-5 h-5 bg-white rounded-full shadow transition-all ${rule.enabled ? 'left-5' : 'left-0.5'}`} />
+            </button>
           </div>
 
           {/* 조건 - 그룹별 분리 표시 */}
@@ -590,7 +622,7 @@ const RuleCard = ({ rule, tabColor = 'violet', onEdit, onDelete }) => {
 /**
  * 규칙 생성/편집 폼
  */
-const RuleForm = ({ farmId, rule, existingRules = [], defaultTab = 'sensor', onSave, onCancel }) => {
+const RuleForm = ({ farmId, houseId, houses = [], rule, existingRules = [], defaultTab = 'sensor', onSave, onCancel }) => {
   const defaultConditions = {
     sensor: [{ type: 'sensor', sensorId: 'temp_0001', sensorName: '온도', operator: '>', value: 30 }],
     schedule: [{ type: 'time', timeMode: 'specific', times: ['08:00'], days: [1, 2, 3, 4, 5] }],
@@ -606,7 +638,13 @@ const RuleForm = ({ farmId, rule, existingRules = [], defaultTab = 'sensor', onS
     conditionLogic: rule?.conditionLogic || 'AND',
     groupLogic: rule?.groupLogic || 'AND',
     conditions: rule?.conditions || defaultConditions[defaultTab] || defaultConditions.sensor,
-    actions: rule?.actions || [{ deviceId: 'fan1', deviceType: 'fan', deviceName: '환풍기 1', command: 'on', duration: 0 }],
+    actions: (rule?.actions || [{ deviceId: 'fan1', deviceType: 'fan', deviceName: '환풍기 1', command: 'on', duration: 0 }]).map(a => {
+      // DB의 duration을 항상 초 단위로 정규화
+      let dur = a.duration || 0;
+      if (a.durationUnit === 'minutes') dur = dur * 60;
+      else if (a.durationUnit === 'hours') dur = dur * 3600;
+      return { ...a, duration: dur, durationUnit: 'seconds' };
+    }),
     cooldownSeconds: rule?.cooldownSeconds || (defaultTab === 'schedule' ? 60 : 300),
   });
   const [saving, setSaving] = useState(false);
@@ -694,16 +732,19 @@ const RuleForm = ({ farmId, rule, existingRules = [], defaultTab = 'sensor', onS
         return normalized;
       });
 
+      // houseId 설정: prop으로 전달받은 선택된 하우스
+      cleanedForm.houseId = houseId || rule?.houseId || 'house_0001';
+
       let res;
       if (rule?._id) {
-        res = await rpiApi('put', `/automation/${farmId}/${rule._id}`, cleanedForm);
+        res = await serverApi('put', `/automation/${farmId}/${rule._id}`, cleanedForm);
       } else {
-        res = await rpiApi('post', `/automation/${farmId}`, cleanedForm);
+        // 새 규칙은 활성화 상태로 생성
+        cleanedForm.enabled = true;
+        res = await serverApi('post', `/automation/${farmId}`, cleanedForm);
       }
       const savedRule = res?.data?.data;
       onSave(savedRule || null);
-      // 저장 후 RPi → PC 전체 동기화
-      syncRulesToPC(farmId);
     } catch (error) {
       alert('저장 실패: ' + (error.response?.data?.error || error.message));
     } finally {
@@ -712,8 +753,12 @@ const RuleForm = ({ farmId, rule, existingRules = [], defaultTab = 'sensor', onS
     }
   };
 
-  // 장치/센서 옵션 (하우스 무관 — 일반 규칙)
-  const houseDevices = [];
+  // 선택된 하우스의 장치 목록
+  const selectedHouse = houses.find(h => h.houseId === houseId);
+  const houseDevices = (selectedHouse?.devices || []).map(d => {
+    const dt = DEVICE_TYPE_OPTIONS.find(t => t.value === d.type);
+    return { ...d, icon: dt?.icon || '🔧', commands: dt?.commands || ['on', 'off'] };
+  });
   const sensorOptions = DEFAULT_SENSOR_OPTIONS;
 
   // 탭별 섹션 표시 제어
@@ -856,14 +901,14 @@ const RuleForm = ({ farmId, rule, existingRules = [], defaultTab = 'sensor', onS
           <span className="text-sm font-bold text-amber-600">⏰ 시간 조건</span>
           <button onClick={() => addCondition('time')} className="text-xs text-amber-600 font-semibold bg-amber-50 px-2.5 py-1 rounded-lg hover:bg-amber-100 transition-all">+ 시간 조건 추가</button>
         </div>
-        <div className="border-l-4 border-amber-300 bg-amber-50/50 rounded-r-lg p-3 space-y-3">
+        <div className="bg-gray-50/80 rounded-xl p-3 space-y-3 border border-gray-100">
           {timeConds.length > 0 ? timeConds.map((cond) => {
             // 기존 호환: timeMode 없고 time만 있으면 specific으로 취급
             const timeMode = cond.timeMode || 'specific';
             const times = (cond.times && cond.times.length > 0) ? cond.times : (cond.time ? [cond.time] : ['08:00']);
 
             return (
-              <div key={cond._idx} className="bg-white rounded-lg p-3 border border-amber-100 space-y-2.5">
+              <div key={cond._idx} className="bg-white rounded-xl p-4 border border-gray-200 shadow-sm space-y-3">
                 {/* 모드 선택 + 삭제 */}
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
@@ -901,54 +946,47 @@ const RuleForm = ({ farmId, rule, existingRules = [], defaultTab = 'sensor', onS
 
                 {/* 반복 모드 UI */}
                 {timeMode === 'interval' && (
-                  <div className="flex flex-wrap items-center gap-3">
-                    <div className="flex items-center gap-2 bg-amber-50 border border-amber-200 rounded-lg px-2.5 py-1.5">
-                      <span style={{fontSize:13,fontWeight:700,color:'#92400e'}}>시작</span>
-                      <input type="time" value={cond.startTime || '08:00'}
-                        onChange={(e) => updateCondition(cond._idx, 'startTime', e.target.value)}
-                        style={{width:'7rem',fontSize:'15px',fontWeight:700,border:'none',background:'transparent',padding:0,color:'#92400e'}} />
-                    </div>
-                    <span style={{fontSize:16,fontWeight:800,color:'#d97706'}}>~</span>
-                    <div className="flex items-center gap-2 bg-amber-50 border border-amber-200 rounded-lg px-2.5 py-1.5">
-                      <span style={{fontSize:13,fontWeight:700,color:'#92400e'}}>종료</span>
-                      <input type="time" value={cond.endTime || '18:00'}
-                        onChange={(e) => updateCondition(cond._idx, 'endTime', e.target.value)}
-                        style={{width:'7rem',fontSize:'15px',fontWeight:700,border:'none',background:'transparent',padding:0,color:'#92400e'}} />
-                    </div>
-                    <div className="flex items-center gap-2 bg-amber-50 border border-amber-200 rounded-lg px-2.5 py-1.5">
-                      <span style={{fontSize:13,fontWeight:700,color:'#92400e'}}>간격</span>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="text-xs font-semibold text-gray-500 uppercase tracking-wide">시작</span>
+                    <TimeSelect value={cond.startTime || '08:00'}
+                      onChange={(val) => updateCondition(cond._idx, 'startTime', val)} />
+                    <span className="text-gray-300 font-bold text-lg">→</span>
+                    <span className="text-xs font-semibold text-gray-500 uppercase tracking-wide">종료</span>
+                    <TimeSelect value={cond.endTime || '18:00'}
+                      onChange={(val) => updateCondition(cond._idx, 'endTime', val)} />
+                    <span className="text-gray-300 mx-1">|</span>
+                    <div className="inline-flex items-center bg-white rounded-lg border border-gray-200 shadow-sm px-2.5 py-1">
+                      <span className="text-xs font-semibold text-gray-500 mr-1.5">매</span>
                       <input type="number" min={1} max={720} value={cond.intervalMinutes || 30}
                         onChange={(e) => updateCondition(cond._idx, 'intervalMinutes', parseInt(e.target.value) || 30)}
-                        style={{width:'3.5rem',fontSize:'15px',fontWeight:700,border:'none',background:'transparent',padding:0,color:'#92400e',textAlign:'center'}} />
-                      <span style={{fontSize:13,fontWeight:700,color:'#92400e'}}>분</span>
+                        className="w-12 text-center font-bold text-gray-800 bg-transparent border-none outline-none"
+                        style={{fontSize:15}} />
+                      <span className="text-xs font-semibold text-gray-500 ml-0.5">분</span>
                     </div>
                   </div>
                 )}
 
-                {/* 지정 시간 모드 UI - 가로 배치, 줄바꿈 */}
+                {/* 지정 시간 모드 UI */}
                 {timeMode === 'specific' && (
                   <div className="flex flex-wrap items-center gap-2">
                     {times.map((t, ti) => (
-                      <div key={ti} className="flex items-center gap-1.5 bg-amber-50 border border-amber-200 rounded-lg pl-2 pr-1 py-1">
-                        <input type="time" value={t}
-                          onChange={(e) => {
-                            const val = e.target.value;
+                      <div key={ti} className="inline-flex items-center gap-1 bg-gray-50 rounded-lg pl-1 pr-0.5 py-0.5 border border-gray-200">
+                        <TimeSelect value={t}
+                          onChange={(val) => {
                             if (times.some((existing, idx) => idx !== ti && existing === val)) return;
                             const newTimes = [...times];
                             newTimes[ti] = val;
                             updateCondition(cond._idx, 'times', newTimes);
-                          }}
-                          style={{width:'7rem',fontSize:'15px',fontWeight:700,border:'none',background:'transparent',padding:0,color:'#92400e'}} />
+                          }} />
                         {times.length > 1 && (
                           <button onClick={() => {
                             const newTimes = times.filter((_, i) => i !== ti);
                             updateCondition(cond._idx, 'times', newTimes);
-                          }} className="text-gray-400 hover:text-rose-500 text-base leading-none px-1">✕</button>
+                          }} className="w-6 h-6 rounded-md text-gray-300 hover:text-rose-500 hover:bg-rose-50 text-sm flex items-center justify-center transition-all">✕</button>
                         )}
                       </div>
                     ))}
                     <button onClick={() => {
-                        // 중복되지 않는 새 시간 찾기
                         let newTime = '08:00';
                         for (let h = 0; h < 24; h++) {
                           for (let m = 0; m < 60; m += 30) {
@@ -959,14 +997,12 @@ const RuleForm = ({ farmId, rule, existingRules = [], defaultTab = 'sensor', onS
                         if (times.includes(newTime)) return alert('더 이상 추가할 수 없습니다');
                         updateCondition(cond._idx, 'times', [...times, newTime]);
                       }}
-                      className="text-sm text-amber-600 font-bold border-2 border-dashed border-amber-300 px-3 py-1.5 rounded-lg hover:bg-amber-100 transition-all">
-                      + 추가
-                    </button>
+                      className="w-8 h-8 rounded-lg text-blue-500 font-bold border-2 border-dashed border-blue-200 hover:bg-blue-50 hover:border-blue-400 transition-all flex items-center justify-center text-lg">+</button>
                   </div>
                 )}
 
                 {/* 요일 선택 (공통) */}
-                <div className="flex gap-1 flex-wrap">
+                <div className="flex gap-1.5 flex-wrap">
                   {DAYS_OPTIONS.map(d => (
                     <button
                       key={d.value}
@@ -975,10 +1011,10 @@ const RuleForm = ({ farmId, rule, existingRules = [], defaultTab = 'sensor', onS
                         const updated = days.includes(d.value) ? days.filter(v => v !== d.value) : [...days, d.value];
                         updateCondition(cond._idx, 'days', updated);
                       }}
-                      className={`w-8 h-8 rounded text-xs font-bold transition-all ${
+                      className={`w-9 h-9 rounded-lg text-xs font-bold transition-all border ${
                         (cond.days || []).includes(d.value)
-                          ? 'bg-amber-500 text-white'
-                          : 'bg-gray-100 text-gray-500'
+                          ? 'bg-blue-500 text-white border-blue-600 shadow-sm'
+                          : 'bg-white text-gray-400 border-gray-200 hover:border-blue-300 hover:text-blue-400'
                       }`}
                     >
                       {d.label}
@@ -1079,7 +1115,7 @@ const RuleForm = ({ farmId, rule, existingRules = [], defaultTab = 'sensor', onS
                   {/* 계속 / 동작시간 세그먼트 */}
                   <div style={{display:'inline-flex',borderRadius:12,background:'#e2e8f0',padding:3,flexShrink:0}}>
                     <button type="button"
-                      onClick={() => updateAction(idx, { duration: 0, durationUnit: 'minutes' })}
+                      onClick={() => updateAction(idx, { duration: 0, durationUnit: 'seconds' })}
                       style={{
                         width:72,padding:'8px 0',fontSize:13,fontWeight:800,border:'none',cursor:'pointer',borderRadius:10,
                         background: !isTimed ? '#fff' : 'transparent',
@@ -1089,7 +1125,7 @@ const RuleForm = ({ farmId, rule, existingRules = [], defaultTab = 'sensor', onS
                       }}
                     >계속</button>
                     <button type="button"
-                      onClick={() => { if (!isTimed) updateAction(idx, { duration: 60, durationUnit: 'minutes' }); }}
+                      onClick={() => { if (!isTimed) updateAction(idx, { duration: 60, durationUnit: 'seconds' }); }}
                       style={{
                         width:72,padding:'8px 0',fontSize:13,fontWeight:800,border:'none',cursor:'pointer',borderRadius:10,
                         background: isTimed ? '#fff' : 'transparent',
@@ -1100,12 +1136,15 @@ const RuleForm = ({ farmId, rule, existingRules = [], defaultTab = 'sensor', onS
                     >동작시간</button>
                   </div>
                   {isTimed && (() => {
-                    const totalSec = action.duration || 60;
+                    // duration을 항상 초 단위로 변환하여 표시
+                    let totalSec = action.duration || 60;
+                    if (action.durationUnit === 'minutes') totalSec = totalSec * 60;
+                    else if (action.durationUnit === 'hours') totalSec = totalSec * 3600;
                     const mins = Math.floor(totalSec / 60);
                     const secs = totalSec % 60;
                     const setDuration = (m, s) => {
                       const total = Math.max(1, (m || 0) * 60 + (s || 0));
-                      updateAction(idx, { duration: total, durationUnit: 'minutes' });
+                      updateAction(idx, { duration: total, durationUnit: 'seconds' });
                     };
                     return (
                       <div style={{display:'flex',alignItems:'center',gap:6,background:'#fff',borderRadius:10,padding:'4px 10px',border:'1.5px solid #bfdbfe'}}>

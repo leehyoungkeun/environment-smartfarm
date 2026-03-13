@@ -10,6 +10,34 @@ import logger from "../utils/logger.js";
 const router = express.Router();
 
 // =========================================
+// MQTT Sync 알림 (AWS API Gateway → Lambda → IoT Core)
+// =========================================
+const AWS_CONTROL_ENDPOINT = process.env.AWS_CONTROL_ENDPOINT;
+
+async function notifyRpiSync(farmId) {
+  if (!AWS_CONTROL_ENDPOINT) {
+    logger.warn("AWS_CONTROL_ENDPOINT 미설정 - sync 알림 건너뜀");
+    return;
+  }
+  try {
+    const res = await fetch(AWS_CONTROL_ENDPOINT, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        action: "automation_sync",
+        farm_id: farmId,
+        timestamp: new Date().toISOString(),
+      }),
+      signal: AbortSignal.timeout(5000),
+    });
+    const data = await res.json();
+    logger.info(`📡 자동화 sync 알림 전송: ${farmId} → ${res.status}`);
+  } catch (err) {
+    logger.warn(`📡 sync 알림 실패 (무시): ${err.message}`);
+  }
+}
+
+// =========================================
 // CRUD
 // =========================================
 
@@ -48,6 +76,7 @@ router.post("/:farmId", async (req, res) => {
 
     logger.info(`✅ 자동화 규칙 생성: ${rule.name} (${rule.houseId})`);
     res.json({ success: true, data: rule.toJSON ? rule.toJSON() : rule });
+    notifyRpiSync(farmId);
   } catch (error) {
     logger.error("규칙 생성 실패:", error);
     res.status(400).json({ success: false, error: error.message });
@@ -72,6 +101,7 @@ router.put("/:farmId/:ruleId", async (req, res) => {
 
     logger.info(`✏️ 자동화 규칙 수정: ${rule.name}`);
     res.json({ success: true, data: rule.toJSON ? rule.toJSON() : rule });
+    notifyRpiSync(req.params.farmId);
   } catch (error) {
     logger.error("규칙 수정 실패:", error);
     res.status(400).json({ success: false, error: error.message });
@@ -93,6 +123,7 @@ router.delete("/:farmId/:ruleId", async (req, res) => {
 
     logger.info(`🗑️ 자동화 규칙 삭제: ${rule.name}`);
     res.json({ success: true });
+    notifyRpiSync(req.params.farmId);
   } catch (error) {
     logger.error("규칙 삭제 실패:", error);
     res.status(500).json({ success: false, error: error.message });
@@ -119,6 +150,7 @@ router.patch("/:farmId/:ruleId/toggle", async (req, res) => {
       `🔄 자동화 규칙 ${rule.enabled ? "활성화" : "비활성화"}: ${rule.name}`
     );
     res.json({ success: true, data: rule.toJSON ? rule.toJSON() : rule });
+    notifyRpiSync(req.params.farmId);
   } catch (error) {
     res.status(500).json({ success: false, error: error.message });
   }
@@ -152,6 +184,141 @@ router.post("/:farmId/device-modes", async (req, res) => {
     res.status(500).json({ success: false, error: error.message });
   }
 });
+
+// =========================================
+// 스케줄 조회 (정확한 다음 실행 시각 계산)
+// =========================================
+
+/**
+ * GET /api/automation/:farmId/schedule
+ * 각 규칙의 정확한 다음 실행 시각 반환
+ */
+router.get("/:farmId/schedule", async (req, res) => {
+  try {
+    const { farmId } = req.params;
+    const { houseId } = req.query;
+
+    const query = { farmId, enabled: true };
+    if (houseId) query.houseId = houseId;
+
+    const rules = await AutomationRule.find(query).sort({ priority: 1 }).lean();
+    const now = new Date();
+    const schedule = [];
+
+    for (const rule of rules) {
+      const timeConds = (rule.conditions || []).filter(c => c.type === "time");
+      if (timeConds.length === 0) continue;
+
+      const nextRunAt = calculateNextRunTime(timeConds, now);
+      if (!nextRunAt) continue;
+
+      // 쿨다운 체크: 다음 실행 시각이 쿨다운 내이면 그 다음으로
+      let adjustedNext = nextRunAt;
+      if (rule.lastTriggeredAt) {
+        const cooldownEnd = new Date(new Date(rule.lastTriggeredAt).getTime() + (rule.cooldownSeconds || 300) * 1000);
+        if (adjustedNext < cooldownEnd) {
+          // 쿨다운 종료 이후 다음 실행 시각 계산
+          adjustedNext = calculateNextRunTime(timeConds, cooldownEnd);
+        }
+      }
+
+      if (adjustedNext) {
+        schedule.push({
+          ruleId: rule._id,
+          ruleName: rule.name,
+          houseId: rule.houseId,
+          nextRunAt: adjustedNext.toISOString(),
+          actions: rule.actions,
+        });
+      }
+    }
+
+    res.json({ success: true, data: schedule, serverTime: now.toISOString() });
+  } catch (error) {
+    logger.error("스케줄 조회 실패:", error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+/**
+ * 시간 조건에서 다음 실행 시각(Date)을 정확히 계산
+ */
+function calculateNextRunTime(timeConds, fromDate) {
+  const now = fromDate || new Date();
+  const nowDay = now.getDay();
+  const nowMinutes = now.getHours() * 60 + now.getMinutes();
+  const nowSeconds = now.getSeconds();
+  let bestTime = null;
+
+  for (const cond of timeConds) {
+    const days = (cond.days && cond.days.length > 0)
+      ? cond.days.map(Number)
+      : [0, 1, 2, 3, 4, 5, 6];
+
+    // 모든 실행 시각(분) 수집
+    const times = [];
+    if (cond.timeMode === "specific") {
+      for (const t of (cond.times || [])) {
+        const [h, m] = t.split(":").map(Number);
+        times.push(h * 60 + m);
+      }
+    } else if (cond.timeMode === "interval") {
+      const [sh, sm] = (cond.startTime || "00:00").split(":").map(Number);
+      const [eh, em] = (cond.endTime || "23:59").split(":").map(Number);
+      const start = sh * 60 + sm;
+      const end = eh * 60 + em;
+      const interval = cond.intervalMinutes || 30;
+      if (start <= end) {
+        for (let t = start; t <= end; t += interval) {
+          times.push(t);
+        }
+      } else {
+        // 자정 넘기는 범위: 18:00~12:06 → 18:00~23:59 + 00:00~12:06
+        for (let t = start; t < 1440; t += interval) {
+          times.push(t);
+        }
+        const lastBefore = times[times.length - 1];
+        let firstAfter = (lastBefore + interval) - 1440;
+        if (firstAfter < 0) firstAfter = 0;
+        for (let t = firstAfter; t <= end; t += interval) {
+          times.push(t);
+        }
+      }
+    } else if (cond.time) {
+      const [h, m] = cond.time.split(":").map(Number);
+      times.push(h * 60 + m);
+    }
+
+    if (times.length === 0) continue;
+    times.sort((a, b) => a - b);
+
+    // 오늘~7일 이내 가장 가까운 실행 시각 찾기
+    for (let dayOffset = 0; dayOffset < 7; dayOffset++) {
+      const checkDay = (nowDay + dayOffset) % 7;
+      if (!days.includes(checkDay)) continue;
+
+      for (const t of times) {
+        const targetMinutes = t;
+        // 오늘이면 현재 시각 이후만
+        if (dayOffset === 0 && (targetMinutes < nowMinutes || (targetMinutes === nowMinutes && nowSeconds > 0))) {
+          continue;
+        }
+        // Date 객체 생성
+        const targetDate = new Date(now);
+        targetDate.setDate(targetDate.getDate() + dayOffset);
+        targetDate.setHours(Math.floor(targetMinutes / 60), targetMinutes % 60, 0, 0);
+
+        if (!bestTime || targetDate < bestTime) {
+          bestTime = targetDate;
+        }
+        break; // 이 날의 최소 시각 찾았으면 다음 날로
+      }
+      if (bestTime) break;
+    }
+  }
+
+  return bestTime;
+}
 
 // =========================================
 // 규칙 평가 (Node-RED에서 호출)

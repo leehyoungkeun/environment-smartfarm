@@ -59,8 +59,15 @@ async function checkOfflineFarms() {
       // 중복 체크: 쿨다운 이내 FARM_OFFLINE 알림이 있으면 skip
       const recent = await Alert.find(
         { farmId: farm.farmId },
-        { limit: 1 }
+        { limit: 50 }
       );
+
+      // 서킷 브레이커: 미확인 FARM_OFFLINE 알림이 3개 이상이면 스킵
+      const unackCount = recent.filter(
+        (a) => a.alertType === "FARM_OFFLINE" && !a.acknowledged
+      ).length;
+      if (unackCount >= 3) continue;
+
       const recentOffline = recent.find(
         (a) =>
           a.alertType === "FARM_OFFLINE" &&

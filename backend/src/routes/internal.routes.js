@@ -146,15 +146,27 @@ router.post("/alarm", async (req, res) => {
 
     logger.warn("경보 수신:", alertType, severity, alarm.message);
 
+    // 서킷 브레이커: 같은 유형의 미확인 알림이 3개 이상이면 추가 생성 차단
+    const maxUnacknowledged = alarm.maxUnacknowledged || 3;
+    const unackAlerts = await Alert.find(
+      { farmId, houseId: alarm.houseId || houseId },
+      { limit: 50 }
+    );
+    const unackCount = unackAlerts.filter(
+      (a) =>
+        a.alertType === alertType &&
+        (!alarm.sensorId || a.sensorId === alarm.sensorId) &&
+        !a.acknowledged
+    ).length;
+    if (unackCount >= maxUnacknowledged) {
+      return res.json({ success: true, skipped: true, reason: "circuit_breaker", unackCount });
+    }
+
     // 쿨다운 중복 방지: cooldownMinutes가 있으면 최근 알림 체크
     if (alarm.cooldownMinutes && alarm.cooldownMinutes > 0) {
       const cooldownMs = alarm.cooldownMinutes * 60 * 1000;
       const now = Date.now();
-      const recent = await Alert.find(
-        { farmId, houseId: alarm.houseId || houseId },
-        { limit: 10 }
-      );
-      const duplicate = recent.find(
+      const duplicate = unackAlerts.find(
         (a) =>
           a.alertType === alertType &&
           (!alarm.sensorId || a.sensorId === alarm.sensorId) &&
@@ -256,6 +268,45 @@ router.post("/daily-summary", async (req, res) => {
     res.json({ success: true, message: "일일 집계 저장 완료" });
   } catch (error) {
     logger.error("일일 집계 저장 실패:", error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+/**
+ * POST /internal/control-log
+ * 자동화 제어 이력 저장 (Node-RED → 백엔드)
+ * ④⑤ 스케줄 실행, ② 센서 규칙 평가에서 호출
+ */
+router.post("/control-log", async (req, res) => {
+  try {
+    const { farmId, houseId } = resolveFarmHouse(req);
+    const {
+      deviceId, deviceType, deviceName, command,
+      success, ruleName, ruleId, reason,
+    } = req.body;
+
+    if (!deviceId || !command) {
+      return res.status(400).json({ success: false, error: "deviceId, command 필수" });
+    }
+
+    const log = await ControlLog.create({
+      farmId,
+      houseId,
+      deviceId,
+      deviceType: deviceType || "relay",
+      deviceName: deviceName || deviceId,
+      command,
+      success: success !== false,
+      operator: "automation",
+      operatorName: ruleName || "자동화",
+      isAutomatic: true,
+      automationRuleId: ruleId || null,
+      automationReason: reason || null,
+    });
+
+    res.json({ success: true, data: { id: log._id } });
+  } catch (error) {
+    logger.error("자동화 제어 이력 저장 실패:", error);
     res.status(500).json({ success: false, error: error.message });
   }
 });

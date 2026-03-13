@@ -46,6 +46,7 @@ const ControlPanel = ({ farmId, houseId, houseConfig }) => {
   const [modbusStatus, setModbusStatus] = useState({}); // { [deviceId]: 'verifying' | 'done' | 'timeout' }
   const [confirmAction, setConfirmAction] = useState(null); // { title, message, onConfirm }
   const [controlStage, setControlStage] = useState({}); // { [deviceId]: 'sending' | 'executing' | 'verifying' | 'done' | 'timeout' }
+  const [conflictWarning, setConflictWarning] = useState(null); // { conflicts: [...] }
 
   const timerRefs = React.useRef({});
 
@@ -67,7 +68,80 @@ const ControlPanel = ({ farmId, houseId, houseConfig }) => {
     } catch {}
   };
 
+  // 충돌 감지: 같은 장치에 대해 상반된 명령을 내리는 규칙이 있는지 검사
+  const detectRuleConflicts = () => {
+    const conflicts = [];
+    const OPPOSITE = { open: 'close', close: 'open', on: 'off', off: 'on' };
+
+    // auto 모드 장치별로 선택된 규칙 수집
+    const deviceRulesMap = {}; // { deviceId: [{ rule, action, timeConds }] }
+    devices.forEach(d => {
+      if (getDeviceMode(d.deviceId) !== 'auto') return;
+      const selectedIds = selectedRuleMap[d.deviceId] || [];
+      if (selectedIds.length === 0) return;
+
+      selectedIds.forEach(ruleId => {
+        const rule = autoRules.find(r => (r._id || r.id) === ruleId);
+        if (!rule) return;
+        const actions = typeof rule.actions === 'string' ? JSON.parse(rule.actions) : (rule.actions || []);
+        const conditions = typeof rule.conditions === 'string' ? JSON.parse(rule.conditions) : (rule.conditions || []);
+        const timeConds = conditions.filter(c => c.type === 'time');
+        const sensorConds = conditions.filter(c => c.type === 'sensor');
+
+        actions.forEach(action => {
+          if (action.deviceId !== d.deviceId) return;
+          if (!deviceRulesMap[d.deviceId]) deviceRulesMap[d.deviceId] = [];
+          deviceRulesMap[d.deviceId].push({ rule, action, timeConds, sensorConds });
+        });
+      });
+    });
+
+    // 장치별로 충돌 검사
+    Object.entries(deviceRulesMap).forEach(([deviceId, entries]) => {
+      for (let i = 0; i < entries.length; i++) {
+        for (let j = i + 1; j < entries.length; j++) {
+          const a = entries[i], b = entries[j];
+          const cmdA = a.action.command, cmdB = b.action.command;
+
+          // 상반된 명령인지 확인
+          if (OPPOSITE[cmdA] !== cmdB) continue;
+
+          // 시간 조건이 둘 다 있으면 시간 겹침 확인
+          if (a.timeConds.length > 0 && b.timeConds.length > 0) {
+            const timesA = a.timeConds.map(t => t.time);
+            const timesB = b.timeConds.map(t => t.time);
+            const overlap = timesA.some(ta => timesB.includes(ta));
+            // 요일 겹침도 확인
+            const daysA = a.timeConds.flatMap(t => (t.days || []).map(Number));
+            const daysB = b.timeConds.flatMap(t => (t.days || []).map(Number));
+            const dayOverlap = daysA.length === 0 || daysB.length === 0 || daysA.some(d => daysB.includes(d));
+
+            if (!overlap || !dayOverlap) continue; // 시간/요일 안 겹치면 충돌 아님
+          }
+
+          // 둘 다 센서 조건만 있으면 (시간 조건 없음) → 동시 트리거 가능성 있으므로 충돌
+          conflicts.push({
+            deviceId,
+            ruleA: a.rule,
+            ruleB: b.rule,
+            cmdA, cmdB,
+            timeInfo: a.timeConds.length > 0 ? a.timeConds.map(t => t.time).join(', ') : '센서 기반',
+          });
+        }
+      }
+    });
+
+    return conflicts;
+  };
+
   const handleApply = async () => {
+    // 충돌 검사 먼저 수행
+    const conflicts = detectRuleConflicts();
+    if (conflicts.length > 0) {
+      setConflictWarning({ conflicts });
+      return; // 충돌 있으면 적용 차단
+    }
+
     setApplyLoading(true);
     try {
       const rpiUrl = getRpiApiBase();
@@ -75,18 +149,7 @@ const ControlPanel = ({ farmId, houseId, houseConfig }) => {
         .filter(d => getDeviceMode(d.deviceId) === 'auto')
         .map(d => d.deviceId);
 
-      // auto 모드 장치에 연결된 규칙들의 enabled 상태를 활성화
-      const ruleIdsToEnable = new Set();
-      devices.forEach(d => {
-        if (getDeviceMode(d.deviceId) === 'auto') {
-          (selectedRuleMap[d.deviceId] || []).forEach(id => ruleIdsToEnable.add(id));
-        }
-      });
-      for (const ruleId of ruleIdsToEnable) {
-        await axios.put(`${rpiUrl}/automation/${farmId}/${ruleId}`, { enabled: true }, { timeout: 5000 }).catch(() => {});
-      }
-
-      // RPi에 자동 모드 장치 목록 전달
+      // RPi에 자동 모드 장치 목록 전달 (규칙 enabled는 자동화 관리에서 토글)
       await syncAutoDevicesToRpi(rpiUrl, autoDeviceIds);
 
       setAutomationActive(true);
@@ -100,16 +163,7 @@ const ControlPanel = ({ farmId, houseId, houseConfig }) => {
     try {
       const rpiUrl = getRpiApiBase();
 
-      // 모든 활성 규칙 비활성화
-      const ruleIdsToDisable = new Set();
-      devices.forEach(d => {
-        (selectedRuleMap[d.deviceId] || []).forEach(id => ruleIdsToDisable.add(id));
-      });
-      for (const ruleId of ruleIdsToDisable) {
-        await axios.put(`${rpiUrl}/automation/${farmId}/${ruleId}`, { enabled: false }, { timeout: 5000 }).catch(() => {});
-      }
-
-      // RPi에 자동 모드 장치 없음 전달
+      // RPi에 자동 모드 장치 없음 전달 (규칙 enabled는 자동화 관리에서 토글)
       await syncAutoDevicesToRpi(rpiUrl, []);
 
       setAutomationActive(false);
@@ -175,11 +229,12 @@ const ControlPanel = ({ farmId, houseId, houseConfig }) => {
 
   const loadAutoRules = useCallback(async () => {
     try {
-      const rpiUrl = getRpiApiBase();
       const pcUrl = getApiBase();
-      const res = await axios.get(`${rpiUrl}/automation/${farmId}`, { timeout: 5000 })
+      const rpiUrl = getRpiApiBase();
+      // PC 서버 우선 (단일 진실 소스), 실패 시 RPi fallback
+      const res = await axios.get(`${pcUrl}/automation/${farmId}`, { timeout: 5000 })
         .catch(() => rpiUrl !== pcUrl
-          ? axios.get(`${pcUrl}/automation/${farmId}`, { timeout: 5000 }).catch(() => null)
+          ? axios.get(`${rpiUrl}/automation/${farmId}`, { timeout: 5000 }).catch(() => null)
           : null
         );
       if (res?.data?.success && Array.isArray(res.data.data)) {
@@ -189,6 +244,33 @@ const ControlPanel = ({ farmId, houseId, houseConfig }) => {
   }, [farmId]);
 
   useEffect(() => { loadAutoRules(); }, [loadAutoRules]);
+
+  // 스케줄 데이터 (서버에서 계산된 정확한 다음 실행 시각)
+  const [scheduleMap, setScheduleMap] = useState({}); // { ruleId: nextRunAt(ISO) }
+  const loadSchedule = useCallback(async () => {
+    try {
+      const pcUrl = getApiBase();
+      const res = await axios.get(`${pcUrl}/automation/${farmId}/schedule`, {
+        params: { houseId },
+        timeout: 5000,
+      });
+      if (res?.data?.success && Array.isArray(res.data.data)) {
+        const map = {};
+        for (const item of res.data.data) {
+          map[item.ruleId] = item.nextRunAt;
+        }
+        setScheduleMap(map);
+      }
+    } catch {}
+  }, [farmId, houseId]);
+
+  // automationActive일 때만 스케줄 폴링 (10초 간격)
+  useEffect(() => {
+    if (!automationActive) { setScheduleMap({}); return; }
+    loadSchedule();
+    const interval = setInterval(loadSchedule, 10000);
+    return () => clearInterval(interval);
+  }, [automationActive, loadSchedule]);
 
   // deviceStates 변경 시 localStorage 저장
   useEffect(() => {
@@ -814,7 +896,7 @@ const ControlPanel = ({ farmId, houseId, houseConfig }) => {
               transition:'all 0.15s',
             }}
           >
-            {applyLoading ? '⏳' : '⏸'} 중지
+            {applyLoading ? '⏳' : '⏸'} 수동모드 적용
           </button>
         </div>
       </div>
@@ -949,6 +1031,8 @@ const ControlPanel = ({ farmId, houseId, houseConfig }) => {
                             onRemove={(ruleId) => removeRuleFromDevice(device.deviceId, ruleId)}
                             onOpenPicker={() => setRulePickerDevice(device.deviceId)}
                             locked={automationActive}
+                            automationActive={automationActive}
+                            scheduleMap={scheduleMap}
                           />
                         </div>
                       ) : isToggleType ? (
@@ -1110,13 +1194,17 @@ const ControlPanel = ({ farmId, houseId, houseConfig }) => {
         document.body
       )}
 
-      {/* 자동화 규칙 선택 팝업 */}
+      {/* 자동화 규칙 선택 팝업 — 해당 장치 대상 규칙만 표시 */}
       {rulePickerDevice && (
         <RulePickerModal
-          allRules={autoRules}
+          allRules={autoRules.filter(rule => {
+            const actions = typeof rule.actions === 'string' ? JSON.parse(rule.actions) : (rule.actions || []);
+            return actions.some(a => a.deviceId === rulePickerDevice);
+          })}
           selectedIds={selectedRuleMap[rulePickerDevice] || []}
           onToggle={(ruleId) => toggleRuleSelection(rulePickerDevice, ruleId)}
           onClose={() => setRulePickerDevice(null)}
+          deviceId={rulePickerDevice}
         />
       )}
 
@@ -1142,6 +1230,50 @@ const ControlPanel = ({ farmId, houseId, houseConfig }) => {
                   boxShadow: `0 2px 8px ${confirmAction.danger ? 'rgba(220,38,38,0.4)' : 'rgba(29,78,216,0.35)'}`,
                 }}>
                 {confirmAction.danger ? '비상정지 실행' : '실행'}
+              </button>
+            </div>
+          </div>
+        </div>,
+        document.body
+      )}
+
+      {/* 자동화 규칙 충돌 경고 모달 */}
+      {conflictWarning && createPortal(
+        <div style={{position:'fixed',inset:0,zIndex:10000,display:'flex',alignItems:'center',justifyContent:'center',background:'rgba(0,0,0,0.6)',backdropFilter:'blur(4px)'}}>
+          <div style={{background:'#fff',borderRadius:16,padding:'24px 28px',maxWidth:520,width:'92%',boxShadow:'0 20px 60px rgba(0,0,0,0.3)',maxHeight:'80vh',display:'flex',flexDirection:'column'}}>
+            <h3 style={{fontSize:18,fontWeight:800,color:'#dc2626',marginBottom:8,display:'flex',alignItems:'center',gap:8}}>
+              ⚠ 자동화 규칙 충돌 감지
+            </h3>
+            <p style={{fontSize:13,color:'#4b5563',lineHeight:1.6,marginBottom:16}}>
+              같은 장치에 상반된 명령을 내리는 규칙이 있습니다.<br/>
+              <b>충돌을 해결할 때까지 자동화를 적용할 수 없습니다.</b><br/>
+              설정에서 규칙을 수정하거나, 충돌되는 규칙의 선택을 해제하세요.
+            </p>
+            <div style={{flex:1,overflowY:'auto',marginBottom:16}}>
+              {conflictWarning.conflicts.map((c, idx) => (
+                <div key={idx} style={{
+                  padding:'12px 14px',marginBottom:8,borderRadius:12,
+                  background:'#fef2f2',border:'2px solid #fecaca',
+                }}>
+                  <div style={{fontSize:13,fontWeight:700,color:'#991b1b',marginBottom:4}}>
+                    {DEVICE_TYPE_INFO[devices.find(d => d.deviceId === c.deviceId)?.type]?.icon || '🔧'} {c.deviceId}
+                  </div>
+                  <div style={{fontSize:12,color:'#7f1d1d',lineHeight:1.6}}>
+                    <span style={{fontWeight:700}}>규칙A:</span> {c.ruleA.name} → <span style={{fontWeight:700,color:'#dc2626'}}>{c.cmdA.toUpperCase()}</span>
+                    <br/>
+                    <span style={{fontWeight:700}}>규칙B:</span> {c.ruleB.name} → <span style={{fontWeight:700,color:'#dc2626'}}>{c.cmdB.toUpperCase()}</span>
+                    <br/>
+                    <span style={{color:'#9ca3af',fontSize:11}}>트리거: {c.timeInfo}</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+            <div style={{display:'flex',justifyContent:'flex-end'}}>
+              <button onClick={() => setConflictWarning(null)}
+                style={{padding:'10px 24px',borderRadius:10,fontSize:14,fontWeight:700,
+                  background:'#dc2626',color:'#fff',border:'none',cursor:'pointer',
+                  boxShadow:'0 2px 8px rgba(220,38,38,0.4)'}}>
+                확인
               </button>
             </div>
           </div>
@@ -1264,82 +1396,40 @@ const OPERATOR_LABELS = { '>': '초과', '>=': '이상', '<': '미만', '<=': '�
 const COMMAND_LABELS = { open: '열기', close: '닫기', stop: '정지', on: 'ON', off: 'OFF' };
 const DAYS_LABELS = { 1: '월', 2: '화', 3: '수', 4: '목', 5: '금', 6: '토', 0: '일' };
 
-/** 다음 실행까지 카운트다운 */
-const NextRunCountdown = ({ timeConds }) => {
+/** 다음 실행까지 카운트다운 (서버 스케줄 기반 — 정확한 시각) */
+const NextRunCountdown = ({ nextRunAt }) => {
   const [remaining, setRemaining] = useState('');
 
   useEffect(() => {
-    if (!timeConds || timeConds.length === 0) return;
-    const calcNext = () => {
-      const now = new Date();
-      const nowDay = now.getDay(); // 0=일, 1=월...
-      const nowTotalMin = now.getHours() * 60 + now.getMinutes();
-      const nowSec = now.getSeconds();
-      let bestDiff = Infinity;
+    if (!nextRunAt) return;
+    const target = new Date(nextRunAt).getTime();
 
-      for (const cond of timeConds) {
-        // days: 숫자 배열로 정규화 (문자열 대응 + 빈 배열 대응)
-        const rawDays = Array.isArray(cond.days) && cond.days.length > 0 ? cond.days : [0,1,2,3,4,5,6];
-        const days = rawDays.map(Number);
-
-        // 실행 시각 목록 (분 단위)
-        let times = [];
-        if (cond.timeMode === 'interval') {
-          const [sh, sm] = (cond.startTime || '08:00').split(':').map(Number);
-          const [eh, em] = (cond.endTime || '18:00').split(':').map(Number);
-          const interval = cond.intervalMinutes || 30;
-          for (let m = sh * 60 + sm; m <= eh * 60 + em; m += interval) {
-            times.push(m);
-          }
-        } else if (cond.times?.length) {
-          times = cond.times.map(t => { const p = String(t).split(':').map(Number); return p[0] * 60 + (p[1] || 0); });
-        } else if (cond.time) {
-          const p = String(cond.time).split(':').map(Number);
-          times.push(p[0] * 60 + (p[1] || 0));
-        }
-        if (times.length === 0) continue;
-        times.sort((a, b) => a - b);
-
-        // 오늘~7일 이내 가장 가까운 실행 시각
-        for (let dayOffset = 0; dayOffset < 7; dayOffset++) {
-          const checkDay = (nowDay + dayOffset) % 7;
-          if (!days.includes(checkDay)) continue;
-          for (const t of times) {
-            if (dayOffset === 0 && (t < nowTotalMin || (t === nowTotalMin && nowSec > 0))) continue;
-            const diffSec = (dayOffset * 24 * 60 + t - nowTotalMin) * 60 - nowSec;
-            if (diffSec > 0 && diffSec < bestDiff) {
-              bestDiff = diffSec;
-              break; // times는 정렬됨 — 이 날의 최소 diff
-            }
-          }
-          if (bestDiff < Infinity) break; // 가장 가까운 날 찾음
-        }
-      }
-
-      if (bestDiff === Infinity) { setRemaining(''); return; }
-      const h = Math.floor(bestDiff / 3600);
-      const m = Math.floor((bestDiff % 3600) / 60);
-      const s = Math.floor(bestDiff % 60);
-      if (h > 0) setRemaining(`${h}시간 ${m}분`);
+    const calcRemaining = () => {
+      const diff = Math.max(0, Math.floor((target - Date.now()) / 1000));
+      if (diff <= 0) { setRemaining('실행중...'); return; }
+      const h = Math.floor(diff / 3600);
+      const m = Math.floor((diff % 3600) / 60);
+      const s = diff % 60;
+      if (h > 0) setRemaining(`${h}시간 ${m}분 ${s}초`);
       else if (m > 0) setRemaining(`${m}분 ${s}초`);
       else setRemaining(`${s}초`);
     };
 
-    calcNext();
-    const timer = setInterval(calcNext, 1000);
+    calcRemaining();
+    const timer = setInterval(calcRemaining, 1000);
     return () => clearInterval(timer);
-  }, [timeConds]);
+  }, [nextRunAt]);
 
   if (!remaining) return null;
   return (
-    <span style={{fontSize:10,fontWeight:700,padding:'2px 6px',borderRadius:8,background:'#fef3c7',color:'#b45309',border:'1px solid #fde68a',whiteSpace:'nowrap',animation:'pulse 2s ease-in-out infinite'}}>
+    <span style={{fontSize:14,fontWeight:700,padding:'3px 8px',borderRadius:8,background:'#fef3c7',color:'#b45309',border:'1px solid #fde68a',whiteSpace:'nowrap',animation:'pulse 2s ease-in-out infinite'}}>
       ⏱ {remaining}
     </span>
   );
 };
 
 /** 장치 자동 모드 - 선택된 규칙 목록 표시 */
-const DeviceAutoRules = ({ deviceId, rules, expandedRuleId, onToggleExpand, onRemove, onOpenPicker, locked }) => {
+const DeviceAutoRules = ({ deviceId, rules, expandedRuleId, onToggleExpand, onRemove, onOpenPicker, locked, automationActive, scheduleMap = {} }) => {
   return (
     <div style={{display:'flex',flexDirection:'column',gap:6}}>
       {rules.length === 0 && (
@@ -1366,7 +1456,7 @@ const DeviceAutoRules = ({ deviceId, rules, expandedRuleId, onToggleExpand, onRe
                   background: rule.enabled ? '#dcfce7' : '#fee2e2',
                   color: rule.enabled ? '#15803d' : '#dc2626',
                 }}>{rule.enabled ? '활성' : '비활성'}</span>
-                {rule.enabled && timeConds.length > 0 && <NextRunCountdown timeConds={timeConds} />}
+                {automationActive && rule.enabled && scheduleMap[rule._id] && <NextRunCountdown nextRunAt={scheduleMap[rule._id]} />}
               </div>
               <div style={{display:'flex',alignItems:'center',gap:4,flexShrink:0}}>
                 {!locked && (
@@ -1479,7 +1569,7 @@ const DeviceAutoRules = ({ deviceId, rules, expandedRuleId, onToggleExpand, onRe
 };
 
 /** 자동화 규칙 선택 팝업 */
-const RulePickerModal = ({ allRules, selectedIds, onToggle, onClose }) => {
+const RulePickerModal = ({ allRules, selectedIds, onToggle, onClose, deviceId }) => {
   const categoryMeta = {
     sensor:   { icon: '🌡️', label: '센서', bg: '#f5f3ff', color: '#7c3aed', border: '#ede9fe' },
     schedule: { icon: '⏰', label: '시간', bg: '#fffbeb', color: '#b45309', border: '#fef3c7' },
@@ -1508,7 +1598,10 @@ const RulePickerModal = ({ allRules, selectedIds, onToggle, onClose }) => {
         <div style={{flex:1,overflowY:'auto',padding:'12px 16px'}}>
           {allRules.length === 0 ? (
             <div style={{textAlign:'center',padding:'32px 0',color:'#9ca3af',fontSize:14}}>
-              등록된 자동화 규칙이 없습니다.<br/>설정에서 먼저 규칙을 만들어주세요.
+              {deviceId
+                ? <>이 장치({deviceId})를 대상으로 하는 규칙이 없습니다.<br/>설정에서 이 장치를 포함하는 규칙을 만들어주세요.</>
+                : <>등록된 자동화 규칙이 없습니다.<br/>설정에서 먼저 규칙을 만들어주세요.</>
+              }
             </div>
           ) : allRules.map(rule => {
             const isSelected = selectedIds.includes(rule._id);

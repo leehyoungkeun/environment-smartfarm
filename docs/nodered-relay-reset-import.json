@@ -1,0 +1,67 @@
+[
+    {
+        "id": "relay_reset_flow",
+        "type": "tab",
+        "label": "릴레이 초기화",
+        "disabled": false,
+        "info": "POST /api/relay/reset-all\nWaveshare 8CH (FC15) + Eletechsup 8CH (FC06) 전체 OFF"
+    },
+    {
+        "id": "relay_reset_http_in",
+        "type": "http in",
+        "z": "relay_reset_flow",
+        "name": "POST /api/relay/reset-all",
+        "url": "/api/relay/reset-all",
+        "method": "post",
+        "upload": false,
+        "swaggerDoc": "",
+        "x": 180,
+        "y": 100,
+        "wires": [["relay_reset_func"]]
+    },
+    {
+        "id": "relay_reset_func",
+        "type": "function",
+        "z": "relay_reset_flow",
+        "name": "릴레이 전체 OFF",
+        "func": "var results = [];\nvar commands = [];\n\n// ① Waveshare 8CH (Unit-Id 1, FC15 coil, 0-indexed)\ncommands.push({\n    payload: {\n        value: [0, 0, 0, 0, 0, 0, 0, 0],\n        unitid: 1,\n        fc: 15,\n        address: 0,\n        quantity: 8\n    },\n    label: 'Waveshare 8CH'\n});\n\n// ② Eletechsup 8CH (Unit-Id 2, FC06 register, 1-indexed)\nfor (var i = 1; i <= 8; i++) {\n    commands.push({\n        payload: {\n            value: 0,\n            unitid: 2,\n            fc: 6,\n            address: i,\n            quantity: 1\n        },\n        label: 'Eletechsup CH' + i\n    });\n}\n\nvar sent = 0;\nvar total = commands.length;\n\nfunction sendNext() {\n    if (sent >= total) {\n        msg.payload = {\n            success: true,\n            detail: total + '개 명령 전송',\n            results: results\n        };\n        msg.statusCode = 200;\n        node.send([null, msg]);\n        node.warn('🔄 릴레이 전체 OFF 완료: ' + total + '개 명령');\n        return;\n    }\n\n    var cmd = commands[sent];\n    var m = RED.util.cloneMessage(msg);\n    m.payload = cmd.payload;\n    results.push(cmd.label + ' → OFF');\n    sent++;\n\n    node.send([m, null]);\n\n    if (sent < total) {\n        setTimeout(sendNext, 200);\n    } else {\n        setTimeout(sendNext, 300);\n    }\n}\n\nsendNext();\nreturn null;",
+        "outputs": 2,
+        "timeout": "",
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 430,
+        "y": 100,
+        "wires": [["relay_reset_modbus"], ["relay_reset_http_res"]],
+        "outputLabels": ["Modbus Write", "HTTP Response"]
+    },
+    {
+        "id": "relay_reset_modbus",
+        "type": "modbus-flex-write",
+        "z": "relay_reset_flow",
+        "name": "relay-485",
+        "showStatusActivities": false,
+        "showErrors": true,
+        "showWarnings": true,
+        "server": "",
+        "emptyMsgOnFail": false,
+        "keepMsgProperties": false,
+        "delayOnStart": false,
+        "startDelayTime": "",
+        "x": 680,
+        "y": 80,
+        "wires": [[], []]
+    },
+    {
+        "id": "relay_reset_http_res",
+        "type": "http response",
+        "z": "relay_reset_flow",
+        "name": "응답",
+        "statusCode": "",
+        "headers": {},
+        "x": 670,
+        "y": 140,
+        "wires": []
+    }
+]

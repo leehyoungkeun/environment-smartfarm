@@ -43,6 +43,15 @@ async function rpiApi(method, path, data) {
   return await axiosBase({ method, url: rpiUrl, data, timeout: 8000 });
 }
 
+// PC 서버에 저장 + RPi에도 전달 (system-settings 전용)
+async function saveSystemSettings(farmId, payload) {
+  const pcUrl = getPcApiBase();
+  const res = await axiosBase.put(`${pcUrl}/config/system-settings/${farmId}`, payload, { timeout: 8000 });
+  // PC 저장 성공 시 RPi에도 전달 (백그라운드, 실패 무시)
+  try { rpiApi('put', `/config/system-settings/${farmId}`, payload); } catch {}
+  return res;
+}
+
 // 통일 서브탭 바 (모든 탭에서 재사용)
 export const SubTabBar = ({ tabs, activeTab, onChange, trailing }) => (
   <div className="flex flex-wrap items-center gap-1.5 md:gap-2 mb-4">
@@ -1509,7 +1518,7 @@ const SystemSettings = ({ farmId }) => {
 
     if (Object.keys(serverPayload).length > 0) {
       try {
-        const res = await rpiApi('put', `/config/system-settings/${farmId}`, serverPayload);
+        const res = await saveSystemSettings(farmId, serverPayload);
         if (res.data.success) {
           if (serverPayload.retentionDays) setServerRetention(retentionDays);
           if (serverPayload.collectionConfig) {
@@ -2606,7 +2615,7 @@ const AlertSettingsTab = ({ farmId, houses, onHousesUpdate }) => {
       else if (type === 'maintenance') payload.maintenanceConfig = maintenanceConfig;
       else if (type === 'deviceFailure') payload.deviceFailureConfig = deviceFailureConfig;
 
-      const res = await rpiApi('put', `/config/system-settings/${farmId}`, payload);
+      const res = await saveSystemSettings(farmId, payload);
       if (res.data.success) {
         if (type === 'alert') setServerConfig({ ...alertConfig });
         else if (type === 'offline') setServerOfflineConfig({ ...offlineConfig });

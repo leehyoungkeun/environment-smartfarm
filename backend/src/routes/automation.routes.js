@@ -38,6 +38,76 @@ async function notifyRpiSync(farmId) {
 }
 
 // =========================================
+// 자동화 적용/중지 상태 관리
+// (/:farmId/:ruleId 보다 먼저 매칭되도록 CRUD 위에 배치)
+// =========================================
+
+/**
+ * GET /api/automation/:farmId/active
+ * 자동화 적용 상태 조회 (houseId 쿼리 파라미터)
+ */
+router.get("/:farmId/active", async (req, res) => {
+  try {
+    const { farmId } = req.params;
+    const { houseId } = req.query;
+
+    const { pool } = await import("../db.js");
+    const result = await pool.query(
+      `SELECT settings FROM system_settings WHERE farm_id = $1`,
+      [farmId]
+    );
+
+    const settings = result.rows[0]?.settings || {};
+    const automationState = settings.automationActive || {};
+    const hKey = houseId || 'all';
+    const active = !!automationState[hKey];
+    const autoDevices = active ? (automationState[`${hKey}_devices`] || []) : [];
+
+    res.json({ success: true, active, autoDevices });
+  } catch (error) {
+    logger.error("자동화 상태 조회 실패:", error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+/**
+ * PUT /api/automation/:farmId/active
+ * 자동화 적용/중지 상태 변경
+ */
+router.put("/:farmId/active", async (req, res) => {
+  try {
+    const { farmId } = req.params;
+    const { houseId, active, autoDevices } = req.body;
+    const hKey = houseId || 'all';
+
+    // automationActive JSONB에 하우스별 상태 저장
+    const patch = {
+      automationActive: {
+        [hKey]: !!active,
+        [`${hKey}_devices`]: active ? (autoDevices || []) : [],
+      },
+    };
+
+    const { pool } = await import("../db.js");
+    await pool.query(
+      `INSERT INTO system_settings (farm_id, settings, updated_at)
+       VALUES ($1, $2::jsonb, NOW())
+       ON CONFLICT (farm_id) DO UPDATE
+         SET settings = system_settings.settings || $2::jsonb,
+             updated_at = NOW()`,
+      [farmId, JSON.stringify(patch)]
+    );
+
+    logger.info(`🔄 자동화 ${active ? '적용' : '중지'}: ${farmId}/${hKey}`);
+    res.json({ success: true, active });
+    notifyRpiSync(farmId);
+  } catch (error) {
+    logger.error("자동화 상태 변경 실패:", error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// =========================================
 // CRUD
 // =========================================
 
@@ -166,15 +236,24 @@ router.patch("/:farmId/:ruleId/toggle", async (req, res) => {
  */
 router.post("/:farmId/device-modes", async (req, res) => {
   try {
+    const { farmId } = req.params;
     const { autoDevices = [], houseId } = req.body;
-    const key = `autoDevices_${req.params.farmId}_${houseId || 'default'}`;
+    const hKey = houseId || 'all';
 
-    // global 변수에 저장 (Node-RED에서도 접근 가능하도록 DB에 저장)
-    const { default: db } = await import("../db/index.js");
-    await db.query(
-      `INSERT INTO system_settings (key, value) VALUES ($1, $2)
-       ON CONFLICT (key) DO UPDATE SET value = $2`,
-      [key, JSON.stringify(autoDevices)]
+    const patch = {
+      automationActive: {
+        [`${hKey}_devices`]: autoDevices,
+      },
+    };
+
+    const { pool } = await import("../db.js");
+    await pool.query(
+      `INSERT INTO system_settings (farm_id, settings, updated_at)
+       VALUES ($1, $2::jsonb, NOW())
+       ON CONFLICT (farm_id) DO UPDATE
+         SET settings = system_settings.settings || $2::jsonb,
+             updated_at = NOW()`,
+      [farmId, JSON.stringify(patch)]
     );
 
     logger.info(`🔄 자동 모드 장치 동기화: ${autoDevices.join(', ') || '없음'}`);
@@ -336,6 +415,23 @@ router.post("/:farmId/evaluate", async (req, res) => {
       return res
         .status(400)
         .json({ success: false, error: "houseId, sensorData 필수" });
+    }
+
+    // 0. 자동화 적용 상태 확인 — 미적용이면 평가 스킵
+    const { pool } = await import("../db.js");
+    const activeResult = await pool.query(
+      `SELECT settings FROM system_settings WHERE farm_id = $1`,
+      [farmId]
+    );
+    const settings = activeResult.rows[0]?.settings || {};
+    const automationState = settings.automationActive || {};
+    const isActive = !!automationState[houseId] || !!automationState['all'];
+
+    if (!isActive) {
+      return res.json({
+        success: true,
+        data: { evaluatedRules: 0, actions: [], delayedActions: [], skipped: "automationActive=false" },
+      });
     }
 
     // 1. 해당 하우스의 활성 규칙 조회

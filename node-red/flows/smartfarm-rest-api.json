@@ -6,10 +6,26 @@
         "disabled": false,
         "info": "React 대시보드용 REST API 엔드포인트\nSQLite 기반으로 서버 다운 시 대체 API 제공\n\n엔드포인트:\n- GET /api/sensors/latest/:farmId/:houseId\n- GET /api/sensors/:farmId/:houseId/history\n- GET /api/sensors/:farmId/:houseId/count\n- GET /api/alerts/:farmId\n- GET /api/health\n- POST /api/control/local\n- GET /api/relay/status?unitId=1&quantity=8\n- GET/POST /api/automation/:farmId\n- PUT/DELETE /api/automation/:farmId/:ruleId\n- PATCH /api/automation/:farmId/:ruleId/toggle\n\n※ Config CRUD API는 Config CRUD 탭으로 이관됨",
         "env": [
-            { "name": "SENSOR_API_KEY", "value": "smartfarm-sensor-key", "type": "str" },
-            { "name": "SERVER_URL", "value": "http://192.168.137.1:3000", "type": "str" },
-            { "name": "FARM_ID", "value": "farm_0001", "type": "str" },
-            { "name": "HOUSE_ID", "value": "house_0001", "type": "str" }
+            {
+                "name": "SENSOR_API_KEY",
+                "value": "smartfarm-sensor-key",
+                "type": "str"
+            },
+            {
+                "name": "SERVER_URL",
+                "value": "http://192.168.137.1:3000",
+                "type": "str"
+            },
+            {
+                "name": "FARM_ID",
+                "value": "farm_0001",
+                "type": "str"
+            },
+            {
+                "name": "HOUSE_ID",
+                "value": "house_0001",
+                "type": "str"
+            }
         ]
     },
     {
@@ -31,7 +47,11 @@
         "upload": false,
         "x": 230,
         "y": 100,
-        "wires": [["latest_query"]]
+        "wires": [
+            [
+                "latest_query"
+            ]
+        ]
     },
     {
         "id": "latest_query",
@@ -42,7 +62,11 @@
         "outputs": 1,
         "x": 530,
         "y": 100,
-        "wires": [["sqlite_query_latest"]]
+        "wires": [
+            [
+                "sqlite_query_latest"
+            ]
+        ]
     },
     {
         "id": "sqlite_query_latest",
@@ -54,7 +78,11 @@
         "sql": "",
         "x": 730,
         "y": 100,
-        "wires": [["latest_response"]]
+        "wires": [
+            [
+                "latest_response"
+            ]
+        ]
     },
     {
         "id": "latest_response",
@@ -65,7 +93,11 @@
         "outputs": 1,
         "x": 930,
         "y": 100,
-        "wires": [["http_res_sensors"]]
+        "wires": [
+            [
+                "http_res_sensors"
+            ]
+        ]
     },
     {
         "id": "http_res_sensors",
@@ -88,7 +120,11 @@
         "upload": false,
         "x": 240,
         "y": 180,
-        "wires": [["history_query"]]
+        "wires": [
+            [
+                "history_query"
+            ]
+        ]
     },
     {
         "id": "history_query",
@@ -99,7 +135,11 @@
         "outputs": 1,
         "x": 530,
         "y": 180,
-        "wires": [["sqlite_query_history"]]
+        "wires": [
+            [
+                "sqlite_query_history"
+            ]
+        ]
     },
     {
         "id": "sqlite_query_history",
@@ -111,7 +151,11 @@
         "sql": "",
         "x": 730,
         "y": 180,
-        "wires": [["history_response"]]
+        "wires": [
+            [
+                "history_response"
+            ]
+        ]
     },
     {
         "id": "history_response",
@@ -122,7 +166,11 @@
         "outputs": 1,
         "x": 930,
         "y": 180,
-        "wires": [["http_res_sensors"]]
+        "wires": [
+            [
+                "http_res_sensors"
+            ]
+        ]
     },
     {
         "id": "http_count",
@@ -134,7 +182,11 @@
         "upload": false,
         "x": 230,
         "y": 260,
-        "wires": [["count_query"]]
+        "wires": [
+            [
+                "count_query"
+            ]
+        ]
     },
     {
         "id": "count_query",
@@ -145,7 +197,11 @@
         "outputs": 1,
         "x": 540,
         "y": 260,
-        "wires": [["sqlite_query_count"]]
+        "wires": [
+            [
+                "sqlite_query_count"
+            ]
+        ]
     },
     {
         "id": "sqlite_query_count",
@@ -157,7 +213,11 @@
         "sql": "",
         "x": 730,
         "y": 260,
-        "wires": [["count_response"]]
+        "wires": [
+            [
+                "count_response"
+            ]
+        ]
     },
     {
         "id": "count_response",
@@ -168,7 +228,11 @@
         "outputs": 1,
         "x": 930,
         "y": 260,
-        "wires": [["http_res_sensors"]]
+        "wires": [
+            [
+                "http_res_sensors"
+            ]
+        ]
     },
     {
         "id": "comment_alerts",
@@ -189,7 +253,11 @@
         "upload": false,
         "x": 180,
         "y": 400,
-        "wires": [["alerts_query"]]
+        "wires": [
+            [
+                "alerts_query"
+            ]
+        ]
     },
     {
         "id": "alerts_query",
@@ -200,7 +268,11 @@
         "outputs": 1,
         "x": 430,
         "y": 400,
-        "wires": [["sqlite_query_alerts"]]
+        "wires": [
+            [
+                "sqlite_query_alerts"
+            ]
+        ]
     },
     {
         "id": "sqlite_query_alerts",
@@ -212,7 +284,11 @@
         "sql": "",
         "x": 650,
         "y": 400,
-        "wires": [["alerts_response"]]
+        "wires": [
+            [
+                "alerts_response"
+            ]
+        ]
     },
     {
         "id": "alerts_response",
@@ -223,7 +299,11 @@
         "outputs": 1,
         "x": 850,
         "y": 400,
-        "wires": [["http_res_sensors"]]
+        "wires": [
+            [
+                "http_res_sensors"
+            ]
+        ]
     },
     {
         "id": "comment_control",
@@ -244,7 +324,11 @@
         "upload": false,
         "x": 180,
         "y": 540,
-        "wires": [["control_handler"]]
+        "wires": [
+            [
+                "control_handler"
+            ]
+        ]
     },
     {
         "id": "control_handler",
@@ -253,10 +337,24 @@
         "name": "로컬 제어 실행",
         "func": "const { house_id, device_id, command, operator } = msg.payload;\n\n// 입력 검증\nif (!device_id || !command) {\n    msg.payload = { success: false, error: 'device_id, command 필수' };\n    msg.statusCode = 400;\n    msg.headers = { 'Access-Control-Allow-Origin': '*' };\n    return [msg, null, null];\n}\n\n// 허용된 명령어만 통과\nconst ALLOWED_COMMANDS = ['open', 'close', 'stop', 'on', 'off'];\nif (!ALLOWED_COMMANDS.includes(command)) {\n    msg.payload = { success: false, error: '허용되지 않는 명령: ' + command };\n    msg.statusCode = 400;\n    msg.headers = { 'Access-Control-Allow-Origin': '*' };\n    return [msg, null, null];\n}\n\n// device_id 형식 검증 (영숫자+언더스코어만)\nif (!/^[a-zA-Z0-9_]+$/.test(device_id)) {\n    msg.payload = { success: false, error: '잘못된 device_id 형식' };\n    msg.statusCode = 400;\n    msg.headers = { 'Access-Control-Allow-Origin': '*' };\n    return [msg, null, null];\n}\n\nconst houseId = house_id || 'house1';\nconst ts = new Date().toISOString();\nconst requestId = `local_${Date.now()}`;\n\n// GPIO 제어 메시지 생성\nconst controlMsg = {\n    control: {\n        houseId: houseId,\n        deviceId: device_id,\n        deviceType: device_id.replace(/[0-9]/g, ''),\n        command: command,\n        operator: operator || 'local_dashboard',\n        requestId: requestId,\n        timestamp: ts\n    }\n};\n\n// SQLite 로그 저장 (msg.topic 모드: $1,$2,.. 위치 파라미터 + msg.payload 배열)\nvar logMsg = {};\nlogMsg.topic = 'INSERT INTO control_logs (timestamp, device_id, command, source, synced) VALUES ($1, $2, $3, $4, 0)';\nlogMsg.payload = [ts, device_id, command, 'local'];\n\n// HTTP 응답\nmsg.payload = {\n    success: true,\n    data: {\n        request_id: requestId,\n        device_id: device_id,\n        command: command,\n        executed_at: ts,\n        mode: 'local'\n    }\n};\nmsg.headers = { 'Access-Control-Allow-Origin': '*' };\n\nnode.warn(`🎮 로컬 제어: ${device_id} ${command} by ${operator || 'local'}`);\n\nreturn [msg, controlMsg, logMsg];",
         "outputs": 3,
-        "outputLabels": ["HTTP 응답", "GPIO 제어", "SQLite 로그"],
+        "outputLabels": [
+            "HTTP 응답",
+            "GPIO 제어",
+            "SQLite 로그"
+        ],
         "x": 440,
         "y": 540,
-        "wires": [["http_res_control"], ["link_gpio_control"], ["sqlite_control_log"]]
+        "wires": [
+            [
+                "http_res_control"
+            ],
+            [
+                "link_gpio_control"
+            ],
+            [
+                "sqlite_control_log"
+            ]
+        ]
     },
     {
         "id": "http_res_control",
@@ -275,7 +373,9 @@
         "z": "rest_api_flow",
         "name": "GPIO 제어 →",
         "mode": "link",
-        "links": ["link_in_local_control"],
+        "links": [
+            "link_in_local_control"
+        ],
         "x": 675,
         "y": 540,
         "wires": []
@@ -290,7 +390,9 @@
         "sql": "",
         "x": 690,
         "y": 560,
-        "wires": [[]]
+        "wires": [
+            []
+        ]
     },
     {
         "id": "comment_health",
@@ -311,7 +413,11 @@
         "upload": false,
         "x": 160,
         "y": 700,
-        "wires": [["health_handler"]]
+        "wires": [
+            [
+                "health_handler"
+            ]
+        ]
     },
     {
         "id": "health_handler",
@@ -322,7 +428,11 @@
         "outputs": 1,
         "x": 400,
         "y": 700,
-        "wires": [["http_res_health"]]
+        "wires": [
+            [
+                "http_res_health"
+            ]
+        ]
     },
     {
         "id": "http_res_health",
@@ -363,7 +473,11 @@
         "upload": false,
         "x": 210,
         "y": 920,
-        "wires": [["auto_list_query"]]
+        "wires": [
+            [
+                "auto_list_query"
+            ]
+        ]
     },
     {
         "id": "auto_list_query",
@@ -374,7 +488,11 @@
         "outputs": 1,
         "x": 490,
         "y": 920,
-        "wires": [["sqlite_auto_list"]]
+        "wires": [
+            [
+                "sqlite_auto_list"
+            ]
+        ]
     },
     {
         "id": "sqlite_auto_list",
@@ -386,7 +504,11 @@
         "sql": "",
         "x": 690,
         "y": 920,
-        "wires": [["auto_list_response"]]
+        "wires": [
+            [
+                "auto_list_response"
+            ]
+        ]
     },
     {
         "id": "auto_list_response",
@@ -397,7 +519,11 @@
         "outputs": 1,
         "x": 910,
         "y": 920,
-        "wires": [["http_res_auto"]]
+        "wires": [
+            [
+                "http_res_auto"
+            ]
+        ]
     },
     {
         "id": "http_res_auto",
@@ -420,7 +546,11 @@
         "upload": false,
         "x": 210,
         "y": 1000,
-        "wires": [["auto_create_handler"]]
+        "wires": [
+            [
+                "auto_create_handler"
+            ]
+        ]
     },
     {
         "id": "auto_create_handler",
@@ -429,10 +559,20 @@
         "name": "규칙 생성",
         "func": "const farmId = msg.req.params.farmId;\nconst body = msg.payload;\n\nif (!body.name || !body.houseId) {\n    msg.payload = { success: false, error: 'name, houseId 필수' };\n    msg.statusCode = 400;\n    msg.headers = { 'Access-Control-Allow-Origin': '*' };\n    return [msg, null];\n}\n\nconst id = Date.now().toString(36) + Math.random().toString(36).substr(2, 9);\nconst now = new Date().toISOString();\n\nconst rule = {\n    id: id,\n    farm_id: farmId,\n    house_id: body.houseId,\n    name: body.name,\n    description: body.description || '',\n    enabled: body.enabled !== false ? 1 : 0,\n    condition_logic: body.conditionLogic || 'AND',\n    group_logic: body.groupLogic || 'AND',\n    conditions: JSON.stringify(body.conditions || []),\n    actions: JSON.stringify(body.actions || []),\n    cooldown_seconds: body.cooldownSeconds || 300,\n    priority: body.priority || 10,\n    created_at: now,\n    updated_at: now\n};\n\n// HTTP 응답 먼저\nmsg.payload = {\n    success: true,\n    data: {\n        _id: id,\n        farmId: farmId,\n        houseId: rule.house_id,\n        name: rule.name,\n        description: rule.description,\n        enabled: rule.enabled === 1,\n        conditionLogic: rule.condition_logic,\n        groupLogic: rule.group_logic,\n        conditions: body.conditions || [],\n        actions: body.actions || [],\n        cooldownSeconds: rule.cooldown_seconds,\n        priority: rule.priority,\n        lastTriggeredAt: null,\n        triggerCount: 0,\n        createdAt: now,\n        updatedAt: now\n    }\n};\nmsg.headers = { 'Access-Control-Allow-Origin': '*' };\n\n// SQLite INSERT\nvar dbMsg = {};\ndbMsg.topic = 'INSERT INTO automation_rules (id, farm_id, house_id, name, description, enabled, condition_logic, group_logic, conditions, actions, cooldown_seconds, priority, trigger_count, synced, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,0,0,$13,$14)';\ndbMsg.payload = [id, farmId, rule.house_id, rule.name, rule.description, rule.enabled, rule.condition_logic, rule.group_logic, rule.conditions, rule.actions, rule.cooldown_seconds, rule.priority, now, now];\n\nnode.warn('✅ 자동화 규칙 생성: ' + rule.name);\nreturn [msg, dbMsg];",
         "outputs": 2,
-        "outputLabels": ["HTTP 응답", "SQLite 저장"],
+        "outputLabels": [
+            "HTTP 응답",
+            "SQLite 저장"
+        ],
         "x": 480,
         "y": 1000,
-        "wires": [["http_res_auto"], ["sqlite_auto_write"]]
+        "wires": [
+            [
+                "http_res_auto"
+            ],
+            [
+                "sqlite_auto_write"
+            ]
+        ]
     },
     {
         "id": "sqlite_auto_write",
@@ -444,7 +584,11 @@
         "sql": "",
         "x": 690,
         "y": 1040,
-        "wires": [["link_out_rule_changed"]]
+        "wires": [
+            [
+                "link_out_rule_changed"
+            ]
+        ]
     },
     {
         "id": "http_auto_update",
@@ -456,7 +600,11 @@
         "upload": false,
         "x": 230,
         "y": 1080,
-        "wires": [["auto_update_handler"]]
+        "wires": [
+            [
+                "auto_update_handler"
+            ]
+        ]
     },
     {
         "id": "auto_update_handler",
@@ -465,10 +613,20 @@
         "name": "규칙 수정",
         "func": "const farmId = msg.req.params.farmId;\nconst ruleId = msg.req.params.ruleId;\nconst body = msg.payload;\nconst now = new Date().toISOString();\n\n// 업데이트할 필드 동적 구성\nconst sets = [];\nconst params = [];\nlet idx = 1;\n\nif (body.name !== undefined) { sets.push('name = $' + idx); params.push(body.name); idx++; }\nif (body.houseId !== undefined) { sets.push('house_id = $' + idx); params.push(body.houseId); idx++; }\nif (body.description !== undefined) { sets.push('description = $' + idx); params.push(body.description); idx++; }\nif (body.enabled !== undefined) { sets.push('enabled = $' + idx); params.push(body.enabled ? 1 : 0); idx++; }\nif (body.conditionLogic !== undefined) { sets.push('condition_logic = $' + idx); params.push(body.conditionLogic); idx++; }\nif (body.groupLogic !== undefined) { sets.push('group_logic = $' + idx); params.push(body.groupLogic); idx++; }\nif (body.conditions !== undefined) { sets.push('conditions = $' + idx); params.push(JSON.stringify(body.conditions)); idx++; }\nif (body.actions !== undefined) { sets.push('actions = $' + idx); params.push(JSON.stringify(body.actions)); idx++; }\nif (body.cooldownSeconds !== undefined) { sets.push('cooldown_seconds = $' + idx); params.push(body.cooldownSeconds); idx++; }\nif (body.priority !== undefined) { sets.push('priority = $' + idx); params.push(body.priority); idx++; }\n\nsets.push('updated_at = $' + idx); params.push(now); idx++;\nsets.push('synced = 0');\n\nparams.push(ruleId);\nvar sql = 'UPDATE automation_rules SET ' + sets.join(', ') + ' WHERE id = $' + idx;\n\n// HTTP 응답 먼저 (POST 핸들러와 동일한 즉시 응답 패턴)\nvar conditions = body.conditions || [];\nvar actions = body.actions || [];\nmsg.payload = {\n    success: true,\n    data: {\n        _id: ruleId,\n        farmId: farmId,\n        houseId: body.houseId || '',\n        name: body.name || '',\n        description: body.description || '',\n        enabled: body.enabled !== false,\n        conditionLogic: body.conditionLogic || 'AND',\n        groupLogic: body.groupLogic || 'AND',\n        conditions: conditions,\n        actions: actions,\n        cooldownSeconds: body.cooldownSeconds || 300,\n        priority: body.priority || 10,\n        updatedAt: now\n    }\n};\nmsg.headers = { 'Access-Control-Allow-Origin': '*' };\n\n// SQLite UPDATE (별도 메시지)\nvar dbMsg = {};\ndbMsg.topic = sql;\ndbMsg.payload = params;\n\nnode.warn('✏️ 자동화 규칙 수정: ' + (body.name || ruleId));\nreturn [msg, dbMsg];",
         "outputs": 2,
-        "outputLabels": ["HTTP 응답", "SQLite 업데이트"],
+        "outputLabels": [
+            "HTTP 응답",
+            "SQLite 업데이트"
+        ],
         "x": 480,
         "y": 1080,
-        "wires": [["http_res_auto"], ["sqlite_auto_write"]]
+        "wires": [
+            [
+                "http_res_auto"
+            ],
+            [
+                "sqlite_auto_write"
+            ]
+        ]
     },
     {
         "id": "http_auto_delete",
@@ -480,7 +638,11 @@
         "upload": false,
         "x": 240,
         "y": 1200,
-        "wires": [["auto_delete_handler"]]
+        "wires": [
+            [
+                "auto_delete_handler"
+            ]
+        ]
     },
     {
         "id": "auto_delete_handler",
@@ -491,7 +653,11 @@
         "outputs": 1,
         "x": 480,
         "y": 1200,
-        "wires": [["sqlite_auto_delete"]]
+        "wires": [
+            [
+                "sqlite_auto_delete"
+            ]
+        ]
     },
     {
         "id": "sqlite_auto_delete",
@@ -503,7 +669,12 @@
         "sql": "",
         "x": 690,
         "y": 1200,
-        "wires": [["auto_delete_response", "link_out_rule_changed"]]
+        "wires": [
+            [
+                "auto_delete_response",
+                "link_out_rule_changed"
+            ]
+        ]
     },
     {
         "id": "auto_delete_response",
@@ -514,7 +685,11 @@
         "outputs": 1,
         "x": 900,
         "y": 1200,
-        "wires": [["http_res_auto"]]
+        "wires": [
+            [
+                "http_res_auto"
+            ]
+        ]
     },
     {
         "id": "http_auto_toggle",
@@ -526,7 +701,11 @@
         "upload": false,
         "x": 270,
         "y": 1280,
-        "wires": [["auto_toggle_handler"]]
+        "wires": [
+            [
+                "auto_toggle_handler"
+            ]
+        ]
     },
     {
         "id": "auto_toggle_handler",
@@ -537,7 +716,11 @@
         "outputs": 1,
         "x": 490,
         "y": 1280,
-        "wires": [["sqlite_auto_toggle"]]
+        "wires": [
+            [
+                "sqlite_auto_toggle"
+            ]
+        ]
     },
     {
         "id": "sqlite_auto_toggle",
@@ -549,7 +732,12 @@
         "sql": "",
         "x": 690,
         "y": 1280,
-        "wires": [["auto_toggle_select", "link_out_rule_changed"]]
+        "wires": [
+            [
+                "auto_toggle_select",
+                "link_out_rule_changed"
+            ]
+        ]
     },
     {
         "id": "auto_toggle_select",
@@ -560,7 +748,11 @@
         "outputs": 1,
         "x": 900,
         "y": 1280,
-        "wires": [["sqlite_auto_toggle_read"]]
+        "wires": [
+            [
+                "sqlite_auto_toggle_read"
+            ]
+        ]
     },
     {
         "id": "sqlite_auto_toggle_read",
@@ -572,7 +764,11 @@
         "sql": "",
         "x": 1110,
         "y": 1280,
-        "wires": [["auto_single_response"]]
+        "wires": [
+            [
+                "auto_single_response"
+            ]
+        ]
     },
     {
         "id": "auto_single_response",
@@ -583,7 +779,11 @@
         "outputs": 1,
         "x": 1310,
         "y": 1280,
-        "wires": [["http_res_auto"]]
+        "wires": [
+            [
+                "http_res_auto"
+            ]
+        ]
     },
     {
         "id": "link_out_rule_changed",
@@ -591,7 +791,9 @@
         "z": "rest_api_flow",
         "name": "규칙 변경 → 동기화",
         "mode": "link",
-        "links": ["link_in_rule_sync"],
+        "links": [
+            "link_in_rule_sync"
+        ],
         "x": 915,
         "y": 1340,
         "wires": []
@@ -615,7 +817,11 @@
         "upload": false,
         "x": 180,
         "y": 1440,
-        "wires": [["relay_status_build_request"]]
+        "wires": [
+            [
+                "relay_status_build_request"
+            ]
+        ]
     },
     {
         "id": "relay_status_build_request",
@@ -626,7 +832,11 @@
         "outputs": 1,
         "x": 440,
         "y": 1440,
-        "wires": [["relay_modbus_read"]]
+        "wires": [
+            [
+                "relay_modbus_read"
+            ]
+        ]
     },
     {
         "id": "relay_modbus_read",
@@ -647,7 +857,14 @@
         "startDelayTime": "",
         "x": 690,
         "y": 1440,
-        "wires": [["relay_status_response"], []]
+        "wires": [
+            [
+                "relay_status_response"
+            ],
+            [
+                "relay_status_error"
+            ]
+        ]
     },
     {
         "id": "relay_status_response",
@@ -658,7 +875,11 @@
         "outputs": 1,
         "x": 930,
         "y": 1440,
-        "wires": [["http_res_relay_status"]]
+        "wires": [
+            [
+                "http_res_relay_status"
+            ]
+        ]
     },
     {
         "id": "http_res_relay_status",
@@ -690,7 +911,11 @@
         "upload": false,
         "x": 160,
         "y": 1620,
-        "wires": [["cors_all"]]
+        "wires": [
+            [
+                "cors_all"
+            ]
+        ]
     },
     {
         "id": "cors_all",
@@ -701,7 +926,11 @@
         "outputs": 1,
         "x": 380,
         "y": 1620,
-        "wires": [["http_res_cors_all"]]
+        "wires": [
+            [
+                "http_res_cors_all"
+            ]
+        ]
     },
     {
         "id": "http_res_cors_all",
@@ -713,5 +942,20 @@
         "x": 590,
         "y": 1620,
         "wires": []
+    },
+    {
+        "id": "relay_status_error",
+        "type": "function",
+        "z": "rest_api_flow",
+        "name": "릴레이 에러 응답",
+        "func": "msg.payload = {\n    success: false,\n    error: \"relay_offline\",\n    message: \"릴레이 응답 없음 (Modbus 통신 실패)\"\n};\nmsg.headers = { \"Access-Control-Allow-Origin\": \"*\" };\nreturn msg;",
+        "outputs": 1,
+        "x": 930,
+        "y": 1500,
+        "wires": [
+            [
+                "http_res_relay_status"
+            ]
+        ]
     }
 ]

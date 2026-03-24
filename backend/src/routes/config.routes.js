@@ -427,6 +427,11 @@ router.put("/system-settings/:farmId", async (req, res) => {
       if (Object.keys(cfg).length > 0) settings.alertConfig = cfg;
     }
 
+    // settings 통째 병합 (relayModules 등 프론트엔드 확장 필드)
+    if (req.body.settings !== undefined && typeof req.body.settings === 'object') {
+      Object.assign(settings, { settings: req.body.settings });
+    }
+
     // collectionConfig 처리
     const { collectionConfig } = req.body;
     if (collectionConfig !== undefined) {

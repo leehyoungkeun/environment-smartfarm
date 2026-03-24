@@ -46,17 +46,44 @@ const ControlPanel = ({ farmId, houseId, houseConfig }) => {
   const [modbusStatus, setModbusStatus] = useState({}); // { [deviceId]: 'verifying' | 'done' | 'timeout' }
   const [confirmAction, setConfirmAction] = useState(null); // { title, message, onConfirm }
   const [controlStage, setControlStage] = useState({}); // { [deviceId]: 'sending' | 'executing' | 'verifying' | 'done' | 'timeout' }
+  const [bidirProgress, setBidirProgress] = useState({}); // { [deviceId]: { percent: 0~100, direction: 'open'|'close' } }
+  const bidirPositionKey = `bidirPosition_${farmId}_${houseId}`;
+  const [bidirPosition, setBidirPosition] = useState(() => {
+    try { return JSON.parse(localStorage.getItem(bidirPositionKey)) || {}; } catch { return {}; }
+  }); // { [deviceId]: 0~100 (열림 %) }
+  const bidirPositionRef = useRef(bidirPosition);
+  bidirPositionRef.current = bidirPosition;
+  const bidirProgressRef = useRef(bidirProgress);
+  bidirProgressRef.current = bidirProgress;
   const [conflictWarning, setConflictWarning] = useState(null); // { conflicts: [...] }
 
   const timerRefs = React.useRef({});
 
-  // 자동화 적용/중지 상태 (localStorage 기반)
+  // 자동화 적용/중지 상태 (서버 기반 + localStorage 캐시)
   const activeKey = `automationActive_${farmId}_${houseId}`;
   const [automationActive, setAutomationActive] = useState(() => {
     try { return localStorage.getItem(activeKey) === 'true'; }
     catch { return false; }
   });
   const [applyLoading, setApplyLoading] = useState(false);
+
+  // 마운트 시 서버에서 실제 automationActive 상태 조회
+  useEffect(() => {
+    const loadActiveState = async () => {
+      try {
+        const pcUrl = getApiBase();
+        const res = await axios.get(`${pcUrl}/automation/${farmId}/active`, {
+          params: { houseId }, timeout: 5000,
+        });
+        if (res?.data?.success) {
+          const serverActive = !!res.data.active;
+          setAutomationActive(serverActive);
+          localStorage.setItem(activeKey, String(serverActive));
+        }
+      } catch {}
+    };
+    loadActiveState();
+  }, [farmId, houseId]);
 
   // 자동 모드 장치 목록을 RPi에 전달
   const syncAutoDevicesToRpi = async (rpiUrl, autoDeviceIds) => {
@@ -119,7 +146,31 @@ const ControlPanel = ({ farmId, houseId, houseConfig }) => {
             if (!overlap || !dayOverlap) continue; // 시간/요일 안 겹치면 충돌 아님
           }
 
-          // 둘 다 센서 조건만 있으면 (시간 조건 없음) → 동시 트리거 가능성 있으므로 충돌
+          // 둘 다 센서 조건만 있으면 → 센서 조건이 상호 배타적인지 확인
+          if (a.sensorConds.length > 0 && b.sensorConds.length > 0 && a.timeConds.length === 0 && b.timeConds.length === 0) {
+            // 같은 센서에 대해 반대 방향 조건이면 상호 배타 (충돌 아님)
+            // 예: temp > 30 → open, temp < 20 → close
+            const sameSensorOpposite = a.sensorConds.some(sa =>
+              b.sensorConds.some(sb => {
+                // 같은 센서 또는 같은 센서 타입 (temp_0001 vs temp_0002 → 둘 다 temp)
+                const typeA = sa.sensorId ? sa.sensorId.replace(/_\d+$/, '') : '';
+                const typeB = sb.sensorId ? sb.sensorId.replace(/_\d+$/, '') : '';
+                if (sa.sensorId !== sb.sensorId && typeA !== typeB) return false;
+                const aIsHigh = sa.operator === '>' || sa.operator === '>=';
+                const bIsLow = sb.operator === '<' || sb.operator === '<=';
+                const aIsLow = sa.operator === '<' || sa.operator === '<=';
+                const bIsHigh = sb.operator === '>' || sb.operator === '>=';
+                // A가 높을 때 + B가 낮을 때, 또는 반대
+                if ((aIsHigh && bIsLow && sa.value > sb.value) ||
+                    (aIsLow && bIsHigh && sa.value < sb.value)) {
+                  return true; // 상호 배타
+                }
+                return false;
+              })
+            );
+            if (sameSensorOpposite) continue; // 상호 배타 → 충돌 아님
+          }
+
           conflicts.push({
             deviceId,
             ruleA: a.rule,
@@ -144,32 +195,48 @@ const ControlPanel = ({ farmId, houseId, houseConfig }) => {
 
     setApplyLoading(true);
     try {
+      const pcUrl = getApiBase();
       const rpiUrl = getRpiApiBase();
       const autoDeviceIds = devices
         .filter(d => getDeviceMode(d.deviceId) === 'auto')
         .map(d => d.deviceId);
 
-      // RPi에 자동 모드 장치 목록 전달 (규칙 enabled는 자동화 관리에서 토글)
+      // 서버에 automationActive=true 저장 (evaluate 게이트 + RPi 동기화)
+      await axios.put(`${pcUrl}/automation/${farmId}/active`, {
+        houseId, active: true, autoDevices: autoDeviceIds,
+      }, { timeout: 5000 });
+
+      // RPi에도 자동 모드 장치 목록 전달
       await syncAutoDevicesToRpi(rpiUrl, autoDeviceIds);
 
       setAutomationActive(true);
       localStorage.setItem(activeKey, 'true');
       loadAutoRules();
-    } catch {} finally { setApplyLoading(false); }
+    } catch (err) {
+      alert('자동화 적용 실패: ' + (err?.response?.data?.error || err.message));
+    } finally { setApplyLoading(false); }
   };
 
   const handleStop = async () => {
     setApplyLoading(true);
     try {
+      const pcUrl = getApiBase();
       const rpiUrl = getRpiApiBase();
 
-      // RPi에 자동 모드 장치 없음 전달 (규칙 enabled는 자동화 관리에서 토글)
+      // 서버에 automationActive=false 저장 (evaluate 게이트 차단)
+      await axios.put(`${pcUrl}/automation/${farmId}/active`, {
+        houseId, active: false, autoDevices: [],
+      }, { timeout: 5000 });
+
+      // RPi에도 자동 모드 장치 없음 전달
       await syncAutoDevicesToRpi(rpiUrl, []);
 
       setAutomationActive(false);
       localStorage.setItem(activeKey, 'false');
       loadAutoRules();
-    } catch {} finally { setApplyLoading(false); }
+    } catch (err) {
+      alert('자동화 중지 실패: ' + (err?.response?.data?.error || err.message));
+    } finally { setApplyLoading(false); }
   };
 
   // 장치별 수동/자동 모드 (localStorage 기반)
@@ -279,6 +346,13 @@ const ControlPanel = ({ farmId, houseId, houseConfig }) => {
     }
   }, [deviceStates, statesKey]);
 
+  // bidirPosition 변경 시 localStorage 저장
+  useEffect(() => {
+    if (Object.keys(bidirPosition).length > 0) {
+      try { localStorage.setItem(bidirPositionKey, JSON.stringify(bidirPosition)); } catch {}
+    }
+  }, [bidirPosition, bidirPositionKey]);
+
   // 릴레이 실제 상태 폴링
   const relayCoilsRef = React.useRef({});
   const [relayOnline, setRelayOnline] = useState(null);
@@ -317,10 +391,12 @@ const ControlPanel = ({ farmId, houseId, houseConfig }) => {
         }
       }
 
-      // Eletechsup: FC03 register 0은 릴레이 상태가 아닌 설정값(76) 반환
-      // → 소프트웨어 상태 추적 사용 (handleControl에서 제어 명령 기반으로 상태 설정)
-      // Eletechsup 장치가 있으면 폴링 성공으로 표시 (오프라인 판정 방지)
-      if (eletechsupUnits.length > 0) anySuccess = true;
+      // Eletechsup: FC03으로 실제 응답 여부 확인 (연결 판단용)
+      // register 0 값은 상태가 아닌 설정값이므로 소프트웨어 상태 추적 유지
+      for (const unitId of eletechsupUnits) {
+        const res = await getRelayRegStatus(unitId, 0, 1);
+        if (res.success) anySuccess = true;
+      }
 
       relayCoilsRef.current = newCoils;
       setRelayOnline(anySuccess);
@@ -422,10 +498,8 @@ const ControlPanel = ({ farmId, houseId, houseConfig }) => {
     } catch { return {}; }
   });
 
-  // houseId 변경 시 localStorage에서 해당 하우스 설정 재로드
+  // houseId 변경 시 설정 재로드 (서버 상태는 위 useEffect에서 처리)
   useEffect(() => {
-    try { setAutomationActive(localStorage.getItem(`automationActive_${farmId}_${houseId}`) === 'true'); }
-    catch { setAutomationActive(false); }
     try { setDeviceModes(JSON.parse(localStorage.getItem(`deviceModes_${farmId}_${houseId}`)) || {}); }
     catch { setDeviceModes({}); }
     try { setSelectedRuleMap(JSON.parse(localStorage.getItem(`deviceRules_${farmId}_${houseId}`)) || {}); }
@@ -522,6 +596,14 @@ const ControlPanel = ({ farmId, houseId, houseConfig }) => {
     const loadingKey = `${deviceId}_${command}`;
     if (command === 'stop') {
       if (timerRefs.current[deviceId]) { clearTimeout(timerRefs.current[deviceId]); timerRefs.current[deviceId] = null; }
+      if (timerRefs.current[`autoStop_${deviceId}`]) { clearTimeout(timerRefs.current[`autoStop_${deviceId}`]); timerRefs.current[`autoStop_${deviceId}`] = null; }
+      if (timerRefs.current[`progress_${deviceId}`]) { clearInterval(timerRefs.current[`progress_${deviceId}`]); timerRefs.current[`progress_${deviceId}`] = null; }
+      // 정지 시 현재 열림 위치 저장
+      const prog = bidirProgressRef.current[deviceId];
+      if (prog && prog.actualPos !== undefined) {
+        setBidirPosition(prev => ({ ...prev, [deviceId]: prog.actualPos }));
+      }
+      setBidirProgress(prev => ({ ...prev, [deviceId]: null }));
       setDeviceStates(prev => ({ ...prev, [deviceId]: { ...prev[deviceId], status: 'idle', lastCommand: 'stop', lastCommandTime: new Date().toISOString() } }));
     }
     setLoading(prev => ({ ...prev, [loadingKey]: true }));
@@ -566,6 +648,41 @@ const ControlPanel = ({ farmId, houseId, houseConfig }) => {
             const finalStatus = { open: 'open', close: 'closed', stop: 'idle', on: 'on', off: 'off' };
             if (timerRefs.current[deviceId]) { clearTimeout(timerRefs.current[deviceId]); timerRefs.current[deviceId] = null; }
             setDeviceStates(prev => ({ ...prev, [deviceId]: { ...prev[deviceId], status: finalStatus[command] || 'idle', commandLock: false } }));
+            // bidir 장치: openDuration/closeDuration 후 자동 정지 + 진행도 표시
+            if (modbusConfig?.controlType === 'bidir' && (command === 'open' || command === 'close')) {
+              const fullDur = command === 'open' ? modbusConfig.openDuration : modbusConfig.closeDuration;
+              if (fullDur && fullDur > 0) {
+                const curPos = bidirPositionRef.current[deviceId] || 0;
+                // 남은 비율만큼만 동작: 열기면 (100-curPos)%, 닫기면 curPos%
+                const remainRatio = command === 'open' ? (100 - curPos) / 100 : curPos / 100;
+                const autoDur = Math.max(1, Math.round(fullDur * remainRatio));
+                const stopTimerKey = `autoStop_${deviceId}`;
+                const progressKey = `progress_${deviceId}`;
+                if (timerRefs.current[stopTimerKey]) clearTimeout(timerRefs.current[stopTimerKey]);
+                if (timerRefs.current[progressKey]) clearInterval(timerRefs.current[progressKey]);
+                const startTime = Date.now();
+                setBidirProgress(prev => ({ ...prev, [deviceId]: { percent: 0, direction: command, totalSec: autoDur, remainSec: autoDur, startPos: curPos } }));
+                timerRefs.current[progressKey] = setInterval(() => {
+                  const elapsed = (Date.now() - startTime) / 1000;
+                  const progressPct = Math.min(100, Math.round((elapsed / autoDur) * 100));
+                  // 실제 열림 위치 계산
+                  const actualPos = command === 'open'
+                    ? Math.min(100, Math.round(curPos + (100 - curPos) * (elapsed / autoDur)))
+                    : Math.max(0, Math.round(curPos - curPos * (elapsed / autoDur)));
+                  setBidirProgress(prev => ({ ...prev, [deviceId]: { percent: progressPct, direction: command, totalSec: autoDur, remainSec: Math.max(0, Math.round(autoDur - elapsed)), startPos: curPos, actualPos } }));
+                  if (progressPct >= 100) clearInterval(timerRefs.current[progressKey]);
+                }, 500);
+                timerRefs.current[stopTimerKey] = setTimeout(() => {
+                  handleControl(deviceId, 'stop');
+                  timerRefs.current[stopTimerKey] = null;
+                  clearInterval(timerRefs.current[progressKey]);
+                  timerRefs.current[progressKey] = null;
+                  setBidirProgress(prev => ({ ...prev, [deviceId]: null }));
+                  // 100% 도달: 위치 업데이트
+                  setBidirPosition(prev => ({ ...prev, [deviceId]: command === 'open' ? 100 : 0 }));
+                }, autoDur * 1000);
+              }
+            }
           } else {
             // 타임아웃: 릴레이 상태 재확인으로 실제 동작 여부 검증
             setControlStage(prev => ({ ...prev, [deviceId]: 'hw_check' }));
@@ -871,10 +988,10 @@ const ControlPanel = ({ farmId, houseId, houseConfig }) => {
           {/* 적용 버튼 */}
           <button
             onClick={handleApply}
-            disabled={applyLoading}
+            disabled={applyLoading || automationActive}
             style={{
               padding:'6px 14px',borderRadius:10,fontSize:13,fontWeight:700,
-              border:'none',cursor: applyLoading ? 'not-allowed' : 'pointer',
+              border:'none',cursor: (applyLoading || automationActive) ? 'not-allowed' : 'pointer',
               background: automationActive ? '#e5e7eb' : '#1d4ed8',
               color: automationActive ? '#9ca3af' : '#fff',
               boxShadow: automationActive ? 'none' : '0 2px 8px rgba(29,78,216,0.35)',
@@ -1050,21 +1167,44 @@ const ControlPanel = ({ farmId, houseId, houseConfig }) => {
                         </div>
                       ) : (
                         <div className="grid grid-cols-3 gap-2">
-                          <button onClick={() => handleControlWithRetry(device.deviceId, 'open')}
-                            disabled={anyModbusBusy || isProcessing || state.status === 'open'}
-                            style={{...btnBase, ...(state.status === 'open' || state.status === 'opening' ? s.openActive : (anyModbusBusy || isProcessing || state.status === 'open') ? s.openDisabled : s.openInactive)}}>
-                            {state.status === 'opening' ? '⏳ 여는중...' : state.status === 'open' ? '● 열림' : '▲ 열기'}
-                          </button>
-                          <button onClick={() => handleControlWithRetry(device.deviceId, 'stop')}
-                            disabled={anyModbusBusy || state.status === 'idle' || state.status === 'stopping'}
-                            style={{...btnBase, ...(state.status === 'stopping' ? s.stopActive : (state.status === 'opening' || state.status === 'closing') ? s.stopUrgent : (anyModbusBusy || state.status === 'idle') ? s.stopDisabled : s.stopInactive)}}>
-                            {state.status === 'stopping' ? '⏳ 정지중...' : (state.status === 'opening' || state.status === 'closing') ? '⛔ 정지' : '■ 정지'}
-                          </button>
-                          <button onClick={() => handleControlWithRetry(device.deviceId, 'close')}
-                            disabled={anyModbusBusy || isProcessing || state.status === 'closed'}
-                            style={{...btnBase, ...(state.status === 'closed' || state.status === 'closing' ? s.closeActive : (anyModbusBusy || isProcessing || state.status === 'closed') ? s.closeDisabled : s.closeInactive)}}>
-                            {state.status === 'closing' ? '⏳ 닫는중...' : state.status === 'closed' ? '● 닫힘' : '▼ 닫기'}
-                          </button>
+                          {(() => {
+                            const prog = bidirProgress[device.deviceId];
+                            const pos = bidirPosition[device.deviceId]; // 현재 열림 위치 (0~100%)
+                            const posLabel = (pos !== undefined && pos !== null && !prog) ? ` (${pos}%)` : '';
+                            const curActualPos = prog ? (prog.actualPos ?? pos ?? 0) : (pos ?? 0);
+                            const openLabel = prog && prog.direction === 'open'
+                              ? `▲ ${curActualPos}% (${prog.remainSec}초)`
+                              : state.status === 'opening' ? '⏳ 여는중...' : '▲ 열기';
+                            const closeLabel = prog && prog.direction === 'close'
+                              ? `▼ ${curActualPos}% (${prog.remainSec}초)`
+                              : state.status === 'closing' ? '⏳ 닫는중...' : '▼ 닫기';
+                            const stopLabel = prog
+                              ? `⛔ ${curActualPos}%`
+                              : (pos !== undefined && pos !== null && pos > 0 && pos < 100)
+                                ? `■ ${pos}%`
+                                : (state.status === 'stopping' ? '⏳ 정지중...' : '■ 정지');
+                            return (
+                              <>
+                                <button onClick={() => handleControlWithRetry(device.deviceId, 'open')}
+                                  disabled={anyModbusBusy || isProcessing || state.status === 'open' || (prog && prog.direction === 'open')}
+                                  style={{...btnBase, ...(state.status === 'open' || state.status === 'opening' || (prog && prog.direction === 'open') ? s.openActive : (anyModbusBusy || isProcessing || state.status === 'open') ? s.openDisabled : s.openInactive)}}>
+                                  {openLabel}
+                                </button>
+                                <button onClick={() => handleControlWithRetry(device.deviceId, 'stop')}
+                                  disabled={anyModbusBusy || (!prog && state.status === 'idle') || state.status === 'stopping'}
+                                  style={{...btnBase, ...(state.status === 'stopping' ? s.stopActive : (prog || state.status === 'opening' || state.status === 'closing') ? s.stopUrgent : (anyModbusBusy || state.status === 'idle') ? s.stopDisabled : s.stopInactive),
+                                    ...(prog || (pos > 0 && pos < 100) ? { fontSize: 15, fontWeight: 900, color: '#1e40af', background: '#dbeafe', border: '2px solid #93c5fd' } : {})
+                                  }}>
+                                  {stopLabel}
+                                </button>
+                                <button onClick={() => handleControlWithRetry(device.deviceId, 'close')}
+                                  disabled={anyModbusBusy || isProcessing || state.status === 'closed' || (prog && prog.direction === 'close')}
+                                  style={{...btnBase, ...(state.status === 'closed' || state.status === 'closing' || (prog && prog.direction === 'close') ? s.closeActive : (anyModbusBusy || isProcessing || state.status === 'closed') ? s.closeDisabled : s.closeInactive)}}>
+                                  {closeLabel}
+                                </button>
+                              </>
+                            );
+                          })()}
                         </div>
                       )}
                     </div>

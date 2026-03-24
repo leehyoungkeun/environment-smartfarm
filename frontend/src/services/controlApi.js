@@ -343,11 +343,41 @@ export const warmupLambda = async () => {
   }
 };
 
+/**
+ * Waveshare 릴레이 코일 직접 쓰기 (Modbus FC15 Write Multiple Coils)
+ * 채널 테스트용 — 특정 코일을 ON/OFF
+ */
+export const writeRelayCoil = async (unitId = 1, address = 0, value = false) => {
+  try {
+    const rpiBase = getRpiApiBase();
+    const res = await axios.post(`${rpiBase}/relay/coil-write`, { unitId, address, value }, { timeout: 5000 });
+    return res.data;
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
+};
+
+/**
+ * Eletechsup 릴레이 레지스터 쓰기 (Modbus FC06 Write Single Register)
+ * 채널 테스트용 — 특정 채널 ON/OFF
+ */
+export const writeRelayRegister = async (unitId = 2, register = 1, value = 256) => {
+  try {
+    const rpiBase = getRpiApiBase();
+    const res = await axios.post(`${rpiBase}/relay/reg-write`, { unitId, register, value }, { timeout: 5000 });
+    return res.data;
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
+};
+
 export default {
   sendControlCommand,
   getControlLogs,
   getControlStats,
   getRelayStatus,
   getRelayRegStatus,
+  writeRelayCoil,
+  writeRelayRegister,
   warmupLambda,
 };

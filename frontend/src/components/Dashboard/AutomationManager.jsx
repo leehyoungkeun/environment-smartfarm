@@ -7,6 +7,12 @@ const DEFAULT_SENSOR_OPTIONS = [
   { id: 'humidity_0001', name: '습도', unit: '%', icon: '💧' },
 ];
 
+const SENSOR_TYPE_ICONS = {
+  temp: '🌡️', humidity: '💧', co2: '💨', light: '☀️',
+  soil_temp: '🌱', soil_humidity: '🌱', wind: '🌬️', rain: '🌧️',
+  ph: '🧪', ec: '⚡', do: '🫧', pressure: '🌡️',
+};
+
 const DEVICE_TYPE_OPTIONS = [
   { value: 'window', label: '1창', icon: '🪟', commands: ['open', 'stop', 'close'] },
   { value: 'side_window', label: '측창', icon: '🪟', commands: ['open', 'stop', 'close'] },
@@ -759,7 +765,19 @@ const RuleForm = ({ farmId, houseId, houses = [], rule, existingRules = [], defa
     const dt = DEVICE_TYPE_OPTIONS.find(t => t.value === d.type);
     return { ...d, icon: dt?.icon || '🔧', commands: dt?.commands || ['on', 'off'] };
   });
-  const sensorOptions = DEFAULT_SENSOR_OPTIONS;
+  const sensorOptions = (() => {
+    const sensors = selectedHouse?.sensors || [];
+    if (sensors.length === 0) return DEFAULT_SENSOR_OPTIONS;
+    return sensors.map(s => {
+      const typeKey = (s.sensorId || '').split('_')[0];
+      return {
+        id: s.sensorId,
+        name: s.name || s.sensorId,
+        unit: s.unit || '',
+        icon: SENSOR_TYPE_ICONS[typeKey] || '📊',
+      };
+    });
+  })();
 
   // 탭별 섹션 표시 제어
   const showSensorSection = defaultTab !== 'schedule';

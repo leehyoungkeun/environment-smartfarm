@@ -15,7 +15,7 @@ import FarmSelector from './components/Dashboard/FarmSelector';
 import FarmManager from './components/Settings/FarmManager';
 import FarmOverviewWidget from './components/Dashboard/FarmOverviewWidget';
 import ReportPage from './components/Dashboard/ReportPage';
-import { getApiBase, isFarmLocalMode } from './services/apiSwitcher';
+import { getApiBase, getRpiApiBase, isFarmLocalMode } from './services/apiSwitcher';
 import TouchKeyboard from './components/Common/TouchKeyboard';
 
 /**
@@ -83,13 +83,22 @@ const ControlPage = ({ farmId, isTouchPanel = false }) => {
 
   useEffect(() => {
     const loadConfig = async () => {
-      const API_BASE_URL = getApiBase();
+      const pcUrl = getApiBase();
+      const rpiUrl = getRpiApiBase();
+      const isDual = rpiUrl !== pcUrl;
       try {
-        const response = await axios.get(`${API_BASE_URL}/config/${farmId}`, { timeout: 8000 });
-        if (response.data.success && response.data.data) {
-          applyConfig(response.data.data);
+        const [pcRes, rpiRes] = await Promise.all([
+          axios.get(`${pcUrl}/config/${farmId}`, { timeout: 8000 }).catch(() => null),
+          isDual ? axios.get(`${rpiUrl}/config/farm/${farmId}`, { timeout: 5000 }).catch(() => null) : null,
+        ]);
+        const pcConfig = pcRes?.data?.success && pcRes.data.data ? pcRes.data.data : null;
+        const rpiHouses = rpiRes?.data?.success && Array.isArray(rpiRes.data.data) ? rpiRes.data.data : [];
+        if (pcConfig) {
+          // PC 서버 우선 (단일 진실 소스), PC 접속 불가 시 RPi 폴백
+          applyConfig(pcConfig);
+        } else if (rpiHouses.length > 0) {
+          applyConfig({ houses: rpiHouses });
         } else {
-          // API 응답이 비어있으면 캐시 시도
           const cached = localStorage.getItem(`cachedConfig_${farmId}`);
           if (cached) {
             console.log('[ControlPage] API 응답 비어있음 → 캐시 사용');
@@ -98,7 +107,6 @@ const ControlPage = ({ farmId, isTouchPanel = false }) => {
         }
       } catch (error) {
         console.error('설정 로드 실패:', error);
-        // 네트워크 오류 → 캐시된 config 사용
         try {
           const cached = localStorage.getItem(`cachedConfig_${farmId}`);
           if (cached) {

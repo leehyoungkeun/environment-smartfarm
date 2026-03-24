@@ -109,7 +109,7 @@ const ConfigurationManager = ({ farmId = import.meta.env.VITE_FARM_ID || 'farm_0
       const pcUrl = getApiBase();
       const isDual = rpiUrl !== pcUrl;
 
-      // PC + RPi 병렬 로드 (RPi가 권한 기준)
+      // PC 서버 우선 로드 (단일 진실 소스), RPi는 PC 접속 불가 시 폴백
       const [pcRes, rpiRes] = await Promise.all([
         axios.get(`${pcUrl}/config/farm/${farmId}`, { timeout: 5000 }).catch(() => null),
         isDual ? axiosBase.get(`${rpiUrl}/config/farm/${farmId}`, { timeout: 5000 }).catch(() => null) : null,
@@ -118,8 +118,8 @@ const ConfigurationManager = ({ farmId = import.meta.env.VITE_FARM_ID || 'farm_0
       const pcHouses = pcRes?.data?.success ? pcRes.data.data : [];
       const rpiHouses = rpiRes?.data?.success ? rpiRes.data.data : [];
 
-      // RPi 데이터 있으면 우선 사용 (권한 기준), 없으면 PC 폴백
-      const finalHouses = rpiHouses.length > 0 ? rpiHouses : pcHouses;
+      // PC 서버 우선, PC 접속 불가 시 RPi 폴백
+      const finalHouses = pcHouses.length > 0 ? pcHouses : rpiHouses;
 
       if (finalHouses.length > 0) {
         setHouses(finalHouses);
@@ -128,7 +128,7 @@ const ConfigurationManager = ({ farmId = import.meta.env.VITE_FARM_ID || 'farm_0
           if (!prev) return null;
           return finalHouses.find(h => h.houseId === prev.houseId) || null;
         });
-        // RPi와 PC 불일치 시 백그라운드 sync (RPi가 PC보다 적으면 스킵 — 잘못된 삭제 방지)
+        // RPi와 PC 불일치 시 백그라운드 sync (RPi가 PC보다 많으면 PC에 동기화)
         if (isDual && rpiHouses.length > 0 && rpiHouses.length > pcHouses.length) {
           syncConfigToPC(farmId);
         }
@@ -197,12 +197,22 @@ const ConfigurationManager = ({ farmId = import.meta.env.VITE_FARM_ID || 'farm_0
   const deleteHouse = async (houseId) => {
     console.log('[Config] deleteHouse called:', houseId);
     try {
-      const response = await rpiApi('delete', `/config/${houseId}?farmId=${farmId}`);
-      console.log('[Config] deleteHouse response:', response.data);
-      if (response.data.success) {
+      const pcUrl = getApiBase();
+      const rpiUrl = getRpiApiBase();
+      const isDual = rpiUrl !== pcUrl;
+
+      // PC 서버 삭제 (단일 진실 소스)
+      const pcRes = await axios.delete(`${pcUrl}/config/${houseId}?farmId=${farmId}`, { timeout: 8000 });
+
+      // RPi에도 삭제 시도 (실패해도 무시 — RPi에 없을 수 있음)
+      if (isDual) {
+        axiosBase.delete(`${rpiUrl}/config/${houseId}?farmId=${farmId}`, { timeout: 5000 }).catch(() => {});
+      }
+
+      console.log('[Config] deleteHouse response:', pcRes.data);
+      if (pcRes.data.success) {
         setHouses(prev => prev.filter(h => h.houseId !== houseId));
         if (selectedHouse?.houseId === houseId) setSelectedHouse(null);
-        syncConfigToPC(farmId);
       }
     } catch (error) {
       console.error('[Config] deleteHouse error:', error);
@@ -1266,6 +1276,38 @@ const DeviceManager = ({ house, setEditedHouse, onUpdate, isDirty, saving, onSav
                           />
                         </div>
                       )}
+                      {modbus.controlType === 'bidir' && (
+                        <>
+                          <div>
+                            <label className="text-xs text-gray-500 mb-1 block">전체 열림 시간 (초)</label>
+                            <input
+                              type="number"
+                              min={1}
+                              max={300}
+                              placeholder="30"
+                              value={modbus.openDuration ?? ''}
+                              onChange={(e) => updateDeviceModbus(device.deviceId, {
+                                openDuration: e.target.value === '' ? null : parseInt(e.target.value),
+                              })}
+                              className="input-field text-sm"
+                            />
+                          </div>
+                          <div>
+                            <label className="text-xs text-gray-500 mb-1 block">전체 닫힘 시간 (초)</label>
+                            <input
+                              type="number"
+                              min={1}
+                              max={300}
+                              placeholder="30"
+                              value={modbus.closeDuration ?? ''}
+                              onChange={(e) => updateDeviceModbus(device.deviceId, {
+                                closeDuration: e.target.value === '' ? null : parseInt(e.target.value),
+                              })}
+                              className="input-field text-sm"
+                            />
+                          </div>
+                        </>
+                      )}
                     </div>
                     {hasModbus && (
                       <div className="mt-2 px-3 py-2 bg-emerald-50 border border-emerald-200 rounded-lg flex items-center justify-between gap-2">
@@ -1608,7 +1650,7 @@ const SystemSettings = ({ farmId }) => {
           { id: 'collection', label: '수집 주기', icon: '📡' },
           { id: 'retention', label: '보관 기간', icon: '💾' },
           { id: 'sync', label: '동기화', icon: '🔄' },
-          { id: 'modbus', label: 'Modbus 현황', icon: '🔌' },
+          { id: 'modbus', label: 'Modbus', icon: '🔌' },
           { id: 'sysmanage', label: '시스템 관리', icon: '🛠️' },
         ]}
         activeTab={systemSubTab}
@@ -1851,11 +1893,642 @@ const SystemSettings = ({ farmId }) => {
       {/* 동기화 관리 */}
       {systemSubTab === 'sync' && <SyncPanel farmId={farmId} />}
 
-      {/* Modbus 현황 */}
-      {systemSubTab === 'modbus' && <ModbusOverviewPanel farmId={farmId} />}
+      {/* Modbus */}
+      {systemSubTab === 'modbus' && <ModbusPanel farmId={farmId} />}
 
       {/* 시스템 관리 */}
       {systemSubTab === 'sysmanage' && <SystemManagePanel />}
+    </div>
+  );
+};
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// RelayModuleManager — 릴레이 모듈 CRUD
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+const MODULE_TYPES = [
+  { value: 'waveshare', label: 'Waveshare (FC01/FC15)', channels: 8 },
+  { value: 'eletechsup', label: 'Eletechsup (FC03/FC06)', channels: 8 },
+];
+
+const EMPTY_FORM = { name: '', unitId: '', moduleType: 'waveshare', channels: 8, description: '' };
+
+const RelayModuleManager = ({ farmId }) => {
+  const [modules, setModules] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [showForm, setShowForm] = useState(false);
+  const [editingId, setEditingId] = useState(null);
+  const [form, setForm] = useState(EMPTY_FORM);
+  const [relayStatus, setRelayStatus] = useState({});
+
+  const loadModules = useCallback(async () => {
+    setLoading(true);
+    try {
+      const pcUrl = getPcApiBase();
+      const rpiUrl = getRpiApiBase();
+      let res;
+      try { res = await axiosBase.get(`${pcUrl}/config/system-settings/${farmId}`, { timeout: 5000 }); }
+      catch { res = await axiosBase.get(`${rpiUrl}/config/system-settings/${farmId}`, { timeout: 5000 }); }
+      setModules(res.data?.data?.settings?.relayModules || []);
+    } catch (err) { console.warn('릴레이 모듈 로드 실패:', err.message); }
+    setLoading(false);
+  }, [farmId]);
+
+  useEffect(() => { loadModules(); }, [loadModules]);
+
+  const persistModules = async (newModules) => {
+    setSaving(true);
+    try {
+      const pcUrl = getPcApiBase();
+      const rpiUrl = getRpiApiBase();
+      let existing = {};
+      try {
+        const r = await axiosBase.get(`${pcUrl}/config/system-settings/${farmId}`, { timeout: 5000 });
+        existing = r.data?.data?.settings || {};
+      } catch {}
+      await saveSystemSettings(farmId, { settings: { ...existing, relayModules: newModules } });
+      setModules(newModules);
+    } catch (err) { alert('저장 실패: ' + err.message); }
+    setSaving(false);
+  };
+
+  const openAdd = () => { setForm(EMPTY_FORM); setEditingId(null); setShowForm(true); };
+  const openEdit = (m) => { setForm({ name: m.name, unitId: m.unitId, moduleType: m.moduleType, channels: m.channels, description: m.description || '' }); setEditingId(m.id); setShowForm(true); };
+  const cancelForm = () => { setShowForm(false); setEditingId(null); };
+
+  const submitForm = async () => {
+    if (!form.unitId || form.unitId === '') { alert('Unit-Id를 입력하세요'); return; }
+    const uid = Number(form.unitId);
+    if (isNaN(uid) || uid < 1 || uid > 247) { alert('Unit-Id는 1~247 사이여야 합니다'); return; }
+    if (!form.name.trim()) { alert('이름을 입력하세요'); return; }
+    const isDup = modules.some(m => m.unitId === uid && m.moduleType === form.moduleType && m.id !== editingId);
+    if (isDup) { alert(`Unit-Id ${uid} (${form.moduleType})는 이미 등록되어 있습니다`); return; }
+
+    let newModules;
+    if (editingId) {
+      newModules = modules.map(m => m.id === editingId ? { ...m, ...form, unitId: uid, channels: Number(form.channels) } : m);
+    } else {
+      const newId = `relay_${Date.now()}`;
+      newModules = [...modules, { id: newId, ...form, unitId: uid, channels: Number(form.channels) }];
+    }
+    await persistModules(newModules);
+    setShowForm(false); setEditingId(null);
+  };
+
+  const deleteModule = async (id) => {
+    if (!window.confirm('이 릴레이 모듈을 삭제하시겠습니까?')) return;
+    await persistModules(modules.filter(m => m.id !== id));
+    setRelayStatus(prev => { const n = { ...prev }; delete n[id]; return n; });
+    if (channelTest?.moduleId === id) setChannelTest(null);
+  };
+
+  const testModule = async (module) => {
+    setRelayStatus(prev => ({ ...prev, [module.id]: { online: null, testing: true } }));
+    try {
+      const rpiUrl = getRpiApiBase();
+      let res;
+      if (module.moduleType === 'eletechsup') {
+        res = await axiosBase.get(`${rpiUrl}/relay/reg-status`, { params: { unitId: module.unitId, register: 0, quantity: 1 }, timeout: 5000 });
+      } else {
+        res = await axiosBase.get(`${rpiUrl}/relay/status`, { params: { unitId: module.unitId, quantity: 8 }, timeout: 5000 });
+      }
+      setRelayStatus(prev => ({ ...prev, [module.id]: { online: res.data?.success === true, testing: false } }));
+    } catch {
+      setRelayStatus(prev => ({ ...prev, [module.id]: { online: false, testing: false } }));
+    }
+  };
+
+  const testAll = async () => {
+    await Promise.all(modules.map(m => testModule(m)));
+  };
+
+  // 채널 순차 테스트 (ON→OFF 반복)
+  const [channelTest, setChannelTest] = useState(null); // { moduleId, channel, total, running }
+  const channelTestAbortRef = React.useRef(false);
+
+  const runChannelTest = async (module) => {
+    if (channelTest?.running) return;
+    const st = relayStatus[module.id];
+    if (!st || st.online !== true) {
+      alert('릴레이가 연결되어 있지 않습니다.\n먼저 🔌 테스트로 연결을 확인하세요.');
+      return;
+    }
+    if (!window.confirm(`${module.name} (${module.channels}ch) 전체 채널을 순차적으로 ON→OFF 테스트합니다.\n릴레이가 동작합니다. 진행하시겠습니까?`)) return;
+
+    channelTestAbortRef.current = false;
+    const rpiUrl = getRpiApiBase();
+    const total = module.channels;
+    setChannelTest({ moduleId: module.id, channel: -1, total, running: true, results: [] });
+
+    const results = [];
+    const sendCmd = async (ch, on) => {
+      try {
+        if (module.moduleType === 'eletechsup') {
+          const res = await axiosBase.post(`${rpiUrl}/relay/reg-write`, { unitId: module.unitId, register: ch + 1, value: on ? 256 : 512 }, { timeout: 5000 });
+          return res.data?.success === true;
+        } else {
+          const res = await axiosBase.post(`${rpiUrl}/relay/coil-write`, { unitId: module.unitId, address: ch, value: on }, { timeout: 5000 });
+          return res.data?.success === true;
+        }
+      } catch { return false; }
+    };
+
+    // 전체 ON
+    setChannelTest(prev => ({ ...prev, channel: 0, status: 'ALL ON' }));
+    const onResults = [];
+    for (let ch = 0; ch < total; ch++) {
+      if (channelTestAbortRef.current) break;
+      setChannelTest(prev => ({ ...prev, channel: ch, status: 'ON' }));
+      onResults.push(await sendCmd(ch, true));
+      await new Promise(r => setTimeout(r, 150));
+    }
+
+    if (!channelTestAbortRef.current) {
+      await new Promise(r => setTimeout(r, 1000));
+    }
+
+    // 전체 OFF
+    const offResults = [];
+    for (let ch = 0; ch < total; ch++) {
+      if (channelTestAbortRef.current) break;
+      setChannelTest(prev => ({ ...prev, channel: ch, status: 'OFF' }));
+      offResults.push(await sendCmd(ch, false));
+      await new Promise(r => setTimeout(r, 150));
+    }
+
+    for (let ch = 0; ch < total; ch++) {
+      results.push({ ch, ok: (onResults[ch] || false) && (offResults[ch] || false) });
+    }
+
+    setChannelTest(prev => ({ ...prev, running: false, channel: total, results }));
+  };
+
+  const stopChannelTest = () => { channelTestAbortRef.current = true; };
+
+  if (loading) return <div className="text-center py-8 text-gray-400">로딩 중...</div>;
+
+  return (
+    <div className="space-y-4 max-w-3xl">
+      {/* 헤더 */}
+      <div className="glass-card p-4">
+        <div className="flex items-center justify-between mb-1">
+          <h2 className="text-lg font-bold text-gray-800">⚡ 릴레이 모듈 관리</h2>
+          <div className="flex gap-2">
+            {modules.length > 0 && (
+              <button onClick={testAll}
+                style={{ fontSize: 12, fontWeight: 700, padding: '6px 12px', borderRadius: 8, border: '1px solid #e5e7eb', background: '#f0f9ff', color: '#0369a1', cursor: 'pointer' }}>
+                🔌 전체 테스트
+              </button>
+            )}
+            <button onClick={openAdd}
+              style={{ fontSize: 12, fontWeight: 700, padding: '6px 12px', borderRadius: 8, border: 'none', background: '#2563eb', color: '#fff', cursor: 'pointer' }}>
+              + 모듈 추가
+            </button>
+          </div>
+        </div>
+        <p className="text-xs text-gray-400">RS-485 버스에 연결된 릴레이 모듈을 등록합니다. 장치 설정 시 여기서 등록한 모듈을 선택할 수 있습니다.</p>
+      </div>
+
+      {/* 추가/편집 폼 */}
+      {showForm && (
+        <div className="glass-card p-4 border-2 border-blue-200">
+          <h3 className="text-sm font-bold text-gray-700 mb-3">{editingId ? '모듈 편집' : '새 모듈 추가'}</h3>
+          <div className="grid grid-cols-2 gap-3 mb-3">
+            <div>
+              <label className="text-xs text-gray-500 font-medium block mb-1">이름 *</label>
+              <input type="text" value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))}
+                placeholder="예: 메인 릴레이"
+                className="w-full border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:border-blue-400" />
+            </div>
+            <div>
+              <label className="text-xs text-gray-500 font-medium block mb-1">Unit-Id * (1~247)</label>
+              <input type="number" value={form.unitId} onChange={e => setForm(f => ({ ...f, unitId: e.target.value }))}
+                min={1} max={247} placeholder="예: 1"
+                className="w-full border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:border-blue-400" />
+            </div>
+            <div>
+              <label className="text-xs text-gray-500 font-medium block mb-1">모듈 타입 *</label>
+              <select value={form.moduleType} onChange={e => {
+                const mt = MODULE_TYPES.find(t => t.value === e.target.value);
+                setForm(f => ({ ...f, moduleType: e.target.value, channels: mt?.channels || 8 }));
+              }} className="w-full border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:border-blue-400">
+                {MODULE_TYPES.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="text-xs text-gray-500 font-medium block mb-1">채널 수</label>
+              <input type="number" value={form.channels} onChange={e => setForm(f => ({ ...f, channels: e.target.value }))}
+                min={1} max={64}
+                className="w-full border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:border-blue-400" />
+            </div>
+            <div className="col-span-2">
+              <label className="text-xs text-gray-500 font-medium block mb-1">메모 (선택)</label>
+              <input type="text" value={form.description} onChange={e => setForm(f => ({ ...f, description: e.target.value }))}
+                placeholder="예: 1번 하우스 창문/팬 제어용"
+                className="w-full border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:border-blue-400" />
+            </div>
+          </div>
+          <div className="flex gap-2 justify-end">
+            <button onClick={cancelForm}
+              style={{ fontSize: 12, padding: '6px 14px', borderRadius: 8, border: '1px solid #e5e7eb', background: '#f9fafb', color: '#374151', cursor: 'pointer' }}>
+              취소
+            </button>
+            <button onClick={submitForm} disabled={saving}
+              style={{ fontSize: 12, fontWeight: 700, padding: '6px 14px', borderRadius: 8, border: 'none', background: saving ? '#93c5fd' : '#2563eb', color: '#fff', cursor: saving ? 'default' : 'pointer' }}>
+              {saving ? '저장 중...' : '저장'}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* 모듈 목록 */}
+      {modules.length === 0 && !showForm ? (
+        <div className="glass-card p-8 text-center text-gray-400">
+          <p className="text-3xl mb-2">⚡</p>
+          <p className="text-sm">등록된 릴레이 모듈이 없습니다</p>
+          <p className="text-xs mt-1">위 "+ 모듈 추가" 버튼으로 등록하세요</p>
+        </div>
+      ) : (
+        <div className="space-y-2">
+          {modules.map(m => {
+            const st = relayStatus[m.id];
+            return (
+              <div key={m.id} className="glass-card p-4 flex items-center gap-3">
+                <div className="flex-1">
+                  <div className="flex items-center gap-2 mb-0.5">
+                    <span className="text-sm font-bold text-gray-800">{m.name}</span>
+                    <span className="text-xs px-1.5 py-0.5 rounded bg-gray-100 text-gray-500 font-mono">Unit-Id {m.unitId}</span>
+                    <span className="text-xs px-1.5 py-0.5 rounded bg-purple-100 text-purple-700">{m.moduleType}</span>
+                    <span className="text-xs text-gray-400">{m.channels}ch</span>
+                  </div>
+                  {m.description && <p className="text-xs text-gray-400">{m.description}</p>}
+                </div>
+                {/* 연결 상태 */}
+                <div className="min-w-[80px] text-center">
+                  {st?.testing && <span className="text-xs text-gray-400">⏳ 테스트 중</span>}
+                  {!st?.testing && st?.online === true && <span className="text-xs font-bold text-emerald-600">🟢 연결됨</span>}
+                  {!st?.testing && st?.online === false && <span className="text-xs font-bold text-rose-600">🔴 미연결</span>}
+                  {!st && <span className="text-xs text-gray-300">-</span>}
+                </div>
+                {/* 버튼 */}
+                <div className="flex gap-1.5">
+                  <button onClick={() => testModule(m)} disabled={st?.testing}
+                    style={{ fontSize: 11, padding: '4px 10px', borderRadius: 7, border: '1px solid #e5e7eb', background: '#f0f9ff', color: '#0369a1', cursor: st?.testing ? 'default' : 'pointer' }}>
+                    🔌 테스트
+                  </button>
+                  <button onClick={() => runChannelTest(m)} disabled={channelTest?.running}
+                    style={{ fontSize: 11, padding: '4px 10px', borderRadius: 7, border: '1px solid #fde68a', background: '#fffbeb', color: '#92400e', cursor: channelTest?.running ? 'default' : 'pointer' }}>
+                    ⚡ 채널테스트
+                  </button>
+                  <button onClick={() => openEdit(m)}
+                    style={{ fontSize: 11, padding: '4px 10px', borderRadius: 7, border: '1px solid #e5e7eb', background: '#f9fafb', color: '#374151', cursor: 'pointer' }}>
+                    편집
+                  </button>
+                  <button onClick={() => deleteModule(m.id)}
+                    style={{ fontSize: 11, padding: '4px 10px', borderRadius: 7, border: '1px solid #fecaca', background: '#fff5f5', color: '#be123c', cursor: 'pointer' }}>
+                    삭제
+                  </button>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+      {/* 채널 테스트 진행 표시 */}
+      {channelTest && (
+        <div className="glass-card p-4 border-2 border-amber-200">
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="text-sm font-bold text-gray-700">
+              ⚡ 채널 테스트 {channelTest.running ? '진행 중...' : (channelTestAbortRef.current ? '중단됨' : '완료')}
+            </h3>
+            {channelTest.running ? (
+              <button onClick={stopChannelTest}
+                style={{ fontSize: 11, padding: '4px 12px', borderRadius: 7, border: '1px solid #fecaca', background: '#fff5f5', color: '#be123c', fontWeight: 700, cursor: 'pointer' }}>
+                중단
+              </button>
+            ) : (
+              <button onClick={() => setChannelTest(null)}
+                style={{ fontSize: 11, padding: '4px 12px', borderRadius: 7, border: '1px solid #e5e7eb', background: '#f9fafb', color: '#374151', cursor: 'pointer' }}>
+                닫기
+              </button>
+            )}
+          </div>
+          {/* 채널 상태 표시 */}
+          <div className="flex flex-wrap gap-2">
+            {Array.from({ length: channelTest.total }, (_, i) => {
+              const result = channelTest.results?.find(r => r.ch === i);
+              const isCurrent = channelTest.running && channelTest.channel === i;
+              let bg = '#f3f4f6', color = '#9ca3af', label = `CH${i}`;
+              if (isCurrent) { bg = channelTest.status === 'ON' ? '#fef3c7' : '#dbeafe'; color = '#92400e'; label = `CH${i} ${channelTest.status}`; }
+              else if (result?.ok) { bg = '#d1fae5'; color = '#065f46'; label = `CH${i} OK`; }
+              else if (result && !result.ok) { bg = '#fee2e2'; color = '#991b1b'; label = `CH${i} FAIL`; }
+              return (
+                <span key={i} style={{ fontSize: 11, padding: '4px 8px', borderRadius: 6, background: bg, color, fontWeight: 600, minWidth: 60, textAlign: 'center' }}>
+                  {label}
+                </span>
+              );
+            })}
+          </div>
+          {/* 프로그레스 바 */}
+          {channelTest.running && (
+            <div style={{ marginTop: 8, height: 4, borderRadius: 2, background: '#e5e7eb' }}>
+              <div style={{ height: '100%', borderRadius: 2, background: '#f59e0b', width: `${((channelTest.channel + 1) / channelTest.total) * 100}%`, transition: 'width 0.3s' }} />
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+};
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// SensorModuleManager — 센서 모듈 CRUD
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+const SENSOR_MODULE_TYPES = [
+  { value: 'temperature_humidity', label: '온습도 센서', registers: 2, defaultDivider: 10 },
+  { value: 'co2', label: 'CO2 센서', registers: 1, defaultDivider: 1 },
+  { value: 'soil_moisture', label: '토양수분 센서', registers: 1, defaultDivider: 10 },
+  { value: 'light', label: '조도 센서', registers: 1, defaultDivider: 1 },
+  { value: 'custom', label: '기타 (직접 설정)', registers: 1, defaultDivider: 1 },
+];
+
+const EMPTY_SENSOR_FORM = { name: '', unitId: '', sensorType: 'temperature_humidity', fc: 3, address: 0, quantity: 2, divider: 10, signed: false, description: '' };
+
+const SensorModuleManager = ({ farmId }) => {
+  const [modules, setModules] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [showForm, setShowForm] = useState(false);
+  const [editingId, setEditingId] = useState(null);
+  const [form, setForm] = useState(EMPTY_SENSOR_FORM);
+  const [sensorStatus, setSensorStatus] = useState({});
+
+  const loadModules = useCallback(async () => {
+    setLoading(true);
+    try {
+      const pcUrl = getPcApiBase();
+      const rpiUrl = getRpiApiBase();
+      let res;
+      try { res = await axiosBase.get(`${pcUrl}/config/system-settings/${farmId}`, { timeout: 5000 }); }
+      catch { res = await axiosBase.get(`${rpiUrl}/config/system-settings/${farmId}`, { timeout: 5000 }); }
+      setModules(res.data?.data?.settings?.sensorModules || []);
+    } catch (err) { console.warn('센서 모듈 로드 실패:', err.message); }
+    setLoading(false);
+  }, [farmId]);
+
+  useEffect(() => { loadModules(); }, [loadModules]);
+
+  const persistModules = async (newModules) => {
+    setSaving(true);
+    try {
+      const pcUrl = getPcApiBase();
+      let existing = {};
+      try {
+        const r = await axiosBase.get(`${pcUrl}/config/system-settings/${farmId}`, { timeout: 5000 });
+        existing = r.data?.data?.settings || {};
+      } catch {}
+      await saveSystemSettings(farmId, { settings: { ...existing, sensorModules: newModules } });
+      setModules(newModules);
+    } catch (err) { alert('저장 실패: ' + err.message); }
+    setSaving(false);
+  };
+
+  const openAdd = () => { setForm(EMPTY_SENSOR_FORM); setEditingId(null); setShowForm(true); };
+  const openEdit = (m) => {
+    setForm({ name: m.name, unitId: m.unitId, sensorType: m.sensorType, fc: m.fc || 3, address: m.address || 0, quantity: m.quantity || 2, divider: m.divider || 10, signed: m.signed || false, description: m.description || '' });
+    setEditingId(m.id); setShowForm(true);
+  };
+  const cancelForm = () => { setShowForm(false); setEditingId(null); };
+
+  const submitForm = async () => {
+    if (!form.unitId || form.unitId === '') { alert('Unit-Id를 입력하세요'); return; }
+    const uid = Number(form.unitId);
+    if (isNaN(uid) || uid < 1 || uid > 247) { alert('Unit-Id는 1~247 사이여야 합니다'); return; }
+    if (!form.name.trim()) { alert('이름을 입력하세요'); return; }
+
+    let newModules;
+    if (editingId) {
+      newModules = modules.map(m => m.id === editingId ? { ...m, ...form, unitId: uid, address: Number(form.address), quantity: Number(form.quantity), divider: Number(form.divider), fc: Number(form.fc) } : m);
+    } else {
+      const newId = `sensor_mod_${Date.now()}`;
+      newModules = [...modules, { id: newId, ...form, unitId: uid, address: Number(form.address), quantity: Number(form.quantity), divider: Number(form.divider), fc: Number(form.fc) }];
+    }
+    await persistModules(newModules);
+    setShowForm(false); setEditingId(null);
+  };
+
+  const deleteModule = async (id) => {
+    if (!window.confirm('이 센서 모듈을 삭제하시겠습니까?')) return;
+    await persistModules(modules.filter(m => m.id !== id));
+    setSensorStatus(prev => { const n = { ...prev }; delete n[id]; return n; });
+  };
+
+  const testModule = async (module) => {
+    setSensorStatus(prev => ({ ...prev, [module.id]: { testing: true } }));
+    try {
+      const rpiUrl = getRpiApiBase();
+      const res = await axiosBase.get(`${rpiUrl}/relay/reg-status`, {
+        params: { unitId: module.unitId, register: module.address, quantity: module.quantity },
+        timeout: 5000,
+      });
+      if (res.data?.success) {
+        const raw = res.data.data?.raw || [];
+        const values = raw.map((v, i) => {
+          let parsed = v;
+          if (module.signed && v > 0x7FFF) parsed = -(0xFFFF - v + 1);
+          if (module.divider && module.divider !== 1) parsed = parsed / module.divider;
+          return Math.round(parsed * 100) / 100;
+        });
+        setSensorStatus(prev => ({ ...prev, [module.id]: { online: true, testing: false, raw, values } }));
+      } else {
+        setSensorStatus(prev => ({ ...prev, [module.id]: { online: false, testing: false } }));
+      }
+    } catch {
+      setSensorStatus(prev => ({ ...prev, [module.id]: { online: false, testing: false } }));
+    }
+  };
+
+  const testAll = async () => { await Promise.all(modules.map(m => testModule(m))); };
+
+  if (loading) return <div className="text-center py-8 text-gray-400">로딩 중...</div>;
+
+  return (
+    <div className="space-y-4 max-w-3xl">
+      <div className="glass-card p-4">
+        <div className="flex items-center justify-between mb-1">
+          <h2 className="text-lg font-bold text-gray-800">📡 센서 모듈 관리</h2>
+          <div className="flex gap-2">
+            {modules.length > 0 && (
+              <button onClick={testAll}
+                style={{ fontSize: 12, fontWeight: 700, padding: '6px 12px', borderRadius: 8, border: '1px solid #e5e7eb', background: '#f0f9ff', color: '#0369a1', cursor: 'pointer' }}>
+                🔍 전체 테스트
+              </button>
+            )}
+            <button onClick={openAdd}
+              style={{ fontSize: 12, fontWeight: 700, padding: '6px 12px', borderRadius: 8, border: 'none', background: '#2563eb', color: '#fff', cursor: 'pointer' }}>
+              + 모듈 추가
+            </button>
+          </div>
+        </div>
+        <p className="text-xs text-gray-400">RS-485 버스에 연결된 센서 모듈을 등록합니다. 테스트 읽기로 실제 센서 값을 확인할 수 있습니다.</p>
+      </div>
+
+      {showForm && (
+        <div className="glass-card p-4 border-2 border-blue-200">
+          <h3 className="text-sm font-bold text-gray-700 mb-3">{editingId ? '모듈 편집' : '새 모듈 추가'}</h3>
+          <div className="grid grid-cols-2 gap-3 mb-3">
+            <div>
+              <label className="text-xs text-gray-500 font-medium block mb-1">이름 *</label>
+              <input type="text" value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))}
+                placeholder="예: 1동 온습도"
+                className="w-full border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:border-blue-400" />
+            </div>
+            <div>
+              <label className="text-xs text-gray-500 font-medium block mb-1">Unit-Id * (1~247)</label>
+              <input type="number" value={form.unitId} onChange={e => setForm(f => ({ ...f, unitId: e.target.value }))}
+                min={1} max={247} placeholder="예: 3"
+                className="w-full border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:border-blue-400" />
+            </div>
+            <div>
+              <label className="text-xs text-gray-500 font-medium block mb-1">센서 타입 *</label>
+              <select value={form.sensorType} onChange={e => {
+                const st = SENSOR_MODULE_TYPES.find(t => t.value === e.target.value);
+                setForm(f => ({ ...f, sensorType: e.target.value, quantity: st?.registers || 1, divider: st?.defaultDivider || 1 }));
+              }} className="w-full border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:border-blue-400">
+                {SENSOR_MODULE_TYPES.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="text-xs text-gray-500 font-medium block mb-1">FC (기능코드)</label>
+              <select value={form.fc} onChange={e => setForm(f => ({ ...f, fc: Number(e.target.value) }))}
+                className="w-full border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:border-blue-400">
+                <option value={3}>FC03 (Holding)</option>
+                <option value={4}>FC04 (Input)</option>
+              </select>
+            </div>
+            <div>
+              <label className="text-xs text-gray-500 font-medium block mb-1">레지스터 주소</label>
+              <input type="number" value={form.address} onChange={e => setForm(f => ({ ...f, address: e.target.value }))}
+                min={0} className="w-full border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:border-blue-400" />
+            </div>
+            <div>
+              <label className="text-xs text-gray-500 font-medium block mb-1">읽기 수량</label>
+              <input type="number" value={form.quantity} onChange={e => setForm(f => ({ ...f, quantity: e.target.value }))}
+                min={1} max={10} className="w-full border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:border-blue-400" />
+            </div>
+            <div>
+              <label className="text-xs text-gray-500 font-medium block mb-1">나누기 (divider)</label>
+              <input type="number" value={form.divider} onChange={e => setForm(f => ({ ...f, divider: e.target.value }))}
+                min={1} className="w-full border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:border-blue-400" />
+            </div>
+            <div className="flex items-end pb-1">
+              <label className="flex items-center gap-2 text-sm text-gray-600 cursor-pointer">
+                <input type="checkbox" checked={form.signed} onChange={e => setForm(f => ({ ...f, signed: e.target.checked }))} />
+                음수 허용 (signed)
+              </label>
+            </div>
+            <div className="col-span-2">
+              <label className="text-xs text-gray-500 font-medium block mb-1">메모 (선택)</label>
+              <input type="text" value={form.description} onChange={e => setForm(f => ({ ...f, description: e.target.value }))}
+                placeholder="예: SHT30 온습도 센서"
+                className="w-full border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:border-blue-400" />
+            </div>
+          </div>
+          <div className="flex gap-2 justify-end">
+            <button onClick={cancelForm}
+              style={{ fontSize: 12, padding: '6px 14px', borderRadius: 8, border: '1px solid #e5e7eb', background: '#f9fafb', color: '#374151', cursor: 'pointer' }}>
+              취소
+            </button>
+            <button onClick={submitForm} disabled={saving}
+              style={{ fontSize: 12, fontWeight: 700, padding: '6px 14px', borderRadius: 8, border: 'none', background: saving ? '#93c5fd' : '#2563eb', color: '#fff', cursor: saving ? 'default' : 'pointer' }}>
+              {saving ? '저장 중...' : '저장'}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {modules.length === 0 && !showForm ? (
+        <div className="glass-card p-8 text-center text-gray-400">
+          <p className="text-3xl mb-2">📡</p>
+          <p className="text-sm">등록된 센서 모듈이 없습니다</p>
+          <p className="text-xs mt-1">위 "+ 모듈 추가" 버튼으로 등록하세요</p>
+        </div>
+      ) : (
+        <div className="space-y-2">
+          {modules.map(m => {
+            const st = sensorStatus[m.id];
+            const typeLabel = SENSOR_MODULE_TYPES.find(t => t.value === m.sensorType)?.label || m.sensorType;
+            return (
+              <div key={m.id} className="glass-card p-4">
+                <div className="flex items-center gap-3">
+                  <div className="flex-1">
+                    <div className="flex items-center gap-2 mb-0.5">
+                      <span className="text-sm font-bold text-gray-800">{m.name}</span>
+                      <span className="text-xs px-1.5 py-0.5 rounded bg-gray-100 text-gray-500 font-mono">Unit-Id {m.unitId}</span>
+                      <span className="text-xs px-1.5 py-0.5 rounded bg-teal-100 text-teal-700">{typeLabel}</span>
+                      <span className="text-xs text-gray-400">FC{m.fc || 3} R{m.address} Q{m.quantity}</span>
+                    </div>
+                    {m.description && <p className="text-xs text-gray-400">{m.description}</p>}
+                  </div>
+                  <div className="min-w-[80px] text-center">
+                    {st?.testing && <span className="text-xs text-gray-400">⏳ 읽는 중</span>}
+                    {!st?.testing && st?.online === true && <span className="text-xs font-bold text-emerald-600">🟢 연결됨</span>}
+                    {!st?.testing && st?.online === false && <span className="text-xs font-bold text-rose-600">🔴 미연결</span>}
+                    {!st && <span className="text-xs text-gray-300">-</span>}
+                  </div>
+                  <div className="flex gap-1.5">
+                    <button onClick={() => testModule(m)} disabled={st?.testing}
+                      style={{ fontSize: 11, padding: '4px 10px', borderRadius: 7, border: '1px solid #e5e7eb', background: '#f0f9ff', color: '#0369a1', cursor: st?.testing ? 'default' : 'pointer' }}>
+                      🔍 테스트
+                    </button>
+                    <button onClick={() => openEdit(m)}
+                      style={{ fontSize: 11, padding: '4px 10px', borderRadius: 7, border: '1px solid #e5e7eb', background: '#f9fafb', color: '#374151', cursor: 'pointer' }}>
+                      편집
+                    </button>
+                    <button onClick={() => deleteModule(m.id)}
+                      style={{ fontSize: 11, padding: '4px 10px', borderRadius: 7, border: '1px solid #fecaca', background: '#fff5f5', color: '#be123c', cursor: 'pointer' }}>
+                      삭제
+                    </button>
+                  </div>
+                </div>
+                {/* 테스트 결과 표시 */}
+                {st?.online && st.values && (
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    {st.values.map((v, i) => (
+                      <span key={i} className="px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700 text-xs font-bold">
+                        R{m.address + i}: {v} (raw:{st.raw[i]})
+                      </span>
+                    ))}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+};
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// ModbusPanel — 릴레이 모듈 관리 + 센서 모듈 관리 + 버스 현황 서브탭
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+const ModbusPanel = ({ farmId }) => {
+  const [subTab, setSubTab] = useState('modules');
+  return (
+    <div>
+      <SubTabBar
+        tabs={[
+          { id: 'modules', label: '릴레이 모듈', icon: '⚡' },
+          { id: 'sensors', label: '센서 모듈', icon: '📡' },
+          { id: 'overview', label: '버스 현황', icon: '🔌' },
+        ]}
+        activeTab={subTab}
+        onChange={setSubTab}
+      />
+      {subTab === 'modules' && <RelayModuleManager farmId={farmId} />}
+      {subTab === 'sensors' && <SensorModuleManager farmId={farmId} />}
+      {subTab === 'overview' && <ModbusOverviewPanel farmId={farmId} />}
     </div>
   );
 };
@@ -1866,6 +2539,9 @@ const SystemSettings = ({ farmId }) => {
 const ModbusOverviewPanel = ({ farmId }) => {
   const [houses, setHouses] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [relayStatus, setRelayStatus] = useState({}); // { 'unitId_moduleType': { online: null|bool, testing: bool } }
+  const [sensorBusStatus, setSensorBusStatus] = useState({}); // { 'unitId': { online: null|bool, testing: bool } }
+  const [testingAll, setTestingAll] = useState(false);
 
   useEffect(() => {
     loadAllConfigs();
@@ -1883,6 +2559,43 @@ const ModbusOverviewPanel = ({ farmId }) => {
       console.warn('Modbus 현황 로드 실패:', err.message);
     }
     setLoading(false);
+  };
+
+  const testUnit = async (unitId, moduleType) => {
+    const key = `${unitId}_${moduleType}`;
+    setRelayStatus(prev => ({ ...prev, [key]: { online: null, testing: true } }));
+    try {
+      const rpiUrl = getRpiApiBase();
+      let res;
+      if (moduleType === 'eletechsup') {
+        res = await axiosBase.get(`${rpiUrl}/relay/reg-status`, { params: { unitId, register: 0, quantity: 1 }, timeout: 5000 });
+      } else {
+        res = await axiosBase.get(`${rpiUrl}/relay/status`, { params: { unitId, quantity: 8 }, timeout: 5000 });
+      }
+      setRelayStatus(prev => ({ ...prev, [key]: { online: res.data?.success === true, testing: false } }));
+    } catch {
+      setRelayStatus(prev => ({ ...prev, [key]: { online: false, testing: false } }));
+    }
+  };
+
+  const testSensorUnit = async (unitId, fc, address, quantity) => {
+    const key = String(unitId);
+    setSensorBusStatus(prev => ({ ...prev, [key]: { online: null, testing: true } }));
+    try {
+      const rpiUrl = getRpiApiBase();
+      const res = await axiosBase.get(`${rpiUrl}/relay/reg-status`, { params: { unitId, register: address || 0, quantity: quantity || 1 }, timeout: 5000 });
+      setSensorBusStatus(prev => ({ ...prev, [key]: { online: res.data?.success === true, testing: false } }));
+    } catch {
+      setSensorBusStatus(prev => ({ ...prev, [key]: { online: false, testing: false } }));
+    }
+  };
+
+  const testAllRelays = async (unitRelayInfo, sensorUnitInfo) => {
+    setTestingAll(true);
+    const relayTests = Object.values(unitRelayInfo).map(({ unitId, moduleType }) => testUnit(unitId, moduleType));
+    const sensorTests = Object.values(sensorUnitInfo).map(({ unitId, fc, address, quantity }) => testSensorUnit(unitId, fc, address, quantity));
+    await Promise.all([...relayTests, ...sensorTests]);
+    setTestingAll(false);
   };
 
   // 센서 Modbus 목록 수집
@@ -1951,6 +2664,24 @@ const ModbusOverviewPanel = ({ farmId }) => {
     unitSummary[uid].devices++;
   }
 
+  // Unit-Id별 릴레이 모듈 정보 (moduleType 기준, 장치만 해당)
+  const unitRelayInfo = {};
+  for (const d of deviceModbus) {
+    const uid = d.modbus.unitId || 1;
+    const moduleType = d.modbus.moduleType || 'waveshare';
+    const key = `${uid}_${moduleType}`;
+    if (!unitRelayInfo[key]) unitRelayInfo[key] = { unitId: uid, moduleType, deviceCount: 0 };
+    unitRelayInfo[key].deviceCount++;
+  }
+
+  // Unit-Id별 센서 모듈 정보 (센서만 해당)
+  const unitSensorInfo = {};
+  for (const s of sensorModbus) {
+    const uid = s.modbus.unitId;
+    if (!unitSensorInfo[uid]) unitSensorInfo[uid] = { unitId: uid, fc: s.modbus.fc || 3, address: s.modbus.address || 0, quantity: s.modbus.quantity || 1, sensorCount: 0 };
+    unitSensorInfo[uid].sensorCount++;
+  }
+
   if (loading) {
     return <div className="text-center py-8 text-gray-400">로딩 중...</div>;
   }
@@ -1963,19 +2694,70 @@ const ModbusOverviewPanel = ({ farmId }) => {
       <div className="glass-card p-4">
         <div className="flex items-center justify-between mb-3">
           <h2 className="text-lg font-bold text-gray-800">🔌 RS-485 버스 현황</h2>
-          <button onClick={loadAllConfigs} className="text-xs text-blue-500 hover:text-blue-700">🔄 새로고침</button>
+          <div className="flex items-center gap-2">
+            <button onClick={loadAllConfigs} className="text-xs text-blue-500 hover:text-blue-700">🔄 새로고침</button>
+            {(Object.keys(unitRelayInfo).length > 0 || Object.keys(unitSensorInfo).length > 0) && (
+              <button
+                onClick={() => testAllRelays(unitRelayInfo, unitSensorInfo)}
+                disabled={testingAll}
+                style={{ fontSize: 11, fontWeight: 700, padding: '4px 10px', borderRadius: 7, border: '1px solid #e5e7eb', background: testingAll ? '#f3f4f6' : '#f0f9ff', color: testingAll ? '#9ca3af' : '#0369a1', cursor: testingAll ? 'default' : 'pointer' }}
+              >
+                {testingAll ? '⏳ 테스트 중...' : '🔌 연결 테스트'}
+              </button>
+            )}
+          </div>
         </div>
         <div className="flex flex-wrap gap-3">
-          {Object.entries(unitSummary).sort((a, b) => Number(a[0]) - Number(b[0])).map(([uid, info]) => (
-            <div key={uid} className="bg-gray-50 border border-gray-200 rounded-xl px-4 py-2.5 text-center min-w-[100px]">
-              <p className="text-xs text-gray-500">Unit-Id {uid}</p>
-              <p className="text-sm font-bold text-gray-800">
-                {info.sensors > 0 && <span className="text-blue-600">센서 {info.sensors}</span>}
-                {info.sensors > 0 && info.devices > 0 && ' + '}
-                {info.devices > 0 && <span className="text-purple-600">장치 {info.devices}</span>}
-              </p>
-            </div>
-          ))}
+          {Object.entries(unitSummary).sort((a, b) => Number(a[0]) - Number(b[0])).map(([uid, info]) => {
+            // 이 unit의 릴레이 모듈 목록
+            const relayEntries = Object.values(unitRelayInfo).filter(r => String(r.unitId) === String(uid));
+            return (
+              <div key={uid} className="bg-gray-50 border border-gray-200 rounded-xl px-4 py-2.5 text-center min-w-[110px]">
+                <p className="text-xs text-gray-500 mb-0.5">Unit-Id {uid}</p>
+                <p className="text-sm font-bold text-gray-800 mb-1">
+                  {info.sensors > 0 && <span className="text-blue-600">센서 {info.sensors}</span>}
+                  {info.sensors > 0 && info.devices > 0 && ' + '}
+                  {info.devices > 0 && <span className="text-purple-600">장치 {info.devices}</span>}
+                </p>
+                {relayEntries.map(r => {
+                  const key = `${r.unitId}_${r.moduleType}`;
+                  const st = relayStatus[key];
+                  return (
+                    <div key={key} className="flex items-center justify-center gap-1 mt-1">
+                      <span className="text-[10px] text-gray-400">{r.moduleType}</span>
+                      {st?.testing && <span className="text-[10px] text-gray-400">⏳</span>}
+                      {!st?.testing && st?.online === true && <span className="text-[10px] font-bold text-emerald-600">🟢 연결됨</span>}
+                      {!st?.testing && st?.online === false && <span className="text-[10px] font-bold text-rose-600">🔴 미연결</span>}
+                      {!st?.testing && st?.online == null && (
+                        <button
+                          onClick={() => testUnit(r.unitId, r.moduleType)}
+                          className="text-[10px] text-blue-500 hover:text-blue-700 underline"
+                        >테스트</button>
+                      )}
+                    </div>
+                  );
+                })}
+                {/* 센서 전용 Unit-Id: 릴레이 엔트리가 없는 경우 센서 연결 상태 표시 */}
+                {relayEntries.length === 0 && unitSensorInfo[uid] && (() => {
+                  const sst = sensorBusStatus[String(uid)];
+                  return (
+                    <div className="flex items-center justify-center gap-1 mt-1">
+                      <span className="text-[10px] text-gray-400">센서</span>
+                      {sst?.testing && <span className="text-[10px] text-gray-400">⏳</span>}
+                      {!sst?.testing && sst?.online === true && <span className="text-[10px] font-bold text-emerald-600">🟢 연결됨</span>}
+                      {!sst?.testing && sst?.online === false && <span className="text-[10px] font-bold text-rose-600">🔴 미연결</span>}
+                      {!sst?.testing && sst?.online == null && (
+                        <button
+                          onClick={() => testSensorUnit(unitSensorInfo[uid].unitId, unitSensorInfo[uid].fc, unitSensorInfo[uid].address, unitSensorInfo[uid].quantity)}
+                          className="text-[10px] text-blue-500 hover:text-blue-700 underline"
+                        >테스트</button>
+                      )}
+                    </div>
+                  );
+                })()}
+              </div>
+            );
+          })}
         </div>
         {hasConflicts && (
           <div className="mt-3 bg-rose-50 border border-rose-200 rounded-xl p-3">

@@ -20,7 +20,11 @@
         "swaggerDoc": "",
         "x": 170,
         "y": 940,
-        "wires": [["fn_fc03_request"]]
+        "wires": [
+            [
+                "fn_fc03_request"
+            ]
+        ]
     },
     {
         "id": "fn_fc03_request",
@@ -35,7 +39,11 @@
         "libs": [],
         "x": 390,
         "y": 940,
-        "wires": [["modbus_fc03_read"]]
+        "wires": [
+            [
+                "modbus_fc03_read"
+            ]
+        ]
     },
     {
         "id": "modbus_fc03_read",
@@ -56,7 +64,14 @@
         "startDelayTime": "",
         "x": 610,
         "y": 940,
-        "wires": [["fn_fc03_response"], []]
+        "wires": [
+            [
+                "fn_fc03_response"
+            ],
+            [
+                "fn_fc03_error"
+            ]
+        ]
     },
     {
         "id": "fn_fc03_response",
@@ -71,7 +86,11 @@
         "libs": [],
         "x": 830,
         "y": 940,
-        "wires": [["http_reg_status_res"]]
+        "wires": [
+            [
+                "http_reg_status_res"
+            ]
+        ]
     },
     {
         "id": "http_reg_status_res",
@@ -79,7 +98,9 @@
         "z": "rest_api_flow",
         "name": "응답",
         "statusCode": "200",
-        "headers": { "Content-Type": "application/json" },
+        "headers": {
+            "Content-Type": "application/json"
+        },
         "x": 1020,
         "y": 940,
         "wires": []
@@ -95,7 +116,11 @@
         "swaggerDoc": "",
         "x": 180,
         "y": 1000,
-        "wires": [["fn_fc06_request"]]
+        "wires": [
+            [
+                "fn_fc06_request"
+            ]
+        ]
     },
     {
         "id": "fn_fc06_request",
@@ -110,7 +135,11 @@
         "libs": [],
         "x": 400,
         "y": 1000,
-        "wires": [["modbus_fc06_write"]]
+        "wires": [
+            [
+                "modbus_fc06_write"
+            ]
+        ]
     },
     {
         "id": "modbus_fc06_write",
@@ -127,7 +156,14 @@
         "startDelayTime": "",
         "x": 620,
         "y": 1000,
-        "wires": [["fn_fc06_response"], []]
+        "wires": [
+            [
+                "fn_fc06_response"
+            ],
+            [
+                "fn_fc06_error"
+            ]
+        ]
     },
     {
         "id": "fn_fc06_response",
@@ -142,7 +178,11 @@
         "libs": [],
         "x": 840,
         "y": 1000,
-        "wires": [["http_reg_write_res"]]
+        "wires": [
+            [
+                "http_reg_write_res"
+            ]
+        ]
     },
     {
         "id": "http_reg_write_res",
@@ -150,9 +190,41 @@
         "z": "rest_api_flow",
         "name": "응답",
         "statusCode": "200",
-        "headers": { "Content-Type": "application/json" },
+        "headers": {
+            "Content-Type": "application/json"
+        },
         "x": 1020,
         "y": 1000,
         "wires": []
+    },
+    {
+        "id": "fn_fc03_error",
+        "type": "function",
+        "z": "rest_api_flow",
+        "name": "FC03 에러 응답",
+        "func": "msg.payload = { success: false, error: \"relay_offline\", message: \"Eletechsup 릴레이 응답 없음\" };\nmsg.headers = { \"Access-Control-Allow-Origin\": \"*\" };\nreturn msg;",
+        "outputs": 1,
+        "x": 690,
+        "y": 960,
+        "wires": [
+            [
+                "http_res_reg_status"
+            ]
+        ]
+    },
+    {
+        "id": "fn_fc06_error",
+        "type": "function",
+        "z": "rest_api_flow",
+        "name": "FC06 에러 응답",
+        "func": "msg.payload = { success: false, error: \"relay_offline\", message: \"Eletechsup 쓰기 실패\" };\nmsg.headers = { \"Access-Control-Allow-Origin\": \"*\" };\nreturn msg;",
+        "outputs": 1,
+        "x": 690,
+        "y": 1120,
+        "wires": [
+            [
+                "http_res_reg_write"
+            ]
+        ]
     }
 ]

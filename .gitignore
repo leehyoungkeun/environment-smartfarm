@@ -6,7 +6,7 @@ node_modules/
 .env.local
 .env.*.local
 .env.development
-.env.production
+# .env.production은 git에 포함 (프로덕션 API URL은 브라우저에서 노출되므로 민감정보 아님)
 
 # Build output
 dist/

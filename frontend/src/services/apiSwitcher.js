@@ -17,6 +17,10 @@
 
 const PC_SERVER = import.meta.env.VITE_API_BASE_URL || 'http://192.168.137.1:3000/api';
 const RPI_SERVER = import.meta.env.VITE_RPI_API_URL || 'http://192.168.137.30:1880/api';
+
+// 프로덕션 모드 판별: RPi 직접 접근이 불가능한 외부 네트워크 환경
+// VITE_RPI_API_URL이 비어있거나, HTTPS에서 로컬 HTTP RPi 호출 시 Mixed Content 차단됨
+const IS_CLOUD_MODE = !import.meta.env.VITE_RPI_API_URL || (typeof window !== 'undefined' && window.location.protocol === 'https:' && RPI_SERVER.startsWith('http://'));
 const STORAGE_KEY = 'apiSwitcher_state';
 const GLOBAL_KEY = '__smartfarmApiState';
 const FARM_LOCAL_KEY = 'smartfarm_farmLocalMode';
@@ -82,11 +86,11 @@ function loadSavedState() {
       const state = JSON.parse(saved);
       return {
         serverOnline: state.serverOnline ?? true,
-        manualOverride: state.manualOverride ?? false,
+        manualOverride: IS_CLOUD_MODE ? false : (state.manualOverride ?? false),
         downSince: state.downSince || null,
-        currentApiBase: state.manualOverride
-          ? RPI_SERVER
-          : (state.serverOnline ? PC_SERVER : RPI_SERVER),
+        currentApiBase: IS_CLOUD_MODE
+          ? PC_SERVER
+          : (state.manualOverride ? RPI_SERVER : (state.serverOnline ? PC_SERVER : RPI_SERVER)),
       };
     }
   } catch {}
@@ -141,6 +145,10 @@ export function getServerTimeoutSec() {
  * 일반 모드: RPi 직접
  */
 export function getRpiApiBase() {
+  if (IS_CLOUD_MODE) {
+    // 클라우드 모드: RPi 직접 접근 불가 → PC 서버 API 사용
+    return PC_SERVER;
+  }
   if (isFarmLocalMode()) {
     // RPi에서 직접 접속 시만 origin 사용 (same-origin)
     if (window.location.port === '1880' || window.location.origin.includes(':1880')) {
@@ -289,14 +297,24 @@ async function checkServerHealth() {
       HEALTH_MAX_INTERVAL
     );
 
-    S.rpiOnline = await checkRpiHealth();
-    if (S.rpiOnline) {
-      S.currentApiBase = RPI_SERVER;
+    if (IS_CLOUD_MODE) {
+      // 클라우드 모드: RPi fallback 없음 — 서버 복구 대기
+      S.rpiOnline = false;
+      S.currentApiBase = PC_SERVER; // 서버 다운이어도 PC_SERVER 유지
       if (S.consecutiveFailures <= 1) {
-        console.log('[API Switcher] RPi 접근 가능 → RPi API로 전환');
+        console.log('[API Switcher] 서버 일시 장애 — 재시도 중');
       }
-    } else if (S.consecutiveFailures <= 1) {
-      console.log('[API Switcher] RPi 접근 불가 → 연결 끊김');
+    } else {
+      // 로컬 네트워크: RPi fallback 활성
+      S.rpiOnline = await checkRpiHealth();
+      if (S.rpiOnline) {
+        S.currentApiBase = RPI_SERVER;
+        if (S.consecutiveFailures <= 1) {
+          console.log('[API Switcher] RPi 접근 가능 → RPi API로 전환');
+        }
+      } else if (S.consecutiveFailures <= 1) {
+        console.log('[API Switcher] RPi 접근 불가 → 연결 끊김');
+      }
     }
   }
 

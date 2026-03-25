@@ -362,6 +362,19 @@ const ControlPanel = ({ farmId, houseId, houseConfig }) => {
   const isFetchingRef = React.useRef(false);
 
   const fetchRelayStatus = useCallback(async (manual = false) => {
+    // WebSocket 연결 시 MQTT 경유 조회 (클라우드 모드)
+    if (wsService.isConnected()) {
+      if (manual) { setRelayFetching(true); setRelayMessage(null); }
+      const sent = wsService.requestRelayStatus(farmId);
+      if (manual) {
+        setRelayMessage({ type: sent ? 'ok' : 'warn', text: sent ? 'MQTT 조회 요청...' : 'MQTT 미연결' });
+        setTimeout(() => { setRelayFetching(false); setRelayMessage(null); }, 5000);
+      }
+      isFetchingRef.current = false;
+      return;
+    }
+
+    // WebSocket 미연결 시 기존 HTTP 직접 조회 (로컬 모드)
     // 중복 호출 방지 (이전 요청이 타임아웃 대기 중이면 건너뜀)
     if (isFetchingRef.current) {
       if (manual) setRelayMessage({ type: 'warn', text: '이전 조회 진행 중...' });

@@ -485,8 +485,6 @@ const ControlPanel = ({ farmId, houseId, houseConfig }) => {
   }, []);
 
   useEffect(() => {
-    fetchRelayStatus();
-    startRelayPolling();
     // Lambda 콜드 스타트 방지: 페이지 진입 시 미리 워밍업
     const mode = getSystemMode();
     if (!mode.isFarmLocal && mode.serverOnline) warmupLambda();
@@ -496,8 +494,14 @@ const ControlPanel = ({ farmId, houseId, houseConfig }) => {
     const apiBase = getApiBase();
     if (token && apiBase) {
       wsService.connect(apiBase, token);
-      // 초기 릴레이 상태 요청
-      setTimeout(() => wsService.requestRelayStatus(farmId), 1000);
+      // WS 연결 후 MQTT로 릴레이 조회
+      setTimeout(() => wsService.requestRelayStatus(farmId), 1500);
+    }
+
+    // WS 미연결 시에만 HTTP 폴링 (로컬 모드)
+    if (!token || !apiBase || mode.isFarmLocal) {
+      fetchRelayStatus();
+      startRelayPolling();
     }
 
     const unsubRelay = wsService.subscribe('relay:status', (msg) => {

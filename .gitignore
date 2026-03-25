@@ -70,3 +70,4 @@ backend/fix-*.txt
 *.tgz
 *.tar.gz
 *.zip
+backend/certs/

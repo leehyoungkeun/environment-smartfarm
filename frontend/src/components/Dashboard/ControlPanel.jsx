@@ -4,6 +4,7 @@ import axios from 'axios';
 import { useAuth } from '../../contexts/AuthContext';
 import { sendControlCommand, getControlLogs, getRelayStatus, warmupLambda, saveControlLog } from '../../services/controlApi';
 import { getSystemMode, getApiBase, getRpiApiBase } from '../../services/apiSwitcher';
+import wsService from '../../services/wsService';
 
 const DEVICE_TYPE_INFO = {
   window:      { label: '1창', icon: '🪟', commands: ['open', 'stop', 'close'] },
@@ -476,8 +477,53 @@ const ControlPanel = ({ farmId, houseId, houseConfig }) => {
     // Lambda 콜드 스타트 방지: 페이지 진입 시 미리 워밍업
     const mode = getSystemMode();
     if (!mode.isFarmLocal && mode.serverOnline) warmupLambda();
-    return () => stopRelayPolling();
-  }, [fetchRelayStatus, startRelayPolling, stopRelayPolling]);
+
+    // WebSocket 연결 + 실시간 릴레이/제어 수신
+    const token = localStorage.getItem('accessToken');
+    const apiBase = getApiBase();
+    if (token && apiBase) {
+      wsService.connect(apiBase, token);
+      // 초기 릴레이 상태 요청
+      setTimeout(() => wsService.requestRelayStatus(farmId), 1000);
+    }
+
+    const unsubRelay = wsService.subscribe('relay:status', (msg) => {
+      if (msg.data) {
+        const coils = msg.data.coils || msg.data;
+        if (typeof coils === 'object') {
+          const unitId = msg.data.unitId || 1;
+          relayCoilsRef.current = { ...relayCoilsRef.current, [unitId]: coils };
+          setRelayOnline(true);
+        }
+      }
+    });
+
+    const unsubRelayRes = wsService.subscribe('relay:response', (msg) => {
+      if (msg.data) {
+        const coils = msg.data.coils || msg.data;
+        if (typeof coils === 'object') {
+          const unitId = msg.data.unitId || 1;
+          relayCoilsRef.current = { ...relayCoilsRef.current, [unitId]: coils };
+          setRelayOnline(true);
+          setRelayMessage({ type: 'ok', text: '릴레이 조회 완료 (WS)' });
+          setTimeout(() => setRelayMessage(null), 3000);
+        }
+      }
+    });
+
+    const unsubControl = wsService.subscribe('control:response', (msg) => {
+      if (msg.data) {
+        console.log('📡 제어 실행 확인 (WS):', msg.data);
+      }
+    });
+
+    return () => {
+      stopRelayPolling();
+      unsubRelay();
+      unsubRelayRes();
+      unsubControl();
+    };
+  }, [fetchRelayStatus, startRelayPolling, stopRelayPolling, farmId]);
 
   // unmount 시 모든 타이머 정리
   useEffect(() => {

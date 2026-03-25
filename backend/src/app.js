@@ -15,6 +15,9 @@ import farmsRoutes from "./routes/farms.routes.js";
 import reportRoutes from "./routes/report.routes.js";
 
 import { connectDB, disconnectDB, checkDBHealth, prisma } from "./db.js";
+import { initMqttClient } from "./services/mqttClient.js";
+import { initWebSocketServer, getConnectedClients } from "./services/wsServer.js";
+import mqttService from "./services/mqttClient.js";
 import bcrypt from "bcryptjs";
 import configRoutes from "./routes/config.routes.js";
 import sensorsRoutes from "./routes/sensors.js";
@@ -365,6 +368,10 @@ async function startServer() {
     startDeviceFailureScheduler();
 
     const server = app.listen(PORT, "0.0.0.0", () => {
+      // MQTT + WebSocket 초기화
+      initMqttClient();
+      initWebSocketServer(server);
+
       logger.info(`
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 🌱 Configurable SmartFarm Backend Server
@@ -372,6 +379,8 @@ async function startServer() {
    Port: ${PORT}
    Environment: ${process.env.NODE_ENV || "development"}
    Database: PostgreSQL + TimescaleDB
+   MQTT: AWS IoT Core
+   WebSocket: /ws
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
       `);
     });
@@ -439,12 +448,14 @@ process.on("unhandledRejection", (reason, promise) => {
 // Graceful shutdown
 process.on("SIGTERM", async () => {
   logger.info("SIGTERM received, shutting down gracefully...");
+  mqttService.disconnect();
   await disconnectDB();
   process.exit(0);
 });
 
 process.on("SIGINT", async () => {
   logger.info("SIGINT received, shutting down gracefully...");
+  mqttService.disconnect();
   await disconnectDB();
   process.exit(0);
 });

@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback, lazy, Suspense } from 'react';
 import axiosBase from 'axios';
 import { getApiBase, getPcApiBase, getRpiApiBase, isFarmLocalMode, setFarmLocalMode } from '../../services/apiSwitcher';
+import wsService from '../../services/wsService';
 
 const AutomationManager = lazy(() => import('../Dashboard/AutomationManager'));
 
@@ -99,6 +100,12 @@ const ConfigurationManager = ({ farmId = import.meta.env.VITE_FARM_ID || 'farm_0
 
   useEffect(() => {
     loadHouses();
+    // WebSocket 연결 (MQTT 릴레이 테스트용)
+    const token = localStorage.getItem('accessToken');
+    const apiBase = getApiBase();
+    if (token && apiBase) {
+      wsService.connect(apiBase, token);
+    }
   }, [farmId]);
 
   const loadHouses = async () => {
@@ -1026,6 +1033,20 @@ const DeviceManager = ({ house, setEditedHouse, onUpdate, isDirty, saving, onSav
     setEditedHouse({ ...house, devices: updatedDevices });
   };
 
+  // MQTT 경유 릴레이 테스트 (WebSocket 연결 시)
+  const testRelayViaMqtt = (farmId) => {
+    return new Promise((resolve) => {
+      if (!wsService.isConnected()) return resolve(null);
+      const timeout = setTimeout(() => { unsub(); resolve(null); }, 8000);
+      const unsub = wsService.subscribe('relay:response', (msg) => {
+        clearTimeout(timeout);
+        unsub();
+        resolve(msg.data);
+      });
+      wsService.requestRelayStatus(farmId);
+    });
+  };
+
   // Modbus 연결 테스트
   const [modbusTestResult, setModbusTestResult] = useState({}); // { [deviceId]: 'testing'|'ok'|'fail' }
   const testModbusConnection = async (deviceId) => {
@@ -1035,6 +1056,18 @@ const DeviceManager = ({ house, setEditedHouse, onUpdate, isDirty, saving, onSav
 
     setModbusTestResult(prev => ({ ...prev, [deviceId]: 'testing' }));
     try {
+      // WebSocket 연결 시 MQTT 경유
+      if (wsService.isConnected()) {
+        const result = await testRelayViaMqtt(farmId);
+        if (result && result.coils) {
+          setModbusTestResult(prev => ({ ...prev, [deviceId]: 'ok' }));
+        } else {
+          setModbusTestResult(prev => ({ ...prev, [deviceId]: result === null ? 'fail' : 'ok' }));
+        }
+        return;
+      }
+
+      // 로컬 모드: HTTP 직접 조회
       const rpiBase = getRpiApiBase();
       const moduleType = m.moduleType || 'waveshare';
       const unitId = m.unitId || 1;
@@ -1985,6 +2018,14 @@ const RelayModuleManager = ({ farmId }) => {
   const testModule = async (module) => {
     setRelayStatus(prev => ({ ...prev, [module.id]: { online: null, testing: true } }));
     try {
+      // WebSocket 연결 시 MQTT 경유
+      if (wsService.isConnected()) {
+        const result = await testRelayViaMqtt(farmId);
+        setRelayStatus(prev => ({ ...prev, [module.id]: { online: result && result.coils ? true : false, testing: false } }));
+        return;
+      }
+
+      // 로컬 모드: HTTP 직접 조회
       const rpiUrl = getRpiApiBase();
       let res;
       if (module.moduleType === 'eletechsup') {
@@ -2565,6 +2606,14 @@ const ModbusOverviewPanel = ({ farmId }) => {
     const key = `${unitId}_${moduleType}`;
     setRelayStatus(prev => ({ ...prev, [key]: { online: null, testing: true } }));
     try {
+      // WebSocket 연결 시 MQTT 경유
+      if (wsService.isConnected()) {
+        const result = await testRelayViaMqtt(farmId);
+        setRelayStatus(prev => ({ ...prev, [key]: { online: result && result.coils ? true : false, testing: false } }));
+        return;
+      }
+
+      // 로컬 모드: HTTP 직접 조회
       const rpiUrl = getRpiApiBase();
       let res;
       if (moduleType === 'eletechsup') {
@@ -2582,6 +2631,14 @@ const ModbusOverviewPanel = ({ farmId }) => {
     const key = String(unitId);
     setSensorBusStatus(prev => ({ ...prev, [key]: { online: null, testing: true } }));
     try {
+      // WebSocket 연결 시 MQTT 경유 (센서도 같은 Modbus 버스)
+      if (wsService.isConnected()) {
+        const result = await testRelayViaMqtt(farmId);
+        setSensorBusStatus(prev => ({ ...prev, [key]: { online: result !== null, testing: false } }));
+        return;
+      }
+
+      // 로컬 모드: HTTP 직접 조회
       const rpiUrl = getRpiApiBase();
       const res = await axiosBase.get(`${rpiUrl}/relay/reg-status`, { params: { unitId, register: address || 0, quantity: quantity || 1 }, timeout: 5000 });
       setSensorBusStatus(prev => ({ ...prev, [key]: { online: res.data?.success === true, testing: false } }));

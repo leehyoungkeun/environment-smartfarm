@@ -73,12 +73,14 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // 기타 정적 자원 — 네트워크 우선, 실패시 캐시
+  // 기타 정적 자원 — 네트워크 우선, 실패시 캐시 (GET만 캐시 가능)
   event.respondWith(
     fetch(request)
       .then((response) => {
-        const clone = response.clone();
-        caches.open(CACHE_VERSION).then((cache) => cache.put(request, clone));
+        if (request.method === 'GET') {
+          const clone = response.clone();
+          caches.open(CACHE_VERSION).then((cache) => cache.put(request, clone));
+        }
         return response;
       })
       .catch(() => {

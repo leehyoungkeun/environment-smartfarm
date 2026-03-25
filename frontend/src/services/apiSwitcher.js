@@ -260,7 +260,8 @@ async function checkServerHealth() {
   }
 
   try {
-    const pcHealthUrl = PC_SERVER.replace('/api', '') + '/health';
+    // PC_SERVER 끝의 /api 만 제거 (api.smartgreen.kr의 /api를 잘못 매칭하지 않도록)
+    const pcHealthUrl = PC_SERVER.replace(/\/api$/, '') + '/health';
     const response = await fetch(pcHealthUrl, {
       method: 'GET',
       cache: 'no-store',

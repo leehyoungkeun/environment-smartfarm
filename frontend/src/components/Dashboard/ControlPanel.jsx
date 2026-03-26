@@ -86,8 +86,17 @@ const ControlPanel = ({ farmId, houseId, houseConfig }) => {
     loadActiveState();
   }, [farmId, houseId]);
 
-  // 자동 모드 장치 목록을 RPi에 전달
+  // 자동 모드 장치 목록을 RPi에 전달 (HTTP 직접 또는 MQTT 경유)
   const syncAutoDevicesToRpi = async (rpiUrl, autoDeviceIds) => {
+    // MQTT 경유: 서버의 automation sync로 RPi에 알림 → RPi가 규칙 재로드
+    try {
+      const pcUrl = getApiBase();
+      await axios.post(`${pcUrl}/automation/${farmId}/active`, {
+        houseId, active: autoDeviceIds.length > 0, autoDevices: autoDeviceIds,
+      }, { timeout: 5000 }).catch(() => {});
+    } catch {}
+
+    // RPi 직접 접근 가능하면 device-modes도 전달
     try {
       await axios.post(`${rpiUrl}/automation/${farmId}/device-modes`, {
         autoDevices: autoDeviceIds,

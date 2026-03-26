@@ -101,6 +101,22 @@ router.put("/:farmId/active", async (req, res) => {
     logger.info(`🔄 자동화 ${active ? '적용' : '중지'}: ${farmId}/${hKey}`);
     res.json({ success: true, active });
     notifyRpiSync(farmId);
+
+    // MQTT로 autoDevices 직접 발행 → RPi가 즉시 반영
+    try {
+      const mqttService = (await import("../services/mqttClient.js")).default;
+      if (mqttService.isConnected()) {
+        const topic = `smartfarm/${farmId}/automation/autoDevices`;
+        mqttService.client.publish(topic, JSON.stringify({
+          action: 'set_autoDevices',
+          farmId, houseId: hKey,
+          active: !!active,
+          autoDevices: active ? (autoDevices || []) : [],
+          timestamp: new Date().toISOString(),
+        }), { qos: 1 });
+        logger.info(`📤 MQTT autoDevices 발행: ${topic}`);
+      }
+    } catch (e) { logger.warn("MQTT autoDevices 발행 실패:", e.message); }
   } catch (error) {
     logger.error("자동화 상태 변경 실패:", error);
     res.status(500).json({ success: false, error: error.message });

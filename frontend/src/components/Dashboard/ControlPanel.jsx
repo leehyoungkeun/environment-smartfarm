@@ -1308,9 +1308,9 @@ const ControlPanel = ({ farmId, houseId, houseConfig }) => {
                                   {openLabel}
                                 </button>
                                 <button onClick={() => handleControlWithRetry(device.deviceId, 'stop')}
-                                  disabled={anyModbusBusy || (!prog && state.status === 'idle') || state.status === 'stopping'}
+                                  disabled={anyModbusBusy || (!prog && state.status === 'idle' && (pos === undefined || pos === null)) || state.status === 'stopping'}
                                   style={{...btnBase, ...(state.status === 'stopping' ? s.stopActive : (prog || state.status === 'opening' || state.status === 'closing') ? s.stopUrgent : (anyModbusBusy || state.status === 'idle') ? s.stopDisabled : s.stopInactive),
-                                    ...(prog || (pos !== undefined && pos !== null) ? { fontSize: 15, fontWeight: 900, color: '#1e40af', background: '#dbeafe', border: '2px solid #93c5fd' } : {})
+                                    ...(prog || (pos !== undefined && pos !== null && pos > 0 && pos < 100) ? { fontSize: 15, fontWeight: 900, color: '#1e40af', background: '#dbeafe', border: '2px solid #93c5fd' } : (pos !== undefined && pos !== null) ? { fontSize: 14, fontWeight: 700, color: '#6b7280', background: '#f3f4f6', border: '1px solid #e5e7eb' } : {})
                                   }}>
                                   {stopLabel}
                                 </button>

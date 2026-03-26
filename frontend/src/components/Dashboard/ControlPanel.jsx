@@ -630,24 +630,40 @@ const ControlPanel = ({ farmId, houseId, houseConfig }) => {
   // 비상정지: 모든 장치 즉시 정지/OFF
   const handleEmergencyStop = useCallback(async () => {
     stopRelayPolling();
+    // bidir 진행도 전체 초기화
+    setBidirProgress({});
+
     for (const device of devices) {
       const typeInfo = DEVICE_TYPE_INFO[device.type] || { commands: ['on', 'off'] };
       const stopCmd = typeInfo.commands.includes('stop') ? 'stop' : 'off';
+      const modbusConfig = device.modbus || null;
       try {
-        const rpiApi = getRpiApiBase();
-        const modbusConfig = device.modbus || null;
-        await axios.post(`${rpiApi}/control/local`, {
-          house_id: controlHouseId,
-          device_id: device.deviceId,
-          command: stopCmd,
-          operator: '비상정지',
-          modbus: modbusConfig,
-        }, { timeout: 5000 });
+        const isLocal = ['localhost', '127.0.0.1'].includes(window.location.hostname);
+        if (isLocal) {
+          // 로컬: RPi 직접
+          const rpiApi = getRpiApiBase();
+          await axios.post(`${rpiApi}/control/local`, {
+            house_id: controlHouseId, device_id: device.deviceId,
+            command: stopCmd, operator: '비상정지', modbus: modbusConfig,
+          }, { timeout: 5000 });
+        } else {
+          // 클라우드: AWS Lambda 경유
+          await sendControlCommand(controlHouseId, device.deviceId, stopCmd, '비상정지', {
+            farmId, originalHouseId: houseId,
+            deviceType: device.type, deviceName: device.name,
+            operatorName: '비상정지', modbus: modbusConfig,
+          });
+        }
         setDeviceStates(prev => ({ ...prev, [device.deviceId]: { ...prev[device.deviceId], status: stopCmd === 'stop' ? 'idle' : 'off', commandLock: false } }));
+        // 자동정지 타이머 해제
+        const stopTimerKey = `autoStop_${device.deviceId}`;
+        const progressKey = `progress_${device.deviceId}`;
+        if (timerRefs.current[stopTimerKey]) { clearTimeout(timerRefs.current[stopTimerKey]); timerRefs.current[stopTimerKey] = null; }
+        if (timerRefs.current[progressKey]) { clearInterval(timerRefs.current[progressKey]); timerRefs.current[progressKey] = null; }
       } catch {}
     }
-    setTimeout(() => { fetchRelayStatus(); startRelayPolling(); }, 2000);
-  }, [devices, controlHouseId, stopRelayPolling, startRelayPolling, fetchRelayStatus]);
+    setTimeout(() => { if (wsService.isConnected()) wsService.requestRelayStatus(farmId); }, 2000);
+  }, [devices, controlHouseId, stopRelayPolling, farmId, houseId]);
 
   // error 상태 리셋
   const handleErrorReset = useCallback((deviceId) => {

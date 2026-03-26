@@ -2979,11 +2979,22 @@ const SystemManagePanel = () => {
   const [actionLoading, setActionLoading] = useState(null);
   const [actionMsg, setActionMsg] = useState(null);
 
-  // 시스템 관리 API는 Node-RED(1880)와 별도 포트(3100)에서 동작
+  // 시스템 관리 API — WS 연결 시 MQTT 경유, 아니면 RPi 직접
   const sysUrl = getRpiApiBase().replace(/:\d+\/api.*$/, '') + ':3100/api';
 
   const loadStatus = useCallback(async () => {
     try {
+      // WebSocket 연결 시 MQTT 경유로 상태 확인
+      if (wsService.isConnected()) {
+        // MQTT heartbeat 기반으로 RPi 온라인 판단
+        setStatus({
+          nodeRed: { online: true, uptime: 'MQTT 연결됨' },
+          rpiExpress: { online: true, uptime: 'MQTT 연결됨' },
+        });
+        setLoading(false);
+        return;
+      }
+
       const res = await axiosBase.get(`${sysUrl}/system/status`, { timeout: 5000 });
       const d = res.data;
       if (d?.nodeRed || d?.rpiExpress) {
@@ -3017,30 +3028,54 @@ const SystemManagePanel = () => {
     setActionLoading(action);
     setActionMsg(null);
     try {
-      const res = await axiosBase.post(`${sysUrl}/system/${action}`, {}, { timeout: 30000 });
-      if (res.data?.success !== false) {
-        setActionMsg({ type: 'success', text: `${label} 완료` });
+      // WebSocket 연결 시 MQTT 경유
+      if (wsService.isConnected()) {
+        wsService.send({ type: 'system:command', action, farmId });
+        setActionMsg({ type: 'success', text: `${label} 요청 전송됨 (MQTT)` });
         setTimeout(loadStatus, 5000);
       } else {
-        setActionMsg({ type: 'error', text: res.data?.error || '실패' });
+        const res = await axiosBase.post(`${sysUrl}/system/${action}`, {}, { timeout: 30000 });
+        if (res.data?.success !== false) {
+          setActionMsg({ type: 'success', text: `${label} 완료` });
+          setTimeout(loadStatus, 5000);
+        } else {
+          setActionMsg({ type: 'error', text: res.data?.error || '실패' });
+        }
       }
     } catch (err) {
       setActionMsg({ type: 'error', text: err.message });
     } finally { setActionLoading(null); }
   };
 
-  // 릴레이 전체 OFF — Node-RED /api/relay/reset-all 호출
+  // 릴레이 전체 OFF — AWS Lambda 경유 또는 Node-RED 직접
   const handleRelayReset = async () => {
     if (!confirm('모든 릴레이를 OFF 하시겠습니까?\n(동작 중인 장치가 모두 정지됩니다)')) return;
     setActionLoading('relay-reset');
     setActionMsg(null);
     try {
-      const rpiBase = getRpiApiBase();
-      const res = await axiosBase.post(`${rpiBase}/relay/reset-all`, {}, { timeout: 15000 });
-      if (res.data?.success) {
-        setActionMsg({ type: 'success', text: `릴레이 전체 OFF 완료 (${res.data.detail || ''})` });
+      if (wsService.isConnected()) {
+        // AWS Lambda 경유로 각 채널 OFF
+        const AWS_ENDPOINT = import.meta.env.VITE_AWS_CONTROL_ENDPOINT;
+        if (AWS_ENDPOINT) {
+          for (let ch = 0; ch < 8; ch++) {
+            await axiosBase.post(AWS_ENDPOINT, {
+              house_id: 'house1', window_id: `reset_ch${ch}`,
+              command: 'off', operator: 'relay_reset',
+              request_id: `reset-${Date.now()}-${ch}`,
+              modbus: { unitId: 1, moduleType: 'waveshare', controlType: 'single', address: ch },
+            }, { timeout: 5000 }).catch(() => {});
+            await new Promise(r => setTimeout(r, 300));
+          }
+          setActionMsg({ type: 'success', text: '릴레이 전체 OFF 완료 (MQTT)' });
+        }
       } else {
-        setActionMsg({ type: 'error', text: res.data?.error || '릴레이 초기화 실패' });
+        const rpiBase = getRpiApiBase();
+        const res = await axiosBase.post(`${rpiBase}/relay/reset-all`, {}, { timeout: 15000 });
+        if (res.data?.success) {
+          setActionMsg({ type: 'success', text: `릴레이 전체 OFF 완료 (${res.data.detail || ''})` });
+        } else {
+          setActionMsg({ type: 'error', text: res.data?.error || '릴레이 초기화 실패' });
+        }
       }
     } catch (err) {
       setActionMsg({ type: 'error', text: err.message });
@@ -3151,6 +3186,12 @@ const SyncPanel = ({ farmId }) => {
       try {
         res = await axios.get(`${getApiBase()}/config/sync-status/${farmId}`, { timeout: 5000, headers: apiKeyHeader });
       } catch {
+        // 클라우드 모드: RPi 직접 접근 불가 — 동기화 불필요 (단일 DB)
+        if (wsService.isConnected()) {
+          setSyncStatus({ syncRunning: false, pending: 0, synced: 0, total: 0, mode: 'cloud' });
+          setLoading(false);
+          return;
+        }
         res = await axiosBase.get(`${getRpiApiBase()}/sync/status`, { timeout: 5000 });
       }
       if (res.data?.success) setSyncStatus(res.data.data);

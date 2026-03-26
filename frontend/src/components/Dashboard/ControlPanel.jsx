@@ -834,6 +834,8 @@ const ControlPanel = ({ farmId, houseId, houseConfig }) => {
       }
 
       setControlHistory(prev => [{ deviceId, command, success: result.success, requestId: result.requestId, timestamp: new Date().toISOString(), error: result.error, operatorName }, ...prev.slice(0, 19)]);
+      // 제어 완료 → controlStage 초기화
+      setControlStage(prev => ({ ...prev, [deviceId]: null }));
       if (result.success) {
         if (timerRefs.current[deviceId]) clearTimeout(timerRefs.current[deviceId]);
         const finalStatus = { open: 'open', close: 'closed', stop: 'idle', on: 'on', off: 'off' };

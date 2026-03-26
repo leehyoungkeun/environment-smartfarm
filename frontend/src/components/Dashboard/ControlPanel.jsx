@@ -91,7 +91,7 @@ const ControlPanel = ({ farmId, houseId, houseConfig }) => {
     // MQTT 경유: 서버의 automation sync로 RPi에 알림 → RPi가 규칙 재로드
     try {
       const pcUrl = getApiBase();
-      await axios.post(`${pcUrl}/automation/${farmId}/active`, {
+      await axios.put(`${pcUrl}/automation/${farmId}/active`, {
         houseId, active: autoDeviceIds.length > 0, autoDevices: autoDeviceIds,
       }, { timeout: 5000 }).catch(() => {});
     } catch {}

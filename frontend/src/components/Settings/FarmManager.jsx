@@ -166,6 +166,7 @@ const ALL_COLUMNS = [
   { id: 'connection', label: '접속', default: true },
   { id: 'maintenance', label: '유지보수', default: true },
   { id: 'registeredAt', label: '등록일', default: true },
+  { id: 'deviceCode', label: '장비코드', default: true },
   { id: 'apiKey', label: 'API Key', default: false },
   { id: 'tags', label: '태그', default: false },
   { id: 'memo', label: '메모', default: false },
@@ -349,17 +350,26 @@ export default function FarmManager({ onNavigateFarm }) {
   const tagInputRef = React.useRef(null);
 
   /* ── Data Fetching ── */
+  const [deviceMap, setDeviceMap] = useState({}); // { farmId: device }
+
   const fetchFarms = useCallback(async () => {
     try {
-      const [res, tagRes, trashRes, schedRes, bizRes, alertRes] = await Promise.all([
+      const [res, tagRes, trashRes, schedRes, bizRes, alertRes, devRes] = await Promise.all([
         axios.get(`${API}/farms`),
         axios.get(`${API}/farms/tags/all`).catch(() => null),
         axios.get(`${API}/farms/trash/count`).catch(() => null),
         axios.get(`${API}/farms/schedules/summary`).catch(() => null),
         axios.get(`${API}/farms/business-projects`).catch(() => null),
         axios.get(`${API}/farms/alert-summary`).catch(() => null),
+        axios.get(`${API}/devices`).catch(() => null),
       ]);
       setFarms(res.data.data || []);
+      // 장비 맵 구성 (farmId → device)
+      if (devRes?.data?.data) {
+        const map = {};
+        devRes.data.data.forEach(d => { if (d.farmId) map[d.farmId] = d; });
+        setDeviceMap(map);
+      }
       if (tagRes) setAllTags(tagRes.data.data || []);
       if (trashRes) setTrashCount(trashRes.data.data?.count || 0);
       if (schedRes) setScheduleSummaryGlobal(schedRes.data.data || { todayCount: 0, weekCount: 0, monthCount: 0, overdueCount: 0, todaySchedules: [], weekSchedules: [], monthSchedules: [], overdueSchedules: [] });
@@ -716,8 +726,20 @@ export default function FarmManager({ onNavigateFarm }) {
     }
     const data = { ...form, managers: clean, tags: finalTags };
     try {
-      if (editFarm) await axios.put(`${API}/farms/${editFarm.farmId}`, data);
-      else await axios.post(`${API}/farms`, data);
+      if (editFarm) {
+        await axios.put(`${API}/farms/${editFarm.farmId}`, data);
+      } else {
+        const farmRes = await axios.post(`${API}/farms`, data);
+        const newFarmId = farmRes.data?.data?.farmId;
+        // 농장 등록 시 장비 코드 자동 발급
+        if (newFarmId) {
+          try {
+            const devRes = await axios.post(`${API}/devices`, { count: 1, farmId: newFarmId, memo: `${data.name} 자동 발급` });
+            const code = devRes.data?.data?.[0]?.deviceCode;
+            if (code) alert(`농장 등록 완료!\n\n장비 코드: ${code}\n이 코드를 RPi에 입력하세요.`);
+          } catch { /* 장비 발급 실패해도 농장 등록은 완료 */ }
+        }
+      }
       setShowForm(false); setEditFarm(null); fetchFarms();
     } catch (err) { setError(err.response?.data?.error || '저장 실패'); }
   };
@@ -1606,6 +1628,7 @@ export default function FarmManager({ onNavigateFarm }) {
                 {isCol('connection') && <th className="px-2 py-2 text-center text-xs font-semibold text-gray-600 border-r border-gray-200">접속</th>}
                 {isCol('maintenance') && <th className="px-2 py-2 text-center text-xs font-semibold text-gray-600 border-r border-gray-200">유지보수</th>}
                 {isCol('registeredAt') && <th className="px-2 py-2 text-center text-xs font-semibold text-gray-600 border-r border-gray-200">등록일</th>}
+                {isCol('deviceCode') && <th className="px-2 py-2 text-center text-xs font-semibold text-gray-600 border-r border-gray-200">장비코드</th>}
                 {isCol('apiKey') && <th className="px-2 py-2 text-center text-xs font-semibold text-gray-600 border-r border-gray-200">API Key</th>}
                 {isCol('tags') && <th className="px-2 py-2 text-center text-xs font-semibold text-gray-600 border-r border-gray-200">태그</th>}
                 {isCol('memo') && <th className="px-2 py-2 text-center text-xs font-semibold text-gray-600 border-r border-gray-200">메모</th>}
@@ -1692,6 +1715,31 @@ export default function FarmManager({ onNavigateFarm }) {
                     {isCol('registeredAt') && <td className="px-1 py-1.5 text-center text-xs text-gray-500 border-r border-gray-100">
                       {fmt(farm.registeredAt)}
                     </td>}
+                    {isCol('deviceCode') && (() => {
+                      const dev = deviceMap[farm.farmId];
+                      const statusColors = { online: 'bg-emerald-100 text-emerald-700', offline: 'bg-rose-100 text-rose-700', pending: 'bg-amber-100 text-amber-700' };
+                      const statusLabels = { online: '🟢', offline: '🔴', pending: '⚪' };
+                      return (
+                        <td className="px-2 py-1.5 text-center border-r border-gray-100">
+                          {dev ? (
+                            <div className="flex items-center justify-center gap-1.5">
+                              <span title={dev.status}>{statusLabels[dev.status] || '⚪'}</span>
+                              <code className="text-xs font-mono font-bold text-indigo-600">{dev.deviceCode}</code>
+                            </div>
+                          ) : (
+                            <button onClick={async () => {
+                              try {
+                                const r = await axios.post(`${API}/devices`, { count: 1, farmId: farm.farmId, memo: farm.name });
+                                const code = r.data?.data?.[0]?.deviceCode;
+                                if (code) { alert(`장비 코드 발급: ${code}`); fetchFarms(); }
+                              } catch { alert('발급 실패'); }
+                            }} className="text-[10px] text-indigo-500 hover:text-indigo-700 font-semibold">
+                              + 발급
+                            </button>
+                          )}
+                        </td>
+                      );
+                    })()}
                     {isCol('apiKey') && (
                       <td className="px-2 py-1.5 border-r border-gray-100">
                         <div className="flex items-center gap-1">

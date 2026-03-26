@@ -3,6 +3,7 @@ import axios from 'axios';
 import Fuse from 'fuse.js';
 import { useAuth } from '../../contexts/AuthContext';
 import * as XLSX from 'xlsx';
+import QRCode from 'qrcode';
 
 const API = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3000/api';
 const KAKAO_KEY = import.meta.env.VITE_KAKAO_MAP_KEY || '';
@@ -1725,6 +1726,32 @@ export default function FarmManager({ onNavigateFarm }) {
                             <div className="flex items-center justify-center gap-1.5">
                               <span title={dev.status}>{statusLabels[dev.status] || '⚪'}</span>
                               <code className="text-xs font-mono font-bold text-indigo-600">{dev.deviceCode}</code>
+                              <button title="QR 라벨 출력" onClick={async () => {
+                                const url = `https://smartgreen.kr/device/${dev.deviceCode}`;
+                                const qrDataUrl = await QRCode.toDataURL(url, { width: 200, margin: 1 });
+                                const win = window.open('', '_blank', 'width=400,height=500');
+                                win.document.write(`<html><head><title>장비 라벨</title><style>
+                                  body{font-family:sans-serif;text-align:center;padding:20px}
+                                  .label{border:2px solid #333;border-radius:12px;padding:20px;display:inline-block;width:280px}
+                                  img{margin:10px 0}
+                                  .code{font-size:28px;font-family:monospace;font-weight:bold;letter-spacing:4px;margin:8px 0}
+                                  .farm{font-size:14px;color:#666;margin:4px 0}
+                                  .brand{font-size:12px;color:#999;margin-top:8px}
+                                  @media print{body{padding:0}.label{border:2px solid #333}}
+                                </style></head><body>
+                                  <div class="label">
+                                    <div style="font-size:18px;font-weight:bold">🌱 SmartFarm</div>
+                                    <img src="${qrDataUrl}" width="160" height="160">
+                                    <div class="code">${dev.deviceCode}</div>
+                                    <div class="farm">${farm.name || ''}</div>
+                                    <div class="farm">${farm.farmId}</div>
+                                    <div class="brand">smartgreen.kr</div>
+                                  </div>
+                                  <br><button onclick="window.print()" style="margin-top:16px;padding:8px 24px;font-size:14px;cursor:pointer">🖨️ 인쇄</button>
+                                </body></html>`);
+                              }} className="text-[10px] text-gray-400 hover:text-indigo-600">
+                                📱
+                              </button>
                             </div>
                           ) : (
                             <button onClick={async () => {

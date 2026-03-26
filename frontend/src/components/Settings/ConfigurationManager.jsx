@@ -1930,7 +1930,7 @@ const SystemSettings = ({ farmId }) => {
       {systemSubTab === 'modbus' && <ModbusPanel farmId={farmId} />}
 
       {/* 시스템 관리 */}
-      {systemSubTab === 'sysmanage' && <SystemManagePanel />}
+      {systemSubTab === 'sysmanage' && <SystemManagePanel farmId={farmId} />}
     </div>
   );
 };
@@ -2973,7 +2973,7 @@ const ModbusOverviewPanel = ({ farmId }) => {
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // SystemManagePanel — 시스템 관리 (Node-RED 재시작, 상태 확인)
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-const SystemManagePanel = () => {
+const SystemManagePanel = ({ farmId }) => {
   const [status, setStatus] = useState(null);
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState(null);

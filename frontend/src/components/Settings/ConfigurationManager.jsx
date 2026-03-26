@@ -2070,6 +2070,28 @@ const RelayModuleManager = ({ farmId }) => {
     const results = [];
     const sendCmd = async (ch, on) => {
       try {
+        // WebSocket 연결 시 AWS IoT 경유 제어
+        if (wsService.isConnected()) {
+          const AWS_ENDPOINT = import.meta.env.VITE_AWS_CONTROL_ENDPOINT;
+          if (!AWS_ENDPOINT) return false;
+          const deviceId = `ch_test_${module.unitId}_${ch}`;
+          const modbus = module.moduleType === 'eletechsup'
+            ? { unitId: module.unitId, moduleType: 'eletechsup', controlType: 'single', address: ch + 1 }
+            : { unitId: module.unitId, moduleType: 'waveshare', controlType: 'single', address: ch };
+          const res = await axiosBase.post(AWS_ENDPOINT, {
+            house_id: 'house1', window_id: deviceId,
+            command: on ? 'on' : 'off',
+            operator: 'channel_test',
+            request_id: `chtest-${Date.now()}-${ch}`,
+            modbus: modbus,
+          }, { timeout: 8000 });
+          const data = typeof res.data === 'string' ? JSON.parse(res.data) : res.data;
+          const body = data.body ? (typeof data.body === 'string' ? JSON.parse(data.body) : data.body) : data;
+          return body.success === true;
+        }
+
+        // 로컬 모드: HTTP 직접
+        const rpiUrl = getRpiApiBase();
         if (module.moduleType === 'eletechsup') {
           const res = await axiosBase.post(`${rpiUrl}/relay/reg-write`, { unitId: module.unitId, register: ch + 1, value: on ? 256 : 512 }, { timeout: 5000 });
           return res.data?.success === true;
@@ -2087,7 +2109,7 @@ const RelayModuleManager = ({ farmId }) => {
       if (channelTestAbortRef.current) break;
       setChannelTest(prev => ({ ...prev, channel: ch, status: 'ON' }));
       onResults.push(await sendCmd(ch, true));
-      await new Promise(r => setTimeout(r, 150));
+      await new Promise(r => setTimeout(r, wsService.isConnected() ? 500 : 150));
     }
 
     if (!channelTestAbortRef.current) {
@@ -2100,7 +2122,7 @@ const RelayModuleManager = ({ farmId }) => {
       if (channelTestAbortRef.current) break;
       setChannelTest(prev => ({ ...prev, channel: ch, status: 'OFF' }));
       offResults.push(await sendCmd(ch, false));
-      await new Promise(r => setTimeout(r, 150));
+      await new Promise(r => setTimeout(r, wsService.isConnected() ? 500 : 150));
     }
 
     for (let ch = 0; ch < total; ch++) {

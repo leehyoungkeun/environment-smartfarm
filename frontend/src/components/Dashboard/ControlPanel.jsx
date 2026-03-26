@@ -373,12 +373,11 @@ const ControlPanel = ({ farmId, houseId, houseConfig }) => {
   const fetchRelayStatus = useCallback(async (manual = false) => {
     // WebSocket 연결 시 MQTT 경유 조회 (클라우드 모드)
     if (wsService.isConnected()) {
-      if (manual) { setRelayFetching(true); setRelayMessage(null); }
+      if (!manual) return; // WS 모드에서는 수동 조회만 허용 (폴링에 의한 반복 방지)
+      setRelayFetching(true); setRelayMessage(null);
       const sent = wsService.requestRelayStatus(farmId);
-      if (manual) {
-        setRelayMessage({ type: sent ? 'ok' : 'warn', text: sent ? 'MQTT 조회 요청...' : 'MQTT 미연결' });
-        setTimeout(() => { setRelayFetching(false); setRelayMessage(null); }, 5000);
-      }
+      setRelayMessage({ type: sent ? 'ok' : 'warn', text: sent ? 'MQTT 조회 요청...' : 'MQTT 미연결' });
+      setTimeout(() => { setRelayFetching(false); setRelayMessage(null); }, 5000);
       isFetchingRef.current = false;
       return;
     }
@@ -483,6 +482,8 @@ const ControlPanel = ({ farmId, houseId, houseConfig }) => {
 
   const startRelayPolling = useCallback(() => {
     if (relayIntervalRef.current) return;
+    // WS 연결 시 MQTT push로 상태를 받으므로 폴링 불필요
+    if (wsService.isConnected()) return;
     relayIntervalRef.current = setInterval(fetchRelayStatus, 10000);
   }, [fetchRelayStatus]);
 

@@ -86,23 +86,19 @@ const ControlPanel = ({ farmId, houseId, houseConfig }) => {
     loadActiveState();
   }, [farmId, houseId]);
 
-  // 자동 모드 장치 목록을 RPi에 전달 (HTTP 직접 또는 MQTT 경유)
+  // 자동 모드 장치 목록을 RPi에 전달 (로컬: HTTP 직접, 클라우드: handleApply의 PUT이 MQTT로 전달)
   const syncAutoDevicesToRpi = async (rpiUrl, autoDeviceIds) => {
-    // MQTT 경유: 서버의 automation sync로 RPi에 알림 → RPi가 규칙 재로드
-    try {
-      const pcUrl = getApiBase();
-      await axios.put(`${pcUrl}/automation/${farmId}/active`, {
-        houseId, active: autoDeviceIds.length > 0, autoDevices: autoDeviceIds,
-      }, { timeout: 5000 }).catch(() => {});
-    } catch {}
-
-    // RPi 직접 접근 가능하면 device-modes도 전달
-    try {
-      await axios.post(`${rpiUrl}/automation/${farmId}/device-modes`, {
-        autoDevices: autoDeviceIds,
-        houseId
-      }, { timeout: 5000 }).catch(() => {});
-    } catch {}
+    // RPi 직접 접근 가능하면 device-modes 전달 (로컬 모드)
+    const isLocal = ['localhost', '127.0.0.1'].includes(window.location.hostname);
+    if (isLocal) {
+      try {
+        await axios.post(`${rpiUrl}/automation/${farmId}/device-modes`, {
+          autoDevices: autoDeviceIds,
+          houseId
+        }, { timeout: 5000 }).catch(() => {});
+      } catch {}
+    }
+    // 클라우드 모드: handleApply/handleStop의 PUT /active가 이미 MQTT로 autoDevices 전달
   };
 
   // 충돌 감지: 같은 장치에 대해 상반된 명령을 내리는 규칙이 있는지 검사

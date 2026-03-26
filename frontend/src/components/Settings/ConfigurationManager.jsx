@@ -1636,7 +1636,15 @@ const SystemSettings = ({ farmId }) => {
         const data = res.data?.data;
         const rpiSync = data?.rpiSync;
         const farmInterval = data?.collectionConfig?.intervalSeconds || serverInterval;
-        if (!rpiSync) { setIntervalSyncStatus({ status: 'disconnected' }); return; }
+        if (!rpiSync) {
+          // WS 연결 시 MQTT로 RPi와 통신 가능 → 서버 설정 기준으로 표시
+          if (wsService.isConnected()) {
+            setIntervalSyncStatus({ status: 'applied', intervalSeconds: farmInterval, appliedAt: new Date().toISOString() });
+          } else {
+            setIntervalSyncStatus({ status: 'disconnected' });
+          }
+          return;
+        }
         // 모든 하우스가 동일 주기인지 확인
         const ackIntervals = (rpiSync.houses || []).map(h => h.intervalSeconds);
         const allMatch = ackIntervals.length > 0 && ackIntervals.every(v => v === farmInterval);

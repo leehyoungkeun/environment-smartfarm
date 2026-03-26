@@ -831,15 +831,12 @@ const ControlPanel = ({ farmId, houseId, houseConfig }) => {
         }, command === 'stop' ? 500 : 5000);
 
         // bidir 장치: openDuration/closeDuration 후 자동 정지 + 진행도 표시
-        console.log('🔍 bidir check:', modbusConfig?.controlType, command, modbusConfig?.openDuration, modbusConfig?.closeDuration);
         if (modbusConfig?.controlType === 'bidir' && (command === 'open' || command === 'close')) {
           const fullDur = command === 'open' ? modbusConfig.openDuration : modbusConfig.closeDuration;
-          console.log('🔍 bidir fullDur:', fullDur, 'command:', command);
           if (fullDur && fullDur > 0) {
             const curPos = bidirPositionRef.current[deviceId] || 0;
             const remainRatio = command === 'open' ? (100 - curPos) / 100 : curPos / 100;
             const autoDur = Math.max(1, Math.round(fullDur * remainRatio));
-            console.log('🔍 bidir 진행도 시작:', deviceId, command, 'curPos:', curPos, 'autoDur:', autoDur);
             const stopTimerKey = `autoStop_${deviceId}`;
             const progressKey = `progress_${deviceId}`;
             if (timerRefs.current[stopTimerKey]) clearTimeout(timerRefs.current[stopTimerKey]);
@@ -1287,7 +1284,7 @@ const ControlPanel = ({ farmId, houseId, houseConfig }) => {
                               : state.status === 'closing' ? '⏳ 닫는중...' : '▼ 닫기';
                             const stopLabel = prog
                               ? `⛔ ${curActualPos}%`
-                              : (pos !== undefined && pos !== null && pos > 0 && pos < 100)
+                              : (pos !== undefined && pos !== null)
                                 ? `■ ${pos}%`
                                 : (state.status === 'stopping' ? '⏳ 정지중...' : '■ 정지');
                             return (

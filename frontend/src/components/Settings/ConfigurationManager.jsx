@@ -2020,7 +2020,13 @@ const RelayModuleManager = ({ farmId }) => {
     try {
       // WebSocket 연결 시 MQTT 경유
       if (wsService.isConnected()) {
-        const result = await testRelayViaMqtt(farmId);
+        const result = await new Promise((resolve) => {
+          const timeout = setTimeout(() => { unsub(); resolve(null); }, 8000);
+          const unsub = wsService.subscribe('relay:response', (msg) => {
+            clearTimeout(timeout); unsub(); resolve(msg.data);
+          });
+          wsService.requestRelayStatus(farmId);
+        });
         setRelayStatus(prev => ({ ...prev, [module.id]: { online: result && result.coils ? true : false, testing: false } }));
         return;
       }
@@ -2608,7 +2614,13 @@ const ModbusOverviewPanel = ({ farmId }) => {
     try {
       // WebSocket 연결 시 MQTT 경유
       if (wsService.isConnected()) {
-        const result = await testRelayViaMqtt(farmId);
+        const result = await new Promise((resolve) => {
+          const timeout = setTimeout(() => { unsub(); resolve(null); }, 8000);
+          const unsub = wsService.subscribe('relay:response', (msg) => {
+            clearTimeout(timeout); unsub(); resolve(msg.data);
+          });
+          wsService.requestRelayStatus(farmId);
+        });
         setRelayStatus(prev => ({ ...prev, [key]: { online: result && result.coils ? true : false, testing: false } }));
         return;
       }
@@ -2633,7 +2645,13 @@ const ModbusOverviewPanel = ({ farmId }) => {
     try {
       // WebSocket 연결 시 MQTT 경유 (센서도 같은 Modbus 버스)
       if (wsService.isConnected()) {
-        const result = await testRelayViaMqtt(farmId);
+        const result = await new Promise((resolve) => {
+          const timeout = setTimeout(() => { unsub(); resolve(null); }, 8000);
+          const unsub = wsService.subscribe('relay:response', (msg) => {
+            clearTimeout(timeout); unsub(); resolve(msg.data);
+          });
+          wsService.requestRelayStatus(farmId);
+        });
         setSensorBusStatus(prev => ({ ...prev, [key]: { online: result !== null, testing: false } }));
         return;
       }

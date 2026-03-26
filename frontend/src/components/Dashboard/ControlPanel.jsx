@@ -824,12 +824,44 @@ const ControlPanel = ({ farmId, houseId, houseConfig }) => {
       if (result.success) {
         if (timerRefs.current[deviceId]) clearTimeout(timerRefs.current[deviceId]);
         const finalStatus = { open: 'open', close: 'closed', stop: 'idle', on: 'on', off: 'off' };
+        setDeviceStates(prev => ({ ...prev, [deviceId]: { ...prev[deviceId], status: finalStatus[command] || 'idle', commandLock: true } }));
         timerRefs.current[deviceId] = setTimeout(() => {
-          setDeviceStates(prev => ({ ...prev, [deviceId]: { ...prev[deviceId], status: finalStatus[command] || 'idle', commandLock: false } }));
+          setDeviceStates(prev => ({ ...prev, [deviceId]: { ...prev[deviceId], commandLock: false } }));
           timerRefs.current[deviceId] = null;
         }, command === 'stop' ? 500 : 5000);
-        // 제어 후 5초간 폴링이 상태를 덮어쓰지 못하도록 잠금
-        setDeviceStates(prev => ({ ...prev, [deviceId]: { ...prev[deviceId], commandLock: true } }));
+
+        // bidir 장치: openDuration/closeDuration 후 자동 정지 + 진행도 표시
+        if (modbusConfig?.controlType === 'bidir' && (command === 'open' || command === 'close')) {
+          const fullDur = command === 'open' ? modbusConfig.openDuration : modbusConfig.closeDuration;
+          if (fullDur && fullDur > 0) {
+            const curPos = bidirPositionRef.current[deviceId] || 0;
+            const remainRatio = command === 'open' ? (100 - curPos) / 100 : curPos / 100;
+            const autoDur = Math.max(1, Math.round(fullDur * remainRatio));
+            const stopTimerKey = `autoStop_${deviceId}`;
+            const progressKey = `progress_${deviceId}`;
+            if (timerRefs.current[stopTimerKey]) clearTimeout(timerRefs.current[stopTimerKey]);
+            if (timerRefs.current[progressKey]) clearInterval(timerRefs.current[progressKey]);
+            const startTime = Date.now();
+            setBidirProgress(prev => ({ ...prev, [deviceId]: { percent: 0, direction: command, totalSec: autoDur, remainSec: autoDur, startPos: curPos } }));
+            timerRefs.current[progressKey] = setInterval(() => {
+              const elapsed = (Date.now() - startTime) / 1000;
+              const progressPct = Math.min(100, Math.round((elapsed / autoDur) * 100));
+              const actualPos = command === 'open'
+                ? Math.min(100, Math.round(curPos + (100 - curPos) * (elapsed / autoDur)))
+                : Math.max(0, Math.round(curPos - curPos * (elapsed / autoDur)));
+              setBidirProgress(prev => ({ ...prev, [deviceId]: { percent: progressPct, direction: command, totalSec: autoDur, remainSec: Math.max(0, Math.round(autoDur - elapsed)), startPos: curPos, actualPos } }));
+              if (progressPct >= 100) clearInterval(timerRefs.current[progressKey]);
+            }, 500);
+            timerRefs.current[stopTimerKey] = setTimeout(() => {
+              handleControl(deviceId, 'stop');
+              timerRefs.current[stopTimerKey] = null;
+              clearInterval(timerRefs.current[progressKey]);
+              timerRefs.current[progressKey] = null;
+              setBidirProgress(prev => ({ ...prev, [deviceId]: null }));
+              setBidirPosition(prev => ({ ...prev, [deviceId]: command === 'open' ? 100 : 0 }));
+            }, autoDur * 1000);
+          }
+        }
       } else {
         setDeviceStates(prev => ({ ...prev, [deviceId]: { ...prev[deviceId], status: 'error', errorReason: result.error || '제어 실패' } }));
         setControlStage(prev => ({ ...prev, [deviceId]: null }));

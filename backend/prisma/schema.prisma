@@ -227,6 +227,34 @@ model farm {
   userFarms           userFarm[]
 
   @@map("farms")
+  devices         device[]
+}
+
+model device {
+  id              String    @id @default(dbgenerated("(gen_random_uuid())::text"))
+  deviceCode      String    @unique @map("device_code")
+  farmId          String?   @map("farm_id")
+  status          String    @default("pending") // pending, online, offline, maintenance
+  rpiSerial       String?   @map("rpi_serial")
+  ipAddress       String?   @map("ip_address")
+  mqttClientId    String?   @map("mqtt_client_id")
+  firmwareVersion String?   @map("firmware_version")
+  cpuUsage        Float?    @map("cpu_usage")
+  memoryUsed      Float?    @map("memory_used")
+  memoryTotal     Float?    @map("memory_total")
+  diskUsage       Float?    @map("disk_usage")
+  uptime          Float?
+  installedAt     DateTime? @map("installed_at") @db.Timestamptz(6)
+  lastSeenAt      DateTime? @map("last_seen_at") @db.Timestamptz(6)
+  memo            String?
+  createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt       DateTime  @default(now()) @map("updated_at") @db.Timestamptz(6)
+  farm            farm?     @relation(fields: [farmId], references: [farmId], onDelete: SetNull, onUpdate: NoAction)
+
+  @@index([farmId], map: "idx_devices_farm")
+  @@index([status], map: "idx_devices_status")
+  @@index([lastSeenAt], map: "idx_devices_last_seen")
+  @@map("devices")
 }
 
 model harvestRecord {

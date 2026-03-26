@@ -644,7 +644,7 @@ const RuleForm = ({ farmId, houseId, houses = [], rule, existingRules = [], defa
     conditionLogic: rule?.conditionLogic || 'AND',
     groupLogic: rule?.groupLogic || 'AND',
     conditions: rule?.conditions || defaultConditions[defaultTab] || defaultConditions.sensor,
-    actions: (rule?.actions || [{ deviceId: 'fan1', deviceType: 'fan', deviceName: '환풍기 1', command: 'on', duration: 0 }]).map(a => {
+    actions: (rule?.actions || [{ deviceId: '', deviceType: '', deviceName: '', command: 'on', duration: 0 }]).map(a => {
       // DB의 duration을 항상 초 단위로 정규화
       let dur = a.duration || 0;
       if (a.durationUnit === 'minutes') dur = dur * 60;
@@ -700,7 +700,7 @@ const RuleForm = ({ farmId, houseId, houses = [], rule, existingRules = [], defa
     const firstDevice = houseDevices[0];
     const newAction = firstDevice
       ? { deviceId: firstDevice.deviceId, deviceType: firstDevice.type, deviceName: firstDevice.name, command: firstDevice.type === 'fan' || firstDevice.type === 'heater' ? 'on' : 'open', duration: 0 }
-      : { deviceId: 'fan1', deviceType: 'fan', deviceName: '환풍기 1', command: 'on', duration: 0 };
+      : { deviceId: '', deviceType: '', deviceName: '', command: 'on', duration: 0 };
     setForm({ ...form, actions: [...form.actions, newAction] });
   };
 
@@ -1072,7 +1072,7 @@ const RuleForm = ({ farmId, houseId, houses = [], rule, existingRules = [], defa
                   </span>
                   {houseDevices.length > 0 ? (
                     <select
-                      value={action.deviceId}
+                      value={houseDevices.some(d => d.deviceId === action.deviceId) ? action.deviceId : ''}
                       onChange={(e) => {
                         const dev = houseDevices.find(d => d.deviceId === e.target.value);
                         if (dev) {
@@ -1086,7 +1086,11 @@ const RuleForm = ({ farmId, houseId, houses = [], rule, existingRules = [], defa
                         }
                       }}
                       className="input-field flex-1 text-sm"
+                      style={!houseDevices.some(d => d.deviceId === action.deviceId) ? {borderColor: '#f59e0b', background: '#fffbeb'} : {}}
                     >
+                      {!houseDevices.some(d => d.deviceId === action.deviceId) && (
+                        <option value="" className="bg-slate-800">⚠️ 장치 선택 ({action.deviceName || action.deviceId})</option>
+                      )}
                       {houseDevices.map(d => (
                         <option key={d.deviceId} value={d.deviceId} className="bg-slate-800">
                           {d.icon || ''} {d.name} ({d.deviceId})

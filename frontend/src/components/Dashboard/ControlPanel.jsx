@@ -1310,7 +1310,7 @@ const ControlPanel = ({ farmId, houseId, houseConfig }) => {
                                 <button onClick={() => handleControlWithRetry(device.deviceId, 'stop')}
                                   disabled={anyModbusBusy || (!prog && state.status === 'idle') || state.status === 'stopping'}
                                   style={{...btnBase, ...(state.status === 'stopping' ? s.stopActive : (prog || state.status === 'opening' || state.status === 'closing') ? s.stopUrgent : (anyModbusBusy || state.status === 'idle') ? s.stopDisabled : s.stopInactive),
-                                    ...(prog || (pos > 0 && pos < 100) ? { fontSize: 15, fontWeight: 900, color: '#1e40af', background: '#dbeafe', border: '2px solid #93c5fd' } : {})
+                                    ...(prog || (pos !== undefined && pos !== null) ? { fontSize: 15, fontWeight: 900, color: '#1e40af', background: '#dbeafe', border: '2px solid #93c5fd' } : {})
                                   }}>
                                   {stopLabel}
                                 </button>

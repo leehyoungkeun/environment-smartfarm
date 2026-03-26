@@ -113,6 +113,29 @@ function handleClientMessage(ws, msg) {
       break;
     }
 
+    case "system:command": {
+      // 시스템 명령 → MQTT로 RPi에 전달
+      const farmId = msg.farmId || ws.farmId;
+      if (!ws.isSystemWide && farmId !== ws.farmId) {
+        ws.send(JSON.stringify({ type: "error", message: "권한 없음" }));
+        return;
+      }
+      if (mqttService.isConnected()) {
+        const topic = `smartfarm/${farmId}/system/command`;
+        mqttService.client.publish(topic, JSON.stringify({
+          action: msg.action, // 'restart-nodered', 'restart-rpi-express'
+          farmId,
+          operator: ws.username,
+          timestamp: new Date().toISOString(),
+        }), { qos: 1 });
+        logger.info(`📤 MQTT 시스템 명령: ${topic} → ${msg.action}`);
+        ws.send(JSON.stringify({ type: "system:command:ack", action: msg.action, sent: true }));
+      } else {
+        ws.send(JSON.stringify({ type: "system:command:ack", action: msg.action, sent: false, error: "MQTT 미연결" }));
+      }
+      break;
+    }
+
     case "subscribe": {
       // 특정 farmId 구독 (superadmin이 다른 농장 볼 때)
       if (ws.isSystemWide && msg.farmId) {

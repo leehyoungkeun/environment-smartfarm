@@ -281,7 +281,16 @@ router.post('/apply', async (req, res) => {
       steps.push({ ok: false, text: 'flows.json 수정 실패: ' + e.message });
     }
 
-    // 5. PM2로 Node-RED 재시작
+    // 5. Node-RED context 초기화 + 재시작
+    // 이전 농장의 빈 houseConfig 캐시가 남아있으면 서버에 재요청하지 않으므로 삭제
+    try {
+      const contextDir = '/home/lhk/.node-red/context';
+      if (fs.existsSync(contextDir)) {
+        fs.rmSync(contextDir, { recursive: true, force: true });
+        fs.mkdirSync(contextDir, { recursive: true });
+      }
+    } catch (e) {}
+
     try {
       await new Promise((resolve, reject) => {
         exec('pm2 restart node-red', { timeout: 30000 }, (err) => err ? reject(err) : resolve());

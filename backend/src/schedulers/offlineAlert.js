@@ -5,6 +5,7 @@ import cron from "node-cron";
 import { prisma, pool } from "../db.js";
 import Alert from "../models/Alert.js";
 import logger from "../utils/logger.js";
+import { broadcastFarmStatus } from "../services/wsServer.js";
 
 // 기본 설정 (DB에 없을 때 사용)
 const DEFAULT_OFFLINE_CONFIG = {
@@ -53,6 +54,13 @@ async function checkOfflineFarms() {
       const diffMin = Math.floor(diffMs / 60000);
 
       if (diffMin < cfg.offlineThresholdMin) continue;
+
+      // devices.status → offline 변경 + WebSocket 브로드캐스트
+      await pool.query(
+        "UPDATE devices SET status = 'offline' WHERE farm_id = $1 AND status = 'online'",
+        [farm.farmId]
+      ).catch(() => {});
+      broadcastFarmStatus(farm.farmId, null);
 
       const cooldownMs = cfg.cooldownMinutes * 60 * 1000;
 

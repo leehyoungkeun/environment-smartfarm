@@ -383,14 +383,14 @@ export default function FarmManager({ onNavigateFarm }) {
 
   useEffect(() => { fetchFarms(); }, [fetchFarms]);
 
-  // WebSocket: 센서 수신 시 접속 상태 실시간 업데이트
+  // WebSocket: 접속 상태 실시간 업데이트 (서버가 online/offline 결정)
   useEffect(() => {
     const unsub = wsService.subscribe('farm:status', (msg) => {
-      const { farmId, lastSeenAt } = msg;
-      setFarms(prev => prev.map(f => f.farmId === farmId ? { ...f, lastSeenAt } : f));
+      const { farmId, status, lastSeenAt } = msg;
+      setFarms(prev => prev.map(f => f.farmId === farmId ? { ...f, lastSeenAt: lastSeenAt || f.lastSeenAt } : f));
       setDeviceMap(prev => {
         const dev = prev[farmId];
-        return dev ? { ...prev, [farmId]: { ...dev, lastSeenAt } } : prev;
+        return dev ? { ...prev, [farmId]: { ...dev, status: status || dev.status, lastSeenAt: lastSeenAt || dev.lastSeenAt } } : prev;
       });
     });
     return unsub;
@@ -440,16 +440,22 @@ export default function FarmManager({ onNavigateFarm }) {
   const fmt = (d) => d ? new Date(d).toLocaleDateString('ko-KR', { year: 'numeric', month: '2-digit', day: '2-digit' }) : '-';
   const toInput = (d) => d ? new Date(d).toISOString().split('T')[0] : '';
 
+  // 장비 접속 상태: device.status 기반 (서버가 관리)
+  const devConnStatus = (dev) => {
+    if (!dev) return { label: '미등록', type: 'none' };
+    if (dev.status === 'online') return { label: '온라인', type: 'online' };
+    if (dev.status === 'offline') return { label: '오프라인', type: 'offline' };
+    return { label: '대기', type: 'none' }; // pending
+  };
+  // 센서 수집 상태: farm.lastSeenAt 기반 (서버가 관리)
+  const sensorConnStatus = (farm) => {
+    if (!farm.lastSeenAt) return { label: '미수집', type: 'none' };
+    return { label: '수집중', type: 'online' };
+  };
+  // 기존 호환용 (필터 등에서 사용)
   const connStatus = (lastSeenAt) => {
     if (!lastSeenAt) return { label: '미접속', type: 'none', cls: 'text-gray-400' };
-    const diff = Date.now() - new Date(lastSeenAt).getTime();
-    if (diff < 5 * 60 * 1000) return { label: '온라인', type: 'online', cls: 'text-emerald-600' };
-    if (diff < 60 * 60 * 1000) return { label: `${Math.floor(diff / 60000)}분 전`, type: 'warn', cls: 'text-amber-600' };
-    const hours = Math.floor(diff / 3600000);
-    if (hours < 24) return { label: `${hours}시간 전`, type: 'offline', cls: 'text-red-500' };
-    const days = Math.floor(hours / 24);
-    if (days < 30) return { label: `${days}일 전`, type: 'offline', cls: 'text-red-500' };
-    return { label: '장기 오프라인', type: 'offline', cls: 'text-red-600 font-semibold' };
+    return { label: '온라인', type: 'online', cls: 'text-emerald-600' };
   };
 
   const connDot = { online: 'bg-emerald-500', warn: 'bg-amber-500', offline: 'bg-red-400 animate-pulse', none: 'bg-gray-300' };
@@ -1654,9 +1660,9 @@ export default function FarmManager({ onNavigateFarm }) {
               {paginated.map((farm, idx) => {
                 const mgrs = getMgrs(farm);
                 const mb = maintBadge(farm);
-                const cs = connStatus(farm.lastSeenAt);
+                const cs = sensorConnStatus(farm);
                 const dev = deviceMap[farm.farmId];
-                const devConn = connStatus(dev?.lastSeenAt);
+                const devConn = devConnStatus(dev);
                 const no = (currentPage - 1) * perPage + idx + 1;
                 const selected = selectedIds.includes(farm.farmId);
                 const isActive = farm.farmId === selectedFarmId;

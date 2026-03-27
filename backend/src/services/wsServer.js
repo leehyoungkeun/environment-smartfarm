@@ -193,6 +193,7 @@ export function broadcastFarmStatus(farmId, timestamp) {
   broadcastAll({
     type: "farm:status",
     farmId,
+    status: timestamp ? "online" : "offline",
     lastSeenAt: timestamp,
   });
 }

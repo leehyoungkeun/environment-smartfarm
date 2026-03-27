@@ -81,6 +81,12 @@ router.post("/collect", async (req, res, next) => {
       metadata,
     });
 
+    // 3.5. farms.last_seen_at 업데이트 (접속 상태 표시용)
+    pool.query(
+      'UPDATE farms SET last_seen_at = $1 WHERE farm_id = $2',
+      [timestamp, farmId]
+    ).catch(() => {});
+
     // 4. 알림 체크 (비동기, 실패 시 카운터 기록)
     checkAndCreateAlerts(farmId, houseId, data, config).catch((err) => {
       alertFailureCount++;

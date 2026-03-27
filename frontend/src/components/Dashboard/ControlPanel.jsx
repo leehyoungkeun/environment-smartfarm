@@ -1036,7 +1036,7 @@ const ControlPanel = ({ farmId, houseId, houseConfig }) => {
     return (
       <div className="glass-card p-4 md:p-5">
         <div className="flex items-center justify-between mb-4">
-          <h2 className="text-base md:text-lg font-bold flex items-center gap-2" style={{color:'#111827'}}>🎛️ 제어 패널</h2>
+          <h2 className="text-base md:text-lg font-bold flex items-center gap-2" style={{color:'#111827'}}></h2>
           <button onClick={() => { setHistoryModal(true); loadHistory(1); }}
             style={{fontSize:12,color:'#4b5563',background:'#f3f4f6',padding:'8px 14px',borderRadius:8,border:'1px solid #e5e7eb',cursor:'pointer',fontWeight:600,minHeight:36}}>
             📋 제어이력
@@ -1055,7 +1055,7 @@ const ControlPanel = ({ farmId, houseId, houseConfig }) => {
     <div className="glass-card p-4 md:p-5">
       <div className="flex items-center justify-between mb-4">
         <div className="flex items-center gap-2">
-          <h2 style={{fontSize:18,fontWeight:800,color:'#111827',letterSpacing:'-0.01em'}} className="flex items-center gap-2">🎛️ 제어 패널</h2>
+          <h2 style={{fontSize:18,fontWeight:800,color:'#111827',letterSpacing:'-0.01em'}} className="flex items-center gap-2"></h2>
           {relayOnline !== null && (
             <span style={{
               fontSize:10,fontWeight:700,padding:'2px 8px',borderRadius:6,
@@ -1067,72 +1067,47 @@ const ControlPanel = ({ farmId, houseId, houseConfig }) => {
             </span>
           )}
         </div>
-        <div className="flex items-center gap-2">
-          {/* 비상정지 버튼 */}
+        <div className="flex items-center gap-3">
           <button onClick={confirmEmergencyStop}
             disabled={anyModbusBusy}
             style={{
-              fontSize:13,fontWeight:900,color:'#fff',
+              fontSize:13,fontWeight:800,color:'#fff',
               background: anyModbusBusy ? '#fca5a5' : '#dc2626',
-              padding:'8px 16px',borderRadius:10,
-              border:'2px solid #991b1b',
+              padding:'8px 20px',borderRadius:10,
+              border:'none',minWidth:120,minHeight:38,
               cursor: anyModbusBusy ? 'not-allowed' : 'pointer',
               boxShadow: anyModbusBusy ? 'none' : '0 2px 8px rgba(220,38,38,0.4)',
-              transition:'all 0.15s',minHeight:36,
-              letterSpacing:'0.02em',
+              transition:'all 0.15s',
             }}>
             ⛔ 비상정지
           </button>
-          <button onClick={() => fetchRelayStatus(true)} disabled={relayFetching}
-            style={{fontSize:12,color: relayFetching ? '#9ca3af' : '#4b5563',background: relayFetching ? '#e5e7eb' : '#f3f4f6',padding:'8px 14px',borderRadius:8,border:'1px solid #e5e7eb',cursor: relayFetching ? 'default' : 'pointer',fontWeight:600,transition:'all 0.2s',minHeight:36}}>
-            {relayFetching ? '⏳ 조회 중...' : '🔄 릴레이 조회'}
-          </button>
-          {relayMessage && (
-            <span style={{fontSize:11,fontWeight:600,padding:'3px 8px',borderRadius:12,
-              background: relayMessage.type === 'ok' ? '#d1fae5' : relayMessage.type === 'warn' ? '#fef3c7' : '#fee2e2',
-              color: relayMessage.type === 'ok' ? '#059669' : relayMessage.type === 'warn' ? '#d97706' : '#dc2626'}}>
-              {relayMessage.text}
-            </span>
-          )}
-          <button onClick={() => { setHistoryModal(true); loadHistory(1); }}
-            style={{fontSize:12,color:'#4b5563',background:'#f3f4f6',padding:'8px 14px',borderRadius:8,border:'1px solid #e5e7eb',cursor:'pointer',fontWeight:600,minHeight:36}}>
-            📋 제어이력
-          </button>
-          {/* 자동화 적용/중지 상태 표시 */}
-          {automationActive && (
-            <span style={{fontSize:11,fontWeight:700,padding:'3px 10px',borderRadius:8,background:'#dcfce7',color:'#047857',border:'1px solid #bbf7d0'}}>
-              자동화 작동중
-            </span>
-          )}
-          {/* 적용 버튼 */}
           <button
             onClick={handleApply}
             disabled={applyLoading || automationActive}
             style={{
-              padding:'6px 14px',borderRadius:10,fontSize:13,fontWeight:700,
-              border:'none',cursor: (applyLoading || automationActive) ? 'not-allowed' : 'pointer',
+              fontSize:13,fontWeight:800,color: automationActive ? '#9ca3af' : '#fff',
               background: automationActive ? '#e5e7eb' : '#1d4ed8',
-              color: automationActive ? '#9ca3af' : '#fff',
+              padding:'8px 20px',borderRadius:10,
+              border:'none',minWidth:120,minHeight:38,
+              cursor: (applyLoading || automationActive) ? 'not-allowed' : 'pointer',
               boxShadow: automationActive ? 'none' : '0 2px 8px rgba(29,78,216,0.35)',
               transition:'all 0.15s',
-            }}
-          >
+            }}>
             {applyLoading ? '⏳' : '▶'} 자동화 적용
           </button>
-          {/* 중지 버튼 */}
           <button
             onClick={handleStop}
             disabled={applyLoading || !automationActive}
             style={{
-              padding:'6px 14px',borderRadius:10,fontSize:13,fontWeight:700,
-              border:'none',cursor: (applyLoading || !automationActive) ? 'not-allowed' : 'pointer',
-              background: !automationActive ? '#f3f4f6' : '#dc2626',
-              color: !automationActive ? '#d1d5db' : '#fff',
-              boxShadow: !automationActive ? 'none' : '0 2px 8px rgba(220,38,38,0.35)',
+              fontSize:13,fontWeight:800,color: !automationActive ? '#d1d5db' : '#fff',
+              background: !automationActive ? '#f3f4f6' : '#6b7280',
+              padding:'8px 20px',borderRadius:10,
+              border:'none',minWidth:120,minHeight:38,
+              cursor: (applyLoading || !automationActive) ? 'not-allowed' : 'pointer',
+              boxShadow: !automationActive ? 'none' : '0 2px 8px rgba(107,114,128,0.35)',
               transition:'all 0.15s',
-            }}
-          >
-            {applyLoading ? '⏳' : '⏸'} 수동모드 적용
+            }}>
+            {applyLoading ? '⏳' : '⏸'} 수동모드
           </button>
         </div>
       </div>

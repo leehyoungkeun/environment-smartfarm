@@ -28,6 +28,7 @@ import auditLogRoutes from "./routes/audit-logs.js";
 import authRoutes from "./routes/auth.routes.js";
 import internalRoutes from "./routes/internal.routes.js";
 import devicesRoutes from "./routes/devices.routes.js";
+import deployRoutes from "./routes/deploy.routes.js";
 import {
   authenticate,
   authenticateApiKey,
@@ -213,6 +214,7 @@ app.use("/api/sensors", authenticateApiKey, sensorsRoutes);
 app.use("/api/config", authenticateApiKey, configRoutes);
 app.use("/api/automation", authenticateApiKey, automationRoutes);
 app.use("/api/devices", devicesRoutes);
+app.use("/api/deploy", deployRoutes);
 
 // 농장 관리 API (JWT 인증)
 app.use("/api/farms", authenticate, farmsRoutes);

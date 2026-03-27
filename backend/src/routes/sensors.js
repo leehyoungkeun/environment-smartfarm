@@ -81,10 +81,14 @@ router.post("/collect", async (req, res, next) => {
       metadata,
     });
 
-    // 3.5. farms.last_seen_at 업데이트 (접속 상태 표시용)
+    // 3.5. 접속 상태 업데이트 (farms + devices 동시)
     pool.query(
       'UPDATE farms SET last_seen_at = $1 WHERE farm_id = $2',
       [timestamp, farmId]
+    ).catch(() => {});
+    pool.query(
+      'UPDATE devices SET last_seen_at = $1, status = $3 WHERE farm_id = $2',
+      [timestamp, farmId, 'online']
     ).catch(() => {});
 
     // 4. 알림 체크 (비동기, 실패 시 카운터 기록)

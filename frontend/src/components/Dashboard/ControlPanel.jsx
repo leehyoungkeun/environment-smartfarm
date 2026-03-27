@@ -1053,20 +1053,17 @@ const ControlPanel = ({ farmId, houseId, houseConfig }) => {
 
   return (
     <div className="glass-card p-4 md:p-5">
-      <div className="flex items-center justify-between mb-4">
-        <div className="flex items-center gap-2">
-          <h2 style={{fontSize:18,fontWeight:800,color:'#111827',letterSpacing:'-0.01em'}} className="flex items-center gap-2"></h2>
-        </div>
-        <div className="flex items-center gap-3">
+      <div className="flex gap-3 mb-4" style={{background:'#f8fafc',padding:'12px',borderRadius:16,border:'1px solid #e2e8f0'}}>
           <button onClick={confirmEmergencyStop}
             disabled={anyModbusBusy}
+            className="flex-1"
             style={{
-              fontSize:13,fontWeight:800,color:'#fff',
-              background: anyModbusBusy ? '#fca5a5' : '#dc2626',
-              padding:'8px 20px',borderRadius:10,
-              border:'none',minWidth:120,minHeight:38,
+              fontSize:15,fontWeight:800,color:'#fff',
+              background: anyModbusBusy ? '#fca5a5' : 'linear-gradient(135deg, #ef4444, #dc2626)',
+              padding:'14px 0',borderRadius:12,
+              border:'none',minHeight:52,
               cursor: anyModbusBusy ? 'not-allowed' : 'pointer',
-              boxShadow: anyModbusBusy ? 'none' : '0 2px 8px rgba(220,38,38,0.4)',
+              boxShadow:'0 4px 12px rgba(220,38,38,0.3)',
               transition:'all 0.15s',
             }}>
             ⛔ 비상정지
@@ -1074,13 +1071,15 @@ const ControlPanel = ({ farmId, houseId, houseConfig }) => {
           <button
             onClick={handleApply}
             disabled={applyLoading || automationActive}
+            className="flex-1"
             style={{
-              fontSize:13,fontWeight:800,color: automationActive ? '#9ca3af' : '#fff',
-              background: automationActive ? '#e5e7eb' : '#1d4ed8',
-              padding:'8px 20px',borderRadius:10,
-              border:'none',minWidth:120,minHeight:38,
+              fontSize:15,fontWeight:800,
+              color: automationActive ? '#9ca3af' : '#fff',
+              background: automationActive ? '#e5e7eb' : 'linear-gradient(135deg, #3b82f6, #1d4ed8)',
+              padding:'14px 0',borderRadius:12,
+              border:'none',minHeight:52,
               cursor: (applyLoading || automationActive) ? 'not-allowed' : 'pointer',
-              boxShadow: automationActive ? 'none' : '0 2px 8px rgba(29,78,216,0.35)',
+              boxShadow: automationActive ? 'none' : '0 4px 12px rgba(29,78,216,0.3)',
               transition:'all 0.15s',
             }}>
             {applyLoading ? '⏳' : '▶'} 자동화 적용
@@ -1088,18 +1087,20 @@ const ControlPanel = ({ farmId, houseId, houseConfig }) => {
           <button
             onClick={handleStop}
             disabled={applyLoading || !automationActive}
+            className="flex-1"
             style={{
-              fontSize:13,fontWeight:800,color: !automationActive ? '#d1d5db' : '#fff',
-              background: !automationActive ? '#f3f4f6' : '#6b7280',
-              padding:'8px 20px',borderRadius:10,
-              border:'none',minWidth:120,minHeight:38,
+              fontSize:15,fontWeight:800,
+              color: !automationActive ? '#6b7280' : '#fff',
+              background: !automationActive ? '#e5e7eb' : 'linear-gradient(135deg, #f59e0b, #d97706)',
+              padding:'14px 0',borderRadius:12,
+              border: !automationActive ? '2px solid #d1d5db' : 'none',
+              minHeight:52,
               cursor: (applyLoading || !automationActive) ? 'not-allowed' : 'pointer',
-              boxShadow: !automationActive ? 'none' : '0 2px 8px rgba(107,114,128,0.35)',
+              boxShadow: !automationActive ? 'none' : '0 4px 12px rgba(217,119,6,0.3)',
               transition:'all 0.15s',
             }}>
             {applyLoading ? '⏳' : '⏸'} 수동모드
           </button>
-        </div>
       </div>
 
       {Object.entries(groupedDevices).map(([type, devicesInGroup]) => {

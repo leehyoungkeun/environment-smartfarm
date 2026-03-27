@@ -1727,7 +1727,7 @@ export default function FarmManager({ onNavigateFarm }) {
                     {isCol('connection') && <td className="px-1 py-1.5 text-center border-r border-gray-100">
                       <span className="inline-flex items-center gap-1" title={`장비: ${devConn.label}\n센서: ${cs.label}`}>
                         <span title="장비">{devConn.type === 'online' ? '🟢' : devConn.type === 'none' ? '⚪' : '🔴'}</span>
-                        <span title="센서">{cs.type === 'online' ? '📡' : cs.type === 'none' ? '⬜' : '⚠️'}</span>
+                        <span title="센서">{cs.type === 'online' ? '🌡️' : cs.type === 'none' ? '➖' : '⚠️'}</span>
                       </span>
                     </td>}
                     {isCol('maintenance') && <td className="px-1 py-1.5 text-center border-r border-gray-100">
@@ -1747,7 +1747,6 @@ export default function FarmManager({ onNavigateFarm }) {
                         <td className="px-2 py-1.5 text-center border-r border-gray-100">
                           {dev ? (
                             <div className="flex items-center justify-center gap-1.5">
-                              <span title={dev.status}>{statusLabels[dev.status] || '⚪'}</span>
                               <code className="text-xs font-mono font-bold text-indigo-600">{dev.deviceCode}</code>
                               <button title="QR 라벨 출력" onClick={async () => {
                                 const url = `https://smartgreen.kr/device/${dev.deviceCode}`;
@@ -1773,7 +1772,7 @@ export default function FarmManager({ onNavigateFarm }) {
                                   <br><button onclick="window.print()" style="margin-top:16px;padding:8px 24px;font-size:14px;cursor:pointer">🖨️ 인쇄</button>
                                 </body></html>`);
                               }} className="text-[10px] text-gray-400 hover:text-indigo-600">
-                                📱
+                                🖨️
                               </button>
                               <button title={dev.certPem ? '인증서 등록됨 (클릭하여 재등록)' : 'AWS IoT 인증서 등록'} onClick={() => {
                                 const input = document.createElement('input');

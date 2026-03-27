@@ -78,7 +78,14 @@ router.get("/", authenticate, async (req, res) => {
       orderBy: { createdAt: "desc" },
     });
 
-    res.json({ success: true, data: devices });
+    // 목록에서는 인증서 원본 제외, 존재 여부만 반환
+    const safeDevices = devices.map(d => ({
+      ...d,
+      certPem: d.certPem ? true : null,
+      privateKey: undefined,
+    }));
+
+    res.json({ success: true, data: safeDevices });
   } catch (error) {
     res.status(500).json({ success: false, error: error.message });
   }
@@ -125,6 +132,37 @@ router.put("/:code", authenticate, authorize("owner"), async (req, res) => {
     logger.info(`🔧 장비 수정: ${req.params.code} → farmId=${farmId}`);
     res.json({ success: true, data: device });
   } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// =========================================
+// 인증서 업로드 (관리자)
+// PUT /api/devices/:code/certificates
+// body: { certPem, privateKey, awsThingName? }
+// certPem, privateKey: base64 인코딩된 PEM 파일 내용
+// =========================================
+router.put("/:code/certificates", authenticate, authorize("owner"), async (req, res) => {
+  try {
+    const { certPem, privateKey, awsThingName } = req.body;
+    if (!certPem || !privateKey) {
+      return res.status(400).json({ success: false, error: "certPem, privateKey 필수" });
+    }
+
+    const device = await prisma.device.update({
+      where: { deviceCode: req.params.code },
+      data: {
+        certPem,
+        privateKey,
+        awsThingName: awsThingName || null,
+        updatedAt: new Date(),
+      },
+    });
+
+    logger.info(`🔐 인증서 등록: ${req.params.code} (thing: ${awsThingName || '-'})`);
+    res.json({ success: true, data: { deviceCode: device.deviceCode, awsThingName: device.awsThingName } });
+  } catch (error) {
+    logger.error("인증서 등록 실패:", error);
     res.status(500).json({ success: false, error: error.message });
   }
 });
@@ -182,6 +220,11 @@ router.post("/:code/setup", async (req, res) => {
         farm: farmInfo,
         serverUrl: "https://api.smartgreen.kr",
         mqttBroker: "a2ybxz5mrpnfww-ats.iot.ap-northeast-2.amazonaws.com",
+        // AWS IoT 인증서 (base64)
+        certificates: device.certPem ? {
+          certPem: device.certPem,
+          privateKey: device.privateKey,
+        } : null,
       },
     });
   } catch (error) {

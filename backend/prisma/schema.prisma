@@ -247,6 +247,9 @@ model device {
   installedAt     DateTime? @map("installed_at") @db.Timestamptz(6)
   lastSeenAt      DateTime? @map("last_seen_at") @db.Timestamptz(6)
   memo            String?
+  certPem         String?   @map("cert_pem")
+  privateKey      String?   @map("private_key")
+  awsThingName    String?   @map("aws_thing_name")
   createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt       DateTime  @default(now()) @map("updated_at") @db.Timestamptz(6)
   farm            farm?     @relation(fields: [farmId], references: [farmId], onDelete: SetNull, onUpdate: NoAction)

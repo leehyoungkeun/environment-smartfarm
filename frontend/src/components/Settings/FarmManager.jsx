@@ -1752,6 +1752,35 @@ export default function FarmManager({ onNavigateFarm }) {
                               }} className="text-[10px] text-gray-400 hover:text-indigo-600">
                                 📱
                               </button>
+                              <button title={dev.certPem ? '인증서 등록됨 (클릭하여 재등록)' : 'AWS IoT 인증서 등록'} onClick={() => {
+                                const input = document.createElement('input');
+                                input.type = 'file';
+                                input.accept = '.pem,.crt,.key';
+                                input.multiple = true;
+                                input.onchange = async (e) => {
+                                  const files = Array.from(e.target.files);
+                                  const certFile = files.find(f => f.name.includes('certificate') || f.name.endsWith('.crt'));
+                                  const keyFile = files.find(f => f.name.includes('private') || f.name.endsWith('.key'));
+                                  if (!certFile || !keyFile) { alert('certificate.pem.crt 와 private.pem.key 2개 파일을 선택하세요'); return; }
+                                  try {
+                                    const toBase64 = (file) => new Promise((resolve, reject) => {
+                                      const reader = new FileReader();
+                                      reader.onload = () => resolve(btoa(reader.result));
+                                      reader.onerror = reject;
+                                      reader.readAsText(file);
+                                    });
+                                    const [certPem, privateKey] = await Promise.all([toBase64(certFile), toBase64(keyFile)]);
+                                    await axios.put(`${API}/devices/${dev.deviceCode}/certificates`, {
+                                      certPem, privateKey, awsThingName: `${farm.farmId}_pi`
+                                    });
+                                    alert(`인증서 등록 완료: ${dev.deviceCode}`);
+                                    fetchFarms();
+                                  } catch { alert('인증서 등록 실패'); }
+                                };
+                                input.click();
+                              }} className={`text-[10px] ${dev.certPem ? 'text-emerald-500' : 'text-gray-400 hover:text-amber-600'}`}>
+                                {dev.certPem ? '🔒' : '🔑'}
+                              </button>
                             </div>
                           ) : (
                             <button onClick={async () => {

@@ -1640,6 +1640,8 @@ export default function FarmManager({ onNavigateFarm }) {
                 const mgrs = getMgrs(farm);
                 const mb = maintBadge(farm);
                 const cs = connStatus(farm.lastSeenAt);
+                const dev = deviceMap[farm.farmId];
+                const devConn = connStatus(dev?.lastSeenAt);
                 const no = (currentPage - 1) * perPage + idx + 1;
                 const selected = selectedIds.includes(farm.farmId);
                 const isActive = farm.farmId === selectedFarmId;
@@ -1702,9 +1704,9 @@ export default function FarmManager({ onNavigateFarm }) {
                       </span>
                     </td>}
                     {isCol('connection') && <td className="px-1 py-1.5 text-center border-r border-gray-100">
-                      <span className="inline-flex items-center gap-1">
-                        <span className={`w-1.5 h-1.5 rounded-full ${connDot[cs.type]}`} />
-                        <span className={`text-[11px] font-medium ${cs.cls}`}>{cs.label}</span>
+                      <span className="inline-flex items-center gap-1" title={`장비: ${devConn.label}\n센서: ${cs.label}`}>
+                        <span title="장비">{devConn.type === 'online' ? '🟢' : devConn.type === 'none' ? '⚪' : '🔴'}</span>
+                        <span title="센서">{cs.type === 'online' ? '📡' : cs.type === 'none' ? '⬜' : '⚠️'}</span>
                       </span>
                     </td>}
                     {isCol('maintenance') && <td className="px-1 py-1.5 text-center border-r border-gray-100">

@@ -232,6 +232,13 @@ chmod 755 "${SMARTFARM_HOME}"
 nginx -t > /dev/null 2>&1 && systemctl restart nginx
 log "nginx 설정 완료"
 
+# ── 6.5. AWS IoT 루트 CA 인증서 ──
+info "AWS IoT 루트 CA 인증서 다운로드"
+mkdir -p "${SMARTFARM_HOME}/certs"
+curl -s https://www.amazontrust.com/repository/AmazonRootCA1.pem -o "${SMARTFARM_HOME}/certs/AmazonRootCA1.pem"
+chown -R "${SMARTFARM_USER}:${SMARTFARM_USER}" "${SMARTFARM_HOME}/certs"
+log "AmazonRootCA1.pem 저장 완료"
+
 # ── 7. system-api + setup 서버 통합 ──
 info "=== 7/8: SmartFarm 시스템 서비스 설정 ==="
 

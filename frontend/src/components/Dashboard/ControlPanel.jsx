@@ -1056,16 +1056,6 @@ const ControlPanel = ({ farmId, houseId, houseConfig }) => {
       <div className="flex items-center justify-between mb-4">
         <div className="flex items-center gap-2">
           <h2 style={{fontSize:18,fontWeight:800,color:'#111827',letterSpacing:'-0.01em'}} className="flex items-center gap-2"></h2>
-          {relayOnline !== null && (
-            <span style={{
-              fontSize:10,fontWeight:700,padding:'2px 8px',borderRadius:6,
-              background: relayOnline ? '#dcfce7' : '#fef2f2',
-              color: relayOnline ? '#047857' : '#be123c',
-              border: `1px solid ${relayOnline ? '#bbf7d0' : '#fecaca'}`,
-            }}>
-              {relayOnline ? '릴레이 연결됨' : '릴레이 미연결'}
-            </span>
-          )}
         </div>
         <div className="flex items-center gap-3">
           <button onClick={confirmEmergencyStop}

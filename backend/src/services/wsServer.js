@@ -189,6 +189,14 @@ function broadcastAll(message) {
   });
 }
 
+export function broadcastFarmStatus(farmId, timestamp) {
+  broadcastAll({
+    type: "farm:status",
+    farmId,
+    lastSeenAt: timestamp,
+  });
+}
+
 export function getWss() {
   return wss;
 }

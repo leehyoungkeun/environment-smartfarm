@@ -8,6 +8,7 @@ import SensorData from "../models/SensorData.js";
 import Alert from "../models/Alert.js";
 import { pool } from "../db.js";
 import logger from "../utils/logger.js";
+import { broadcastFarmStatus } from "../services/wsServer.js";
 
 const router = express.Router();
 
@@ -81,7 +82,7 @@ router.post("/collect", async (req, res, next) => {
       metadata,
     });
 
-    // 3.5. 접속 상태 업데이트 (farms + devices 동시)
+    // 3.5. 접속 상태 업데이트 (farms + devices + WebSocket 실시간 푸시)
     pool.query(
       'UPDATE farms SET last_seen_at = $1 WHERE farm_id = $2',
       [timestamp, farmId]
@@ -90,6 +91,7 @@ router.post("/collect", async (req, res, next) => {
       'UPDATE devices SET last_seen_at = $1, status = $3 WHERE farm_id = $2',
       [timestamp, farmId, 'online']
     ).catch(() => {});
+    broadcastFarmStatus(farmId, timestamp);
 
     // 4. 알림 체크 (비동기, 실패 시 카운터 기록)
     checkAndCreateAlerts(farmId, houseId, data, config).catch((err) => {

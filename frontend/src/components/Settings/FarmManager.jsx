@@ -4,6 +4,7 @@ import Fuse from 'fuse.js';
 import { useAuth } from '../../contexts/AuthContext';
 import * as XLSX from 'xlsx';
 import QRCode from 'qrcode';
+import wsService from '../../services/wsService';
 
 const API = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3000/api';
 const KAKAO_KEY = import.meta.env.VITE_KAKAO_MAP_KEY || '';
@@ -381,6 +382,20 @@ export default function FarmManager({ onNavigateFarm }) {
   }, []);
 
   useEffect(() => { fetchFarms(); }, [fetchFarms]);
+
+  // WebSocket: 센서 수신 시 접속 상태 실시간 업데이트
+  useEffect(() => {
+    const unsub = wsService.subscribe('farm:status', (msg) => {
+      const { farmId, lastSeenAt } = msg;
+      setFarms(prev => prev.map(f => f.farmId === farmId ? { ...f, lastSeenAt } : f));
+      setDeviceMap(prev => {
+        const dev = prev[farmId];
+        return dev ? { ...prev, [farmId]: { ...dev, lastSeenAt } } : prev;
+      });
+    });
+    return unsub;
+  }, []);
+
   // 필터 변경 시 1페이지로 리셋 (초기 마운트 제외 — sessionStorage 복원값 보호)
   const filterMountRef = useRef(true);
   useEffect(() => {

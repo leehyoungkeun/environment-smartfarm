@@ -1,22 +1,35 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { getRpiApiBase } from '../../services/apiSwitcher';
 
-const CAMERAS = [
-  { id: 'cam1', name: '1번 카메라', location: '하우스 입구' },
-  { id: 'cam2', name: '2번 카메라', location: '하우스 중앙' },
-  { id: 'cam3', name: '3번 카메라', location: '하우스 후면' },
-  { id: 'cam4', name: '4번 카메라', location: '전체 조망' },
-];
-
-export default function CCTVPanel() {
+export default function CCTVPanel({ farmId }) {
+  const [cameras, setCameras] = useState([]);
+  const [loading, setLoading] = useState(true);
   const [selectedCam, setSelectedCam] = useState(null);
+
+  const API = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3000/api';
+  const getToken = () => localStorage.getItem('accessToken');
   const rpiBase = getRpiApiBase();
   const go2rtcBase = rpiBase ? rpiBase.replace(/\/api\/?$/, '').replace(/:1880$/, ':1984') : null;
 
   const getStreamUrl = (camId) => go2rtcBase ? `${go2rtcBase}/stream.html?src=${camId}&mode=webrtc` : null;
 
-  const onlineCams = CAMERAS.filter(c => c.id === 'cam1');
-  const offlineCams = CAMERAS.filter(c => c.id !== 'cam1');
+  const fetchCameras = useCallback(async () => {
+    try {
+      const res = await fetch(`${API}/cameras/${farmId}`, {
+        headers: { Authorization: `Bearer ${getToken()}` }
+      });
+      const data = await res.json();
+      if (data.success) setCameras(data.data);
+    } catch {}
+    setLoading(false);
+  }, [farmId]);
+
+  useEffect(() => { fetchCameras(); }, [fetchCameras]);
+
+  const onlineCams = cameras.filter(c => c.enabled);
+  const offlineCams = cameras.filter(c => !c.enabled);
+
+  if (loading) return <div className="max-w-7xl mx-auto px-4 md:px-6 py-4"><div className="skeleton h-96 rounded-2xl" /></div>;
 
   return (
     <div className="max-w-7xl mx-auto px-4 md:px-6 py-4 md:py-6">
@@ -40,6 +53,15 @@ export default function CCTVPanel() {
         </div>
       </div>
 
+      {/* 카메라 없을 때 */}
+      {cameras.length === 0 && (
+        <div className="glass-card p-12 text-center">
+          <div className="text-5xl mb-3 opacity-40">📹</div>
+          <p className="text-gray-500 font-semibold">등록된 카메라가 없습니다</p>
+          <p className="text-gray-400 text-sm mt-1">설정 → 카메라 탭에서 CCTV를 등록하세요</p>
+        </div>
+      )}
+
       {/* 메인 영상 (선택된 카메라) */}
       {selectedCam && (
         <div className="glass-card mb-4 overflow-hidden" style={{ border: '2px solid #3b82f6' }}>
@@ -48,9 +70,9 @@ export default function CCTVPanel() {
               <span className="w-1.5 h-1.5 rounded-full bg-white animate-pulse" />
               LIVE
             </div>
-            {getStreamUrl(selectedCam.id) ? (
+            {getStreamUrl(selectedCam.camId) ? (
               <iframe
-                src={getStreamUrl(selectedCam.id)}
+                src={getStreamUrl(selectedCam.camId)}
                 className="w-full border-none"
                 style={{ height: 'min(500px, 50vh)' }}
                 allow="autoplay"
@@ -72,7 +94,7 @@ export default function CCTVPanel() {
                 className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-gray-200 text-gray-600 hover:bg-gray-300 transition-colors">
                 닫기
               </button>
-              <button onClick={() => window.open(getStreamUrl(selectedCam.id), '_blank')}
+              <button onClick={() => window.open(getStreamUrl(selectedCam.camId), '_blank')}
                 className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-blue-500 text-white hover:bg-blue-600 transition-colors">
                 전체화면
               </button>
@@ -82,71 +104,74 @@ export default function CCTVPanel() {
       )}
 
       {/* 카메라 그리드 */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 md:gap-4 mb-4">
-        {CAMERAS.map(cam => {
-          const isOnline = cam.id === 'cam1';
-          const isSelected = selectedCam?.id === cam.id;
-          return (
-            <div key={cam.id}
-              onClick={() => isOnline && setSelectedCam(cam)}
-              className="glass-card overflow-hidden transition-all"
-              style={{
-                border: isSelected ? '2px solid #3b82f6' : '2px solid transparent',
-                cursor: isOnline ? 'pointer' : 'default',
-                opacity: isOnline ? 1 : 0.5,
-              }}>
-              <div className="relative" style={{ background: '#f1f5f9' }}>
-                {isOnline && getStreamUrl(cam.id) ? (
-                  <iframe
-                    src={getStreamUrl(cam.id)}
-                    className="w-full border-none pointer-events-none"
-                    style={{ height: 140 }}
-                    allow="autoplay"
-                  />
-                ) : (
-                  <div className="flex items-center justify-center text-gray-400 text-xs" style={{ height: 140 }}>
-                    {isOnline ? '로딩 중...' : '오프라인'}
+      {cameras.length > 0 && (
+        <div className={`grid gap-3 md:gap-4 mb-4 ${cameras.length <= 2 ? 'grid-cols-1 sm:grid-cols-2' : 'grid-cols-2 lg:grid-cols-4'}`}>
+          {cameras.map(cam => {
+            const isSelected = selectedCam?.camId === cam.camId;
+            return (
+              <div key={cam.id}
+                onClick={() => cam.enabled && setSelectedCam(cam)}
+                className="glass-card overflow-hidden transition-all"
+                style={{
+                  border: isSelected ? '2px solid #3b82f6' : '2px solid transparent',
+                  cursor: cam.enabled ? 'pointer' : 'default',
+                  opacity: cam.enabled ? 1 : 0.5,
+                }}>
+                <div className="relative" style={{ background: '#f1f5f9' }}>
+                  {cam.enabled && getStreamUrl(cam.camId) ? (
+                    <iframe
+                      src={getStreamUrl(cam.camId)}
+                      className="w-full border-none pointer-events-none"
+                      style={{ height: 140 }}
+                      allow="autoplay"
+                    />
+                  ) : (
+                    <div className="flex items-center justify-center text-gray-400 text-xs" style={{ height: 140 }}>
+                      {cam.enabled ? '연결 중...' : '오프라인'}
+                    </div>
+                  )}
+                  <div className={`absolute top-2 left-2 flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold text-white ${cam.enabled ? 'bg-emerald-500' : 'bg-gray-400'}`}>
+                    {cam.enabled && <span className="w-1.5 h-1.5 rounded-full bg-white" />}
+                    {cam.enabled ? 'LIVE' : 'OFFLINE'}
                   </div>
-                )}
-                <div className={`absolute top-2 left-2 flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold text-white ${isOnline ? 'bg-emerald-500' : 'bg-gray-400'}`}>
-                  {isOnline && <span className="w-1.5 h-1.5 rounded-full bg-white" />}
-                  {isOnline ? 'LIVE' : 'OFFLINE'}
+                </div>
+                <div className="p-2.5 flex justify-between items-center">
+                  <div>
+                    <div className="text-xs font-bold text-gray-800">{cam.name}</div>
+                    <div className="text-[10px] text-gray-400">{cam.location || '-'}</div>
+                  </div>
+                  <span className="text-gray-300 text-sm">📹</span>
                 </div>
               </div>
-              <div className="p-2.5 flex justify-between items-center">
-                <div>
-                  <div className="text-xs font-bold text-gray-800">{cam.name}</div>
-                  <div className="text-[10px] text-gray-400">{cam.location}</div>
-                </div>
-                <span className="text-gray-300 text-sm">📹</span>
-              </div>
-            </div>
-          );
-        })}
-      </div>
+            );
+          })}
+        </div>
+      )}
 
       {/* CCTV 현황 요약 */}
-      <div className="glass-card p-4 md:p-5">
-        <h3 className="text-sm font-bold text-gray-600 mb-3">CCTV 현황 요약</h3>
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-center">
-          <div>
-            <div className="text-2xl font-extrabold text-blue-500">{CAMERAS.length}</div>
-            <div className="text-xs text-gray-500">전체 카메라</div>
-          </div>
-          <div>
-            <div className="text-2xl font-extrabold text-emerald-500">{onlineCams.length}</div>
-            <div className="text-xs text-gray-500">온라인</div>
-          </div>
-          <div>
-            <div className="text-2xl font-extrabold text-red-400">0</div>
-            <div className="text-xs text-gray-500">녹화중</div>
-          </div>
-          <div>
-            <div className="text-2xl font-extrabold text-gray-400">{offlineCams.length}</div>
-            <div className="text-xs text-gray-500">오프라인</div>
+      {cameras.length > 0 && (
+        <div className="glass-card p-4 md:p-5">
+          <h3 className="text-sm font-bold text-gray-600 mb-3">CCTV 현황 요약</h3>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-center">
+            <div>
+              <div className="text-2xl font-extrabold text-blue-500">{cameras.length}</div>
+              <div className="text-xs text-gray-500">전체 카메라</div>
+            </div>
+            <div>
+              <div className="text-2xl font-extrabold text-emerald-500">{onlineCams.length}</div>
+              <div className="text-xs text-gray-500">온라인</div>
+            </div>
+            <div>
+              <div className="text-2xl font-extrabold text-red-400">0</div>
+              <div className="text-xs text-gray-500">녹화중</div>
+            </div>
+            <div>
+              <div className="text-2xl font-extrabold text-gray-400">{offlineCams.length}</div>
+              <div className="text-xs text-gray-500">오프라인</div>
+            </div>
           </div>
         </div>
-      </div>
+      )}
     </div>
   );
 }

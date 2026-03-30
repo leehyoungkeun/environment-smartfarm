@@ -652,7 +652,7 @@ function AppContent() {
           <ControlPage farmId={farmId} isTouchPanel={isTouchPanel} />
         )}
         {currentPage === 'cctv' && hasPermission('control') && (
-          <CCTVPanel />
+          <CCTVPanel farmId={farmId} />
         )}
         {currentPage === 'journal' && hasPermission('journal') && (
           <div className="max-w-7xl mx-auto px-4 md:px-6 py-4 md:py-6">

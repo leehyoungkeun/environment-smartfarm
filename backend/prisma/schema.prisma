@@ -358,6 +358,23 @@ model sensorData {
   @@map("sensor_data")
 }
 
+model camera {
+  id        String   @id @default(dbgenerated("(gen_random_uuid())::text"))
+  farmId    String   @map("farm_id")
+  camId     String   @map("cam_id")
+  name      String
+  location  String   @default("")
+  rtspUrl   String   @map("rtsp_url")
+  enabled   Boolean  @default(true)
+  sortOrder Int      @default(0) @map("sort_order")
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  @@unique([farmId, camId])
+  @@index([farmId])
+  @@map("cameras")
+}
+
 model systemSetting {
   farmId    String   @id @map("farm_id")
   settings  Json     @default("{}")

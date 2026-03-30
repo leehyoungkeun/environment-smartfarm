@@ -75,6 +75,224 @@ export const SubTabBar = ({ tabs, activeTab, onChange, trailing }) => (
   </div>
 );
 
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// 카메라 관리
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+const CAMERA_BRANDS = [
+  { id: 'iptime', name: 'ipTIME', path: '/onvif1', port: 554 },
+  { id: 'hikvision', name: '히크비전', path: '/Streaming/Channels/101', port: 554 },
+  { id: 'dahua', name: '다후아', path: '/cam/realmonitor?channel=1&subtype=0', port: 554 },
+  { id: 'tplink', name: 'TP-Link', path: '/stream1', port: 554 },
+  { id: 'custom', name: '기타 (직접 입력)', path: '', port: 554 },
+];
+
+const buildRtspUrl = (brand, ip, user, pass, port) => {
+  const b = CAMERA_BRANDS.find(x => x.id === brand);
+  if (!b || !ip) return '';
+  const p = port || b.port;
+  const auth = user ? `${user}:${pass || ''}@` : '';
+  return `rtsp://${auth}${ip}:${p}${b.path}`;
+};
+
+const CameraManager = ({ farmId }) => {
+  const API = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3000/api';
+  const getToken = () => localStorage.getItem('accessToken');
+  const headers = () => ({ Authorization: `Bearer ${getToken()}`, 'Content-Type': 'application/json' });
+
+  const [cameras, setCameras] = React.useState([]);
+  const [loading, setLoading] = React.useState(true);
+  const [showAdd, setShowAdd] = React.useState(false);
+  const [editCam, setEditCam] = React.useState(null);
+  const [form, setForm] = React.useState({ name: '', location: '', brand: 'iptime', ip: '', user: 'admin', pass: '', port: '554', rtspUrl: '' });
+
+  const updateRtspUrl = (f) => {
+    if (f.brand === 'custom') return f;
+    return { ...f, rtspUrl: buildRtspUrl(f.brand, f.ip, f.user, f.pass, f.port) };
+  };
+
+  const setFormField = (field, value) => {
+    const next = { ...form, [field]: value };
+    setForm(updateRtspUrl(next));
+  };
+
+  const fetchCameras = React.useCallback(async () => {
+    try {
+      const res = await fetch(`${API}/cameras/${farmId}`, { headers: headers() });
+      const data = await res.json();
+      if (data.success) setCameras(data.data);
+    } catch {}
+    setLoading(false);
+  }, [farmId]);
+
+  React.useEffect(() => { fetchCameras(); }, [fetchCameras]);
+
+  const handleSave = async () => {
+    if (!form.name || !form.rtspUrl) return alert('카메라 이름과 RTSP URL을 입력하세요');
+    try {
+      const body = { name: form.name, location: form.location, rtspUrl: form.rtspUrl };
+      if (editCam) {
+        await fetch(`${API}/cameras/${farmId}/${editCam.camId}`, {
+          method: 'PUT', headers: headers(), body: JSON.stringify(body)
+        });
+      } else {
+        await fetch(`${API}/cameras/${farmId}`, {
+          method: 'POST', headers: headers(), body: JSON.stringify(body)
+        });
+      }
+      setShowAdd(false); setEditCam(null);
+      setForm({ name: '', location: '', brand: 'iptime', ip: '', user: 'admin', pass: '', port: '554', rtspUrl: '' });
+      fetchCameras();
+    } catch { alert('저장 실패'); }
+  };
+
+  const handleDelete = async (cam) => {
+    if (!confirm(`${cam.name} 카메라를 삭제할까요?`)) return;
+    try {
+      await fetch(`${API}/cameras/${farmId}/${cam.camId}`, { method: 'DELETE', headers: headers() });
+      fetchCameras();
+    } catch { alert('삭제 실패'); }
+  };
+
+  const startEdit = (cam) => {
+    setEditCam(cam);
+    setForm({ name: cam.name, location: cam.location, brand: 'custom', ip: '', user: '', pass: '', port: '554', rtspUrl: cam.rtspUrl });
+    setShowAdd(true);
+  };
+
+  const resetForm = () => {
+    setShowAdd(true); setEditCam(null);
+    setForm({ name: '', location: '', brand: 'iptime', ip: '', user: 'admin', pass: '', port: '554', rtspUrl: '' });
+  };
+
+  if (loading) return <div className="skeleton h-48 rounded-2xl" />;
+
+  return (
+    <div className="space-y-4 animate-fade-in-up">
+      <div className="glass-card p-4 flex justify-between items-center">
+        <div>
+          <h3 className="text-base font-bold text-gray-800">카메라 관리</h3>
+          <p className="text-xs text-gray-500 mt-0.5">CCTV 카메라 RTSP 스트림 등록/관리</p>
+        </div>
+        <button onClick={resetForm}
+          className="px-4 py-2 rounded-xl text-sm font-bold bg-blue-500 text-white hover:bg-blue-600 transition-colors">
+          + 카메라 추가
+        </button>
+      </div>
+
+      {showAdd && (
+        <div className="glass-card p-4 border-2 border-blue-200">
+          <h4 className="text-sm font-bold text-gray-700 mb-3">{editCam ? '카메라 수정' : '카메라 추가'}</h4>
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3 mb-3">
+            <div>
+              <label className="text-xs font-semibold text-gray-500 mb-1 block">카메라 이름 *</label>
+              <input value={form.name} onChange={e => setFormField('name', e.target.value)}
+                placeholder="예: 입구 카메라"
+                className="w-full px-3 py-2 rounded-lg border border-gray-300 text-sm focus:border-blue-400 focus:outline-none" />
+            </div>
+            <div>
+              <label className="text-xs font-semibold text-gray-500 mb-1 block">설치 위치</label>
+              <input value={form.location} onChange={e => setFormField('location', e.target.value)}
+                placeholder="예: 1번 하우스 입구"
+                className="w-full px-3 py-2 rounded-lg border border-gray-300 text-sm focus:border-blue-400 focus:outline-none" />
+            </div>
+            <div>
+              <label className="text-xs font-semibold text-gray-500 mb-1 block">카메라 브랜드</label>
+              <select value={form.brand} onChange={e => setFormField('brand', e.target.value)}
+                className="w-full px-3 py-2 rounded-lg border border-gray-300 text-sm focus:border-blue-400 focus:outline-none bg-white">
+                {CAMERA_BRANDS.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
+              </select>
+            </div>
+          </div>
+
+          {form.brand !== 'custom' ? (
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-3">
+              <div>
+                <label className="text-xs font-semibold text-gray-500 mb-1 block">카메라 IP *</label>
+                <input value={form.ip} onChange={e => setFormField('ip', e.target.value)}
+                  placeholder="192.168.0.100"
+                  className="w-full px-3 py-2 rounded-lg border border-gray-300 text-sm font-mono focus:border-blue-400 focus:outline-none" />
+              </div>
+              <div>
+                <label className="text-xs font-semibold text-gray-500 mb-1 block">계정</label>
+                <input value={form.user} onChange={e => setFormField('user', e.target.value)}
+                  placeholder="admin"
+                  className="w-full px-3 py-2 rounded-lg border border-gray-300 text-sm focus:border-blue-400 focus:outline-none" />
+              </div>
+              <div>
+                <label className="text-xs font-semibold text-gray-500 mb-1 block">비밀번호</label>
+                <input type="password" value={form.pass} onChange={e => setFormField('pass', e.target.value)}
+                  placeholder="********"
+                  className="w-full px-3 py-2 rounded-lg border border-gray-300 text-sm focus:border-blue-400 focus:outline-none" />
+              </div>
+              <div>
+                <label className="text-xs font-semibold text-gray-500 mb-1 block">포트</label>
+                <input value={form.port} onChange={e => setFormField('port', e.target.value)}
+                  placeholder="554"
+                  className="w-full px-3 py-2 rounded-lg border border-gray-300 text-sm font-mono focus:border-blue-400 focus:outline-none" />
+              </div>
+            </div>
+          ) : null}
+
+          {/* RTSP URL (자동 생성 또는 직접 입력) */}
+          <div className="mb-3">
+            <label className="text-xs font-semibold text-gray-500 mb-1 block">
+              RTSP URL {form.brand !== 'custom' ? '(자동 생성됨, 수정 가능)' : '*'}
+            </label>
+            <input value={form.rtspUrl} onChange={e => setForm({ ...form, rtspUrl: e.target.value })}
+              placeholder="rtsp://admin:password@192.168.0.100:554/onvif1"
+              className={`w-full px-3 py-2 rounded-lg border text-sm font-mono focus:border-blue-400 focus:outline-none ${form.brand !== 'custom' ? 'border-emerald-300 bg-emerald-50' : 'border-gray-300'}`} />
+          </div>
+
+          <div className="flex gap-2 justify-end">
+            <button onClick={() => { setShowAdd(false); setEditCam(null); }}
+              className="px-4 py-2 rounded-lg text-sm font-semibold bg-gray-100 text-gray-600 hover:bg-gray-200">취소</button>
+            <button onClick={handleSave}
+              className="px-4 py-2 rounded-lg text-sm font-bold bg-blue-500 text-white hover:bg-blue-600">
+              {editCam ? '수정' : '추가'}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {cameras.length === 0 ? (
+        <div className="glass-card p-8 text-center text-gray-400">
+          <div className="text-4xl mb-2">📹</div>
+          <p>등록된 카메라가 없습니다</p>
+          <p className="text-xs mt-1">위의 "카메라 추가" 버튼으로 CCTV를 등록하세요</p>
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+          {cameras.map(cam => (
+            <div key={cam.id} className="glass-card p-4 flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className={`w-10 h-10 rounded-xl flex items-center justify-center text-lg ${cam.enabled ? 'bg-emerald-50' : 'bg-gray-100'}`}>
+                  📹
+                </div>
+                <div>
+                  <div className="text-sm font-bold text-gray-800 flex items-center gap-2">
+                    {cam.name}
+                    <span className={`px-1.5 py-0.5 rounded text-[10px] font-semibold ${cam.enabled ? 'bg-emerald-100 text-emerald-700' : 'bg-gray-100 text-gray-500'}`}>
+                      {cam.enabled ? '활성' : '비활성'}
+                    </span>
+                  </div>
+                  <div className="text-xs text-gray-400">{cam.location || '-'}</div>
+                  <div className="text-[10px] text-gray-300 font-mono mt-0.5 truncate max-w-[300px]">{cam.rtspUrl}</div>
+                </div>
+              </div>
+              <div className="flex gap-1.5">
+                <button onClick={() => startEdit(cam)}
+                  className="px-2.5 py-1.5 rounded-lg text-xs font-semibold bg-gray-100 text-gray-600 hover:bg-gray-200">수정</button>
+                <button onClick={() => handleDelete(cam)}
+                  className="px-2.5 py-1.5 rounded-lg text-xs font-semibold bg-red-50 text-red-500 hover:bg-red-100">삭제</button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+};
+
 const ConfigurationManager = ({ farmId = import.meta.env.VITE_FARM_ID || 'farm_0001' }) => {
   const [activeTab, setActiveTab] = useState(() => {
     const saved = localStorage.getItem('settings_activeTab');
@@ -243,6 +461,7 @@ const ConfigurationManager = ({ farmId = import.meta.env.VITE_FARM_ID || 'farm_0
 
   const tabs = [
     { id: 'houses', label: '하우스/센서', icon: '🏠' },
+    { id: 'cameras', label: '카메라', icon: '📹' },
     { id: 'automation', label: '자동화규칙', icon: '🤖' },
     { id: 'alerts', label: '알림설정', icon: '🔔' },
     { id: 'system', label: '시스템', icon: '⚙️' },
@@ -341,6 +560,11 @@ const ConfigurationManager = ({ farmId = import.meta.env.VITE_FARM_ID || 'farm_0
             )
           )}
         </div>
+      )}
+
+      {/* 카메라 탭 */}
+      {activeTab === 'cameras' && (
+        <CameraManager farmId={farmId} />
       )}
 
       {/* 자동화 탭 */}

@@ -15,6 +15,7 @@ import FarmSelector from './components/Dashboard/FarmSelector';
 import FarmManager from './components/Settings/FarmManager';
 import FarmOverviewWidget from './components/Dashboard/FarmOverviewWidget';
 import ReportPage from './components/Dashboard/ReportPage';
+import CCTVPanel from './components/Dashboard/CCTVPanel';
 import { getApiBase, getRpiApiBase, isFarmLocalMode } from './services/apiSwitcher';
 import TouchKeyboard from './components/Common/TouchKeyboard';
 
@@ -262,7 +263,7 @@ function AppContent() {
     return () => { clearInterval(ipInterval); clearInterval(clockInterval); };
   }, []);
 
-  const VALID_PAGES = ['dashboard','control','history','journal','report','ai','farms','server','settings','users'];
+  const VALID_PAGES = ['dashboard','control','cctv','history','journal','report','ai','farms','server','settings','users'];
   useEffect(() => {
     if (!user) return;
     // 유효하지 않은 페이지 → 대시보드로 리다이렉트
@@ -271,7 +272,8 @@ function AppContent() {
       return;
     }
     // 권한 없는 페이지 → 대시보드로 리다이렉트
-    if (currentPage !== 'dashboard' && !hasPermission(currentPage)) {
+    const pagePermission = currentPage === 'cctv' ? 'control' : currentPage;
+    if (currentPage !== 'dashboard' && !hasPermission(pagePermission)) {
       setCurrentPage('dashboard');
     }
   }, [user, currentPage]);
@@ -317,6 +319,7 @@ function AppContent() {
         { id: 'farms', label: '농장관리', icon: '🏭', permission: 'farms' },
         { id: 'dashboard', label: '대시보드', icon: '📊', permission: 'dashboard' },
         { id: 'control', label: '제어', icon: '🎛️', permission: 'control' },
+        { id: 'cctv', label: 'CCTV', icon: '📹', permission: 'control' },
         { id: 'journal', label: '영농일지', icon: '📝', permission: 'journal' },
         { id: 'report', label: '보고서', icon: '📄', permission: 'report' },
         { id: 'ai', label: 'AI도우미', icon: '🤖', permission: 'ai' },
@@ -647,6 +650,9 @@ function AppContent() {
         )}
         {currentPage === 'control' && hasPermission('control') && (
           <ControlPage farmId={farmId} isTouchPanel={isTouchPanel} />
+        )}
+        {currentPage === 'cctv' && hasPermission('control') && (
+          <CCTVPanel />
         )}
         {currentPage === 'journal' && hasPermission('journal') && (
           <div className="max-w-7xl mx-auto px-4 md:px-6 py-4 md:py-6">

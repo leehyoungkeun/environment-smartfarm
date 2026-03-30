@@ -9,9 +9,13 @@ export default function CCTVPanel({ farmId }) {
   const API = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3000/api';
   const getToken = () => localStorage.getItem('accessToken');
   const rpiBase = getRpiApiBase();
-  const go2rtcBase = rpiBase ? rpiBase.replace(/\/api\/?$/, '').replace(/:1880$/, ':1984') : null;
+  // 로컬: RPi go2rtc 직접 접속, 외부: Cloudflare Tunnel 경유
+  const isLocal = rpiBase && (rpiBase.includes('192.168.') || rpiBase.includes('localhost'));
+  const go2rtcBase = isLocal
+    ? rpiBase.replace(/\/api\/?$/, '').replace(/:1880$/, ':1984')
+    : 'https://cctv.smartgreen.kr';
 
-  const getStreamUrl = (camId) => go2rtcBase ? `${go2rtcBase}/stream.html?src=${camId}&mode=webrtc` : null;
+  const getStreamUrl = (camId) => `${go2rtcBase}/stream.html?src=${camId}&mode=webrtc`;
 
   const fetchCameras = useCallback(async () => {
     try {

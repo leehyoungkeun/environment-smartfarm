@@ -55,10 +55,10 @@ async function saveSystemSettings(farmId, payload) {
 
 // 통일 서브탭 바 (모든 탭에서 재사용)
 export const SubTabBar = ({ tabs, activeTab, onChange, trailing }) => (
-  <div className="flex flex-wrap items-center gap-1.5 md:gap-2 mb-4">
+  <div className="flex items-center gap-1.5 md:gap-2 mb-3 md:mb-4 overflow-x-auto pb-1" style={{ scrollbarWidth: 'none', WebkitOverflowScrolling: 'touch' }}>
     {tabs.map(tab => (
       <button key={tab.id} onClick={() => onChange(tab.id)}
-        className={`flex items-center gap-1 md:gap-1.5 px-2.5 md:px-4 py-2 md:py-2.5 rounded-lg text-xs md:text-sm font-bold transition-all ${
+        className={`flex items-center gap-1 md:gap-1.5 px-2.5 md:px-4 py-2 md:py-2.5 rounded-lg text-xs md:text-sm font-bold whitespace-nowrap flex-shrink-0 transition-all ${
           activeTab === tab.id
             ? 'bg-blue-600 text-white shadow-md shadow-blue-600/25'
             : 'bg-white text-gray-600 border border-gray-200 hover:bg-gray-50 shadow-sm'
@@ -71,7 +71,7 @@ export const SubTabBar = ({ tabs, activeTab, onChange, trailing }) => (
         )}
       </button>
     ))}
-    {trailing && <div className="ml-auto">{trailing}</div>}
+    {trailing && <div className="ml-auto flex-shrink-0">{trailing}</div>}
   </div>
 );
 
@@ -470,19 +470,19 @@ const ConfigurationManager = ({ farmId = import.meta.env.VITE_FARM_ID || 'farm_0
   return (
     <div className="max-w-7xl mx-auto px-4 md:px-6 py-4 md:py-6">
       {/* 헤더 */}
-      <div className="mb-5 animate-fade-in-up">
+      <div className="hidden md:block mb-5 animate-fade-in-up">
         <h1 className="text-2xl font-bold text-gray-800 tracking-tight">설정 관리</h1>
-        <p className="text-gray-500 text-sm md:text-base mt-0.5">하우스, 센서, 자동화 설정</p>
+        <p className="text-gray-500 text-base mt-0.5">하우스, 센서, 자동화 설정</p>
       </div>
 
-      {/* 탭 네비게이션 + 탭별 액션 버튼 */}
-      <div className="grid grid-cols-4 gap-1.5 md:flex md:items-center md:gap-2 mb-5 animate-fade-in-up">
+      {/* 탭 네비게이션 */}
+      <div className="flex gap-1.5 md:gap-2 mb-3 md:mb-5 overflow-x-auto pb-1 animate-fade-in-up" style={{ scrollbarWidth: 'none', WebkitOverflowScrolling: 'touch' }}>
         {tabs.map(tab => (
           <button
             key={tab.id}
             onClick={() => { setActiveTab(tab.id); localStorage.setItem('settings_activeTab', tab.id); }}
-            className={`flex items-center justify-center gap-1 md:gap-2 px-2 md:px-5 py-2.5 rounded-xl text-xs md:text-base font-bold
-                       whitespace-nowrap transition-all active:scale-[0.97] ${
+            className={`flex items-center justify-center gap-1 md:gap-2 px-3 md:px-5 py-2 md:py-2.5 rounded-xl text-xs md:text-base font-bold
+                       whitespace-nowrap flex-shrink-0 transition-all active:scale-[0.97] ${
               activeTab === tab.id
                 ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/20'
                 : 'bg-white border border-gray-200 text-gray-600 hover:bg-gray-50 shadow-sm'

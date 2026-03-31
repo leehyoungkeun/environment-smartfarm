@@ -1,6 +1,76 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { getRpiApiBase } from '../../services/apiSwitcher';
 
+// go2rtc MSE WebSocket 플레이어 (iframe 없이 직접 연결)
+function MsePlayer({ url, muted, style }) {
+  const videoRef = useRef(null);
+  const wsRef = useRef(null);
+
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video || !url) return;
+
+    let ms, sb;
+    const queue = [];
+
+    const ws = new WebSocket(url);
+    wsRef.current = ws;
+    ws.binaryType = 'arraybuffer';
+
+    ws.onopen = () => {
+      ws.send(JSON.stringify({ type: 'mse' }));
+    };
+
+    ws.onmessage = (ev) => {
+      if (typeof ev.data === 'string') {
+        const msg = JSON.parse(ev.data);
+        if (msg.type === 'mse') {
+          ms = new MediaSource();
+          video.src = URL.createObjectURL(ms);
+          ms.addEventListener('sourceopen', () => {
+            sb = ms.addSourceBuffer(msg.value);
+            sb.mode = 'segments';
+            sb.addEventListener('updateend', () => {
+              if (queue.length > 0 && !sb.updating) {
+                sb.appendBuffer(queue.shift());
+              }
+            });
+          });
+        }
+      } else {
+        // binary fMP4 segment
+        if (sb && !sb.updating) {
+          sb.appendBuffer(ev.data);
+        } else {
+          queue.push(ev.data);
+        }
+      }
+    };
+
+    ws.onerror = () => {};
+    ws.onclose = () => {};
+
+    return () => {
+      ws.close();
+      wsRef.current = null;
+      if (ms && ms.readyState === 'open') {
+        try { ms.endOfStream(); } catch {}
+      }
+      if (video.src) URL.revokeObjectURL(video.src);
+    };
+  }, [url]);
+
+  return (
+    <video
+      ref={videoRef}
+      style={style}
+      muted={muted}
+      autoPlay
+      playsInline
+    />
+  );
+}
+
 export default function CCTVPanel({ farmId }) {
   const [cameras, setCameras] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -17,12 +87,15 @@ export default function CCTVPanel({ farmId }) {
     ? rpiBase.replace(/\/api\/?$/, '').replace(/:1880$/, ':1984')
     : 'https://cctv.smartgreen.kr';
 
-  // 로컬: WebRTC (iframe), 외부: mp4 직접 스트리밍 (video 태그)
-  const getStreamUrl = (camId) => {
-    if (isLocal) {
-      return `${go2rtcBase}/stream.html?src=${camId}&mode=webrtc&media=video`;
-    }
-    return `${go2rtcBase}/api/stream.mp4?src=${camId}`;
+  // WebSocket URL (MSE용)
+  const getWsUrl = (camId) => {
+    const wsBase = go2rtcBase.replace(/^http/, 'ws');
+    return `${wsBase}/api/ws?src=${camId}`;
+  };
+
+  // iframe URL (WebRTC 로컬용)
+  const getIframeUrl = (camId) => {
+    return `${go2rtcBase}/stream.html?src=${camId}&mode=webrtc&media=video`;
   };
 
   const fetchCameras = useCallback(async () => {
@@ -46,16 +119,12 @@ export default function CCTVPanel({ farmId }) {
     if (onlineCams.length > 0 && !selectedCam) setSelectedCam(onlineCams[0]);
   }, [cameras]);
 
-  // 카메라 변경 시 음소거 초기화 + 재생
+  // 카메라 변경 시 음소거 초기화
   useEffect(() => {
     setIsMuted(true);
-    if (mainVideoRef.current) {
-      mainVideoRef.current.muted = true;
-      mainVideoRef.current.play().catch(() => {});
-    }
   }, [selectedCam]);
 
-  // 음소거/볼륨 변경 시 메인 비디오에 반영
+  // 볼륨 변경 시 메인 비디오에 반영 (MsePlayer 내부 video 접근)
   useEffect(() => {
     if (mainVideoRef.current) {
       mainVideoRef.current.muted = isMuted;
@@ -63,15 +132,12 @@ export default function CCTVPanel({ farmId }) {
     }
   }, [isMuted, volume]);
 
-  const toggleMute = () => {
-    setIsMuted(prev => !prev);
-  };
+  const toggleMute = () => setIsMuted(prev => !prev);
 
   const handleVolume = (val) => {
     const v = Number(val);
     setVolume(v);
-    if (v === 0) setIsMuted(true);
-    else setIsMuted(false);
+    setIsMuted(v === 0);
   };
 
   const renderStream = (camId, style, isMain = false) => {
@@ -79,23 +145,30 @@ export default function CCTVPanel({ farmId }) {
       // 로컬: WebRTC iframe
       return (
         <iframe
-          src={getStreamUrl(camId)}
+          src={getIframeUrl(camId)}
           style={{ ...style, border: 'none', display: 'block' }}
           allow="autoplay"
           sandbox="allow-scripts allow-same-origin"
         />
       );
     }
-    // 외부: mp4 직접 스트리밍
-    // 메인 영상: 볼륨 제어 가능, 썸네일: 항상 음소거
+    // 외부: MSE WebSocket 직접 연결 (video 태그 직접 제어)
+    if (isMain) {
+      return (
+        <MsePlayerWithRef
+          ref={mainVideoRef}
+          url={getWsUrl(camId)}
+          muted={isMuted}
+          volume={volume}
+          style={{ ...style, display: 'block', objectFit: 'contain', background: '#000' }}
+        />
+      );
+    }
     return (
-      <video
-        ref={isMain ? mainVideoRef : null}
-        src={getStreamUrl(camId)}
+      <MsePlayer
+        url={getWsUrl(camId)}
+        muted={true}
         style={{ ...style, display: 'block', objectFit: 'contain', background: '#000' }}
-        muted={isMain ? isMuted : true}
-        autoPlay
-        playsInline
       />
     );
   };
@@ -171,7 +244,12 @@ export default function CCTVPanel({ farmId }) {
                 style={{ padding: '6px 16px', borderRadius: 8, fontSize: 12, fontWeight: 600, background: '#374151', color: '#d1d5db', border: 'none', cursor: 'pointer' }}>
                 닫기
               </button>
-              <button onClick={() => window.open(getStreamUrl(selectedCam.camId), '_blank')}
+              <button onClick={() => {
+                const url = isLocal
+                  ? getIframeUrl(selectedCam.camId)
+                  : `${go2rtcBase}/stream.html?src=${selectedCam.camId}&mode=mse`;
+                window.open(url, '_blank');
+              }}
                 style={{ padding: '6px 16px', borderRadius: 8, fontSize: 12, fontWeight: 600, background: '#2563eb', color: '#fff', border: 'none', cursor: 'pointer' }}>
                 전체화면
               </button>
@@ -266,3 +344,85 @@ export default function CCTVPanel({ farmId }) {
     </div>
   );
 }
+
+// 메인 영상용: 부모에서 video 요소에 접근 가능하도록 forwardRef
+import { forwardRef, useImperativeHandle } from 'react';
+
+const MsePlayerWithRef = forwardRef(({ url, muted, volume, style }, ref) => {
+  const videoRef = useRef(null);
+  const wsRef = useRef(null);
+
+  // 부모에서 video 요소 직접 접근
+  useImperativeHandle(ref, () => videoRef.current);
+
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video || !url) return;
+
+    let ms, sb;
+    const queue = [];
+
+    const ws = new WebSocket(url);
+    wsRef.current = ws;
+    ws.binaryType = 'arraybuffer';
+
+    ws.onopen = () => {
+      ws.send(JSON.stringify({ type: 'mse' }));
+    };
+
+    ws.onmessage = (ev) => {
+      if (typeof ev.data === 'string') {
+        const msg = JSON.parse(ev.data);
+        if (msg.type === 'mse') {
+          ms = new MediaSource();
+          video.src = URL.createObjectURL(ms);
+          ms.addEventListener('sourceopen', () => {
+            sb = ms.addSourceBuffer(msg.value);
+            sb.mode = 'segments';
+            sb.addEventListener('updateend', () => {
+              if (queue.length > 0 && !sb.updating) {
+                sb.appendBuffer(queue.shift());
+              }
+            });
+          });
+        }
+      } else {
+        if (sb && !sb.updating) {
+          sb.appendBuffer(ev.data);
+        } else {
+          queue.push(ev.data);
+        }
+      }
+    };
+
+    ws.onerror = () => {};
+    ws.onclose = () => {};
+
+    return () => {
+      ws.close();
+      wsRef.current = null;
+      if (ms && ms.readyState === 'open') {
+        try { ms.endOfStream(); } catch {}
+      }
+      if (video.src) URL.revokeObjectURL(video.src);
+    };
+  }, [url]);
+
+  // muted/volume 변경 시 즉시 반영
+  useEffect(() => {
+    if (videoRef.current) {
+      videoRef.current.muted = muted;
+      videoRef.current.volume = (volume || 50) / 100;
+    }
+  }, [muted, volume]);
+
+  return (
+    <video
+      ref={videoRef}
+      style={style}
+      muted={muted}
+      autoPlay
+      playsInline
+    />
+  );
+});

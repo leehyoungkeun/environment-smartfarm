@@ -122,7 +122,7 @@ export default function CCTVPanel({ farmId }) {
               <iframe
                 src={getStreamUrl(selectedCam.camId)}
                 style={{ width: '100%', height: 'min(560px, 55vh)', border: 'none', display: 'block' }}
-                allow=""
+                allow="autoplay"
                 sandbox="allow-scripts allow-same-origin"
               />
             ) : (
@@ -187,7 +187,7 @@ export default function CCTVPanel({ farmId }) {
                     <iframe
                       src={getStreamUrl(cam.camId)}
                       style={{ width: '100%', height: '100%', border: 'none', pointerEvents: 'none', display: 'block' }}
-                      allow=""
+                      allow="autoplay"
                       sandbox="allow-scripts allow-same-origin"
                     />
                   ) : (

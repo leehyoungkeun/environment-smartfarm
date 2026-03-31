@@ -298,9 +298,9 @@ export default function JournalManager({ farmId = import.meta.env.VITE_FARM_ID |
   useEffect(()=>{if(activeTab==="summary")api(`/journal/${farmId}/summary`).then(r=>setSummary(r.data)).catch(console.error)},[activeTab,farmId]);
   return(
     <FarmIdCtx.Provider value={farmId}>
-    <div className="space-y-6">
-      <div><h2 className="text-2xl font-bold text-white">영농일지</h2><p className="text-gray-400 mt-1">작업 기록, 수확, 투입물 관리</p></div>
-      <div className="flex gap-1.5">{tabs.map(tab=>(<button key={tab.key} onClick={()=>setActiveTab(tab.key)} className={`flex items-center gap-1.5 px-2 md:px-4 py-2 rounded-xl font-medium transition-all text-sm min-w-0 active:scale-[0.97] ${activeTab===tab.key?"bg-blue-600 text-white shadow-lg shadow-blue-600/20":"bg-white border border-gray-200 text-gray-600 hover:bg-gray-50 shadow-sm"}`}><span className="flex-shrink-0">{tab.icon}</span><span className="truncate">{tab.label}</span></button>))}</div>
+    <div className="space-y-2 md:space-y-6">
+      <div className="hidden md:block"><h2 className="text-2xl font-bold text-white">영농일지</h2><p className="text-gray-400 mt-1">작업 기록, 수확, 투입물 관리</p></div>
+      <div className="flex gap-2">{tabs.map(tab=>(<button key={tab.key} onClick={()=>setActiveTab(tab.key)} className={`flex items-center justify-center gap-1.5 px-3 md:px-4 py-2.5 rounded-xl font-semibold transition-all text-sm flex-1 md:flex-none active:scale-[0.97] ${activeTab===tab.key?"bg-blue-600 text-white shadow-lg shadow-blue-600/20":"bg-white border border-gray-200 text-gray-600 hover:bg-gray-50 shadow-sm"}`}><span className="text-lg">{tab.icon}</span><span className="hidden md:inline">{tab.label}</span><span className="md:hidden text-xs">{tab.label.replace(' 기록','').replace('투입물','투입')}</span></button>))}</div>
       {activeTab==="journal"&&<JournalTab />}
       {activeTab==="harvest"&&<HarvestTab />}
       {activeTab==="input"&&<InputTab />}

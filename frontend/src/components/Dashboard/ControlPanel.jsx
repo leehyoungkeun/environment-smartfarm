@@ -408,14 +408,30 @@ const ControlPanel = ({ farmId, houseId, houseConfig }) => {
                 }
               }, 500);
 
-              // 남은 시간 후 자동 정지 (프론트 UI용)
+              // 남은 시간 후 자동 정지 (실제 stop 명령 + UI 정리)
               if (timerRefs.current[stopTimerKey]) clearTimeout(timerRefs.current[stopTimerKey]);
-              timerRefs.current[stopTimerKey] = setTimeout(() => {
+              timerRefs.current[stopTimerKey] = setTimeout(async () => {
                 clearInterval(timerRefs.current[progressKey]);
                 timerRefs.current[progressKey] = null;
                 timerRefs.current[stopTimerKey] = null;
                 setBidirProgress(prev => ({ ...prev, [devId]: null }));
                 setBidirPosition(prev => ({ ...prev, [devId]: targetPosition }));
+                // 실제 stop 명령 발송 (모터 정지)
+                try {
+                  const cHouseId = (() => {
+                    if (!houseId) return 'house1';
+                    const m = houseId.match(/house_?0*(\d+)/);
+                    return m ? `house${parseInt(m[1])}` : houseId;
+                  })();
+                  await sendControlCommand(cHouseId, devId, 'stop', 'auto_duration');
+                  // 서버에 정지 상태 저장
+                  axios.post(`${API}/device-positions/${farmId}`, {
+                    deviceId: devId, position: targetPosition, command: 'stop',
+                    startPosition: targetPosition, targetPosition, duration: 0, startedAt: null,
+                  }, { headers: { Authorization: `Bearer ${token}` } }).catch(() => {});
+                } catch (e) {
+                  console.error('복귀 자동 정지 실패:', devId, e);
+                }
               }, remaining * 1000);
 
             } else {

@@ -138,6 +138,7 @@ def lambda_handler(event, context):
     operator = body.get('operator', 'mobile_app')
     request_id = body.get('request_id', f"req-{int(datetime.datetime.now().timestamp())}")
     modbus = body.get('modbus', None)
+    duration = body.get('duration', 0)
 
     # ========================================
     # IoT 메시지 발행
@@ -150,7 +151,8 @@ def lambda_handler(event, context):
         "house_id": house_id,
         "window_id": window_id,
         "operator": operator,
-        "request_id": request_id
+        "request_id": request_id,
+        "duration": duration
     }
 
     if modbus is not None:

@@ -9,7 +9,8 @@ import { getApiBase, getSystemMode, setManualMode, onModeChange, getServerTimeou
 
 /** 하우스 탭 가로 스크롤 (좌/우 화살표 + 균등 버튼 크기) */
 const GAP = 8;
-const MAX_VISIBLE = 6; // 한 화면에 보이는 최대 버튼 수
+const MAX_VISIBLE_DESKTOP = 6;
+const MAX_VISIBLE_MOBILE = 2;
 
 const HouseTabScroller = ({ houses, selectedHouse, onSelect, headerState, theme = 'dark' }) => {
   const isLight = theme === 'light';
@@ -17,8 +18,16 @@ const HouseTabScroller = ({ houses, selectedHouse, onSelect, headerState, theme 
   const [canScrollLeft, setCanScrollLeft] = useState(false);
   const [canScrollRight, setCanScrollRight] = useState(false);
   const [btnWidth, setBtnWidth] = useState(0);
+  const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
 
-  const visibleCount = Math.min(houses.length, MAX_VISIBLE);
+  useEffect(() => {
+    const onResize = () => setIsMobile(window.innerWidth < 768);
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
+  }, []);
+
+  const maxVisible = isMobile ? MAX_VISIBLE_MOBILE : MAX_VISIBLE_DESKTOP;
+  const visibleCount = Math.min(houses.length, maxVisible);
 
   const checkScroll = useCallback(() => {
     const el = scrollRef.current;

@@ -688,15 +688,17 @@ function AppContent() {
 
       {/* 모바일 하단 네비 제거 — 모든 메뉴가 상단 헤더에 통합됨 */}
 
-      {/* 모바일 알림 패널 */}
-      <div className="md:hidden">
-        <AlertPanel
-          farmId={farmId}
-          showPanel={showAlertPanel}
-          setShowPanel={setShowAlertPanel}
-          isMobile={true}
-        />
-      </div>
+      {/* 모바일 알림 패널 (상단 네비에 통합됨 — 여기서는 전체화면 패널만) */}
+      {showAlertPanel && (
+        <div className="md:hidden">
+          <AlertPanel
+            farmId={farmId}
+            showPanel={showAlertPanel}
+            setShowPanel={setShowAlertPanel}
+            isMobile={true}
+          />
+        </div>
+      )}
 
       {/* 데스크톱 알림 패널 */}
       {showAlertPanel && (

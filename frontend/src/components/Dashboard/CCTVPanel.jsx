@@ -24,7 +24,11 @@ export default function CCTVPanel({ farmId }) {
     ? rpiBase.replace(/\/api\/?$/, '').replace(/:1880$/, ':1984')
     : 'https://cctv.smartgreen.kr';
 
-  const getStreamUrl = (camId) => `${go2rtcBase}/stream.html?src=${camId}&mode=webrtc&media=video`;
+  // 로컬: WebRTC (빠름), 외부: MSE (Tunnel 호환)
+  const getStreamUrl = (camId) => {
+    const mode = isLocal ? 'webrtc' : 'mse';
+    return `${go2rtcBase}/stream.html?src=${camId}&mode=${mode}&media=video`;
+  };
 
   const fetchCameras = useCallback(async () => {
     try {

@@ -28,7 +28,7 @@ export default function AIManager({ farmId = import.meta.env.VITE_FARM_ID || "fa
 
   return (
     <FarmIdCtx.Provider value={farmId}>
-    <div className="max-w-7xl mx-auto px-4 md:px-6 py-4 md:py-6 space-y-5">
+    <div className="max-w-7xl mx-auto px-2 md:px-6 py-1 md:py-6 space-y-2 md:space-y-5">
       <div className="hidden md:block">
         <h1 className="text-2xl font-bold text-gray-800 tracking-tight">🤖 AI 농업 도우미</h1>
         <p className="text-gray-500 text-sm mt-0.5">인공지능 기반 스마트팜 분석 및 상담</p>
@@ -503,6 +503,8 @@ function AIChat() {
   const chatContainerRef = useRef(null);
   const inputRef = useRef(null);
   const isFirstRender = useRef(true);
+  const [isListening, setIsListening] = useState(false);
+  const recognitionRef = useRef(null);
 
   useEffect(() => {
     api(`/ai/models`).then(r => {
@@ -524,6 +526,30 @@ function AIChat() {
   const clearChat = () => {
     setMessages([defaultMsg]);
     localStorage.removeItem(chatKey);
+  };
+
+  const toggleVoice = () => {
+    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SR) { alert('이 브라우저에서 음성 입력을 지원하지 않습니다.'); return; }
+    if (isListening) {
+      recognitionRef.current?.stop();
+      setIsListening(false);
+      return;
+    }
+    const recognition = new SR();
+    recognitionRef.current = recognition;
+    recognition.lang = 'ko-KR';
+    recognition.continuous = false;
+    recognition.interimResults = false;
+    recognition.onresult = (e) => {
+      const text = e.results[0][0].transcript;
+      setInput(prev => prev ? prev + ' ' + text : text);
+      setIsListening(false);
+    };
+    recognition.onerror = () => setIsListening(false);
+    recognition.onend = () => setIsListening(false);
+    recognition.start();
+    setIsListening(true);
   };
 
   const quickQuestions = [
@@ -576,7 +602,7 @@ function AIChat() {
       </div>
 
       {/* 대화 영역 */}
-      <div ref={chatContainerRef} className="overflow-y-auto px-3 py-2 space-y-3" style={{ height: "calc(100vh - 320px)", minHeight: "300px" }}>
+      <div ref={chatContainerRef} className="overflow-y-auto px-3 py-2 space-y-3" style={{ height: "calc(100vh - 260px)", minHeight: "300px" }}>
         {messages.map((msg, i) => (
           <div key={i} className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}>
             <div className={`max-w-[80%] rounded-2xl px-4 py-3 ${msg.role === "user"
@@ -607,13 +633,19 @@ function AIChat() {
       )}
 
       {/* 입력 영역 */}
-      <div className="px-3 py-2 border-t border-white/5">
-        <div className="flex gap-2">
+      <div className="px-2 py-1.5 border-t border-white/5">
+        <div className="flex gap-1.5">
+          <button onClick={toggleVoice} disabled={loading}
+            className={`w-10 h-10 flex-shrink-0 rounded-lg flex items-center justify-center text-lg transition-all ${
+              isListening ? 'bg-red-500 text-white animate-pulse' : 'bg-white/5 text-gray-400 hover:bg-white/10 hover:text-white'
+            }`} title="음성 입력">
+            🎤
+          </button>
           <input ref={inputRef} type="text" value={input} onChange={e => setInput(e.target.value)}
             onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendMessage(); } }}
-            placeholder="질문을 입력하세요..." className="input-field text-sm flex-1" disabled={loading} />
+            placeholder={isListening ? "듣고 있습니다..." : "질문을 입력하세요..."} className="input-field text-sm flex-1 min-w-0" disabled={loading} />
           <button onClick={() => sendMessage()} disabled={loading || !input.trim()}
-            className="px-5 py-2 rounded-lg bg-gradient-to-r from-purple-500 to-pink-500 text-white text-sm font-medium hover:opacity-90 disabled:opacity-40">
+            className="px-4 h-10 flex-shrink-0 rounded-lg bg-gradient-to-r from-purple-500 to-pink-500 text-white text-sm font-medium hover:opacity-90 disabled:opacity-40">
             전송
           </button>
         </div>

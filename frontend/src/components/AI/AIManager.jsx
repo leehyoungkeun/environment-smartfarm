@@ -487,9 +487,14 @@ function TaskRecommendation() {
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 function AIChat() {
   const FARM_ID = useContext(FarmIdCtx);
-  const [messages, setMessages] = useState([
-    { role: "ai", text: "안녕하세요! 🌱 AI 농업 상담사입니다.\n작물 재배, 병해충, 토양, 시비, 수확 등 무엇이든 질문해주세요.", time: new Date() }
-  ]);
+  const chatKey = `ai_chat_${FARM_ID}`;
+  const defaultMsg = { role: "ai", text: "안녕하세요! 🌱 AI 농업 상담사입니다.\n작물 재배, 병해충, 토양, 시비, 수확 등 무엇이든 질문해주세요.", time: new Date() };
+  const [messages, setMessages] = useState(() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem(chatKey));
+      return saved?.length ? saved.map(m => ({ ...m, time: new Date(m.time) })) : [defaultMsg];
+    } catch { return [defaultMsg]; }
+  });
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
   const [models, setModels] = useState([]);
@@ -512,7 +517,14 @@ function AIChat() {
     if (isFirstRender.current) { isFirstRender.current = false; return; }
     const container = chatContainerRef.current;
     if (container) container.scrollTop = container.scrollHeight;
+    // 최근 50개 메시지만 저장
+    try { localStorage.setItem(chatKey, JSON.stringify(messages.slice(-50))); } catch {}
   }, [messages]);
+
+  const clearChat = () => {
+    setMessages([defaultMsg]);
+    localStorage.removeItem(chatKey);
+  };
 
   const quickQuestions = [
     "토마토 잎이 말리는 원인은?",
@@ -544,15 +556,13 @@ function AIChat() {
   return (
     <div className="glass-card flex flex-col">
       {/* 헤더 */}
-      <div className="p-3 md:p-4 border-b border-white/5 flex items-center gap-2">
-        <div className="w-8 h-8 md:w-10 md:h-10 rounded-full bg-gradient-to-br from-purple-500 to-pink-500 flex items-center justify-center text-base md:text-xl flex-shrink-0">🤖</div>
-        <div className="min-w-0">
-          <h3 className="text-sm font-semibold text-white truncate">AI 농업 상담</h3>
-        </div>
+      <div className="px-3 py-2 border-b border-white/5 flex items-center gap-2">
+        <div className="w-7 h-7 rounded-full bg-gradient-to-br from-purple-500 to-pink-500 flex items-center justify-center text-sm flex-shrink-0">🤖</div>
+        <h3 className="text-sm font-semibold text-white">상담</h3>
         <div className="ml-auto flex items-center gap-2">
           {models.length > 1 && (
             <select value={selectedModel} onChange={e => setSelectedModel(e.target.value)}
-              className="px-2 py-1 rounded-lg text-xs bg-white/5 text-gray-400 border border-white/10 outline-none cursor-pointer hover:bg-white/10 max-w-[140px]">
+              className="px-2 py-1 rounded-lg text-xs bg-white/5 text-gray-400 border border-white/10 outline-none cursor-pointer hover:bg-white/10 max-w-[120px]">
               {models.map(m => (
                 <option key={m.name} value={m.name} className="bg-gray-800 text-gray-200">
                   {m.provider === "gemini" ? `☁️ ${m.name}` : `💻 ${m.name}`}
@@ -560,12 +570,13 @@ function AIChat() {
               ))}
             </select>
           )}
+          <button onClick={clearChat} className="px-2 py-1 rounded-lg text-xs text-gray-500 hover:text-white hover:bg-white/10 transition-all" title="대화 초기화">🗑️</button>
           <div className={`w-2 h-2 rounded-full flex-shrink-0 ${loading ? "bg-yellow-400 animate-pulse" : "bg-emerald-400"}`}></div>
         </div>
       </div>
 
       {/* 대화 영역 */}
-      <div ref={chatContainerRef} className="overflow-y-auto p-4 space-y-4" style={{ height: "calc(100vh - 480px)", minHeight: "250px" }}>
+      <div ref={chatContainerRef} className="overflow-y-auto px-3 py-2 space-y-3" style={{ height: "calc(100vh - 320px)", minHeight: "300px" }}>
         {messages.map((msg, i) => (
           <div key={i} className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}>
             <div className={`max-w-[80%] rounded-2xl px-4 py-3 ${msg.role === "user"
@@ -596,7 +607,7 @@ function AIChat() {
       )}
 
       {/* 입력 영역 */}
-      <div className="p-4 border-t border-white/5">
+      <div className="px-3 py-2 border-t border-white/5">
         <div className="flex gap-2">
           <input ref={inputRef} type="text" value={input} onChange={e => setInput(e.target.value)}
             onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendMessage(); } }}

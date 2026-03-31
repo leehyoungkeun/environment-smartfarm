@@ -389,7 +389,7 @@ function AppContent() {
           {showUserMenu && (
             <>
               <div className="fixed inset-0 z-[90]" onClick={() => setShowUserMenu(false)} />
-              <div className={`absolute ${isMobile ? 'left-0 top-9 w-44' : 'right-0 top-12 w-52'} bg-white border border-gray-200 rounded-2xl p-2 z-[100] animate-fade-in-up shadow-xl`}>
+              <div className={`absolute ${isMobile ? (isStaff ? 'left-0' : 'right-0') + ' top-9 w-44' : 'right-0 top-12 w-52'} bg-white border border-gray-200 rounded-2xl p-2 z-[100] animate-fade-in-up shadow-xl`}>
                 <div className="px-3 py-2 border-b border-gray-100 mb-1">
                   <p className="text-sm font-semibold text-gray-800">{user.name}</p>
                   <p className="text-xs text-gray-500">{user.username} · {roleLabel}</p>

@@ -31,6 +31,7 @@ import devicesRoutes from "./routes/devices.routes.js";
 import deployRoutes from "./routes/deploy.routes.js";
 import camerasRoutes from "./routes/cameras.routes.js";
 import devicePositionsRoutes from "./routes/device-positions.routes.js";
+import kakaoRoutes from "./routes/kakao.routes.js";
 import {
   authenticate,
   authenticateApiKey,
@@ -217,6 +218,7 @@ app.use("/api/config", authenticateApiKey, configRoutes);
 app.use("/api/automation", authenticateApiKey, automationRoutes);
 app.use("/api/devices", devicesRoutes);
 app.use("/api/deploy", deployRoutes);
+app.use("/api/kakao", kakaoRoutes);
 app.use("/api/cameras", authenticate, camerasRoutes);
 app.use("/api/device-positions", devicePositionsRoutes);
 

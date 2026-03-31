@@ -359,7 +359,7 @@ const ControlPanel = ({ farmId, houseId, houseConfig }) => {
     }
   }, [bidirPosition, bidirPositionKey]);
 
-  // 마운트 시 서버에서 장치 위치 동기화
+  // 마운트 시 서버에서 장치 위치 + 활성 동작 복원
   useEffect(() => {
     const syncPositions = async () => {
       try {
@@ -369,15 +369,64 @@ const ControlPanel = ({ farmId, houseId, houseConfig }) => {
           headers: { Authorization: `Bearer ${token}` },
           timeout: 3000,
         });
-        if (res.data?.success && res.data.data) {
-          setBidirPosition(prev => {
-            const merged = { ...prev };
-            Object.entries(res.data.data).forEach(([devId, info]) => {
-              merged[devId] = info.position;
-            });
-            return merged;
-          });
-        }
+        if (!res.data?.success || !res.data.data) return;
+
+        const now = Date.now();
+        Object.entries(res.data.data).forEach(([devId, info]) => {
+          const { startPosition, targetPosition, duration, startedAt, command, position } = info;
+
+          if (command !== 'stop' && startedAt && duration > 0) {
+            const elapsed = (now - new Date(startedAt).getTime()) / 1000;
+            const remaining = duration - elapsed;
+
+            if (remaining > 0) {
+              // 아직 동작 중 → 현재 위치 계산 + 타이머 재개
+              const progress = Math.min(1, elapsed / duration);
+              const curPos = Math.round(startPosition + (targetPosition - startPosition) * progress);
+              setBidirPosition(prev => ({ ...prev, [devId]: curPos }));
+
+              // 진행 애니메이션 재개
+              const remainSec = Math.round(remaining);
+              setBidirProgress(prev => ({ ...prev, [devId]: { percent: Math.round(progress * 100), direction: command, totalSec: duration, remainSec, startPos: startPosition, actualPos: curPos } }));
+
+              const startTime = new Date(startedAt).getTime();
+              const stopTimerKey = `autoStop_${devId}`;
+              const progressKey = `progress_${devId}`;
+
+              if (timerRefs.current[progressKey]) clearInterval(timerRefs.current[progressKey]);
+              timerRefs.current[progressKey] = setInterval(() => {
+                const el = (Date.now() - startTime) / 1000;
+                const pct = Math.min(100, Math.round((el / duration) * 100));
+                const actualPos = Math.round(startPosition + (targetPosition - startPosition) * Math.min(1, el / duration));
+                setBidirProgress(prev => ({ ...prev, [devId]: { percent: pct, direction: command, totalSec: duration, remainSec: Math.max(0, Math.round(duration - el)), startPos: startPosition, actualPos } }));
+                setBidirPosition(prev => ({ ...prev, [devId]: actualPos }));
+                if (pct >= 100) {
+                  clearInterval(timerRefs.current[progressKey]);
+                  timerRefs.current[progressKey] = null;
+                  setBidirProgress(prev => ({ ...prev, [devId]: null }));
+                  setBidirPosition(prev => ({ ...prev, [devId]: targetPosition }));
+                }
+              }, 500);
+
+              // 남은 시간 후 자동 정지 (프론트 UI용)
+              if (timerRefs.current[stopTimerKey]) clearTimeout(timerRefs.current[stopTimerKey]);
+              timerRefs.current[stopTimerKey] = setTimeout(() => {
+                clearInterval(timerRefs.current[progressKey]);
+                timerRefs.current[progressKey] = null;
+                timerRefs.current[stopTimerKey] = null;
+                setBidirProgress(prev => ({ ...prev, [devId]: null }));
+                setBidirPosition(prev => ({ ...prev, [devId]: targetPosition }));
+              }, remaining * 1000);
+
+            } else {
+              // 이미 완료 → 최종 위치 사용
+              setBidirPosition(prev => ({ ...prev, [devId]: targetPosition }));
+            }
+          } else {
+            // 정지 상태 → 저장된 위치 사용
+            setBidirPosition(prev => ({ ...prev, [devId]: position }));
+          }
+        });
       } catch {}
     };
     syncPositions();
@@ -738,12 +787,20 @@ const ControlPanel = ({ farmId, houseId, houseConfig }) => {
         const rpiApi = getRpiApiBase();
         // bidir 장치: duration 계산 (Node-RED 자동 정지용)
         let autoDuration = 0;
+        let curPos = 0;
         if (modbusConfig?.controlType === 'bidir' && (command === 'open' || command === 'close')) {
           const fullDur = command === 'open' ? modbusConfig.openDuration : modbusConfig.closeDuration;
           if (fullDur > 0) {
-            const curPos = bidirPositionRef.current[deviceId] || 0;
+            curPos = bidirPositionRef.current[deviceId] || 0;
             const remainRatio = command === 'open' ? (100 - curPos) / 100 : curPos / 100;
             autoDuration = Math.max(1, Math.round(fullDur * remainRatio));
+            // 서버에 동작 시작 정보 저장
+            const API = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3000/api';
+            axios.post(`${API}/device-positions/${farmId}`, {
+              deviceId, position: curPos, command,
+              startPosition: curPos, targetPosition: command === 'open' ? 100 : 0,
+              duration: autoDuration, startedAt: new Date().toISOString(),
+            }, { headers: { Authorization: `Bearer ${localStorage.getItem('accessToken')}` } }).catch(() => {});
           }
         }
         const res = await axios.post(`${rpiApi}/control/local`, {
@@ -867,6 +924,13 @@ const ControlPanel = ({ farmId, houseId, houseConfig }) => {
             const curPos = bidirPositionRef.current[deviceId] || 0;
             const remainRatio = command === 'open' ? (100 - curPos) / 100 : curPos / 100;
             awsDuration = Math.max(1, Math.round(fullDur * remainRatio));
+            // 서버에 동작 시작 정보 저장
+            const API = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3000/api';
+            axios.post(`${API}/device-positions/${farmId}`, {
+              deviceId, position: curPos, command,
+              startPosition: curPos, targetPosition: command === 'open' ? 100 : 0,
+              duration: awsDuration, startedAt: new Date().toISOString(),
+            }, { headers: { Authorization: `Bearer ${localStorage.getItem('accessToken')}` } }).catch(() => {});
           }
         }
         result = await sendControlCommand(controlHouseId, deviceId, command, 'web_dashboard', {

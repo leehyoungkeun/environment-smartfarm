@@ -541,7 +541,7 @@ function AppContent() {
             <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
           </button>
           {/* 가운데: 현재 페이지명 */}
-          <span className="text-sm font-bold text-gray-800">
+          <span className="text-lg font-extrabold text-gray-800">
             {navItems.find(n => n.id === currentPage)?.label || currentPage}
           </span>
           {/* 오른쪽: 알림 + 사용자 */}

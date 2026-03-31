@@ -536,13 +536,22 @@ function AppContent() {
         <div className="px-2 py-1.5">
           {navGrid ? (
             <>
-              {/* 2줄 그리드 */}
-              <div className="grid gap-1 mb-1" style={{ gridTemplateColumns: `repeat(${navGrid.columns}, 1fr)` }}>
-                {navGrid.row1.map(cell => renderNavCell(cell, true))}
-              </div>
-              <div className="grid gap-1" style={{ gridTemplateColumns: `repeat(${navGrid.columns}, 1fr)` }}>
-                {navGrid.row2.map(cell => renderNavCell(cell, true))}
-              </div>
+              {/* 2줄 그리드 (모바일: 로고 제외) */}
+              {(() => {
+                const mRow1 = navGrid.row1.filter(c => c.type !== 'logo');
+                const mRow2 = navGrid.row2;
+                const mCols = Math.max(mRow1.length, mRow2.length);
+                return (
+                  <>
+                    <div className="grid gap-1 mb-1" style={{ gridTemplateColumns: `repeat(${mCols}, 1fr)` }}>
+                      {mRow1.map(cell => renderNavCell(cell, true))}
+                    </div>
+                    <div className="grid gap-1" style={{ gridTemplateColumns: `repeat(${mCols}, 1fr)` }}>
+                      {mRow2.map(cell => renderNavCell(cell, true))}
+                    </div>
+                  </>
+                );
+              })()}
             </>
           ) : (
             /* farmLocal/터치패널: 1줄에 모든 정보 통합 */

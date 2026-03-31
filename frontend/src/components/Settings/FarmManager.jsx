@@ -1347,9 +1347,10 @@ export default function FarmManager({ onNavigateFarm }) {
         <div className="bg-slate-600 px-4 py-2.5">
           <h3 className="text-sm font-semibold text-white">농장 검색</h3>
         </div>
-        <table className="w-full border-collapse">
+
+        {/* 데스크톱: 테이블 레이아웃 */}
+        <table className="hidden md:table w-full border-collapse">
           <tbody>
-            {/* Row: 검색어 */}
             <tr>
               <td className={thCls}>검색어</td>
               <td className={tdCls}>
@@ -1368,8 +1369,6 @@ export default function FarmManager({ onNavigateFarm }) {
                 </div>
               </td>
             </tr>
-
-            {/* Row: 지역 + 농장상태 */}
             <tr>
               <td className={thCls}>지역</td>
               <td className={`${tdCls} border-r`}>
@@ -1396,8 +1395,6 @@ export default function FarmManager({ onNavigateFarm }) {
                 </div>
               </td>
             </tr>
-
-            {/* Row: 접속상태 + 유지보수 */}
             <tr>
               <td className={thCls}>접속상태</td>
               <td className={`${tdCls} border-r`}>
@@ -1427,8 +1424,6 @@ export default function FarmManager({ onNavigateFarm }) {
                 </div>
               </td>
             </tr>
-
-            {/* Row: 태그 */}
             {allTags.length > 0 && (
               <tr>
                 <td className={thCls}>태그</td>
@@ -1445,8 +1440,6 @@ export default function FarmManager({ onNavigateFarm }) {
                 </td>
               </tr>
             )}
-
-            {/* Row: 등록기간 */}
             <tr>
               <td className={thCls}>등록기간</td>
               <td className={tdCls}>
@@ -1468,6 +1461,104 @@ export default function FarmManager({ onNavigateFarm }) {
             </tr>
           </tbody>
         </table>
+
+        {/* 모바일: 세로 스택 레이아웃 */}
+        <div className="md:hidden divide-y divide-gray-100">
+          <div className="px-4 py-3">
+            <label className="text-xs font-semibold text-gray-500 mb-1.5 block">검색어</label>
+            <div className="flex gap-2">
+              <select value={searchField} onChange={e => setSearchField(e.target.value)}
+                className="px-2 py-2 border border-gray-300 rounded-lg text-sm bg-white">
+                <option value="all">전체</option>
+                <option value="name">농장명</option>
+                <option value="farmId">농장ID</option>
+                <option value="location">주소</option>
+              </select>
+              <input type="text" value={search} onChange={e => setSearch(e.target.value)}
+                placeholder="검색어 입력"
+                className="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-sm" />
+            </div>
+          </div>
+          <div className="px-4 py-3">
+            <label className="text-xs font-semibold text-gray-500 mb-1.5 block">지역</label>
+            <select value={region} onChange={e => setRegion(e.target.value)}
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm bg-white">
+              <option value="">전체 지역</option>
+              {regions.map(r => (
+                <option key={r} value={r}>{r} ({farms.filter(f => getRegion(f.location) === r).length})</option>
+              ))}
+            </select>
+          </div>
+          <div className="px-4 py-3">
+            <label className="text-xs font-semibold text-gray-500 mb-1.5 block">농장상태</label>
+            <div className="flex flex-wrap gap-1.5">
+              <button onClick={() => setStatusFilter('')} className={chkCls(!statusFilter)}>전체</button>
+              {Object.entries(STATUS).map(([k, v]) => (
+                <button key={k} onClick={() => setStatusFilter(prev => prev === k ? '' : k)}
+                  className={chkCls(statusFilter === k)}>
+                  {v.label} ({farms.filter(f => f.status === k).length})
+                </button>
+              ))}
+            </div>
+          </div>
+          <div className="px-4 py-3">
+            <label className="text-xs font-semibold text-gray-500 mb-1.5 block">접속상태</label>
+            <div className="flex flex-wrap gap-1.5">
+              <button onClick={() => setConnectionFilter('')} className={chkCls(!connectionFilter)}>전체</button>
+              <button onClick={() => setConnectionFilter(p => p === 'online' ? '' : 'online')} className={chkCls(connectionFilter === 'online')}>
+                온라인 ({onlineCount})
+              </button>
+              <button onClick={() => setConnectionFilter(p => p === 'offline' ? '' : 'offline')} className={chkCls(connectionFilter === 'offline')}>
+                오프라인 ({farms.length - onlineCount})
+              </button>
+            </div>
+          </div>
+          <div className="px-4 py-3">
+            <label className="text-xs font-semibold text-gray-500 mb-1.5 block">유지보수</label>
+            <div className="flex flex-wrap gap-1.5">
+              <button onClick={() => setMaintFilter('')} className={chkCls(!maintFilter)}>전체</button>
+              <button onClick={() => setMaintFilter(p => p === 'normal' ? '' : 'normal')} className={chkCls(maintFilter === 'normal')}>정상</button>
+              <button onClick={() => setMaintFilter(p => p === 'expiring' ? '' : 'expiring')} className={chkCls(maintFilter === 'expiring')}>
+                만료임박 ({expiringCount})
+              </button>
+              <button onClick={() => setMaintFilter(p => p === 'expired' ? '' : 'expired')} className={chkCls(maintFilter === 'expired')}>
+                만료 ({expiredCount})
+              </button>
+            </div>
+          </div>
+          {allTags.length > 0 && (
+            <div className="px-4 py-3">
+              <label className="text-xs font-semibold text-gray-500 mb-1.5 block">태그</label>
+              <div className="flex flex-wrap gap-1.5">
+                <button onClick={() => setTagFilter('')} className={chkCls(!tagFilter)}>전체</button>
+                {allTags.map(tag => (
+                  <button key={tag} onClick={() => setTagFilter(p => p === tag ? '' : tag)}
+                    className={chkCls(tagFilter === tag)}>
+                    {tag} ({farms.filter(f => Array.isArray(f.tags) && f.tags.includes(tag)).length})
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+          <div className="px-4 py-3">
+            <label className="text-xs font-semibold text-gray-500 mb-1.5 block">등록기간</label>
+            <div className="flex flex-wrap gap-1.5 mb-2">
+              {[
+                { key: 'today', label: '오늘' }, { key: '7d', label: '7일' },
+                { key: '1m', label: '1개월' }, { key: '3m', label: '3개월' }, { key: '1y', label: '1년' },
+              ].map(q => (
+                <button key={q.key} onClick={() => setQuickDate(q.key)} className={btnQuick(false)}>{q.label}</button>
+              ))}
+            </div>
+            <div className="flex items-center gap-2">
+              <input type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)}
+                className="flex-1 px-2 py-1.5 border border-gray-300 rounded-lg text-sm" />
+              <span className="text-gray-400 text-sm">~</span>
+              <input type="date" value={dateTo} onChange={e => setDateTo(e.target.value)}
+                className="flex-1 px-2 py-1.5 border border-gray-300 rounded-lg text-sm" />
+            </div>
+          </div>
+        </div>
 
         {/* Search Button Area */}
         <div className="flex items-center justify-center gap-3 py-3 bg-gray-50 border-t border-gray-200">

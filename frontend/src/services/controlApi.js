@@ -119,6 +119,7 @@ const sendAwsControl = async (houseId, deviceId, command, operator, meta = {}) =
     request_id: requestId,
     timestamp,
     modbus: meta.modbus || null,
+    duration: meta.duration || 0,
   };
 
   if (!AWS_CONTROL_ENDPOINT) {

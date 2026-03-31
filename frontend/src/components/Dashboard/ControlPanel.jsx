@@ -359,6 +359,27 @@ const ControlPanel = ({ farmId, houseId, houseConfig }) => {
     }
   }, [bidirPosition, bidirPositionKey]);
 
+  // 마운트 시 RPi에서 실제 장치 위치 동기화
+  useEffect(() => {
+    const syncPositions = async () => {
+      try {
+        const rpiApi = getRpiApiBase();
+        if (!rpiApi) return;
+        const res = await axios.get(`${rpiApi}/device-positions`, { timeout: 3000 });
+        if (res.data && typeof res.data === 'object') {
+          setBidirPosition(prev => {
+            const merged = { ...prev };
+            Object.entries(res.data).forEach(([devId, pos]) => {
+              merged[devId] = pos;
+            });
+            return merged;
+          });
+        }
+      } catch {}
+    };
+    syncPositions();
+  }, [farmId, houseId]);
+
   // 릴레이 실제 상태 폴링
   const relayCoilsRef = React.useRef({});
   const [relayOnline, setRelayOnline] = useState(null);
@@ -712,12 +733,23 @@ const ControlPanel = ({ farmId, houseId, houseConfig }) => {
       if (isLocalHost || mode.isFarmLocal || mode.mode === 'offline') {
         // RPi 로컬 접속 또는 오프라인: Node-RED 직접 제어 (AWS 우회)
         const rpiApi = getRpiApiBase();
+        // bidir 장치: duration 계산 (Node-RED 자동 정지용)
+        let autoDuration = 0;
+        if (modbusConfig?.controlType === 'bidir' && (command === 'open' || command === 'close')) {
+          const fullDur = command === 'open' ? modbusConfig.openDuration : modbusConfig.closeDuration;
+          if (fullDur > 0) {
+            const curPos = bidirPositionRef.current[deviceId] || 0;
+            const remainRatio = command === 'open' ? (100 - curPos) / 100 : curPos / 100;
+            autoDuration = Math.max(1, Math.round(fullDur * remainRatio));
+          }
+        }
         const res = await axios.post(`${rpiApi}/control/local`, {
           house_id: controlHouseId,
           device_id: deviceId,
           command,
           operator: operatorName,
           modbus: modbusConfig,
+          duration: autoDuration,
         }, { timeout: 10000 });
         result = { success: res.data.success, requestId: res.data.data?.request_id };
         setControlStage(prev => ({ ...prev, [deviceId]: 'executing' }));
@@ -824,12 +856,23 @@ const ControlPanel = ({ farmId, houseId, houseConfig }) => {
         }
       } else {
         // 온라인: AWS IoT 경유 (기존)
+        // bidir 장치: duration 계산 (Node-RED 자동 정지용)
+        let awsDuration = 0;
+        if (modbusConfig?.controlType === 'bidir' && (command === 'open' || command === 'close')) {
+          const fullDur = command === 'open' ? modbusConfig.openDuration : modbusConfig.closeDuration;
+          if (fullDur > 0) {
+            const curPos = bidirPositionRef.current[deviceId] || 0;
+            const remainRatio = command === 'open' ? (100 - curPos) / 100 : curPos / 100;
+            awsDuration = Math.max(1, Math.round(fullDur * remainRatio));
+          }
+        }
         result = await sendControlCommand(controlHouseId, deviceId, command, 'web_dashboard', {
           farmId, originalHouseId: houseId,
           deviceType: targetDevice?.type || 'unknown',
           deviceName: targetDevice?.name || deviceId,
           operatorName,
           modbus: modbusConfig,
+          duration: awsDuration,
         });
       }
 

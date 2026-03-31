@@ -29,20 +29,21 @@ export default function AIManager({ farmId = import.meta.env.VITE_FARM_ID || "fa
   return (
     <FarmIdCtx.Provider value={farmId}>
     <div className="max-w-7xl mx-auto px-4 md:px-6 py-4 md:py-6 space-y-5">
-      <div>
-        <h1 className="text-xl md:text-2xl font-bold text-gray-800 tracking-tight">🤖 AI 농업 도우미</h1>
-        <p className="text-gray-500 text-xs md:text-sm mt-0.5">인공지능 기반 스마트팜 분석 및 상담</p>
+      <div className="hidden md:block">
+        <h1 className="text-2xl font-bold text-gray-800 tracking-tight">🤖 AI 농업 도우미</h1>
+        <p className="text-gray-500 text-sm mt-0.5">인공지능 기반 스마트팜 분석 및 상담</p>
       </div>
-      <div className="flex gap-1.5">
+      <div className="flex gap-2">
         {tabs.map(tab => (
           <button key={tab.key} onClick={() => setActiveTab(tab.key)}
-            className={`flex items-center gap-1.5 px-2 md:px-4 py-2 rounded-xl font-medium
-                       transition-all duration-200 text-sm min-w-0
+            className={`flex items-center justify-center gap-1.5 px-3 md:px-4 py-2.5 rounded-xl font-semibold
+                       transition-all duration-200 text-sm flex-1 md:flex-none
                        active:scale-[0.97] ${activeTab === tab.key
               ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/20'
               : 'bg-white border border-gray-200 text-gray-600 hover:bg-gray-50 shadow-sm'}`}>
-            <span className="text-base flex-shrink-0">{tab.icon}</span>
-            <span className="truncate">{tab.label}</span>
+            <span className="text-lg">{tab.icon}</span>
+            <span className="hidden md:inline">{tab.label}</span>
+            <span className="md:hidden text-xs">{tab.label.replace('병해충 ', '').replace(' 예측', '').replace(' 추천', '').replace('AI ', '')}</span>
           </button>
         ))}
       </div>
@@ -543,23 +544,24 @@ function AIChat() {
   return (
     <div className="glass-card flex flex-col">
       {/* 헤더 */}
-      <div className="p-4 border-b border-white/5 flex items-center gap-3">
-        <div className="w-10 h-10 rounded-full bg-gradient-to-br from-purple-500 to-pink-500 flex items-center justify-center text-xl">🤖</div>
-        <div>
-          <h3 className="text-sm font-semibold text-white">AI 농업 상담</h3>
-          <p className="text-xs text-gray-500">무엇이든 질문하세요</p>
+      <div className="p-3 md:p-4 border-b border-white/5 flex items-center gap-2">
+        <div className="w-8 h-8 md:w-10 md:h-10 rounded-full bg-gradient-to-br from-purple-500 to-pink-500 flex items-center justify-center text-base md:text-xl flex-shrink-0">🤖</div>
+        <div className="min-w-0">
+          <h3 className="text-sm font-semibold text-white truncate">AI 농업 상담</h3>
         </div>
-        {models.length > 1 && (
-          <select value={selectedModel} onChange={e => setSelectedModel(e.target.value)}
-            className="ml-auto px-2 py-1 rounded-lg text-xs bg-white/5 text-gray-400 border border-white/10 outline-none cursor-pointer hover:bg-white/10">
-            {models.map(m => (
-              <option key={m.name} value={m.name} className="bg-gray-800 text-gray-200">
-                {m.provider === "gemini" ? `☁️ ${m.name}` : `💻 ${m.name}`} ({m.details?.parameter_size || ''})
-              </option>
-            ))}
-          </select>
-        )}
-        <div className={`${models.length <= 1 ? 'ml-auto' : ''} w-2 h-2 rounded-full ${loading ? "bg-yellow-400 animate-pulse" : "bg-emerald-400"}`}></div>
+        <div className="ml-auto flex items-center gap-2">
+          {models.length > 1 && (
+            <select value={selectedModel} onChange={e => setSelectedModel(e.target.value)}
+              className="px-2 py-1 rounded-lg text-xs bg-white/5 text-gray-400 border border-white/10 outline-none cursor-pointer hover:bg-white/10 max-w-[140px]">
+              {models.map(m => (
+                <option key={m.name} value={m.name} className="bg-gray-800 text-gray-200">
+                  {m.provider === "gemini" ? `☁️ ${m.name}` : `💻 ${m.name}`}
+                </option>
+              ))}
+            </select>
+          )}
+          <div className={`w-2 h-2 rounded-full flex-shrink-0 ${loading ? "bg-yellow-400 animate-pulse" : "bg-emerald-400"}`}></div>
+        </div>
       </div>
 
       {/* 대화 영역 */}

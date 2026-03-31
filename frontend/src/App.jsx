@@ -543,13 +543,6 @@ function AppContent() {
         <div className="px-2 py-1.5">
           {navGrid ? (
             <>
-              {/* 회사직원: 로고바 */}
-              {isStaff && (
-                <div className="flex items-center gap-2 pb-1 mb-1 border-b border-gray-100">
-                  <div className="w-6 h-6 bg-gradient-to-br from-emerald-400 to-blue-500 rounded-md flex items-center justify-center text-xs shadow-md">🌱</div>
-                  <span className="text-xs font-bold text-gray-800">SmartFarm</span>
-                </div>
-              )}
               {/* 2줄 그리드 */}
               <div className="grid gap-1 mb-1" style={{ gridTemplateColumns: `repeat(${navGrid.columns}, 1fr)` }}>
                 {navGrid.row1.map(cell => renderNavCell(cell, true))}

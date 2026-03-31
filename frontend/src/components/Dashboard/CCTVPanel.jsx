@@ -27,7 +27,7 @@ export default function CCTVPanel({ farmId }) {
   // 로컬: WebRTC (빠름), 외부: MSE (Tunnel 호환)
   const getStreamUrl = (camId) => {
     const mode = isLocal ? 'webrtc' : 'mse';
-    return `${go2rtcBase}/stream.html?src=${camId}&mode=${mode}&media=video`;
+    return `${go2rtcBase}/stream.html?src=${camId}&mode=${mode}&media=video&muted`;
   };
 
   const fetchCameras = useCallback(async () => {

@@ -5,6 +5,8 @@ export default function CCTVPanel({ farmId }) {
   const [cameras, setCameras] = useState([]);
   const [loading, setLoading] = useState(true);
   const [selectedCam, setSelectedCam] = useState(null);
+  const [isMuted, setIsMuted] = useState(true);
+  const [volume, setVolume] = useState(50);
   const mainVideoRef = useRef(null);
 
   const API = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3000/api';
@@ -44,12 +46,33 @@ export default function CCTVPanel({ farmId }) {
     if (onlineCams.length > 0 && !selectedCam) setSelectedCam(onlineCams[0]);
   }, [cameras]);
 
-  // 메인 비디오 재생 보장
+  // 카메라 변경 시 음소거 초기화 + 재생
   useEffect(() => {
+    setIsMuted(true);
     if (mainVideoRef.current) {
+      mainVideoRef.current.muted = true;
       mainVideoRef.current.play().catch(() => {});
     }
   }, [selectedCam]);
+
+  // 음소거/볼륨 변경 시 메인 비디오에 반영
+  useEffect(() => {
+    if (mainVideoRef.current) {
+      mainVideoRef.current.muted = isMuted;
+      mainVideoRef.current.volume = volume / 100;
+    }
+  }, [isMuted, volume]);
+
+  const toggleMute = () => {
+    setIsMuted(prev => !prev);
+  };
+
+  const handleVolume = (val) => {
+    const v = Number(val);
+    setVolume(v);
+    if (v === 0) setIsMuted(true);
+    else setIsMuted(false);
+  };
 
   const renderStream = (camId, style, isMain = false) => {
     if (isLocal) {
@@ -63,13 +86,14 @@ export default function CCTVPanel({ farmId }) {
         />
       );
     }
-    // 외부: mp4 직접 스트리밍 (muted 확실 적용)
+    // 외부: mp4 직접 스트리밍
+    // 메인 영상: 볼륨 제어 가능, 썸네일: 항상 음소거
     return (
       <video
         ref={isMain ? mainVideoRef : null}
         src={getStreamUrl(camId)}
         style={{ ...style, display: 'block', objectFit: 'contain', background: '#000' }}
-        muted
+        muted={isMain ? isMuted : true}
         autoPlay
         playsInline
       />
@@ -132,6 +156,17 @@ export default function CCTVPanel({ farmId }) {
               <span style={{ color: '#6b7280', fontSize: 12 }}>{selectedCam.location}</span>
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <button onClick={toggleMute}
+                style={{ padding: '6px 10px', borderRadius: 8, fontSize: 14, background: '#374151', color: '#d1d5db', border: 'none', cursor: 'pointer' }}>
+                {isMuted ? '🔇' : volume > 50 ? '🔊' : '🔉'}
+              </button>
+              <input type="range" min="0" max="100" value={isMuted ? 0 : volume}
+                onChange={e => handleVolume(e.target.value)}
+                style={{ width: 80, accentColor: '#3b82f6', cursor: 'pointer' }} />
+              <span style={{ color: '#6b7280', fontSize: 11, minWidth: 28 }}>{isMuted ? 0 : volume}%</span>
+
+              <div style={{ width: 1, height: 20, background: '#374151', margin: '0 4px' }} />
+
               <button onClick={() => setSelectedCam(null)}
                 style={{ padding: '6px 16px', borderRadius: 8, fontSize: 12, fontWeight: 600, background: '#374151', color: '#d1d5db', border: 'none', cursor: 'pointer' }}>
                 닫기

@@ -14,13 +14,14 @@ const router = express.Router();
 
 // ━━━ AI 프로바이더 설정 ━━━
 const AI_CONFIG = {
-  provider: process.env.AI_PROVIDER || "ollama", // ollama | openai | claude | gemini
+  provider: process.env.AI_PROVIDER || "ollama", // ollama | openai | claude | gemini | deepseek
   ollamaUrl: process.env.OLLAMA_URL || "http://localhost:11434",
   ollamaModel: process.env.OLLAMA_MODEL || "llama3",
   ollamaVisionModel: process.env.OLLAMA_VISION_MODEL || "llava",
   openaiKey: process.env.OPENAI_API_KEY || "",
   claudeKey: process.env.CLAUDE_API_KEY || "",
   geminiKey: process.env.GEMINI_API_KEY || "",
+  deepseekKey: process.env.DEEPSEEK_API_KEY || "",
 };
 
 // farmId 경로 탐색 방지
@@ -65,6 +66,17 @@ async function callAI(prompt, options = {}) {
   if (model?.startsWith("gemini-") && AI_CONFIG.geminiKey) {
     return callGemini(prompt, image, systemPrompt, model);
   }
+  if (model?.startsWith("deepseek-") && AI_CONFIG.deepseekKey) {
+    return callDeepSeek(prompt, systemPrompt, model);
+  }
+
+  // 비전(이미지)이 있으면 Gemini 우선, 텍스트는 DeepSeek 우선
+  if (image && AI_CONFIG.geminiKey) {
+    return callGemini(prompt, image, systemPrompt);
+  }
+  if (!image && AI_CONFIG.deepseekKey) {
+    return callDeepSeek(prompt, systemPrompt);
+  }
 
   if (AI_CONFIG.provider === "ollama") {
     return callOllama(prompt, image, systemPrompt, model);
@@ -74,8 +86,39 @@ async function callAI(prompt, options = {}) {
     return callClaude(prompt, image, systemPrompt);
   } else if (AI_CONFIG.provider === "gemini") {
     return callGemini(prompt, image, systemPrompt);
+  } else if (AI_CONFIG.provider === "deepseek") {
+    return callDeepSeek(prompt, systemPrompt);
   }
   throw new Error("지원하지 않는 AI 프로바이더입니다");
+}
+
+// ━━━ DeepSeek 호출 (OpenAI 호환 API) ━━━
+async function callDeepSeek(prompt, systemPrompt, model = "deepseek-chat") {
+  const messages = [];
+  if (systemPrompt) messages.push({ role: "system", content: systemPrompt });
+  messages.push({ role: "user", content: prompt });
+
+  const res = await fetch("https://api.deepseek.com/chat/completions", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${AI_CONFIG.deepseekKey}`,
+    },
+    body: JSON.stringify({
+      model,
+      messages,
+      max_tokens: 8192,
+      temperature: 0.7,
+    }),
+  });
+
+  if (!res.ok) {
+    const err = await res.text();
+    throw new Error(`DeepSeek API 오류 (${res.status}): ${err}`);
+  }
+
+  const data = await res.json();
+  return data.choices?.[0]?.message?.content || "";
 }
 
 // ━━━ Ollama 호출 ━━━

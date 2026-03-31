@@ -789,7 +789,7 @@ const RuleForm = ({ farmId, houseId, houses = [], rule, existingRules = [], defa
   const hasBothTypes = sensorConds.length > 0 && timeConds.length > 0;
 
   return (
-    <div className="glass-card p-4 md:p-6 mb-5 border border-violet-200 animate-fade-in-up">
+    <div className="glass-card p-3 md:p-6 mb-5 border border-violet-200 animate-fade-in-up overflow-hidden">
       <h2 className="text-lg font-extrabold text-violet-600 mb-5">
         {rule ? '✏️ 규칙 수정' : (
           defaultTab === 'schedule' ? '⏰ 새 시간대별 스케줄' :
@@ -854,12 +854,12 @@ const RuleForm = ({ farmId, houseId, houses = [], rule, existingRules = [], defa
                   <div className="flex-1 border-t border-dashed border-violet-200" />
                 </div>
               )}
-            <div className="flex items-center gap-2 bg-white rounded-lg p-2.5 border border-violet-100">
-              <span className="text-sm text-violet-600 font-bold w-8 flex-shrink-0">IF</span>
+            <div className="flex items-center gap-1.5 md:gap-2 bg-white rounded-lg p-2 md:p-2.5 border border-violet-100 flex-wrap">
+              <span className="text-xs md:text-sm text-violet-600 font-bold w-6 md:w-8 flex-shrink-0">IF</span>
               <select
                 value={cond.sensorId}
                 onChange={(e) => updateCondition(cond._idx, 'sensorId', e.target.value)}
-                className="input-field flex-1 text-sm"
+                className="input-field flex-1 min-w-0 text-xs md:text-sm"
               >
                 {sensorOptions.map(s => (
                   <option key={s.id} value={s.id} className="bg-slate-800">{s.icon} {s.name}</option>
@@ -868,7 +868,7 @@ const RuleForm = ({ farmId, houseId, houses = [], rule, existingRules = [], defa
               <select
                 value={cond.operator}
                 onChange={(e) => updateCondition(cond._idx, 'operator', e.target.value)}
-                className="input-field w-28 text-sm"
+                className="input-field w-20 md:w-28 text-xs md:text-sm"
               >
                 {OPERATOR_OPTIONS.map(o => (
                   <option key={o.value} value={o.value} className="bg-slate-800">{o.label}</option>
@@ -878,10 +878,10 @@ const RuleForm = ({ farmId, houseId, houses = [], rule, existingRules = [], defa
                 type="number"
                 value={cond.value}
                 onChange={(e) => updateCondition(cond._idx, 'value', parseFloat(e.target.value))}
-                className="input-field w-24 text-sm"
+                className="input-field w-16 md:w-24 text-xs md:text-sm"
                 step="0.1"
               />
-              <button onClick={() => removeCondition(cond._idx)} className="p-1.5 text-gray-400 hover:text-rose-500 text-sm flex-shrink-0">✕</button>
+              <button onClick={() => removeCondition(cond._idx)} className="p-1 text-gray-400 hover:text-rose-500 text-sm flex-shrink-0">✕</button>
             </div>
             </React.Fragment>
           )) : (
@@ -1066,8 +1066,8 @@ const RuleForm = ({ farmId, houseId, houses = [], rule, existingRules = [], defa
             return (
               <div key={idx} className="bg-white rounded-xl border border-blue-100 overflow-hidden">
                 {/* 1행: 장치 + 명령 + 삭제 */}
-                <div className="flex items-center gap-2 px-3 py-2.5">
-                  <span style={{fontSize:13,fontWeight:800,color:'#2563eb',minWidth:40}}>
+                <div className="flex items-center gap-1.5 md:gap-2 px-2 md:px-3 py-2 md:py-2.5 flex-wrap">
+                  <span style={{fontSize:12,fontWeight:800,color:'#2563eb',minWidth:36}}>
                     {idx === 0 ? 'THEN' : `+${idx + 1}`}
                   </span>
                   {houseDevices.length > 0 ? (
@@ -1085,7 +1085,7 @@ const RuleForm = ({ farmId, houseId, houses = [], rule, existingRules = [], defa
                           });
                         }
                       }}
-                      className="input-field flex-1 text-sm"
+                      className="input-field flex-1 min-w-0 text-xs md:text-sm"
                       style={!houseDevices.some(d => d.deviceId === action.deviceId) ? {borderColor: '#f59e0b', background: '#fffbeb'} : {}}
                     >
                       {!houseDevices.some(d => d.deviceId === action.deviceId) && (
@@ -1120,7 +1120,7 @@ const RuleForm = ({ farmId, houseId, houses = [], rule, existingRules = [], defa
                   <select
                     value={action.command}
                     onChange={(e) => updateAction(idx, { command: e.target.value })}
-                    className="input-field w-24 text-sm"
+                    className="input-field w-16 md:w-24 text-xs md:text-sm"
                   >
                     {commands.map(c => (
                       <option key={c} value={c} className="bg-slate-800">{COMMAND_LABELS[c]}</option>

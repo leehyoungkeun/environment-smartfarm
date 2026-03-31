@@ -862,7 +862,7 @@ const RuleForm = ({ farmId, houseId, houses = [], rule, existingRules = [], defa
                 className="input-field flex-1 min-w-0 text-xs md:text-sm"
               >
                 {sensorOptions.map(s => (
-                  <option key={s.id} value={s.id} className="bg-slate-800">{s.icon} {s.name}</option>
+                  <option key={s.id} value={s.id} className="bg-slate-800">{s.name}</option>
                 ))}
               </select>
               <select
@@ -1089,11 +1089,11 @@ const RuleForm = ({ farmId, houseId, houses = [], rule, existingRules = [], defa
                       style={!houseDevices.some(d => d.deviceId === action.deviceId) ? {borderColor: '#f59e0b', background: '#fffbeb'} : {}}
                     >
                       {!houseDevices.some(d => d.deviceId === action.deviceId) && (
-                        <option value="" className="bg-slate-800">⚠️ 장치 선택 ({action.deviceName || action.deviceId})</option>
+                        <option value="" className="bg-slate-800">장치 선택</option>
                       )}
                       {houseDevices.map(d => (
                         <option key={d.deviceId} value={d.deviceId} className="bg-slate-800">
-                          {d.icon || ''} {d.name} ({d.deviceId})
+                          {d.name}
                         </option>
                       ))}
                     </select>
@@ -1133,13 +1133,13 @@ const RuleForm = ({ farmId, houseId, houses = [], rule, existingRules = [], defa
                   >✕</button>
                 </div>
                 {/* 2행: 동작 지속시간 */}
-                <div style={{display:'flex',alignItems:'center',gap:12,padding:'10px 14px',background: isTimed ? '#eff6ff' : '#f8fafc',borderTop:'1px solid #e2e8f0'}}>
+                <div style={{display:'flex',alignItems:'center',gap:8,padding:'8px 10px',background: isTimed ? '#eff6ff' : '#f8fafc',borderTop:'1px solid #e2e8f0',flexWrap:'wrap'}}>
                   {/* 계속 / 동작시간 세그먼트 */}
-                  <div style={{display:'inline-flex',borderRadius:12,background:'#e2e8f0',padding:3,flexShrink:0}}>
+                  <div style={{display:'inline-flex',borderRadius:10,background:'#e2e8f0',padding:2,flexShrink:0}}>
                     <button type="button"
                       onClick={() => updateAction(idx, { duration: 0, durationUnit: 'seconds' })}
                       style={{
-                        width:72,padding:'8px 0',fontSize:13,fontWeight:800,border:'none',cursor:'pointer',borderRadius:10,
+                        width:56,padding:'6px 0',fontSize:12,fontWeight:800,border:'none',cursor:'pointer',borderRadius:8,
                         background: !isTimed ? '#fff' : 'transparent',
                         color: !isTimed ? '#1e40af' : '#94a3b8',
                         boxShadow: !isTimed ? '0 1px 4px rgba(0,0,0,0.12)' : 'none',
@@ -1149,7 +1149,7 @@ const RuleForm = ({ farmId, houseId, houses = [], rule, existingRules = [], defa
                     <button type="button"
                       onClick={() => { if (!isTimed) updateAction(idx, { duration: 60, durationUnit: 'seconds' }); }}
                       style={{
-                        width:72,padding:'8px 0',fontSize:13,fontWeight:800,border:'none',cursor:'pointer',borderRadius:10,
+                        width:64,padding:'6px 0',fontSize:12,fontWeight:800,border:'none',cursor:'pointer',borderRadius:8,
                         background: isTimed ? '#fff' : 'transparent',
                         color: isTimed ? '#1e40af' : '#94a3b8',
                         boxShadow: isTimed ? '0 1px 4px rgba(0,0,0,0.12)' : 'none',

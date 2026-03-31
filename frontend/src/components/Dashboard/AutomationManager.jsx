@@ -407,91 +407,71 @@ const ScheduleCard = ({ rule, onEdit, onDelete, onToggle }) => {
   };
 
   return (
-    <div className={`glass-card p-4 md:p-5 transition-all ${!rule.enabled ? 'opacity-50' : ''}`}>
-      <div className="flex items-start gap-4">
-        {/* 시간 표시 (좌측 큰 시계) */}
-        <div className="flex-shrink-0 w-24 h-24 rounded-2xl bg-amber-50 border border-amber-200 flex flex-col items-center justify-center">
-          <span className="text-3xl font-black text-amber-600 font-mono leading-none">{timeDisplay.main.split(':')[0]}</span>
-          <span className="text-sm text-amber-500 font-bold">: {timeDisplay.main.split(':')[1]}</span>
-          {timeDisplay.sub && <span className="text-[10px] text-amber-400 font-bold mt-0.5">{timeDisplay.sub}</span>}
+    <div className={`glass-card p-3 md:p-5 transition-all ${!rule.enabled ? 'opacity-50' : ''}`}>
+      {/* 1행: 시간 뱃지 + 이름 + 토글 */}
+      <div className="flex items-center gap-2 mb-2">
+        <span className="text-sm font-bold text-amber-600 bg-amber-50 border border-amber-200 px-2.5 py-1 rounded-lg flex-shrink-0 font-mono">
+          {timeDisplay.main}
+        </span>
+        <h3 className="text-base font-extrabold text-gray-800 truncate flex-1">{rule.name}</h3>
+        <button onClick={onToggle} className={`w-11 h-6 rounded-full transition-all flex-shrink-0 relative ${rule.enabled ? 'bg-green-500' : 'bg-gray-300'}`}>
+          <span className={`absolute top-0.5 w-5 h-5 bg-white rounded-full shadow transition-all ${rule.enabled ? 'left-5' : 'left-0.5'}`} />
+        </button>
+        {timeCond?.timeMode === 'interval' && (
+          <span className="text-[10px] font-bold bg-amber-100 text-amber-600 px-2 py-0.5 rounded-full flex-shrink-0">반복</span>
+        )}
+        {timeCond?.timeMode !== 'interval' && (timeCond?.times?.length || 0) > 1 && (
+          <span className="text-[10px] font-bold bg-amber-100 text-amber-600 px-2 py-0.5 rounded-full flex-shrink-0">{timeCond.times.length}회</span>
+        )}
+      </div>
+
+      {/* 반복 모드 상세 */}
+      {timeCond?.timeMode === 'interval' && (
+        <div className="text-xs font-semibold text-amber-500 mb-2">
+          {timeCond.startTime} ~ {timeCond.endTime} / {timeCond.intervalMinutes}분 간격
         </div>
+      )}
 
-        {/* 내용 */}
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2 mb-2">
-            <h3 className="text-lg font-extrabold text-gray-800 truncate">{rule.name}</h3>
-            <button onClick={onToggle} className={`ml-auto w-11 h-6 rounded-full transition-all flex-shrink-0 relative ${rule.enabled ? 'bg-green-500' : 'bg-gray-300'}`}>
-              <span className={`absolute top-0.5 w-5 h-5 bg-white rounded-full shadow transition-all ${rule.enabled ? 'left-5' : 'left-0.5'}`} />
-            </button>
-            {/* 모드 뱃지 */}
-            {timeCond?.timeMode === 'interval' && (
-              <span className="text-[10px] font-bold bg-amber-100 text-amber-600 px-2 py-0.5 rounded-full">반복</span>
-            )}
-            {timeCond?.timeMode !== 'interval' && (timeCond?.times?.length || 0) > 1 && (
-              <span className="text-[10px] font-bold bg-amber-100 text-amber-600 px-2 py-0.5 rounded-full">{timeCond.times.length}회</span>
-            )}
-          </div>
-
-          {/* 지정시간 여러개인 경우 시간 목록 표시 */}
-          {timeCond?.timeMode !== 'interval' && (timeCond?.times?.length || 0) > 1 && (
-            <div className="flex flex-wrap gap-1 mb-2">
-              {timeCond.times.map((t, i) => (
-                <span key={i} className="text-xs font-bold bg-amber-50 text-amber-600 border border-amber-200 px-2 py-0.5 rounded">
-                  {t}
-                </span>
-              ))}
-            </div>
-          )}
-
-          {/* 반복 모드 상세 표시 */}
-          {timeCond?.timeMode === 'interval' && (
-            <div className="text-xs font-semibold text-amber-500 mb-2">
-              {timeCond.startTime} ~ {timeCond.endTime} / {timeCond.intervalMinutes}분 간격
-            </div>
-          )}
-
-          {/* 요일 표시 */}
-          <div className="flex gap-1.5 mb-2.5">
-            {DAYS_OPTIONS.map(d => (
-              <span
-                key={d.value}
-                className={`w-8 h-8 rounded text-xs font-bold flex items-center justify-center ${
-                  activeDays.includes(d.value)
-                    ? 'bg-amber-500 text-white'
-                    : 'bg-gray-100 text-gray-500'
-                }`}
-              >
-                {d.label}
-              </span>
-            ))}
-          </div>
-
-          {/* 실행 동작 */}
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="text-sm text-gray-500 font-bold mr-1">→</span>
-            {rule.actions.map((action, i) => {
-              const dt = DEVICE_TYPE_OPTIONS.find(d => d.value === action.deviceType);
-              return (
-                <span key={i} className="text-base font-semibold bg-amber-50 text-amber-700 border border-amber-200 px-3 py-1 rounded-lg">
-                  {dt?.icon} {action.deviceName || action.deviceId} {COMMAND_LABELS[action.command] || action.command}{formatDuration(action)}
-                </span>
-              );
-            })}
-          </div>
-
-          {/* 통계 */}
-          <div className="flex items-center gap-4 mt-3 text-sm text-gray-500 font-medium">
-            <span>실행 {rule.triggerCount || 0}회</span>
-            {rule.lastTriggeredAt && (
-              <span>마지막: {new Date(rule.lastTriggeredAt).toLocaleString('ko-KR', { month:'short', day:'numeric', hour:'2-digit', minute:'2-digit' })}</span>
-            )}
-          </div>
+      {/* 지정시간 여러개 */}
+      {timeCond?.timeMode !== 'interval' && (timeCond?.times?.length || 0) > 1 && (
+        <div className="flex flex-wrap gap-1 mb-2">
+          {timeCond.times.map((t, i) => (
+            <span key={i} className="text-xs font-bold bg-amber-50 text-amber-600 border border-amber-200 px-2 py-0.5 rounded">{t}</span>
+          ))}
         </div>
+      )}
 
-        {/* 액션 버튼 */}
-        <div className="flex flex-col items-center gap-1 flex-shrink-0">
-          <button onClick={onEdit} className="px-3 py-1.5 rounded-lg text-sm font-medium text-blue-600 bg-blue-50 hover:bg-blue-100 border border-blue-200 transition-all">수정</button>
-          <button onClick={onDelete} className="px-3 py-1.5 rounded-lg text-sm font-medium text-rose-600 bg-rose-50 hover:bg-rose-100 border border-rose-200 transition-all">삭제</button>
+      {/* 요일 */}
+      <div className="flex gap-1 mb-2">
+        {DAYS_OPTIONS.map(d => (
+          <span key={d.value} className={`w-7 h-7 rounded text-xs font-bold flex items-center justify-center ${
+            activeDays.includes(d.value) ? 'bg-amber-500 text-white' : 'bg-gray-100 text-gray-400'
+          }`}>{d.label}</span>
+        ))}
+      </div>
+
+      {/* 실행 동작 */}
+      <div className="flex flex-wrap items-center gap-1.5 mb-2">
+        <span className="text-sm text-gray-400 font-bold">→</span>
+        {rule.actions.map((action, i) => {
+          const dt = DEVICE_TYPE_OPTIONS.find(d => d.value === action.deviceType);
+          return (
+            <span key={i} className="text-sm font-semibold bg-amber-50 text-amber-700 border border-amber-200 px-2.5 py-1 rounded-lg">
+              {dt?.icon} {action.deviceName || action.deviceId} {COMMAND_LABELS[action.command] || action.command}{formatDuration(action)}
+            </span>
+          );
+        })}
+      </div>
+
+      {/* 하단: 통계 + 수정/삭제 */}
+      <div className="flex items-center justify-between pt-2 border-t border-gray-100">
+        <span className="text-xs text-gray-400 font-medium">
+          실행 {rule.triggerCount || 0}회
+          {rule.lastTriggeredAt && ` · ${new Date(rule.lastTriggeredAt).toLocaleString('ko-KR', { month:'short', day:'numeric', hour:'2-digit', minute:'2-digit' })}`}
+        </span>
+        <div className="flex gap-1.5">
+          <button onClick={onEdit} className="px-3 py-1.5 rounded-lg text-xs font-bold text-blue-600 bg-blue-50 hover:bg-blue-100 border border-blue-200 transition-all">수정</button>
+          <button onClick={onDelete} className="px-3 py-1.5 rounded-lg text-xs font-bold text-rose-600 bg-rose-50 hover:bg-rose-100 border border-rose-200 transition-all">삭제</button>
         </div>
       </div>
     </div>

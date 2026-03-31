@@ -1,20 +1,11 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { getRpiApiBase } from '../../services/apiSwitcher';
 
 export default function CCTVPanel({ farmId }) {
   const [cameras, setCameras] = useState([]);
   const [loading, setLoading] = useState(true);
   const [selectedCam, setSelectedCam] = useState(null);
-  const [volume, setVolume] = useState(0);
-  const [isMuted, setIsMuted] = useState(true);
-  const [iframeReady, setIframeReady] = useState(false);
-
-  // 마운트 후 iframe 렌더링 지연 (sandbox 적용 보장)
-  useEffect(() => {
-    setIframeReady(false);
-    const t = setTimeout(() => setIframeReady(true), 100);
-    return () => clearTimeout(t);
-  }, [selectedCam]);
+  const mainVideoRef = useRef(null);
 
   const API = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3000/api';
   const getToken = () => localStorage.getItem('accessToken');
@@ -24,10 +15,12 @@ export default function CCTVPanel({ farmId }) {
     ? rpiBase.replace(/\/api\/?$/, '').replace(/:1880$/, ':1984')
     : 'https://cctv.smartgreen.kr';
 
-  // 로컬: WebRTC (빠름), 외부: MSE (Tunnel 호환)
+  // 로컬: WebRTC (iframe), 외부: mp4 직접 스트리밍 (video 태그)
   const getStreamUrl = (camId) => {
-    const mode = isLocal ? 'webrtc' : 'mse';
-    return `${go2rtcBase}/stream.html?src=${camId}&mode=${mode}&media=video&muted`;
+    if (isLocal) {
+      return `${go2rtcBase}/stream.html?src=${camId}&mode=webrtc&media=video`;
+    }
+    return `${go2rtcBase}/api/stream.mp4?src=${camId}`;
   };
 
   const fetchCameras = useCallback(async () => {
@@ -43,29 +36,6 @@ export default function CCTVPanel({ farmId }) {
 
   useEffect(() => { fetchCameras(); }, [fetchCameras]);
 
-  const toggleMute = () => {
-    setIsMuted(prev => {
-      const next = !prev;
-      if (next) setVolume(0); else if (volume === 0) setVolume(50);
-      return next;
-    });
-  };
-
-  const handleVolume = (val) => {
-    const v = Number(val);
-    setVolume(v);
-    setIsMuted(v === 0);
-  };
-
-  // 메인 비디오 볼륨 동기화
-  useEffect(() => {
-    const videos = document.querySelectorAll('video[data-main]');
-    videos.forEach(v => {
-      v.muted = isMuted;
-      v.volume = volume / 100;
-    });
-  }, [volume, isMuted]);
-
   const onlineCams = cameras.filter(c => c.enabled);
   const offlineCams = cameras.filter(c => !c.enabled);
 
@@ -73,6 +43,38 @@ export default function CCTVPanel({ farmId }) {
   useEffect(() => {
     if (onlineCams.length > 0 && !selectedCam) setSelectedCam(onlineCams[0]);
   }, [cameras]);
+
+  // 메인 비디오 재생 보장
+  useEffect(() => {
+    if (mainVideoRef.current) {
+      mainVideoRef.current.play().catch(() => {});
+    }
+  }, [selectedCam]);
+
+  const renderStream = (camId, style, isMain = false) => {
+    if (isLocal) {
+      // 로컬: WebRTC iframe
+      return (
+        <iframe
+          src={getStreamUrl(camId)}
+          style={{ ...style, border: 'none', display: 'block' }}
+          allow="autoplay"
+          sandbox="allow-scripts allow-same-origin"
+        />
+      );
+    }
+    // 외부: mp4 직접 스트리밍 (muted 확실 적용)
+    return (
+      <video
+        ref={isMain ? mainVideoRef : null}
+        src={getStreamUrl(camId)}
+        style={{ ...style, display: 'block', objectFit: 'contain', background: '#000' }}
+        muted
+        autoPlay
+        playsInline
+      />
+    );
+  };
 
   if (loading) return <div className="px-4 py-4"><div className="skeleton h-96 rounded-2xl" /></div>;
 
@@ -118,16 +120,7 @@ export default function CCTVPanel({ farmId }) {
               <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#fff', animation: 'cctvPulse 1.5s infinite' }} />
               LIVE
             </div>
-            {iframeReady ? (
-              <iframe
-                src={getStreamUrl(selectedCam.camId)}
-                style={{ width: '100%', height: 'min(560px, 55vh)', border: 'none', display: 'block' }}
-                allow="autoplay"
-                sandbox="allow-scripts allow-same-origin"
-              />
-            ) : (
-              <div style={{ width: '100%', height: 'min(560px, 55vh)', background: '#000', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#6b7280' }}>연결 중...</div>
-            )}
+            {renderStream(selectedCam.camId, { width: '100%', height: 'min(560px, 55vh)' }, true)}
           </div>
           <div style={{
             padding: '12px 20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center',
@@ -139,18 +132,6 @@ export default function CCTVPanel({ farmId }) {
               <span style={{ color: '#6b7280', fontSize: 12 }}>{selectedCam.location}</span>
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              {/* 볼륨 컨트롤 */}
-              <button onClick={toggleMute}
-                style={{ padding: '6px 10px', borderRadius: 8, fontSize: 14, background: '#374151', color: '#d1d5db', border: 'none', cursor: 'pointer' }}>
-                {isMuted ? '🔇' : volume > 50 ? '🔊' : '🔉'}
-              </button>
-              <input type="range" min="0" max="100" value={isMuted ? 0 : volume}
-                onChange={e => handleVolume(e.target.value)}
-                style={{ width: 80, accentColor: '#3b82f6', cursor: 'pointer' }} />
-              <span style={{ color: '#6b7280', fontSize: 11, minWidth: 28 }}>{isMuted ? 0 : volume}%</span>
-
-              <div style={{ width: 1, height: 20, background: '#374151', margin: '0 4px' }} />
-
               <button onClick={() => setSelectedCam(null)}
                 style={{ padding: '6px 16px', borderRadius: 8, fontSize: 12, fontWeight: 600, background: '#374151', color: '#d1d5db', border: 'none', cursor: 'pointer' }}>
                 닫기
@@ -164,7 +145,7 @@ export default function CCTVPanel({ farmId }) {
         </div>
       )}
 
-      {/* 카메라 그리드 (2대 이상일 때만 표시, 또는 메인 영상이 없을 때) */}
+      {/* 카메라 그리드 (2대 이상일 때만 표시) */}
       {cameras.length > 1 && (
         <div style={{
           display: 'grid',
@@ -183,16 +164,9 @@ export default function CCTVPanel({ farmId }) {
                   opacity: cam.enabled ? 1 : 0.5, transition: 'all 0.2s',
                 }}>
                 <div style={{ position: 'relative', aspectRatio: '16/9', background: '#0f172a' }}>
-                  {cam.enabled && iframeReady ? (
-                    <iframe
-                      src={getStreamUrl(cam.camId)}
-                      style={{ width: '100%', height: '100%', border: 'none', pointerEvents: 'none', display: 'block' }}
-                      allow="autoplay"
-                      sandbox="allow-scripts allow-same-origin"
-                    />
-                  ) : (
+                  {cam.enabled ? renderStream(cam.camId, { width: '100%', height: '100%', pointerEvents: 'none' }) : (
                     <div style={{ height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#374151', fontSize: 13 }}>
-                      {cam.enabled ? '연결 중...' : '오프라인'}
+                      오프라인
                     </div>
                   )}
                   <div style={{
@@ -213,7 +187,7 @@ export default function CCTVPanel({ farmId }) {
                   {cam.enabled && (
                     <button onClick={(e) => { e.stopPropagation(); setSelectedCam(cam); }}
                       style={{ padding: '4px 10px', borderRadius: 8, fontSize: 12, fontWeight: 600, background: '#374151', color: '#d1d5db', border: 'none', cursor: 'pointer' }}>
-                      🔍 확대
+                      확대
                     </button>
                   )}
                 </div>

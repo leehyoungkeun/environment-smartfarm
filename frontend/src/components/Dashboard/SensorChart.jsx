@@ -288,7 +288,7 @@ const ChartContent = React.memo(({ chartData, selectedSensors, getSensorInfo, ti
   return (
     <>
       <ResponsiveContainer width="100%" height={Math.min(400, Math.max(250, window.innerHeight * 0.42))}>
-        <LineChart data={chartData} margin={{ left: 10, right: 10 }}>
+        <LineChart data={chartData} margin={{ left: -15, right: -15, top: 5, bottom: 0 }}>
           <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
           <XAxis
             dataKey="timestamp"
@@ -301,7 +301,7 @@ const ChartContent = React.memo(({ chartData, selectedSensors, getSensorInfo, ti
             tick={{fill:'#64748b', fontSize: 11}}
             angle={-45}
             textAnchor="end"
-            height={80}
+            height={60}
           />
           {selectedSensors.map((id, idx) => {
             const s = getSensorInfo(id);
@@ -315,7 +315,8 @@ const ChartContent = React.memo(({ chartData, selectedSensors, getSensorInfo, ti
                 stroke={s.color || '#3B82F6'}
                 tick={{fill: s.color || '#3B82F6', fontSize: 11}}
                 tickFormatter={v => `${v}`}
-                label={idx < 2 ? {value: `${s.name} (${s.unit})`, angle: idx === 0 ? -90 : 90, position: 'insideMiddle', fill: s.color || '#3B82F6', fontSize: 11, dx: idx === 0 ? -15 : 15} : undefined}
+                width={35}
+                label={typeof window !== 'undefined' && window.innerWidth >= 768 && idx < 2 ? {value: `${s.name} (${s.unit})`, angle: idx === 0 ? -90 : 90, position: 'insideMiddle', fill: s.color || '#3B82F6', fontSize: 11, dx: idx === 0 ? -15 : 15} : undefined}
                 hide={idx >= 2}
               />
             );

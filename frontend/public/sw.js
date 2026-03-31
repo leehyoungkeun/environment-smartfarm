@@ -1,10 +1,8 @@
 // public/sw.js - SmartFarm Service Worker
 // 빌드 해시 기반 캐시 버전 관리
 
-const CACHE_VERSION = 'smartfarm-v4';
+const CACHE_VERSION = 'smartfarm-v5';
 const STATIC_ASSETS = [
-  '/',
-  '/index.html',
   '/manifest.json',
 ];
 
@@ -73,6 +71,14 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
+  // HTML 네비게이션 — 항상 네트워크 우선 (캐시 안 함)
+  if (request.mode === 'navigate') {
+    event.respondWith(
+      fetch(request).catch(() => caches.match('/index.html'))
+    );
+    return;
+  }
+
   // 기타 정적 자원 — 네트워크 우선, 실패시 캐시 (GET만 캐시 가능)
   event.respondWith(
     fetch(request)
@@ -84,9 +90,7 @@ self.addEventListener('fetch', (event) => {
         return response;
       })
       .catch(() => {
-        return caches.match(request).then((response) => {
-          return response || caches.match('/');
-        });
+        return caches.match(request);
       })
   );
 });

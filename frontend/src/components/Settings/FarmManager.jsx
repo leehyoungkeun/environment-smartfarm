@@ -1465,10 +1465,10 @@ export default function FarmManager({ onNavigateFarm }) {
         {/* 모바일: 세로 스택 레이아웃 */}
         <div className="md:hidden divide-y divide-gray-100">
           <div className="px-4 py-3">
-            <label className="text-xs font-semibold text-gray-500 mb-1.5 block">검색어</label>
+            <label className="text-sm font-bold text-gray-800 mb-2 block">검색어</label>
             <div className="flex gap-2">
               <select value={searchField} onChange={e => setSearchField(e.target.value)}
-                className="px-2 py-2 border border-gray-300 rounded-lg text-sm bg-white">
+                className="shrink-0 px-2 py-2 border border-gray-300 rounded-lg text-sm bg-white">
                 <option value="all">전체</option>
                 <option value="name">농장명</option>
                 <option value="farmId">농장ID</option>
@@ -1476,11 +1476,11 @@ export default function FarmManager({ onNavigateFarm }) {
               </select>
               <input type="text" value={search} onChange={e => setSearch(e.target.value)}
                 placeholder="검색어 입력"
-                className="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-sm" />
+                className="flex-1 min-w-0 px-3 py-2 border border-gray-300 rounded-lg text-sm" />
             </div>
           </div>
           <div className="px-4 py-3">
-            <label className="text-xs font-semibold text-gray-500 mb-1.5 block">지역</label>
+            <label className="text-sm font-bold text-gray-800 mb-2 block">지역</label>
             <select value={region} onChange={e => setRegion(e.target.value)}
               className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm bg-white">
               <option value="">전체 지역</option>
@@ -1490,7 +1490,7 @@ export default function FarmManager({ onNavigateFarm }) {
             </select>
           </div>
           <div className="px-4 py-3">
-            <label className="text-xs font-semibold text-gray-500 mb-1.5 block">농장상태</label>
+            <label className="text-sm font-bold text-gray-800 mb-2 block">농장상태</label>
             <div className="flex flex-wrap gap-1.5">
               <button onClick={() => setStatusFilter('')} className={chkCls(!statusFilter)}>전체</button>
               {Object.entries(STATUS).map(([k, v]) => (
@@ -1502,7 +1502,7 @@ export default function FarmManager({ onNavigateFarm }) {
             </div>
           </div>
           <div className="px-4 py-3">
-            <label className="text-xs font-semibold text-gray-500 mb-1.5 block">접속상태</label>
+            <label className="text-sm font-bold text-gray-800 mb-2 block">접속상태</label>
             <div className="flex flex-wrap gap-1.5">
               <button onClick={() => setConnectionFilter('')} className={chkCls(!connectionFilter)}>전체</button>
               <button onClick={() => setConnectionFilter(p => p === 'online' ? '' : 'online')} className={chkCls(connectionFilter === 'online')}>
@@ -1514,7 +1514,7 @@ export default function FarmManager({ onNavigateFarm }) {
             </div>
           </div>
           <div className="px-4 py-3">
-            <label className="text-xs font-semibold text-gray-500 mb-1.5 block">유지보수</label>
+            <label className="text-sm font-bold text-gray-800 mb-2 block">유지보수</label>
             <div className="flex flex-wrap gap-1.5">
               <button onClick={() => setMaintFilter('')} className={chkCls(!maintFilter)}>전체</button>
               <button onClick={() => setMaintFilter(p => p === 'normal' ? '' : 'normal')} className={chkCls(maintFilter === 'normal')}>정상</button>
@@ -1528,7 +1528,7 @@ export default function FarmManager({ onNavigateFarm }) {
           </div>
           {allTags.length > 0 && (
             <div className="px-4 py-3">
-              <label className="text-xs font-semibold text-gray-500 mb-1.5 block">태그</label>
+              <label className="text-sm font-bold text-gray-800 mb-2 block">태그</label>
               <div className="flex flex-wrap gap-1.5">
                 <button onClick={() => setTagFilter('')} className={chkCls(!tagFilter)}>전체</button>
                 {allTags.map(tag => (
@@ -1541,7 +1541,7 @@ export default function FarmManager({ onNavigateFarm }) {
             </div>
           )}
           <div className="px-4 py-3">
-            <label className="text-xs font-semibold text-gray-500 mb-1.5 block">등록기간</label>
+            <label className="text-sm font-bold text-gray-800 mb-2 block">등록기간</label>
             <div className="flex flex-wrap gap-1.5 mb-2">
               {[
                 { key: 'today', label: '오늘' }, { key: '7d', label: '7일' },

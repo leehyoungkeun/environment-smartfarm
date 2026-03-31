@@ -1,7 +1,7 @@
 // public/sw.js - SmartFarm Service Worker
 // 빌드 해시 기반 캐시 버전 관리
 
-const CACHE_VERSION = 'smartfarm-v3';
+const CACHE_VERSION = 'smartfarm-v4';
 const STATIC_ASSETS = [
   '/',
   '/index.html',

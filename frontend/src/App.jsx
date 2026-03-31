@@ -145,13 +145,6 @@ const ControlPage = ({ farmId, isTouchPanel = false }) => {
 
   return (
     <div className={`max-w-7xl mx-auto px-4 md:px-6 ${isTouchPanel ? 'py-2' : 'py-4 md:py-6'}`}>
-      {!isTouchPanel && (
-        <div className="mb-5">
-          <h1 className="text-2xl md:text-2xl font-bold text-gray-800 tracking-tight">개폐기 제어</h1>
-          <p className="text-gray-500 text-sm md:text-base mt-0.5">시설하우스 창문 원격 제어</p>
-        </div>
-      )}
-
       {/* 하우스 선택 */}
       {isTouchPanel ? (
         <div style={{

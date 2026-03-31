@@ -1,83 +1,20 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { getRpiApiBase } from '../../services/apiSwitcher';
-
-// go2rtc MSE WebSocket 플레이어 (iframe 없이 직접 연결)
-function MsePlayer({ url, muted, style }) {
-  const videoRef = useRef(null);
-  const wsRef = useRef(null);
-
-  useEffect(() => {
-    const video = videoRef.current;
-    if (!video || !url) return;
-
-    let ms, sb;
-    const queue = [];
-
-    const ws = new WebSocket(url);
-    wsRef.current = ws;
-    ws.binaryType = 'arraybuffer';
-
-    ws.onopen = () => {
-      ws.send(JSON.stringify({ type: 'mse' }));
-    };
-
-    ws.onmessage = (ev) => {
-      if (typeof ev.data === 'string') {
-        const msg = JSON.parse(ev.data);
-        if (msg.type === 'mse') {
-          ms = new MediaSource();
-          video.src = URL.createObjectURL(ms);
-          ms.addEventListener('sourceopen', () => {
-            sb = ms.addSourceBuffer(msg.value);
-            sb.mode = 'segments';
-            sb.addEventListener('updateend', () => {
-              if (queue.length > 0 && !sb.updating) {
-                sb.appendBuffer(queue.shift());
-              }
-            });
-          });
-        }
-      } else {
-        // binary fMP4 segment
-        if (sb && !sb.updating) {
-          sb.appendBuffer(ev.data);
-        } else {
-          queue.push(ev.data);
-        }
-      }
-    };
-
-    ws.onerror = () => {};
-    ws.onclose = () => {};
-
-    return () => {
-      ws.close();
-      wsRef.current = null;
-      if (ms && ms.readyState === 'open') {
-        try { ms.endOfStream(); } catch {}
-      }
-      if (video.src) URL.revokeObjectURL(video.src);
-    };
-  }, [url]);
-
-  return (
-    <video
-      ref={videoRef}
-      style={style}
-      muted={muted}
-      autoPlay
-      playsInline
-    />
-  );
-}
 
 export default function CCTVPanel({ farmId }) {
   const [cameras, setCameras] = useState([]);
   const [loading, setLoading] = useState(true);
   const [selectedCam, setSelectedCam] = useState(null);
+  const [volume, setVolume] = useState(0);
   const [isMuted, setIsMuted] = useState(true);
-  const [volume, setVolume] = useState(50);
-  const mainVideoRef = useRef(null);
+  const [iframeReady, setIframeReady] = useState(false);
+
+  // 마운트 후 iframe 렌더링 지연 (sandbox 적용 보장)
+  useEffect(() => {
+    setIframeReady(false);
+    const t = setTimeout(() => setIframeReady(true), 100);
+    return () => clearTimeout(t);
+  }, [selectedCam]);
 
   const API = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3000/api';
   const getToken = () => localStorage.getItem('accessToken');
@@ -87,15 +24,10 @@ export default function CCTVPanel({ farmId }) {
     ? rpiBase.replace(/\/api\/?$/, '').replace(/:1880$/, ':1984')
     : 'https://cctv.smartgreen.kr';
 
-  // WebSocket URL (MSE용)
-  const getWsUrl = (camId) => {
-    const wsBase = go2rtcBase.replace(/^http/, 'ws');
-    return `${wsBase}/api/ws?src=${camId}`;
-  };
-
-  // iframe URL (WebRTC 로컬용)
-  const getIframeUrl = (camId) => {
-    return `${go2rtcBase}/stream.html?src=${camId}&mode=webrtc&media=video`;
+  // 로컬: WebRTC (빠름), 외부: MSE (Tunnel 호환)
+  const getStreamUrl = (camId) => {
+    const mode = isLocal ? 'webrtc' : 'mse';
+    return `${go2rtcBase}/stream.html?src=${camId}&mode=${mode}&media=video`;
   };
 
   const fetchCameras = useCallback(async () => {
@@ -111,28 +43,13 @@ export default function CCTVPanel({ farmId }) {
 
   useEffect(() => { fetchCameras(); }, [fetchCameras]);
 
-  const onlineCams = cameras.filter(c => c.enabled);
-  const offlineCams = cameras.filter(c => !c.enabled);
-
-  // 카메라 1대면 자동 선택
-  useEffect(() => {
-    if (onlineCams.length > 0 && !selectedCam) setSelectedCam(onlineCams[0]);
-  }, [cameras]);
-
-  // 카메라 변경 시 음소거 초기화
-  useEffect(() => {
-    setIsMuted(true);
-  }, [selectedCam]);
-
-  // 볼륨 변경 시 메인 비디오에 반영 (MsePlayer 내부 video 접근)
-  useEffect(() => {
-    if (mainVideoRef.current) {
-      mainVideoRef.current.muted = isMuted;
-      mainVideoRef.current.volume = volume / 100;
-    }
-  }, [isMuted, volume]);
-
-  const toggleMute = () => setIsMuted(prev => !prev);
+  const toggleMute = () => {
+    setIsMuted(prev => {
+      const next = !prev;
+      if (next) setVolume(0); else if (volume === 0) setVolume(50);
+      return next;
+    });
+  };
 
   const handleVolume = (val) => {
     const v = Number(val);
@@ -140,38 +57,22 @@ export default function CCTVPanel({ farmId }) {
     setIsMuted(v === 0);
   };
 
-  const renderStream = (camId, style, isMain = false) => {
-    if (isLocal) {
-      // 로컬: WebRTC iframe
-      return (
-        <iframe
-          src={getIframeUrl(camId)}
-          style={{ ...style, border: 'none', display: 'block' }}
-          allow="autoplay"
-          sandbox="allow-scripts allow-same-origin"
-        />
-      );
-    }
-    // 외부: MSE WebSocket 직접 연결 (video 태그 직접 제어)
-    if (isMain) {
-      return (
-        <MsePlayerWithRef
-          ref={mainVideoRef}
-          url={getWsUrl(camId)}
-          muted={isMuted}
-          volume={volume}
-          style={{ ...style, display: 'block', objectFit: 'contain', background: '#000' }}
-        />
-      );
-    }
-    return (
-      <MsePlayer
-        url={getWsUrl(camId)}
-        muted={true}
-        style={{ ...style, display: 'block', objectFit: 'contain', background: '#000' }}
-      />
-    );
-  };
+  // 메인 비디오 볼륨 동기화
+  useEffect(() => {
+    const videos = document.querySelectorAll('video[data-main]');
+    videos.forEach(v => {
+      v.muted = isMuted;
+      v.volume = volume / 100;
+    });
+  }, [volume, isMuted]);
+
+  const onlineCams = cameras.filter(c => c.enabled);
+  const offlineCams = cameras.filter(c => !c.enabled);
+
+  // 카메라 1대면 자동 선택
+  useEffect(() => {
+    if (onlineCams.length > 0 && !selectedCam) setSelectedCam(onlineCams[0]);
+  }, [cameras]);
 
   if (loading) return <div className="px-4 py-4"><div className="skeleton h-96 rounded-2xl" /></div>;
 
@@ -217,7 +118,16 @@ export default function CCTVPanel({ farmId }) {
               <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#fff', animation: 'cctvPulse 1.5s infinite' }} />
               LIVE
             </div>
-            {renderStream(selectedCam.camId, { width: '100%', height: 'min(560px, 55vh)' }, true)}
+            {iframeReady ? (
+              <iframe
+                src={getStreamUrl(selectedCam.camId)}
+                style={{ width: '100%', height: 'min(560px, 55vh)', border: 'none', display: 'block' }}
+                allow=""
+                sandbox="allow-scripts allow-same-origin"
+              />
+            ) : (
+              <div style={{ width: '100%', height: 'min(560px, 55vh)', background: '#000', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#6b7280' }}>연결 중...</div>
+            )}
           </div>
           <div style={{
             padding: '12px 20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center',
@@ -229,6 +139,7 @@ export default function CCTVPanel({ farmId }) {
               <span style={{ color: '#6b7280', fontSize: 12 }}>{selectedCam.location}</span>
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              {/* 볼륨 컨트롤 */}
               <button onClick={toggleMute}
                 style={{ padding: '6px 10px', borderRadius: 8, fontSize: 14, background: '#374151', color: '#d1d5db', border: 'none', cursor: 'pointer' }}>
                 {isMuted ? '🔇' : volume > 50 ? '🔊' : '🔉'}
@@ -244,12 +155,7 @@ export default function CCTVPanel({ farmId }) {
                 style={{ padding: '6px 16px', borderRadius: 8, fontSize: 12, fontWeight: 600, background: '#374151', color: '#d1d5db', border: 'none', cursor: 'pointer' }}>
                 닫기
               </button>
-              <button onClick={() => {
-                const url = isLocal
-                  ? getIframeUrl(selectedCam.camId)
-                  : `${go2rtcBase}/stream.html?src=${selectedCam.camId}&mode=mse`;
-                window.open(url, '_blank');
-              }}
+              <button onClick={() => window.open(getStreamUrl(selectedCam.camId), '_blank')}
                 style={{ padding: '6px 16px', borderRadius: 8, fontSize: 12, fontWeight: 600, background: '#2563eb', color: '#fff', border: 'none', cursor: 'pointer' }}>
                 전체화면
               </button>
@@ -258,7 +164,7 @@ export default function CCTVPanel({ farmId }) {
         </div>
       )}
 
-      {/* 카메라 그리드 (2대 이상일 때만 표시) */}
+      {/* 카메라 그리드 (2대 이상일 때만 표시, 또는 메인 영상이 없을 때) */}
       {cameras.length > 1 && (
         <div style={{
           display: 'grid',
@@ -277,9 +183,16 @@ export default function CCTVPanel({ farmId }) {
                   opacity: cam.enabled ? 1 : 0.5, transition: 'all 0.2s',
                 }}>
                 <div style={{ position: 'relative', aspectRatio: '16/9', background: '#0f172a' }}>
-                  {cam.enabled ? renderStream(cam.camId, { width: '100%', height: '100%', pointerEvents: 'none' }) : (
+                  {cam.enabled && iframeReady ? (
+                    <iframe
+                      src={getStreamUrl(cam.camId)}
+                      style={{ width: '100%', height: '100%', border: 'none', pointerEvents: 'none', display: 'block' }}
+                      allow=""
+                      sandbox="allow-scripts allow-same-origin"
+                    />
+                  ) : (
                     <div style={{ height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#374151', fontSize: 13 }}>
-                      오프라인
+                      {cam.enabled ? '연결 중...' : '오프라인'}
                     </div>
                   )}
                   <div style={{
@@ -300,7 +213,7 @@ export default function CCTVPanel({ farmId }) {
                   {cam.enabled && (
                     <button onClick={(e) => { e.stopPropagation(); setSelectedCam(cam); }}
                       style={{ padding: '4px 10px', borderRadius: 8, fontSize: 12, fontWeight: 600, background: '#374151', color: '#d1d5db', border: 'none', cursor: 'pointer' }}>
-                      확대
+                      🔍 확대
                     </button>
                   )}
                 </div>
@@ -344,85 +257,3 @@ export default function CCTVPanel({ farmId }) {
     </div>
   );
 }
-
-// 메인 영상용: 부모에서 video 요소에 접근 가능하도록 forwardRef
-import { forwardRef, useImperativeHandle } from 'react';
-
-const MsePlayerWithRef = forwardRef(({ url, muted, volume, style }, ref) => {
-  const videoRef = useRef(null);
-  const wsRef = useRef(null);
-
-  // 부모에서 video 요소 직접 접근
-  useImperativeHandle(ref, () => videoRef.current);
-
-  useEffect(() => {
-    const video = videoRef.current;
-    if (!video || !url) return;
-
-    let ms, sb;
-    const queue = [];
-
-    const ws = new WebSocket(url);
-    wsRef.current = ws;
-    ws.binaryType = 'arraybuffer';
-
-    ws.onopen = () => {
-      ws.send(JSON.stringify({ type: 'mse' }));
-    };
-
-    ws.onmessage = (ev) => {
-      if (typeof ev.data === 'string') {
-        const msg = JSON.parse(ev.data);
-        if (msg.type === 'mse') {
-          ms = new MediaSource();
-          video.src = URL.createObjectURL(ms);
-          ms.addEventListener('sourceopen', () => {
-            sb = ms.addSourceBuffer(msg.value);
-            sb.mode = 'segments';
-            sb.addEventListener('updateend', () => {
-              if (queue.length > 0 && !sb.updating) {
-                sb.appendBuffer(queue.shift());
-              }
-            });
-          });
-        }
-      } else {
-        if (sb && !sb.updating) {
-          sb.appendBuffer(ev.data);
-        } else {
-          queue.push(ev.data);
-        }
-      }
-    };
-
-    ws.onerror = () => {};
-    ws.onclose = () => {};
-
-    return () => {
-      ws.close();
-      wsRef.current = null;
-      if (ms && ms.readyState === 'open') {
-        try { ms.endOfStream(); } catch {}
-      }
-      if (video.src) URL.revokeObjectURL(video.src);
-    };
-  }, [url]);
-
-  // muted/volume 변경 시 즉시 반영
-  useEffect(() => {
-    if (videoRef.current) {
-      videoRef.current.muted = muted;
-      videoRef.current.volume = (volume || 50) / 100;
-    }
-  }, [muted, volume]);
-
-  return (
-    <video
-      ref={videoRef}
-      style={style}
-      muted={muted}
-      autoPlay
-      playsInline
-    />
-  );
-});

@@ -1115,7 +1115,7 @@ const ControlPanel = ({ farmId, houseId, houseConfig }) => {
   const anyModbusBusy = Object.values(modbusStatus).some(s => s === 'verifying');
 
   // 대시보드 통일 스타일
-  const btnBase = { padding: '14px 0', borderRadius: '10px', fontSize: '14px', fontWeight: 700, transition: 'all 0.15s', cursor: 'pointer', textAlign: 'center', border: '2px solid transparent', letterSpacing: '-0.01em', minHeight: '44px' };
+  const btnBase = { padding: '16px 0', borderRadius: '10px', fontSize: '16px', fontWeight: 800, transition: 'all 0.15s', cursor: 'pointer', textAlign: 'center', border: '2px solid transparent', letterSpacing: '-0.01em', minHeight: '52px' };
 
   // 장치 유형별 컬러 테마 [from, to] — 대시보드 팔레트 기반
   const typeTheme = {
@@ -1208,7 +1208,7 @@ const ControlPanel = ({ farmId, houseId, houseConfig }) => {
               boxShadow: automationActive ? 'none' : '0 4px 12px rgba(29,78,216,0.3)',
               transition:'all 0.15s',
             }}>
-            {applyLoading ? '⏳' : '▶'} 자동화 적용
+            {applyLoading ? '⏳' : '▶'} 자동화
           </button>
           <button
             onClick={handleStop}
@@ -1262,17 +1262,9 @@ const ControlPanel = ({ farmId, houseId, houseConfig }) => {
                   return (
                     <div key={device.deviceId}
                       style={{background: isAuto ? '#f0fdf4' : '#f8fafc',border:`2px solid ${isAuto ? '#bbf7d0' : '#e2e8f0'}`,borderRadius:14,padding:'14px 16px',transition:'all 0.2s'}}>
-                      <div className="flex items-center justify-between mb-3">
-                        <div className="flex items-center gap-2">
-                          <span style={{fontSize:20}}>{device.icon || typeInfo.icon}</span>
-                          <span style={{fontSize:16,fontWeight:800,color:'#0f172a'}}>{device.name}</span>
-                          {device.modbus?.address != null && (
-                            <span style={{fontSize:10,fontWeight:700,color:'#6b7280',background:'#f1f5f9',padding:'2px 6px',borderRadius:6}}>
-                              R{device.modbus.unitId||1}:CH{device.modbus.address+1}{device.modbus.controlType==='bidir'?`+${device.modbus.address2+1}`:''}
-                            </span>
-                          )}
-                        </div>
-                        <div className="flex items-center gap-2">
+                      <div className="flex items-center justify-between mb-2 flex-wrap gap-1">
+                        <span style={{fontSize:15,fontWeight:800,color:'#0f172a'}}>{device.name}</span>
+                        <div className="flex items-center gap-1.5">
                           {/* 수동/자동 모드 토글 */}
                           <button
                             onClick={() => !automationActive && toggleDeviceMode(device.deviceId)}

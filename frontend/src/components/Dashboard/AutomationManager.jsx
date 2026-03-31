@@ -228,12 +228,12 @@ const AutomationManager = ({ farmId, houses = [] }) => {
     <div>
       {/* 하우스 선택 */}
       {houses.length > 1 && (
-        <div className="flex items-center gap-2 mb-3">
+        <div className="flex items-center gap-2 mb-3 overflow-x-auto pb-1" style={{ scrollbarWidth: 'none', WebkitOverflowScrolling: 'touch' }}>
           {houses.map(h => (
             <button
               key={h.houseId}
               onClick={() => { if (!isEditing()) setSelectedHouseId(h.houseId); }}
-              className={`px-3 py-1.5 rounded-lg text-sm font-bold transition-all border ${
+              className={`px-3 py-1.5 rounded-lg text-sm font-bold transition-all border whitespace-nowrap flex-shrink-0 ${
                 selectedHouseId === h.houseId
                   ? 'bg-green-600 text-white shadow-md border-green-700'
                   : 'bg-gray-100 text-gray-500 hover:bg-gray-200 border-gray-300'
@@ -246,7 +246,7 @@ const AutomationManager = ({ farmId, houses = [] }) => {
       )}
 
       {/* 탭 네비게이션 + 새 규칙 */}
-      <div className="flex items-center gap-2 mb-4">
+      <div className="flex items-center gap-1.5 md:gap-2 mb-3 md:mb-4 overflow-x-auto pb-1" style={{ scrollbarWidth: 'none', WebkitOverflowScrolling: 'touch' }}>
         {TABS.map(tab => {
           const count = houseRules.filter(r => categorizeRule(r) === tab.id).length;
           const isActive = activeTab === tab.id;
@@ -254,7 +254,7 @@ const AutomationManager = ({ farmId, houses = [] }) => {
             <button
               key={tab.id}
               onClick={() => setActiveTab(tab.id)}
-              className={`flex items-center gap-1.5 px-4 py-2.5 rounded-lg text-sm font-bold transition-all border ${
+              className={`flex items-center gap-1 md:gap-1.5 px-2.5 md:px-4 py-2 md:py-2.5 rounded-lg text-xs md:text-sm font-bold transition-all border whitespace-nowrap flex-shrink-0 ${
                 isActive
                   ? 'bg-blue-600 text-white shadow-md shadow-blue-600/25 border-blue-700'
                   : 'bg-gray-100 text-gray-500 hover:bg-gray-200 border-gray-300'

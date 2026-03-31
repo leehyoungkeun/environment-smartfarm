@@ -219,6 +219,7 @@ function AppContent() {
   const needsFarmSelect = isSystemWide && !selectedFarmId;
   const [showAlertPanel, setShowAlertPanel] = useState(false);
   const [showUserMenu, setShowUserMenu] = useState(false);
+  const [showMobileSidebar, setShowMobileSidebar] = useState(false);
   const [deferredPrompt, setDeferredPrompt] = useState(null);
   const [showInstallBanner, setShowInstallBanner] = useState(false);
   const [rpiIp, setRpiIp] = useState(null);
@@ -531,82 +532,91 @@ function AppContent() {
         </div>
       </nav>
 
-      {/* 모바일 상단 헤더 */}
+      {/* 모바일 상단 바 */}
       <header className="md:hidden glass-nav sticky top-0 z-50 safe-top">
-        <div className="px-2 py-1.5">
-          {navGrid ? (
-            <>
-              {/* 2줄 그리드 (모바일: 로고 제외) */}
-              {(() => {
-                const mRow1 = navGrid.row1.filter(c => c.type !== 'logo');
-                const mRow2 = navGrid.row2;
-                const mCols = Math.max(mRow1.length, mRow2.length);
-                return (
-                  <>
-                    <div className="grid gap-1 mb-1" style={{ gridTemplateColumns: `repeat(${mCols}, 1fr)` }}>
-                      {mRow1.map(cell => renderNavCell(cell, true))}
-                    </div>
-                    <div className="grid gap-1" style={{ gridTemplateColumns: `repeat(${mCols}, 1fr)` }}>
-                      {mRow2.map(cell => renderNavCell(cell, true))}
-                    </div>
-                  </>
-                );
-              })()}
-            </>
-          ) : (
-            /* farmLocal/터치패널: 1줄에 모든 정보 통합 */
-            <div className="flex items-center justify-between py-1">
-              <div className="flex items-center gap-2">
-                <span className="text-[10px] text-emerald-600 font-bold bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200">팜로컬</span>
-                <span className="text-[10px] text-gray-400">
-                  {clockTime.toLocaleTimeString('ko-KR', { hour:'2-digit', minute:'2-digit' })}
-                </span>
-                <span className="text-[10px] text-gray-400">
-                  {clockTime.toLocaleDateString('ko-KR', { month:'long', day:'numeric', weekday:'short' })}
-                </span>
-                {rpiIp && <span className="text-[10px] text-gray-400 font-mono">{rpiIp}</span>}
-              </div>
-              <div className="flex items-center gap-1">
-                {navItems.map(item => (
-                  <button key={item.id} onClick={() => setCurrentPage(item.id)}
-                    style={{ minHeight: 40 }}
-                    className={`py-2 px-2.5 rounded-lg text-xs font-bold transition-all ${currentPage === item.id ? 'tab-active' : 'tab-inactive'}`}>
-                    <span>{item.icon}</span> {item.label}
-                  </button>
-                ))}
-                {/* 알림 */}
-                <div className="relative">
-                  <AlertPanel farmId={farmId} showPanel={showAlertPanel} setShowPanel={setShowAlertPanel} isMobile={true} fullWidth={false} />
-                </div>
-                {/* 사용자 */}
-                <div className="relative">
-                  <button onClick={() => setShowUserMenu(!showUserMenu)}
-                    className={`py-1.5 px-2.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1 ${showUserMenu ? 'tab-active' : 'tab-inactive'}`}>
-                    <span className="w-5 h-5 text-[10px] bg-gradient-to-br from-blue-400 to-violet-500 rounded-lg flex items-center justify-center text-white font-bold flex-shrink-0">
-                      {user.name?.charAt(0) || '?'}
-                    </span>
-                  </button>
-                  {showUserMenu && (
-                    <>
-                      <div className="fixed inset-0 z-[90]" onClick={() => setShowUserMenu(false)} />
-                      <div className="absolute right-0 top-9 w-44 bg-white border border-gray-200 rounded-2xl p-2 z-[100] animate-fade-in-up shadow-xl">
-                        <div className="px-3 py-2 border-b border-gray-100 mb-1">
-                          <p className="text-sm font-semibold text-gray-800">{user.name}</p>
-                          <p className="text-xs text-gray-500">{user.username} · {roleLabel}</p>
-                        </div>
-                        <button onClick={() => { logout(); setShowUserMenu(false); }}
-                          className="w-full text-left px-3 py-2 text-sm text-blue-600 hover:bg-blue-50 rounded-lg transition-all">
-                          ☁️ 클라우드 전환
-                        </button>
-                      </div>
-                    </>
+        <div className="flex items-center justify-between px-3 py-2">
+          {/* 왼쪽: 햄버거 */}
+          <button onClick={() => setShowMobileSidebar(true)}
+            className="w-10 h-10 flex items-center justify-center rounded-lg hover:bg-gray-100 transition-all">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+          </button>
+          {/* 가운데: 현재 페이지명 */}
+          <span className="text-sm font-bold text-gray-800">
+            {navItems.find(n => n.id === currentPage)?.label || currentPage}
+          </span>
+          {/* 오른쪽: 알림 + 사용자 */}
+          <div className="flex items-center gap-1">
+            <AlertPanel farmId={farmId} showPanel={showAlertPanel} setShowPanel={setShowAlertPanel} isMobile={true} fullWidth={false} />
+            <button onClick={() => setShowUserMenu(!showUserMenu)} className="relative w-10 h-10 flex items-center justify-center">
+              <span className="w-7 h-7 bg-gradient-to-br from-blue-400 to-violet-500 rounded-full flex items-center justify-center text-white text-xs font-bold">
+                {user.name?.charAt(0) || '?'}
+              </span>
+            </button>
+            {showUserMenu && (
+              <>
+                <div className="fixed inset-0 z-[90]" onClick={() => setShowUserMenu(false)} />
+                <div className="absolute right-3 top-14 w-48 bg-white border border-gray-200 rounded-2xl p-2 z-[100] shadow-xl">
+                  <div className="px-3 py-2 border-b border-gray-100 mb-1">
+                    <p className="text-sm font-semibold text-gray-800">{user.name}</p>
+                    <p className="text-xs text-gray-500">{user.username} · {roleLabel}</p>
+                  </div>
+                  {hasPermission('users') && (
+                    <button onClick={() => { setCurrentPage('users'); setShowUserMenu(false); }}
+                      className="w-full text-left px-3 py-2 text-sm text-gray-600 hover:bg-gray-100 rounded-lg">
+                      👥 사용자 관리
+                    </button>
                   )}
+                  <button onClick={() => { logout(); setShowUserMenu(false); }}
+                    className="w-full text-left px-3 py-2 text-sm text-rose-600 hover:bg-rose-50 rounded-lg">
+                    🚪 로그아웃
+                  </button>
                 </div>
-              </div>
-            </div>
-          )}
+              </>
+            )}
+          </div>
         </div>
       </header>
+
+      {/* 모바일 사이드바 */}
+      {showMobileSidebar && (
+        <div className="md:hidden fixed inset-0 z-[200]">
+          {/* 배경 오버레이 */}
+          <div className="absolute inset-0 bg-black/40" onClick={() => setShowMobileSidebar(false)} />
+          {/* 사이드바 */}
+          <div className="absolute left-0 top-0 bottom-0 w-64 bg-white shadow-2xl flex flex-col animate-slide-in-left">
+            {/* 로고 + 닫기 */}
+            <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 bg-gradient-to-br from-emerald-400 to-blue-500 rounded-lg flex items-center justify-center text-sm shadow-md">🌱</div>
+                <span className="text-base font-bold text-gray-800">SmartFarm</span>
+              </div>
+              <button onClick={() => setShowMobileSidebar(false)} className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-gray-100 text-gray-400 text-lg">✕</button>
+            </div>
+            {/* 메뉴 목록 */}
+            <div className="flex-1 overflow-y-auto py-2">
+              {navItems.map(item => (
+                <button key={item.id}
+                  onClick={() => { setCurrentPage(item.id); setShowMobileSidebar(false); }}
+                  className={`w-full text-left px-5 py-3 flex items-center gap-3 text-sm font-semibold transition-all ${
+                    currentPage === item.id
+                      ? 'bg-blue-50 text-blue-700 border-r-4 border-blue-600'
+                      : 'text-gray-700 hover:bg-gray-50'
+                  }`}>
+                  <span className="text-lg">{item.icon}</span>
+                  {item.label}
+                </button>
+              ))}
+            </div>
+            {/* 하단: 농장 정보 */}
+            {selectedFarmInfo && (
+              <div className="px-5 py-3 border-t border-gray-100 bg-gray-50">
+                <p className="text-xs text-gray-400">현재 농장</p>
+                <p className="text-sm font-bold text-emerald-600">{selectedFarmInfo.name}</p>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* 메인 콘텐츠 */}
       <main className="relative z-10 pb-8">

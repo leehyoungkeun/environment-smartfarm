@@ -30,6 +30,7 @@ import internalRoutes from "./routes/internal.routes.js";
 import devicesRoutes from "./routes/devices.routes.js";
 import deployRoutes from "./routes/deploy.routes.js";
 import camerasRoutes from "./routes/cameras.routes.js";
+import devicePositionsRoutes from "./routes/device-positions.routes.js";
 import {
   authenticate,
   authenticateApiKey,
@@ -217,6 +218,7 @@ app.use("/api/automation", authenticateApiKey, automationRoutes);
 app.use("/api/devices", devicesRoutes);
 app.use("/api/deploy", deployRoutes);
 app.use("/api/cameras", authenticate, camerasRoutes);
+app.use("/api/device-positions", devicePositionsRoutes);
 
 // 농장 관리 API (JWT 인증)
 app.use("/api/farms", authenticate, farmsRoutes);

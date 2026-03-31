@@ -359,18 +359,21 @@ const ControlPanel = ({ farmId, houseId, houseConfig }) => {
     }
   }, [bidirPosition, bidirPositionKey]);
 
-  // 마운트 시 RPi에서 실제 장치 위치 동기화
+  // 마운트 시 서버에서 장치 위치 동기화
   useEffect(() => {
     const syncPositions = async () => {
       try {
-        const rpiApi = getRpiApiBase();
-        if (!rpiApi) return;
-        const res = await axios.get(`${rpiApi}/device-positions`, { timeout: 3000 });
-        if (res.data && typeof res.data === 'object') {
+        const API = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3000/api';
+        const token = localStorage.getItem('accessToken');
+        const res = await axios.get(`${API}/device-positions/${farmId}`, {
+          headers: { Authorization: `Bearer ${token}` },
+          timeout: 3000,
+        });
+        if (res.data?.success && res.data.data) {
           setBidirPosition(prev => {
             const merged = { ...prev };
-            Object.entries(res.data).forEach(([devId, pos]) => {
-              merged[devId] = pos;
+            Object.entries(res.data.data).forEach(([devId, info]) => {
+              merged[devId] = info.position;
             });
             return merged;
           });

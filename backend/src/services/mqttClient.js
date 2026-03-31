@@ -7,6 +7,7 @@ import path from "path";
 import { fileURLToPath } from "url";
 import { EventEmitter } from "events";
 import logger from "../utils/logger.js";
+import { pool } from "../db.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const CERTS_DIR = path.resolve(__dirname, "../../certs");
@@ -19,6 +20,7 @@ const TOPICS = [
   "smartfarm/+/+/response",       // 제어 실행 응답
   "smartfarm/+/relay/status",     // 릴레이 상태 업데이트
   "smartfarm/+/relay/response",   // 릴레이 조회 응답
+  "smartfarm/+/device/position",  // 장치 위치 (자동 정지 후)
 ];
 
 class MqttService extends EventEmitter {
@@ -87,6 +89,10 @@ class MqttService extends EventEmitter {
           const farmId = parts[1];
           this._cacheRelayStatus(farmId, payload);
           this.emit("relay:response", { farmId, data: payload, topic });
+        } else if (topic.match(/smartfarm\/[^/]+\/device\/position/)) {
+          // 장치 위치 업데이트 (자동 정지 후)
+          const farmId = parts[1];
+          this._saveDevicePosition(farmId, payload);
         } else if (topic.match(/smartfarm\/[^/]+\/[^/]+\/response/)) {
           // 제어 실행 응답
           const houseId = parts[1];
@@ -112,6 +118,24 @@ class MqttService extends EventEmitter {
     });
 
     return this;
+  }
+
+  // 장치 위치 DB 저장
+  async _saveDevicePosition(farmId, payload) {
+    try {
+      const { deviceId, position, command } = payload;
+      if (!deviceId || position === undefined) return;
+      await pool.query(
+        `INSERT INTO device_positions (farm_id, device_id, position, command, updated_at)
+         VALUES ($1, $2, $3, $4, NOW())
+         ON CONFLICT (farm_id, device_id) DO UPDATE
+         SET position = $3, command = $4, updated_at = NOW()`,
+        [farmId, deviceId, position, command || 'stop']
+      );
+      logger.info(`📍 장치 위치 저장: ${farmId}/${deviceId} → ${position}%`);
+    } catch (e) {
+      logger.error("장치 위치 저장 실패:", e.message);
+    }
   }
 
   // 릴레이 상태 캐시

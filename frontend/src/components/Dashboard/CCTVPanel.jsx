@@ -51,12 +51,6 @@ export default function CCTVPanel({ farmId }) {
     });
   };
 
-  const handleVolume = (val) => {
-    const v = Number(val);
-    setVolume(v);
-    setIsMuted(v === 0);
-  };
-
   // 메인 비디오 볼륨 동기화
   useEffect(() => {
     const videos = document.querySelectorAll('video[data-main]');
@@ -130,46 +124,37 @@ export default function CCTVPanel({ farmId }) {
             )}
           </div>
           <div style={{
-            padding: '12px 20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-            background: '#1f2937', flexWrap: 'wrap', gap: 8
+            padding: '8px 12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+            background: '#1f2937', gap: 8
           }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-              <span style={{ color: '#fff', fontSize: 15, fontWeight: 700 }}>{selectedCam.name}</span>
-              <span style={{ padding: '2px 10px', borderRadius: 12, fontSize: 11, fontWeight: 600, background: '#065f4630', color: '#34d399' }}>온라인</span>
-              <span style={{ color: '#6b7280', fontSize: 12 }}>{selectedCam.location}</span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0, flex: 1 }}>
+              <span style={{ color: '#fff', fontSize: 14, fontWeight: 700, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{selectedCam.name}</span>
+              <span style={{ padding: '2px 8px', borderRadius: 12, fontSize: 10, fontWeight: 600, background: '#065f4630', color: '#34d399', whiteSpace: 'nowrap', flexShrink: 0 }}>온라인</span>
             </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              {/* 볼륨 컨트롤 */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
               <button onClick={toggleMute}
-                style={{ padding: '6px 10px', borderRadius: 8, fontSize: 14, background: '#374151', color: '#d1d5db', border: 'none', cursor: 'pointer' }}>
-                {isMuted ? '🔇' : volume > 50 ? '🔊' : '🔉'}
+                style={{ padding: '6px 8px', borderRadius: 8, fontSize: 14, background: '#374151', color: '#d1d5db', border: 'none', cursor: 'pointer' }}>
+                {isMuted ? '🔇' : '🔊'}
               </button>
-              <input type="range" min="0" max="100" value={isMuted ? 0 : volume}
-                onChange={e => handleVolume(e.target.value)}
-                style={{ width: 80, accentColor: '#3b82f6', cursor: 'pointer' }} />
-              <span style={{ color: '#6b7280', fontSize: 11, minWidth: 28 }}>{isMuted ? 0 : volume}%</span>
-
-              <div style={{ width: 1, height: 20, background: '#374151', margin: '0 4px' }} />
-
               <button onClick={() => setSelectedCam(null)}
-                style={{ padding: '6px 16px', borderRadius: 8, fontSize: 12, fontWeight: 600, background: '#374151', color: '#d1d5db', border: 'none', cursor: 'pointer' }}>
-                닫기
+                style={{ padding: '6px 12px', borderRadius: 8, fontSize: 12, fontWeight: 600, background: '#374151', color: '#d1d5db', border: 'none', cursor: 'pointer', whiteSpace: 'nowrap' }}>
+                ✕
               </button>
               <button onClick={() => window.open(getStreamUrl(selectedCam.camId), '_blank')}
-                style={{ padding: '6px 16px', borderRadius: 8, fontSize: 12, fontWeight: 600, background: '#2563eb', color: '#fff', border: 'none', cursor: 'pointer' }}>
-                전체화면
+                style={{ padding: '6px 12px', borderRadius: 8, fontSize: 12, fontWeight: 600, background: '#2563eb', color: '#fff', border: 'none', cursor: 'pointer', whiteSpace: 'nowrap' }}>
+                ⛶
               </button>
             </div>
           </div>
         </div>
       )}
 
-      {/* 카메라 그리드 (2대 이상일 때만 표시, 또는 메인 영상이 없을 때) */}
+      {/* 카메라 그리드 + 현황 요약 통합 */}
       {cameras.length > 1 && (
         <div style={{
           display: 'grid',
-          gridTemplateColumns: `repeat(${Math.min(cameras.length, 4)}, 1fr)`,
-          gap: 12, marginBottom: 16,
+          gridTemplateColumns: 'repeat(2, 1fr)',
+          gap: 10, marginBottom: 12,
         }}>
           {cameras.map(cam => {
             const isSelected = selectedCam?.camId === cam.camId;
@@ -196,26 +181,20 @@ export default function CCTVPanel({ farmId }) {
                     </div>
                   )}
                   <div style={{
-                    position: 'absolute', top: 8, left: 8,
-                    padding: '3px 10px', borderRadius: 12, fontSize: 10, fontWeight: 700,
+                    position: 'absolute', top: 6, left: 6,
+                    padding: '2px 8px', borderRadius: 10, fontSize: 9, fontWeight: 700,
                     background: cam.enabled ? '#059669' : '#4b5563', color: '#fff',
-                    display: 'flex', alignItems: 'center', gap: 4
+                    display: 'flex', alignItems: 'center', gap: 3
                   }}>
-                    {cam.enabled && <span style={{ width: 5, height: 5, borderRadius: '50%', background: '#fff' }} />}
-                    {cam.enabled ? 'LIVE' : 'OFFLINE'}
+                    {cam.enabled && <span style={{ width: 4, height: 4, borderRadius: '50%', background: '#fff' }} />}
+                    {cam.enabled ? 'LIVE' : 'OFF'}
                   </div>
                 </div>
-                <div style={{ padding: '10px 14px', background: '#1f2937', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <div>
-                    <div style={{ color: '#f3f4f6', fontSize: 13, fontWeight: 700 }}>{cam.name}</div>
-                    <div style={{ color: '#6b7280', fontSize: 11 }}>{cam.location || '-'}</div>
+                <div style={{ padding: '6px 10px', background: '#1f2937', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <div style={{ minWidth: 0 }}>
+                    <div style={{ color: '#f3f4f6', fontSize: 12, fontWeight: 700, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{cam.name}</div>
+                    <div style={{ color: '#6b7280', fontSize: 10 }}>{cam.location || '-'}</div>
                   </div>
-                  {cam.enabled && (
-                    <button onClick={(e) => { e.stopPropagation(); setSelectedCam(cam); }}
-                      style={{ padding: '4px 10px', borderRadius: 8, fontSize: 12, fontWeight: 600, background: '#374151', color: '#d1d5db', border: 'none', cursor: 'pointer' }}>
-                      🔍 확대
-                    </button>
-                  )}
                 </div>
               </div>
             );
@@ -223,27 +202,22 @@ export default function CCTVPanel({ farmId }) {
         </div>
       )}
 
-      {/* CCTV 현황 요약 */}
+      {/* CCTV 현황 — 한 줄 요약 */}
       {cameras.length > 0 && (
-        <div style={{ background: '#111827', borderRadius: 16, padding: '20px 24px' }}>
-          <h3 style={{ color: '#9ca3af', fontSize: 13, fontWeight: 700, margin: '0 0 16px' }}>CCTV 현황 요약</h3>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 16, textAlign: 'center' }}>
-            <div>
-              <div style={{ color: '#60a5fa', fontSize: 28, fontWeight: 800 }}>{cameras.length}</div>
-              <div style={{ color: '#6b7280', fontSize: 12 }}>전체 카메라</div>
-            </div>
-            <div>
-              <div style={{ color: '#34d399', fontSize: 28, fontWeight: 800 }}>{onlineCams.length}</div>
-              <div style={{ color: '#6b7280', fontSize: 12 }}>온라인</div>
-            </div>
-            <div>
-              <div style={{ color: '#f87171', fontSize: 28, fontWeight: 800 }}>0</div>
-              <div style={{ color: '#6b7280', fontSize: 12 }}>녹화중</div>
-            </div>
-            <div>
-              <div style={{ color: '#6b7280', fontSize: 28, fontWeight: 800 }}>{offlineCams.length}</div>
-              <div style={{ color: '#6b7280', fontSize: 12 }}>오프라인</div>
-            </div>
+        <div style={{ background: '#111827', borderRadius: 12, padding: '10px 16px', display: 'flex', justifyContent: 'space-around', alignItems: 'center' }}>
+          <div style={{ textAlign: 'center' }}>
+            <span style={{ color: '#60a5fa', fontSize: 20, fontWeight: 800 }}>{cameras.length}</span>
+            <span style={{ color: '#6b7280', fontSize: 11, marginLeft: 4 }}>전체</span>
+          </div>
+          <div style={{ width: 1, height: 20, background: '#374151' }} />
+          <div style={{ textAlign: 'center' }}>
+            <span style={{ color: '#34d399', fontSize: 20, fontWeight: 800 }}>{onlineCams.length}</span>
+            <span style={{ color: '#6b7280', fontSize: 11, marginLeft: 4 }}>온라인</span>
+          </div>
+          <div style={{ width: 1, height: 20, background: '#374151' }} />
+          <div style={{ textAlign: 'center' }}>
+            <span style={{ color: '#6b7280', fontSize: 20, fontWeight: 800 }}>{offlineCams.length}</span>
+            <span style={{ color: '#6b7280', fontSize: 11, marginLeft: 4 }}>오프라인</span>
           </div>
         </div>
       )}

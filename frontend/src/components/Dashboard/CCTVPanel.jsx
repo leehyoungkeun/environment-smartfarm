@@ -112,17 +112,18 @@ export default function CCTVPanel({ farmId }) {
               <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#fff', animation: 'cctvPulse 1.5s infinite' }} />
               LIVE
             </div>
-            {iframeReady ? (
-              <iframe
-                src={getStreamUrl(selectedCam.camId)}
-                className="w-full border-none block"
-                style={{ height: 'min(560px, 55vh)' }}
-                allow=""
-                sandbox="allow-scripts allow-same-origin"
-              />
-            ) : (
-              <div className="w-full flex items-center justify-center text-gray-500" style={{ height: 'min(560px, 55vh)', background: '#000' }}>연결 중...</div>
-            )}
+            <div style={{ position: 'relative', width: '100%', paddingTop: '56.25%', background: '#000' }}>
+              {iframeReady ? (
+                <iframe
+                  src={getStreamUrl(selectedCam.camId)}
+                  style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', border: 'none', display: 'block' }}
+                  allow=""
+                  sandbox="allow-scripts allow-same-origin"
+                />
+              ) : (
+                <div style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#6b7280' }}>연결 중...</div>
+              )}
+            </div>
           </div>
           <div style={{
             padding: '8px 12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center',

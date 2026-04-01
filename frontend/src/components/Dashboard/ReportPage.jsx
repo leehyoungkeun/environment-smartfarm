@@ -242,15 +242,15 @@ export default function ReportPage({ farmId }) {
   return (
     <div>
       {/* 탭 바 */}
-      <div className="flex gap-1.5 mb-5 bg-gray-100 rounded-xl p-1">
+      <div className="flex gap-1.5 mb-4 overflow-x-auto pb-1" style={{ scrollbarWidth: 'none', WebkitOverflowScrolling: 'touch' }}>
         {TABS.map(tab => (
           <button
             key={tab.id}
             onClick={() => setActiveTab(tab.id)}
-            className={`flex-1 py-2.5 rounded-lg text-sm font-semibold transition-all flex items-center justify-center gap-1.5 ${
+            className={`py-2 px-3 rounded-lg text-xs md:text-sm font-bold transition-all flex items-center justify-center gap-1 whitespace-nowrap flex-shrink-0 ${
               activeTab === tab.id
                 ? 'bg-blue-600 text-white shadow-sm'
-                : 'text-gray-600 bg-white hover:text-gray-900 hover:bg-gray-50 border border-gray-200'
+                : 'bg-white text-gray-600 hover:bg-gray-50 border border-gray-200'
             }`}
           >
             <span>{tab.icon}</span> {tab.label}

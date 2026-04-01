@@ -115,12 +115,13 @@ export default function CCTVPanel({ farmId }) {
             {iframeReady ? (
               <iframe
                 src={getStreamUrl(selectedCam.camId)}
-                style={{ width: '100%', height: 'min(400px, 40vh)', border: 'none', display: 'block' }}
+                className="w-full border-none block"
+                style={{ height: 'min(560px, 55vh)' }}
                 allow=""
                 sandbox="allow-scripts allow-same-origin"
               />
             ) : (
-              <div style={{ width: '100%', height: 'min(400px, 40vh)', background: '#000', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#6b7280' }}>연결 중...</div>
+              <div className="w-full flex items-center justify-center text-gray-500" style={{ height: 'min(560px, 55vh)', background: '#000' }}>연결 중...</div>
             )}
           </div>
           <div style={{
@@ -171,7 +172,7 @@ export default function CCTVPanel({ farmId }) {
                   {cam.enabled && iframeReady ? (
                     <iframe
                       src={getStreamUrl(cam.camId)}
-                      style={{ position: 'absolute', top: '-50%', left: '-25%', width: '150%', height: '200%', border: 'none', pointerEvents: 'none', display: 'block' }}
+                      style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', border: 'none', pointerEvents: 'none', display: 'block' }}
                       allow=""
                       sandbox="allow-scripts allow-same-origin"
                     />

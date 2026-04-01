@@ -163,40 +163,42 @@ export default function CCTVPanel({ farmId }) {
               <div key={cam.id}
                 onClick={() => cam.enabled && setSelectedCam(cam)}
                 style={{
-                  background: '#111827', borderRadius: 12, overflow: 'hidden',
+                  position: 'relative', borderRadius: 12, overflow: 'hidden',
                   border: isSelected ? '2px solid #34d399' : '2px solid #1f2937',
                   cursor: cam.enabled ? 'pointer' : 'default',
                   opacity: cam.enabled ? 1 : 0.5, transition: 'all 0.2s',
+                  background: '#0f172a', paddingTop: '56.25%',
                 }}>
-                <div style={{ position: 'relative', width: '100%', paddingTop: '56.25%', background: '#0f172a', overflow: 'hidden' }}>
-                  {cam.enabled && iframeReady ? (
-                    <iframe
-                      src={getStreamUrl(cam.camId)}
-                      style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', border: 'none', pointerEvents: 'none', display: 'block' }}
-                      allow=""
-                      sandbox="allow-scripts allow-same-origin"
-                    />
-                  ) : (
-                    <div style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#374151', fontSize: 13 }}>
-                      {cam.enabled ? '연결 중...' : '오프라인'}
-                    </div>
-                  )}
-                  {/* LIVE 뱃지 — 영상 위 */}
-                  <div style={{
-                    position: 'absolute', top: 6, left: 6,
-                    padding: '2px 8px', borderRadius: 10, fontSize: 9, fontWeight: 700,
-                    background: cam.enabled ? '#059669' : '#4b5563', color: '#fff',
-                    display: 'flex', alignItems: 'center', gap: 3
-                  }}>
-                    {cam.enabled && <span style={{ width: 4, height: 4, borderRadius: '50%', background: '#fff', animation: 'cctvPulse 1.5s infinite' }} />}
-                    {cam.enabled ? 'LIVE' : 'OFF'}
+                {cam.enabled && iframeReady ? (
+                  <iframe
+                    src={getStreamUrl(cam.camId)}
+                    style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', border: 'none', pointerEvents: 'none', display: 'block' }}
+                    allow=""
+                    sandbox="allow-scripts allow-same-origin"
+                  />
+                ) : (
+                  <div style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#374151', fontSize: 13 }}>
+                    {cam.enabled ? '연결 중...' : '오프라인'}
                   </div>
+                )}
+                {/* LIVE 뱃지 — 영상 위 좌상단 */}
+                <div style={{
+                  position: 'absolute', top: 6, left: 6,
+                  padding: '2px 8px', borderRadius: 10, fontSize: 9, fontWeight: 700,
+                  background: cam.enabled ? '#059669' : '#4b5563', color: '#fff',
+                  display: 'flex', alignItems: 'center', gap: 3
+                }}>
+                  {cam.enabled && <span style={{ width: 4, height: 4, borderRadius: '50%', background: '#fff', animation: 'cctvPulse 1.5s infinite' }} />}
+                  {cam.enabled ? 'LIVE' : 'OFF'}
                 </div>
-                <div style={{ padding: '6px 10px', background: '#1f2937', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <div style={{ minWidth: 0 }}>
-                    <div style={{ color: '#f3f4f6', fontSize: 12, fontWeight: 700, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{cam.name}</div>
-                    <div style={{ color: '#6b7280', fontSize: 10 }}>{cam.location || '-'}</div>
-                  </div>
+                {/* 카메라 이름 — 영상 위 하단 오버레이 */}
+                <div style={{
+                  position: 'absolute', bottom: 0, left: 0, right: 0,
+                  padding: '14px 8px 5px',
+                  background: 'linear-gradient(transparent, rgba(0,0,0,0.7))',
+                }}>
+                  <div style={{ color: '#fff', fontSize: 11, fontWeight: 700, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{cam.name}</div>
+                  <div style={{ color: '#9ca3af', fontSize: 9 }}>{cam.location || ''}</div>
                 </div>
               </div>
             );

@@ -167,26 +167,27 @@ export default function CCTVPanel({ farmId }) {
                   cursor: cam.enabled ? 'pointer' : 'default',
                   opacity: cam.enabled ? 1 : 0.5, transition: 'all 0.2s',
                 }}>
-                <div style={{ position: 'relative', aspectRatio: '16/9', background: '#0f172a' }}>
+                <div style={{ position: 'relative', width: '100%', paddingTop: '56.25%', background: '#0f172a' }}>
                   {cam.enabled && iframeReady ? (
                     <iframe
                       src={getStreamUrl(cam.camId)}
-                      style={{ width: '100%', height: '100%', border: 'none', pointerEvents: 'none', display: 'block' }}
+                      style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', border: 'none', pointerEvents: 'none', display: 'block' }}
                       allow=""
                       sandbox="allow-scripts allow-same-origin"
                     />
                   ) : (
-                    <div style={{ height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#374151', fontSize: 13 }}>
+                    <div style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#374151', fontSize: 13 }}>
                       {cam.enabled ? '연결 중...' : '오프라인'}
                     </div>
                   )}
+                  {/* LIVE 뱃지 — 영상 위 */}
                   <div style={{
                     position: 'absolute', top: 6, left: 6,
                     padding: '2px 8px', borderRadius: 10, fontSize: 9, fontWeight: 700,
                     background: cam.enabled ? '#059669' : '#4b5563', color: '#fff',
                     display: 'flex', alignItems: 'center', gap: 3
                   }}>
-                    {cam.enabled && <span style={{ width: 4, height: 4, borderRadius: '50%', background: '#fff' }} />}
+                    {cam.enabled && <span style={{ width: 4, height: 4, borderRadius: '50%', background: '#fff', animation: 'cctvPulse 1.5s infinite' }} />}
                     {cam.enabled ? 'LIVE' : 'OFF'}
                   </div>
                 </div>

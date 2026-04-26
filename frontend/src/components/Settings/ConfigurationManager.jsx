@@ -1274,15 +1274,23 @@ const DeviceManager = ({ house, setEditedHouse, onUpdate, isDirty, saving, onSav
   // Modbus 연결 테스트
   const [modbusTestResult, setModbusTestResult] = useState({}); // { [deviceId]: 'testing'|'ok'|'fail' }
   const testModbusConnection = async (deviceId) => {
+    console.log('[테스트] 시작:', deviceId);
     const device = devices.find(d => d.deviceId === deviceId);
     const m = device?.modbus;
-    if (!m || m.address == null) return;
+    console.log('[테스트] device:', device, '| modbus:', m);
+    if (!m || m.address == null) {
+      console.warn('[테스트] modbus 또는 address 없음 → return');
+      return;
+    }
 
     setModbusTestResult(prev => ({ ...prev, [deviceId]: 'testing' }));
     try {
       // WebSocket 연결 시 MQTT 경유
+      console.log('[테스트] wsService.isConnected():', wsService.isConnected(), '| farmId:', farmId);
       if (wsService.isConnected()) {
+        console.log('[테스트] WebSocket 경로 → testRelayViaMqtt 호출');
         const result = await testRelayViaMqtt(farmId);
+        console.log('[테스트] 결과:', result);
         if (result && result.coils) {
           setModbusTestResult(prev => ({ ...prev, [deviceId]: 'ok' }));
         } else {
@@ -1290,6 +1298,7 @@ const DeviceManager = ({ house, setEditedHouse, onUpdate, isDirty, saving, onSav
         }
         return;
       }
+      console.warn('[테스트] WebSocket 미연결 → HTTP 경로');
 
       // 로컬 모드: HTTP 직접 조회
       const rpiBase = getRpiApiBase();

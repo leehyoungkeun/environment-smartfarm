@@ -551,7 +551,7 @@ const ConfigurationManager = ({ farmId = import.meta.env.VITE_FARM_ID || 'farm_0
 
           {housesSubTab === 'detail' && (
             selectedHouse ? (
-              <HouseDetailEditor house={selectedHouse} onUpdate={() => { loadHouses(); syncConfigToPC(farmId); }} />
+              <HouseDetailEditor house={selectedHouse} farmId={farmId} onUpdate={() => { loadHouses(); syncConfigToPC(farmId); }} />
             ) : (
               <div className="glass-card p-12 text-center">
                 <div className="text-4xl mb-4 opacity-30">⚙️</div>
@@ -610,7 +610,7 @@ const ConfigurationManager = ({ farmId = import.meta.env.VITE_FARM_ID || 'farm_0
   );
 };
 
-const HouseDetailEditor = ({ house, onUpdate }) => {
+const HouseDetailEditor = ({ house, farmId, onUpdate }) => {
   const [editedHouse, setEditedHouse] = useState(house);
   const [editingSensor, setEditingSensor] = useState(null);
   const [showAddSensor, setShowAddSensor] = useState(false);
@@ -1160,7 +1160,7 @@ const HouseDetailEditor = ({ house, onUpdate }) => {
       </div>
 
       {/* 제어 장치 관리 */}
-      <DeviceManager house={editedHouse} setEditedHouse={setEditedHouse} onUpdate={onUpdate}
+      <DeviceManager house={editedHouse} farmId={farmId} setEditedHouse={setEditedHouse} onUpdate={onUpdate}
         isDirty={isDevicesDirty} saving={saving} onSave={updateHouse} />
     </div>
   );
@@ -1199,7 +1199,7 @@ const getDeviceLabel = (type) => {
   return DEVICE_TYPES.find(d => d.value === type)?.label || type;
 };
 
-const DeviceManager = ({ house, setEditedHouse, onUpdate, isDirty, saving, onSave }) => {
+const DeviceManager = ({ house, farmId, setEditedHouse, onUpdate, isDirty, saving, onSave }) => {
   const [showAddDevice, setShowAddDevice] = useState(false);
   const [expandedDevice, setExpandedDevice] = useState(null);
   const [newDevice, setNewDevice] = useState({
@@ -1274,22 +1274,13 @@ const DeviceManager = ({ house, setEditedHouse, onUpdate, isDirty, saving, onSav
   // Modbus 연결 테스트
   const [modbusTestResult, setModbusTestResult] = useState({}); // { [deviceId]: 'testing'|'ok'|'fail' }
   const testModbusConnection = async (deviceId) => {
-    console.log('[테스트1] 시작:', deviceId);
     const device = devices.find(d => d.deviceId === deviceId);
     const m = device?.modbus;
-    console.log('[테스트2] device.modbus:', m, '| address type:', typeof m?.address, '| address value:', m?.address);
-    if (!m || m.address == null) {
-      console.warn('[테스트3] address 없음 → return');
-      return;
-    }
-    console.log('[테스트4] address 검사 통과');
+    if (!m || m.address == null) return;
 
     setModbusTestResult(prev => ({ ...prev, [deviceId]: 'testing' }));
-    console.log('[테스트5] testing 상태 설정 완료');
     try {
-      console.log('[테스트6] try 블록 진입 | wsService:', typeof wsService, '| isConnected:', wsService?.isConnected?.());
       // WebSocket 연결 시 MQTT 경유
-      console.log('[테스트7] wsService.isConnected():', wsService.isConnected(), '| farmId:', farmId);
       if (wsService.isConnected()) {
         console.log('[테스트] WebSocket 경로 → testRelayViaMqtt 호출');
         const result = await testRelayViaMqtt(farmId);

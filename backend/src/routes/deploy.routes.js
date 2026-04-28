@@ -22,11 +22,16 @@ router.post("/", (req, res) => {
   res.json({ success: true, message: "Deploy started" });
 
   exec(
-    "cd ~/smartfarm/backend && git pull origin main && npx prisma generate && pm2 restart smartfarm-backend",
-    { timeout: 120000 },
+    "cd ~/smartfarm/backend && " +
+      "git fetch origin main && " +
+      "git reset --hard origin/main && " +
+      "npm install --omit=dev && " +
+      "npx prisma generate && " +
+      "pm2 restart smartfarm-backend",
+    { timeout: 300000 },
     (err, stdout, stderr) => {
       if (err) {
-        logger.error(`❌ 배포 실패: ${err.message}`);
+        logger.error(`❌ 배포 실패: ${err.message}\nstderr: ${stderr}`);
       } else {
         logger.info(`✅ 배포 완료: ${stdout.trim().split("\n").pop()}`);
       }

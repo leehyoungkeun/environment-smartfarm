@@ -32,14 +32,22 @@ function inferType(sensorId) {
 }
 
 let autoMapped = 0;
+let stalefixed = 0;
 for (const house of (config.houses || [])) {
     for (const sensor of (house.sensors || [])) {
-        const m = sensor.modbus;
-        if (m && m.unitId != null && m.address != null) continue; // 이미 명시적 매핑
         const inferred = inferType(sensor.sensorId);
         if (!inferred) continue;
         const mod = moduleByType[inferred.type];
         if (!mod) continue;
+        const m = sensor.modbus;
+        // 등록된 모듈과 매핑이 일치하면 그대로 사용
+        const matches = m && m.unitId === mod.unitId
+            && m.address === (mod.address || 0)
+            && m.fc === (mod.fc || 3)
+            && m.quantity === (mod.quantity || 1);
+        if (matches) continue;
+        // 비어있거나 stale 매핑 → 자동매핑으로 덮어쓰기
+        const wasStale = m && m.unitId != null;
         sensor.modbus = {
             unitId: mod.unitId,
             fc: mod.fc || 3,
@@ -49,7 +57,7 @@ for (const house of (config.houses || [])) {
             divider: mod.divider || 1,
             signed: mod.signed || false,
         };
-        autoMapped++;
+        if (wasStale) stalefixed++; else autoMapped++;
     }
 }
 
@@ -117,6 +125,8 @@ msg._modbusKey = first.key;
 node.status({
     fill: 'blue',
     shape: 'dot',
-    text: 'Modbus 1/' + uniqueReads.length + (autoMapped ? ' (자동매핑 ' + autoMapped + ')' : '')
+    text: 'Modbus 1/' + uniqueReads.length
+        + (autoMapped ? ' (auto+' + autoMapped + ')' : '')
+        + (stalefixed ? ' (stale fix ' + stalefixed + ')' : '')
 });
 return [msg, null];

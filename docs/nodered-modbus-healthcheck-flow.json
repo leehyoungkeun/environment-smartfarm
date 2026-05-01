@@ -1,0 +1,52 @@
+[
+    {
+        "id": "mh_comment",
+        "type": "comment",
+        "z": "rest_api_flow",
+        "name": "Modbus 헬스체크 — /api/local/modbus/ping",
+        "info": "워치독 상태 + 마지막 성공 시각 반환.\n외부 cron(/usr/local/bin/smartfarm-modbus-healthcheck.sh)이 호출.\n3회 연속 실패 시 cron이 pm2 restart node-red 실행.",
+        "x": 290,
+        "y": 30,
+        "wires": []
+    },
+    {
+        "id": "mh_http_in",
+        "type": "http in",
+        "z": "rest_api_flow",
+        "name": "GET /api/local/modbus/ping",
+        "url": "/api/local/modbus/ping",
+        "method": "get",
+        "upload": false,
+        "swaggerDoc": "",
+        "x": 200,
+        "y": 80,
+        "wires": [["mh_func"]]
+    },
+    {
+        "id": "mh_func",
+        "type": "function",
+        "z": "rest_api_flow",
+        "name": "헬스 응답",
+        "func": "// ─────────────────────────────────────────────\n// Modbus 헬스 응답\n// 워치독 상태 (global watchdogStatus) 기반\n// ─────────────────────────────────────────────\nvar status = global.get('watchdogStatus') || null;\nvar alert  = global.get('watchdogAlert')  || null;\n\nvar healthy = true;\nvar reasons = [];\n\nif (!status) {\n    healthy = false;\n    reasons.push('워치독 미초기화 (Node-RED 시작 직후 또는 모듈 없음)');\n} else if (alert) {\n    // 워치독 임계치 초과한 모듈 1개라도 있으면 unhealthy\n    healthy = false;\n    reasons.push('Modbus 모듈 장애: ' + Object.keys(alert).join(', '));\n}\n\nvar lastCheck = status && status.lastCheck ? new Date(status.lastCheck) : null;\nif (lastCheck) {\n    var ageSec = (Date.now() - lastCheck.getTime()) / 1000;\n    if (ageSec > 180) {\n        // 워치독이 3분 넘게 안 돈 경우 — Node-RED hang 가능성\n        healthy = false;\n        reasons.push('워치독 정지 ' + Math.floor(ageSec) + '초 (hang 의심)');\n    }\n}\n\nmsg.statusCode = healthy ? 200 : 503;\nmsg.headers = { 'Content-Type': 'application/json' };\nmsg.payload = {\n    healthy: healthy,\n    lastCheck: status ? status.lastCheck : null,\n    modules: status || {},\n    alert: alert,\n    reasons: reasons,\n    timestamp: new Date().toISOString()\n};\nreturn msg;",
+        "outputs": 1,
+        "timeout": "",
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 440,
+        "y": 80,
+        "wires": [["mh_http_res"]]
+    },
+    {
+        "id": "mh_http_res",
+        "type": "http response",
+        "z": "rest_api_flow",
+        "name": "응답",
+        "statusCode": "",
+        "headers": {},
+        "x": 600,
+        "y": 80,
+        "wires": []
+    }
+]

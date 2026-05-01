@@ -1,0 +1,36 @@
+# /etc/udev/rules.d/99-smartfarm-485.rules
+# SmartFarm USB-485 어댑터 안정화
+#
+# 1) 안정적 심볼릭 링크: /dev/smartfarm-485 → /dev/ttyUSBn (재인식 시에도 같은 이름)
+# 2) USB autosuspend 비활성화 (CH340 절전 후 disconnect 방지)
+# 3) add 이벤트 시 Node-RED 자동 재시작 (재연결 후 fd 점유 해제)
+# 4) remove 이벤트 시 백엔드에 USB_DISCONNECT 알림
+#
+# 적용:
+#   sudo cp 99-smartfarm-485.rules /etc/udev/rules.d/
+#   sudo udevadm control --reload-rules
+#   sudo udevadm trigger
+
+# CH340 (현재 어댑터)
+SUBSYSTEM=="tty", ATTRS{idVendor}=="1a86", ATTRS{idProduct}=="7523", \
+    SYMLINK+="smartfarm-485", \
+    GROUP="dialout", MODE="0660", \
+    RUN+="/usr/local/bin/smartfarm-usb-event.sh add %k"
+
+# FTDI (교체 후를 대비, FT232/FT231X 등)
+SUBSYSTEM=="tty", ATTRS{idVendor}=="0403", \
+    SYMLINK+="smartfarm-485", \
+    GROUP="dialout", MODE="0660", \
+    RUN+="/usr/local/bin/smartfarm-usb-event.sh add %k"
+
+# USB autosuspend 비활성화 (CH340)
+ACTION=="add", SUBSYSTEM=="usb", ATTR{idVendor}=="1a86", ATTR{idProduct}=="7523", \
+    TEST=="power/control", ATTR{power/control}="on"
+
+# USB autosuspend 비활성화 (FTDI)
+ACTION=="add", SUBSYSTEM=="usb", ATTR{idVendor}=="0403", \
+    TEST=="power/control", ATTR{power/control}="on"
+
+# USB-485 분리 감지 → 백엔드 알림
+ACTION=="remove", SUBSYSTEM=="tty", KERNEL=="ttyUSB*", \
+    RUN+="/usr/local/bin/smartfarm-usb-event.sh remove %k"

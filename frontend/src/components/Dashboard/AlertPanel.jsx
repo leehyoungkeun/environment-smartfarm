@@ -165,7 +165,20 @@ const AlertPanel = ({ farmId, houseId, showPanel, setShowPanel, isMobile = false
       case 'LOW':
         return '낮음';
       case 'OFFLINE':
+      case 'FARM_OFFLINE':
         return '오프라인';
+      case 'USB_DISCONNECT':
+        return 'USB 분리';
+      case 'USB_RECONNECTED':
+        return 'USB 재연결';
+      case 'MODBUS_FAILURE':
+        return 'Modbus 장애';
+      case 'MODBUS_RECOVERED':
+        return 'Modbus 복구';
+      case 'NODERED_RESTARTED':
+        return 'Node-RED 재시작';
+      case 'NODERED_HANG':
+        return 'Node-RED 정지';
       default:
         return type;
     }

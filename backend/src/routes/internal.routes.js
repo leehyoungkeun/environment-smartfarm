@@ -273,6 +273,82 @@ router.post("/daily-summary", async (req, res) => {
 });
 
 /**
+ * POST /internal/farm-event
+ * RPi 시스템 이벤트 (USB_DISCONNECT, MODBUS_FAILURE, NODERED_RESTARTED 등)
+ * RPi의 udev hook, Node-RED 워치독, 헬스체크 cron이 호출
+ *
+ * Body: { eventType, severity?, message?, payload?, cooldownMinutes? }
+ * 같은 farmId+eventType 의 미확인 알림이 cooldown 내 있으면 중복 차단.
+ */
+router.post("/farm-event", async (req, res) => {
+  try {
+    const { farmId, houseId } = resolveFarmHouse(req);
+    const {
+      eventType,
+      severity: rawSeverity,
+      message,
+      payload,
+      cooldownMinutes,
+    } = req.body || {};
+
+    if (!eventType) {
+      return res.status(400).json({ success: false, error: "eventType 필수" });
+    }
+
+    const SEV_DEFAULT = {
+      USB_DISCONNECT: "WARNING",
+      USB_RECONNECTED: "INFO",
+      MODBUS_FAILURE: "CRITICAL",
+      MODBUS_RECOVERED: "INFO",
+      NODERED_RESTARTED: "INFO",
+      NODERED_HANG: "CRITICAL",
+    };
+    const severity = (rawSeverity || SEV_DEFAULT[eventType] || "WARNING").toUpperCase();
+
+    // 쿨다운 (기본 5분, INFO 류는 1분)
+    const cooldownMs =
+      ((cooldownMinutes ?? (severity === "INFO" ? 1 : 5)) * 60 * 1000);
+
+    if (cooldownMs > 0) {
+      const recent = await Alert.find({ farmId }, { limit: 30 });
+      const dup = recent.find(
+        (a) =>
+          a.alertType === eventType &&
+          a.createdAt &&
+          Date.now() - new Date(a.createdAt).getTime() < cooldownMs
+      );
+      if (dup) {
+        return res.json({ success: true, skipped: true, reason: "cooldown" });
+      }
+    }
+
+    const defaultMessage = {
+      USB_DISCONNECT: "USB-485 어댑터 분리 감지",
+      USB_RECONNECTED: "USB-485 어댑터 재연결",
+      MODBUS_FAILURE: "Modbus 통신 장애 (워치독 임계치 초과)",
+      MODBUS_RECOVERED: "Modbus 통신 정상 복구",
+      NODERED_RESTARTED: "Node-RED 자동 재시작 완료",
+      NODERED_HANG: "Node-RED 헬스체크 실패 (hang)",
+    };
+
+    const alert = await Alert.create({
+      farmId,
+      houseId: req.body?.houseId || "FARM",
+      alertType: eventType,
+      severity,
+      message: message || defaultMessage[eventType] || eventType,
+      metadata: payload || {},
+    });
+
+    logger.warn(`[farm-event] ${farmId} ${eventType} [${severity}]`);
+    res.json({ success: true, data: alert });
+  } catch (error) {
+    logger.error("farm-event 처리 실패:", error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+/**
  * POST /internal/control-log
  * 자동화 제어 이력 저장 (Node-RED → 백엔드)
  * ④⑤ 스케줄 실행, ② 센서 규칙 평가에서 호출

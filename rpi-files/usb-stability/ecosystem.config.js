@@ -20,6 +20,7 @@ module.exports = {
             kill_timeout: 5000,
             env: {
                 NODE_ENV: "production",
+                FARM_ID: process.env.FARM_ID || 'UNSET',
             },
         },
         {

@@ -2347,34 +2347,121 @@ const RelayModuleManager = ({ farmId }) => {
       } catch { return false; }
     };
 
-    // 전체 ON
+    // 실제 채널 상태 조회 (HTTP) — modbus broken state 회복 대기를 위해 timeout 길게 + 재시도
+    // Eletechsup 매핑: write register=ch+1 (1-indexed) → read 시도 register=1, raw[0..7] = CH0..CH7
+    const fetchActualState = async () => {
+      const rpiUrl = getRpiApiBase();
+      const maxAttempts = 3;
+      for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+        try {
+          if (module.moduleType === 'eletechsup') {
+            const res = await axiosBase.get(`${rpiUrl}/relay/reg-status`, {
+              params: { unitId: module.unitId, register: 1, quantity: total },
+              timeout: 10000,
+            });
+            const raw = res.data?.data?.raw || [];
+            if (Array.isArray(raw) && raw.length >= total) {
+              return Array.from({ length: total }, (_, i) => raw[i] === 1);
+            }
+          } else {
+            const res = await axiosBase.get(`${rpiUrl}/relay/status`, {
+              params: { unitId: module.unitId, quantity: total },
+              timeout: 10000,
+            });
+            const coils = res.data?.data?.coils || {};
+            return Array.from({ length: total }, (_, i) => coils[i] === true);
+          }
+        } catch {
+          if (attempt < maxAttempts) await new Promise(r => setTimeout(r, 1500));
+        }
+      }
+      return null;
+    };
+
+    // 명령 발송 간격 — 자동폴링/워치독 (1초 주기) 와 충돌 회피
+    const cmdInterval = wsService.isConnected() ? 1500 : 200;
+
+    // 단계: 명령 발사 → 검증 → 미달성 채널 재시도 (최대 2회)
+    // 자동폴링이 끼어들어 broken state 발생 후 5초 reconnect → 일부 drop 되어도 재시도로 복구
+    const runPhase = async (expected, phaseName) => {
+      const sentOk = Array(total).fill(false);
+
+      for (let attempt = 1; attempt <= 3; attempt++) {
+        setChannelTest(prev => ({ ...prev, status: `${phaseName} ${attempt > 1 ? '재시도 ' + attempt : ''}` }));
+
+        // 이번 시도에 보낼 채널: 첫 시도면 모두, 이후엔 아직 미달성한 채널
+        const targetChannels = attempt === 1
+          ? Array.from({ length: total }, (_, i) => i)
+          : null; // 검증 후 결정
+
+        if (attempt === 1) {
+          for (const ch of targetChannels) {
+            if (channelTestAbortRef.current) break;
+            setChannelTest(prev => ({ ...prev, channel: ch, status: phaseName }));
+            const ok = await sendCmd(ch, expected);
+            if (ok) sentOk[ch] = true;
+            await new Promise(r => setTimeout(r, cmdInterval));
+          }
+        }
+
+        // 검증 — modbus reconnect (5초) 보장
+        if (channelTestAbortRef.current) break;
+        setChannelTest(prev => ({ ...prev, status: `${phaseName} 검증 중...` }));
+        await new Promise(r => setTimeout(r, 5000));
+        const actual = await fetchActualState();
+
+        // 모든 채널이 기대값과 일치하면 종료
+        if (actual && actual.every(v => v === expected)) {
+          return actual;
+        }
+
+        // 미달성 채널 추출 + 재시도 (broken state 회복 후 재명령)
+        if (attempt < 3 && actual) {
+          const missing = [];
+          for (let ch = 0; ch < total; ch++) {
+            if (actual[ch] !== expected) missing.push(ch);
+          }
+          if (missing.length === 0) return actual;
+          setChannelTest(prev => ({ ...prev, status: `${phaseName} 재시도 ${missing.length}개` }));
+          for (const ch of missing) {
+            if (channelTestAbortRef.current) break;
+            setChannelTest(prev => ({ ...prev, channel: ch, status: phaseName + ' 재시도' }));
+            const ok = await sendCmd(ch, expected);
+            if (ok) sentOk[ch] = true;
+            await new Promise(r => setTimeout(r, cmdInterval));
+          }
+          continue;
+        }
+
+        return actual; // 마지막 시도 결과 반환 (null 가능)
+      }
+      return null;
+    };
+
     setChannelTest(prev => ({ ...prev, channel: 0, status: 'ALL ON' }));
-    const onResults = [];
+    const onActual = await runPhase(true, 'ON');
+
+    if (channelTestAbortRef.current) {
+      setChannelTest(prev => ({ ...prev, running: false, channel: total, results: [] }));
+      return;
+    }
+
+    setChannelTest(prev => ({ ...prev, channel: 0, status: 'ALL OFF' }));
+    const offActual = await runPhase(false, 'OFF');
+
+    // 옛 fallback 호환을 위한 빈 배열 (실제 사용 안 됨)
+    const onSent = Array(total).fill(true);
+    const offSent = Array(total).fill(true);
+
+    // ch 별 OK/FAIL 판정 — 실제 상태가 ON 단계와 OFF 단계 모두 기대값과 일치해야 OK
+    // 실제 상태 조회 실패 시 (onActual=null) 명령 전송 성공만 보고 fallback 판정 (옛 동작)
     for (let ch = 0; ch < total; ch++) {
-      if (channelTestAbortRef.current) break;
-      setChannelTest(prev => ({ ...prev, channel: ch, status: 'ON' }));
-      onResults.push(await sendCmd(ch, true));
-      await new Promise(r => setTimeout(r, wsService.isConnected() ? 500 : 150));
+      const onOk = onActual ? onActual[ch] === true : (onSent[ch] || false);
+      const offOk = offActual ? offActual[ch] === false : (offSent[ch] || false);
+      results.push({ ch, ok: onOk && offOk, onOk, offOk });
     }
 
-    if (!channelTestAbortRef.current) {
-      await new Promise(r => setTimeout(r, 1000));
-    }
-
-    // 전체 OFF
-    const offResults = [];
-    for (let ch = 0; ch < total; ch++) {
-      if (channelTestAbortRef.current) break;
-      setChannelTest(prev => ({ ...prev, channel: ch, status: 'OFF' }));
-      offResults.push(await sendCmd(ch, false));
-      await new Promise(r => setTimeout(r, wsService.isConnected() ? 500 : 150));
-    }
-
-    for (let ch = 0; ch < total; ch++) {
-      results.push({ ch, ok: (onResults[ch] || false) && (offResults[ch] || false) });
-    }
-
-    setChannelTest(prev => ({ ...prev, running: false, channel: total, results }));
+    setChannelTest(prev => ({ ...prev, running: false, channel: total, results, verified: !!(onActual && offActual) }));
   };
 
   const stopChannelTest = () => { channelTestAbortRef.current = true; };

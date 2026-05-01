@@ -4,10 +4,10 @@
 // "Modbus 릴레이 읽기 + 응답" 함수 노드의 코드 전체 교체
 //
 // ⚠️ 기존 코드는 unitid:1, fc:1 (Waveshare) 하드코딩 → Eletechsup 등록 시 동작 안 함
-// ✅ 새 코드는 SQLite 의 system_settings.relayModules 를 읽어 모든 모듈 순차 query
+// ✅ 새 코드는 "모듈 동기화" 탭이 PC 백엔드에서 받아 global 에 캐싱한 relayModules 사용
 //
 // 동작:
-//   1. SQLite system_settings 의 settings.relayModules 조회
+//   1. global.relayModules (modsync_handler 가 저장) 조회
 //   2. 첫 모듈을 즉시 호출 (waveshare → FC1 coils, eletechsup → FC3 register)
 //   3. 모듈이 여러 개면 1초 간격으로 순차 호출 (RS-485 충돌 방지)
 //
@@ -16,35 +16,10 @@
 //   2: (사용 안 함)
 // ================================================================
 
-const farmId = global.get('FARM_ID') || env.get('FARM_ID') || 'farm_0001';
+let relayModules = global.get('relayModules');
+if (!Array.isArray(relayModules)) relayModules = [];
 
-// ───────── system_settings 조회 (동기 SQLite — better-sqlite3) ─────────
-// ※ Node-RED settings.js 에 functionGlobalContext 로 better-sqlite3 등록 필요
-//    또는 아래의 fallback 으로 global 캐시 사용
-let relayModules = [];
-
-try {
-    const Database = global.get('better_sqlite3') || global.get('sqlite3');
-    if (Database) {
-        const db = new Database('/home/lhk/.node-red/smartfarm.db', { readonly: true });
-        const row = db.prepare("SELECT settings FROM system_settings WHERE farm_id = ?").get(farmId);
-        db.close();
-        if (row && row.settings) {
-            const s = typeof row.settings === 'string' ? JSON.parse(row.settings) : row.settings;
-            relayModules = Array.isArray(s.relayModules) ? s.relayModules : [];
-        }
-    }
-} catch (e) {
-    node.warn('SQLite system_settings 조회 실패: ' + e.message);
-}
-
-// fallback: global 캐시 (별도 노드가 갱신하면)
-if (relayModules.length === 0) {
-    const cached = global.get('registeredRelayModules');
-    if (Array.isArray(cached) && cached.length > 0) relayModules = cached;
-}
-
-// 마지막 fallback: houseConfig.devices 에서 unit 추출 (워치독 패턴)
+// fallback: houseConfig.devices 에서 unit 추출 (모듈 동기화 미가동 시)
 if (relayModules.length === 0) {
     const houseConfig = global.get('houseConfig');
     if (houseConfig && Array.isArray(houseConfig.houses)) {

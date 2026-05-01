@@ -12,6 +12,10 @@ const os = require('os');
 
 const SETTINGS_PATH = '/home/lhk/smartfarm/node-red/settings.js';
 const FLOWS_PATH = '/home/lhk/.node-red/flows.json';
+const ECOSYSTEM_PATHS = [
+  '/home/lhk/smartfarm/ecosystem.config.js',
+  '/home/lhk/smartfarm/scripts/ecosystem.config.js',
+];
 const SERVER_URL = 'https://api.smartgreen.kr';
 
 function getSerial() {
@@ -258,6 +262,28 @@ router.post('/apply', async (req, res) => {
       steps.push({ ok: false, text: 'settings.js 수정 실패: ' + e.message });
     }
 
+    // 3.5 PM2 ecosystem.config.js FARM_ID 변경
+    // PM2 env 는 settings.js fallback 보다 우선이므로 ecosystem 도 반드시 갱신
+    let ecosystemUpdated = 0;
+    for (const ecoPath of ECOSYSTEM_PATHS) {
+      if (!fs.existsSync(ecoPath)) continue;
+      try {
+        let eco = fs.readFileSync(ecoPath, 'utf8');
+        eco = eco.replace(/FARM_ID:\s*'[^']*'/g, "FARM_ID: '" + farmId + "'");
+        eco = eco.replace(
+          /FARM_ID:\s*process\.env\.FARM_ID\s*\|\|\s*'[^']*'/g,
+          "FARM_ID: process.env.FARM_ID || '" + farmId + "'"
+        );
+        fs.writeFileSync(ecoPath, eco);
+        ecosystemUpdated++;
+      } catch (e) {
+        steps.push({ ok: false, text: 'ecosystem 수정 실패 (' + ecoPath + '): ' + e.message });
+      }
+    }
+    if (ecosystemUpdated > 0) {
+      steps.push({ ok: true, text: 'ecosystem.config.js FARM_ID = ' + farmId + ' (' + ecosystemUpdated + '개)' });
+    }
+
     // 4. Node-RED flows.json 탭 환경변수 + MQTT clientid 변경
     try {
       const flows = JSON.parse(fs.readFileSync(FLOWS_PATH, 'utf8'));
@@ -291,11 +317,16 @@ router.post('/apply', async (req, res) => {
       }
     } catch (e) {}
 
+    // Node-RED 재시작 — ecosystem.config.js 가 있으면 그걸로 (env 새로 로드)
+    const ecoPathForRestart = ECOSYSTEM_PATHS.find(p => fs.existsSync(p));
+    const restartCmd = ecoPathForRestart
+      ? `pm2 delete node-red 2>/dev/null; pm2 start ${ecoPathForRestart} --only node-red`
+      : 'pm2 restart node-red --update-env';
     try {
       await new Promise((resolve, reject) => {
-        exec('pm2 restart node-red', { timeout: 30000 }, (err) => err ? reject(err) : resolve());
+        exec(restartCmd, { timeout: 30000, shell: '/bin/bash' }, (err) => err ? reject(err) : resolve());
       });
-      steps.push({ ok: true, text: 'Node-RED 재시작 완료' });
+      steps.push({ ok: true, text: 'Node-RED 재시작 완료' + (ecoPathForRestart ? ' (ecosystem 기반)' : '') });
     } catch (e) {
       steps.push({ ok: false, text: 'Node-RED 재시작 실패: ' + e.message });
     }

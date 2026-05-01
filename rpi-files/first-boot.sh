@@ -62,6 +62,18 @@ except Exception as e:
 "
 fi
 
+# PM2 ecosystem.config.js 의 FARM_ID env 도 초기화
+# (PM2 env 가 settings.js fallback 보다 우선이므로 반드시 함께 수정)
+for ECOSYSTEM in \
+  "${SMARTFARM_HOME}/smartfarm/ecosystem.config.js" \
+  "${SMARTFARM_HOME}/smartfarm/scripts/ecosystem.config.js"; do
+  if [ -f "$ECOSYSTEM" ]; then
+    sed -i "s/FARM_ID: *'[^']*'/FARM_ID: process.env.FARM_ID || 'UNSET'/" "$ECOSYSTEM"
+    sed -i "s/FARM_ID: *process\.env\.FARM_ID *|| *'[^']*'/FARM_ID: process.env.FARM_ID || 'UNSET'/" "$ECOSYSTEM"
+    echo "  ${ECOSYSTEM##*/} FARM_ID → UNSET"
+  fi
+done
+
 # ── 2.5. AWS IoT 인증서 초기화 ──
 echo "[2.5/6] AWS IoT 인증서 초기화"
 rm -f "${SMARTFARM_HOME}/certs/certificate.pem.crt"

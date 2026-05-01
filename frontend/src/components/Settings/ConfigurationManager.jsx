@@ -2841,7 +2841,9 @@ const ModbusPanel = ({ farmId }) => {
 // ModbusOverviewPanel — RS-485 버스 전체 현황 + 충돌 감지
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 const ModbusOverviewPanel = ({ farmId }) => {
+  const API = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3000/api';
   const [houses, setHouses] = useState([]);
+  const [registeredModules, setRegisteredModules] = useState({ relayModules: [], sensorModules: [] });
   const [loading, setLoading] = useState(true);
   const [relayStatus, setRelayStatus] = useState({}); // { 'unitId_moduleType': { online: null|bool, testing: bool } }
   const [sensorBusStatus, setSensorBusStatus] = useState({}); // { 'unitId': { online: null|bool, testing: bool } }
@@ -2855,9 +2857,19 @@ const ModbusOverviewPanel = ({ farmId }) => {
     setLoading(true);
     try {
       const rpiUrl = getRpiApiBase();
-      const res = await axiosBase.get(`${rpiUrl}/config/farm/${farmId}`, { timeout: 5000 });
-      if (res.data?.success && Array.isArray(res.data.data)) {
-        setHouses(res.data.data);
+      const [housesRes, settingsRes] = await Promise.all([
+        axiosBase.get(`${rpiUrl}/config/farm/${farmId}`, { timeout: 5000 }),
+        axiosBase.get(`${API}/config/system-settings/${farmId}`, { timeout: 5000 }).catch(() => null),
+      ]);
+      if (housesRes.data?.success && Array.isArray(housesRes.data.data)) {
+        setHouses(housesRes.data.data);
+      }
+      const s = settingsRes?.data?.data?.settings;
+      if (s && typeof s === 'object') {
+        setRegisteredModules({
+          relayModules: Array.isArray(s.relayModules) ? s.relayModules : [],
+          sensorModules: Array.isArray(s.sensorModules) ? s.sensorModules : [],
+        });
       }
     } catch (err) {
       console.warn('Modbus 현황 로드 실패:', err.message);
@@ -2995,9 +3007,29 @@ const ModbusOverviewPanel = ({ farmId }) => {
     if (!unitSummary[uid]) unitSummary[uid] = { sensors: 0, devices: 0, type: '장치' };
     unitSummary[uid].devices++;
   }
+  // 등록된 모듈도 unitSummary 에 추가 (device/sensor 매핑이 없어도 모듈은 표시)
+  for (const m of registeredModules.relayModules) {
+    const uid = m.unitId;
+    if (uid != null && !unitSummary[uid]) unitSummary[uid] = { sensors: 0, devices: 0, type: '장치' };
+  }
+  for (const m of registeredModules.sensorModules) {
+    const uid = m.unitId;
+    if (uid != null && !unitSummary[uid]) unitSummary[uid] = { sensors: 0, devices: 0, type: '센서' };
+  }
 
-  // Unit-Id별 릴레이 모듈 정보 (moduleType 기준, 장치만 해당)
+  // Unit-Id별 릴레이 모듈 정보 (등록된 모듈 우선, device 매핑 카운트 추가)
   const unitRelayInfo = {};
+  for (const m of registeredModules.relayModules) {
+    if (m.unitId == null) continue;
+    const key = `${m.unitId}_${m.moduleType || 'waveshare'}`;
+    unitRelayInfo[key] = {
+      unitId: m.unitId,
+      moduleType: m.moduleType || 'waveshare',
+      moduleName: m.name,
+      channels: m.channels,
+      deviceCount: 0,
+    };
+  }
   for (const d of deviceModbus) {
     const uid = d.modbus.unitId || 1;
     const moduleType = d.modbus.moduleType || 'waveshare';
@@ -3006,8 +3038,19 @@ const ModbusOverviewPanel = ({ farmId }) => {
     unitRelayInfo[key].deviceCount++;
   }
 
-  // Unit-Id별 센서 모듈 정보 (센서만 해당)
+  // Unit-Id별 센서 모듈 정보 (등록된 모듈 우선)
   const unitSensorInfo = {};
+  for (const m of registeredModules.sensorModules) {
+    if (m.unitId == null) continue;
+    unitSensorInfo[m.unitId] = {
+      unitId: m.unitId,
+      fc: m.fc || 3,
+      address: m.address ?? 0,
+      quantity: m.quantity || 1,
+      moduleName: m.name,
+      sensorCount: 0,
+    };
+  }
   for (const s of sensorModbus) {
     const uid = s.modbus.unitId;
     if (!unitSensorInfo[uid]) unitSensorInfo[uid] = { unitId: uid, fc: s.modbus.fc || 3, address: s.modbus.address || 0, quantity: s.modbus.quantity || 1, sensorCount: 0 };
@@ -3198,7 +3241,14 @@ const ModbusOverviewPanel = ({ farmId }) => {
       {sensorModbus.length === 0 && deviceModbus.length === 0 && (
         <div className="glass-card p-8 text-center text-gray-400">
           <p className="text-4xl mb-2">🔌</p>
-          <p>Modbus 설정된 센서/장치가 없습니다</p>
+          {(registeredModules.relayModules.length > 0 || registeredModules.sensorModules.length > 0) ? (
+            <>
+              <p className="text-gray-700 font-medium mb-1">위에 표시된 모듈은 등록만 되어 있습니다</p>
+              <p className="text-sm">하우스 설정에서 센서·장치를 추가하고 Modbus 채널을 매핑하세요</p>
+            </>
+          ) : (
+            <p>Modbus 설정된 센서/장치가 없습니다</p>
+          )}
         </div>
       )}
     </div>

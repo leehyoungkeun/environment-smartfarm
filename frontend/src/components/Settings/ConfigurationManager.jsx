@@ -2726,6 +2726,36 @@ const SensorModuleManager = ({ farmId }) => {
 
   const testModule = async (module) => {
     setSensorStatus(prev => ({ ...prev, [module.id]: { testing: true } }));
+
+    const parseRaw = (raw) => raw.map((v) => {
+      let parsed = v;
+      if (module.signed && v > 0x7FFF) parsed = -(0xFFFF - v + 1);
+      if (module.divider && module.divider !== 1) parsed = parsed / module.divider;
+      return Math.round(parsed * 100) / 100;
+    });
+
+    // WebSocket 경로 우선 (production 외부 환경에서도 동작 — Waveshare 와 동일)
+    if (wsService.isConnected()) {
+      const result = await new Promise((resolve) => {
+        const timeout = setTimeout(() => { unsub(); resolve(null); }, 5000);
+        const unsub = wsService.subscribe('sensor:status', (msg) => {
+          const d = msg.data || {};
+          // multi-unit 캐시 형식 (data = {unitId: {...}}) 또는 단일 응답
+          const candidate = d[String(module.unitId)] || (d.unitId === module.unitId ? d : null);
+          if (candidate && Array.isArray(candidate.raw)) {
+            clearTimeout(timeout); unsub(); resolve(candidate);
+          }
+        });
+        wsService.requestSensorStatus(farmId);
+      });
+      if (result && Array.isArray(result.raw)) {
+        const values = parseRaw(result.raw);
+        setSensorStatus(prev => ({ ...prev, [module.id]: { online: true, testing: false, raw: result.raw, values } }));
+        return;
+      }
+    }
+
+    // HTTP fallback (LAN 모드)
     try {
       const rpiUrl = getRpiApiBase();
       const res = await axiosBase.get(`${rpiUrl}/relay/reg-status`, {
@@ -2734,12 +2764,7 @@ const SensorModuleManager = ({ farmId }) => {
       });
       if (res.data?.success) {
         const raw = res.data.data?.raw || [];
-        const values = raw.map((v, i) => {
-          let parsed = v;
-          if (module.signed && v > 0x7FFF) parsed = -(0xFFFF - v + 1);
-          if (module.divider && module.divider !== 1) parsed = parsed / module.divider;
-          return Math.round(parsed * 100) / 100;
-        });
+        const values = parseRaw(raw);
         setSensorStatus(prev => ({ ...prev, [module.id]: { online: true, testing: false, raw, values } }));
       } else {
         setSensorStatus(prev => ({ ...prev, [module.id]: { online: false, testing: false } }));
@@ -3013,17 +3038,30 @@ const ModbusOverviewPanel = ({ farmId }) => {
     const key = String(unitId);
     setSensorBusStatus(prev => ({ ...prev, [key]: { online: null, testing: true } }));
 
-    const httpProbe = async () => {
-      const rpiUrl = getRpiApiBase();
-      try {
-        const res = await axiosBase.get(`${rpiUrl}/relay/reg-status`, { params: { unitId, register: address || 0, quantity: quantity || 1 }, timeout: 5000 });
-        return res.data?.success === true;
-      } catch { return false; }
-    };
+    // WebSocket 우선 (production 외부 환경에서도 동작)
+    if (wsService.isConnected()) {
+      const result = await new Promise((resolve) => {
+        const timeout = setTimeout(() => { unsub(); resolve(null); }, 5000);
+        const unsub = wsService.subscribe('sensor:status', (msg) => {
+          const d = msg.data || {};
+          const candidate = d[key] || (d.unitId === unitId ? d : null);
+          if (candidate && Array.isArray(candidate.raw)) {
+            clearTimeout(timeout); unsub(); resolve(candidate);
+          }
+        });
+        wsService.requestSensorStatus(farmId);
+      });
+      if (result) {
+        setSensorBusStatus(prev => ({ ...prev, [key]: { online: true, testing: false } }));
+        return;
+      }
+    }
 
+    // HTTP fallback (LAN 모드)
     try {
-      // 센서는 항상 HTTP — MQTT relay query 응답 형식이 센서와 안 맞음
-      const ok = await httpProbe();
+      const rpiUrl = getRpiApiBase();
+      const res = await axiosBase.get(`${rpiUrl}/relay/reg-status`, { params: { unitId, register: address || 0, quantity: quantity || 1 }, timeout: 5000 });
+      const ok = res.data?.success === true;
       setSensorBusStatus(prev => ({ ...prev, [key]: { online: ok, testing: false } }));
     } catch {
       setSensorBusStatus(prev => ({ ...prev, [key]: { online: false, testing: false } }));

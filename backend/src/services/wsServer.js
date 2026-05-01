@@ -113,6 +113,27 @@ function handleClientMessage(ws, msg) {
       break;
     }
 
+    case "sensor:query": {
+      // 센서 상태 조회 요청 → MQTT 발행 (Waveshare relay/query 와 동일 패턴)
+      const farmId = msg.farmId || ws.farmId;
+      if (!ws.isSystemWide && farmId !== ws.farmId) {
+        ws.send(JSON.stringify({ type: "error", message: "권한 없음" }));
+        return;
+      }
+      const sent = mqttService.publishSensorQuery(farmId);
+      ws.send(JSON.stringify({
+        type: "sensor:query:ack",
+        farmId,
+        sent,
+        mqtt: mqttService.isConnected(),
+      }));
+      const cached = mqttService.getSensorStatus(farmId);
+      if (cached) {
+        ws.send(JSON.stringify({ type: "sensor:status", farmId, data: cached, cached: true }));
+      }
+      break;
+    }
+
     case "system:command": {
       // 시스템 명령 → MQTT로 RPi에 전달
       const farmId = msg.farmId || ws.farmId;
@@ -154,6 +175,11 @@ function setupMqttBridge() {
   // 릴레이 상태 → 해당 농장 WebSocket 클라이언트로 전달
   mqttService.on("relay:status", ({ farmId, data }) => {
     broadcast(farmId, { type: "relay:status", farmId, data });
+  });
+
+  // 센서 상태 → 해당 농장 WebSocket 클라이언트로 전달
+  mqttService.on("sensor:status", ({ farmId, data }) => {
+    broadcast(farmId, { type: "sensor:status", farmId, data });
   });
 
   // 릴레이 조회 응답 → 해당 농장 WebSocket 클라이언트로 전달

@@ -20,6 +20,7 @@ const TOPICS = [
   "smartfarm/+/+/response",       // 제어 실행 응답
   "smartfarm/+/relay/status",     // 릴레이 상태 업데이트
   "smartfarm/+/relay/response",   // 릴레이 조회 응답
+  "smartfarm/+/sensor/status",    // 센서 상태 업데이트 (sensor:query 응답)
   "smartfarm/+/device/position",  // 장치 위치 (자동 정지 후)
 ];
 
@@ -29,6 +30,7 @@ class MqttService extends EventEmitter {
     this.client = null;
     this.connected = false;
     this.latestRelayStatus = {}; // { farmId: { houseId: { coils, timestamp } } }
+    this.latestSensorStatus = {}; // { farmId: { unitId: { raw, registers, timestamp } } }
   }
 
   connect() {
@@ -89,6 +91,11 @@ class MqttService extends EventEmitter {
           const farmId = parts[1];
           this._cacheRelayStatus(farmId, payload);
           this.emit("relay:response", { farmId, data: payload, topic });
+        } else if (topic.match(/smartfarm\/[^/]+\/sensor\/status/)) {
+          // 센서 상태 업데이트 (sensor:query 응답)
+          const farmId = parts[1];
+          this._cacheSensorStatus(farmId, payload);
+          this.emit("sensor:status", { farmId, data: payload, topic });
         } else if (topic.match(/smartfarm\/[^/]+\/device\/position/)) {
           // 장치 위치 업데이트 (자동 정지 후)
           const farmId = parts[1];
@@ -167,6 +174,35 @@ class MqttService extends EventEmitter {
     return true;
   }
 
+  // 센서 상태 캐시
+  _cacheSensorStatus(farmId, payload) {
+    if (!this.latestSensorStatus[farmId]) {
+      this.latestSensorStatus[farmId] = {};
+    }
+    const key = String(payload.unitId || "default");
+    this.latestSensorStatus[farmId][key] = {
+      ...payload,
+      receivedAt: new Date().toISOString(),
+    };
+  }
+
+  // 센서 조회 요청 발행 (Waveshare relay/query 와 동일 패턴)
+  publishSensorQuery(farmId) {
+    if (!this.client || !this.connected) {
+      logger.warn("MQTT 미연결 — 센서 조회 불가");
+      return false;
+    }
+    const topic = `smartfarm/${farmId}/sensor/query`;
+    const payload = JSON.stringify({
+      action: "query",
+      farmId,
+      timestamp: new Date().toISOString(),
+    });
+    this.client.publish(topic, payload, { qos: 1 });
+    logger.info(`📤 MQTT 센서 조회 요청: ${topic}`);
+    return true;
+  }
+
   // 설정 업데이트 발행 (모듈 추가/삭제 시 RPi 즉시 동기화)
   publishConfigUpdate(farmId, payload = {}) {
     if (!this.client || !this.connected) {
@@ -187,6 +223,11 @@ class MqttService extends EventEmitter {
   // 캐시된 릴레이 상태 조회
   getRelayStatus(farmId) {
     return this.latestRelayStatus[farmId] || null;
+  }
+
+  // 캐시된 센서 상태 조회
+  getSensorStatus(farmId) {
+    return this.latestSensorStatus[farmId] || null;
   }
 
   // 연결 상태

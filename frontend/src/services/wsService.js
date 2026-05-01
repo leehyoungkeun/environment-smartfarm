@@ -102,6 +102,11 @@ class WsService {
     return this.send({ type: "relay:query", farmId });
   }
 
+  // 센서 조회 요청 (Waveshare relay/query 와 동일 패턴)
+  requestSensorStatus(farmId) {
+    return this.send({ type: "sensor:query", farmId });
+  }
+
   // 이벤트 구독
   subscribe(eventType, callback) {
     if (!this.listeners[eventType]) {

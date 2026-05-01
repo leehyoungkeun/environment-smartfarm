@@ -2252,29 +2252,39 @@ const RelayModuleManager = ({ farmId }) => {
 
   const testModule = async (module) => {
     setRelayStatus(prev => ({ ...prev, [module.id]: { online: null, testing: true } }));
+
+    // HTTP 직접 조회 (모듈 타입에 맞는 endpoint)
+    const httpProbe = async () => {
+      const rpiUrl = getRpiApiBase();
+      try {
+        const res = (module.moduleType === 'eletechsup')
+          ? await axiosBase.get(`${rpiUrl}/relay/reg-status`, { params: { unitId: module.unitId, register: 0, quantity: 1 }, timeout: 5000 })
+          : await axiosBase.get(`${rpiUrl}/relay/status`,     { params: { unitId: module.unitId, quantity: 8 },              timeout: 5000 });
+        return res.data?.success === true;
+      } catch { return false; }
+    };
+
     try {
-      // WebSocket 연결 시 MQTT 경유
+      // WebSocket 연결 시 MQTT 경유 시도, 실패하면 HTTP fallback
       if (wsService.isConnected()) {
         const result = await new Promise((resolve) => {
-          const timeout = setTimeout(() => { unsub(); resolve(null); }, 8000);
+          const timeout = setTimeout(() => { unsub(); resolve(null); }, 5000);
           const unsub = wsService.subscribe('relay:response', (msg) => {
             clearTimeout(timeout); unsub(); resolve(msg.data);
           });
           wsService.requestRelayStatus(farmId);
         });
-        setRelayStatus(prev => ({ ...prev, [module.id]: { online: result && result.coils ? true : false, testing: false } }));
-        return;
+        // MQTT 응답에 module의 unitId가 일치하는 데이터가 있으면 OK
+        // 응답 형식이 모듈마다 달라서 (coils / registers) 무조건 HTTP 검증으로 확정
+        if (result && (result.coils || result.registers || result.unitId === module.unitId)) {
+          setRelayStatus(prev => ({ ...prev, [module.id]: { online: true, testing: false } }));
+          return;
+        }
+        // MQTT 응답이 없거나 매칭 안 되면 HTTP 폴백
       }
 
-      // 로컬 모드: HTTP 직접 조회
-      const rpiUrl = getRpiApiBase();
-      let res;
-      if (module.moduleType === 'eletechsup') {
-        res = await axiosBase.get(`${rpiUrl}/relay/reg-status`, { params: { unitId: module.unitId, register: 0, quantity: 1 }, timeout: 5000 });
-      } else {
-        res = await axiosBase.get(`${rpiUrl}/relay/status`, { params: { unitId: module.unitId, quantity: 8 }, timeout: 5000 });
-      }
-      setRelayStatus(prev => ({ ...prev, [module.id]: { online: res.data?.success === true, testing: false } }));
+      const ok = await httpProbe();
+      setRelayStatus(prev => ({ ...prev, [module.id]: { online: ok, testing: false } }));
     } catch {
       setRelayStatus(prev => ({ ...prev, [module.id]: { online: false, testing: false } }));
     }
@@ -2880,29 +2890,33 @@ const ModbusOverviewPanel = ({ farmId }) => {
   const testUnit = async (unitId, moduleType) => {
     const key = `${unitId}_${moduleType}`;
     setRelayStatus(prev => ({ ...prev, [key]: { online: null, testing: true } }));
+
+    const httpProbe = async () => {
+      const rpiUrl = getRpiApiBase();
+      try {
+        const res = (moduleType === 'eletechsup')
+          ? await axiosBase.get(`${rpiUrl}/relay/reg-status`, { params: { unitId, register: 0, quantity: 1 }, timeout: 5000 })
+          : await axiosBase.get(`${rpiUrl}/relay/status`,     { params: { unitId, quantity: 8 },              timeout: 5000 });
+        return res.data?.success === true;
+      } catch { return false; }
+    };
+
     try {
-      // WebSocket 연결 시 MQTT 경유
       if (wsService.isConnected()) {
         const result = await new Promise((resolve) => {
-          const timeout = setTimeout(() => { unsub(); resolve(null); }, 8000);
+          const timeout = setTimeout(() => { unsub(); resolve(null); }, 5000);
           const unsub = wsService.subscribe('relay:response', (msg) => {
             clearTimeout(timeout); unsub(); resolve(msg.data);
           });
           wsService.requestRelayStatus(farmId);
         });
-        setRelayStatus(prev => ({ ...prev, [key]: { online: result && result.coils ? true : false, testing: false } }));
-        return;
+        if (result && (result.coils || result.registers || result.unitId === unitId)) {
+          setRelayStatus(prev => ({ ...prev, [key]: { online: true, testing: false } }));
+          return;
+        }
       }
-
-      // 로컬 모드: HTTP 직접 조회
-      const rpiUrl = getRpiApiBase();
-      let res;
-      if (moduleType === 'eletechsup') {
-        res = await axiosBase.get(`${rpiUrl}/relay/reg-status`, { params: { unitId, register: 0, quantity: 1 }, timeout: 5000 });
-      } else {
-        res = await axiosBase.get(`${rpiUrl}/relay/status`, { params: { unitId, quantity: 8 }, timeout: 5000 });
-      }
-      setRelayStatus(prev => ({ ...prev, [key]: { online: res.data?.success === true, testing: false } }));
+      const ok = await httpProbe();
+      setRelayStatus(prev => ({ ...prev, [key]: { online: ok, testing: false } }));
     } catch {
       setRelayStatus(prev => ({ ...prev, [key]: { online: false, testing: false } }));
     }
@@ -2911,24 +2925,19 @@ const ModbusOverviewPanel = ({ farmId }) => {
   const testSensorUnit = async (unitId, fc, address, quantity) => {
     const key = String(unitId);
     setSensorBusStatus(prev => ({ ...prev, [key]: { online: null, testing: true } }));
-    try {
-      // WebSocket 연결 시 MQTT 경유 (센서도 같은 Modbus 버스)
-      if (wsService.isConnected()) {
-        const result = await new Promise((resolve) => {
-          const timeout = setTimeout(() => { unsub(); resolve(null); }, 8000);
-          const unsub = wsService.subscribe('relay:response', (msg) => {
-            clearTimeout(timeout); unsub(); resolve(msg.data);
-          });
-          wsService.requestRelayStatus(farmId);
-        });
-        setSensorBusStatus(prev => ({ ...prev, [key]: { online: result !== null, testing: false } }));
-        return;
-      }
 
-      // 로컬 모드: HTTP 직접 조회
+    const httpProbe = async () => {
       const rpiUrl = getRpiApiBase();
-      const res = await axiosBase.get(`${rpiUrl}/relay/reg-status`, { params: { unitId, register: address || 0, quantity: quantity || 1 }, timeout: 5000 });
-      setSensorBusStatus(prev => ({ ...prev, [key]: { online: res.data?.success === true, testing: false } }));
+      try {
+        const res = await axiosBase.get(`${rpiUrl}/relay/reg-status`, { params: { unitId, register: address || 0, quantity: quantity || 1 }, timeout: 5000 });
+        return res.data?.success === true;
+      } catch { return false; }
+    };
+
+    try {
+      // 센서는 항상 HTTP — MQTT relay query 응답 형식이 센서와 안 맞음
+      const ok = await httpProbe();
+      setSensorBusStatus(prev => ({ ...prev, [key]: { online: ok, testing: false } }));
     } catch {
       setSensorBusStatus(prev => ({ ...prev, [key]: { online: false, testing: false } }));
     }

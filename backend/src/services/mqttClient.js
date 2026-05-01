@@ -167,6 +167,23 @@ class MqttService extends EventEmitter {
     return true;
   }
 
+  // 설정 업데이트 발행 (모듈 추가/삭제 시 RPi 즉시 동기화)
+  publishConfigUpdate(farmId, payload = {}) {
+    if (!this.client || !this.connected) {
+      logger.warn("MQTT 미연결 — config update 발행 불가");
+      return false;
+    }
+    const topic = `smartfarm/${farmId}/config/update`;
+    const message = JSON.stringify({
+      farmId,
+      timestamp: new Date().toISOString(),
+      ...payload,
+    });
+    this.client.publish(topic, message, { qos: 1 });
+    logger.info(`📤 MQTT config 업데이트 발행: ${topic}`);
+    return true;
+  }
+
   // 캐시된 릴레이 상태 조회
   getRelayStatus(farmId) {
     return this.latestRelayStatus[farmId] || null;

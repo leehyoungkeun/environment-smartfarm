@@ -6,6 +6,7 @@ import express from "express";
 import Config from "../models/Config.js";
 import { pool } from "../db.js";
 import logger from "../utils/logger.js";
+import mqttService from "../services/mqttClient.js";
 
 const router = express.Router();
 
@@ -452,6 +453,25 @@ router.put("/system-settings/:farmId", async (req, res) => {
              updated_at = NOW()`,
       [farmId, JSON.stringify(settings)]
     );
+
+    // 모듈 변경 감지 → RPi에 즉시 알림 (즉시 반영, 5분 검증으로 누락 보정)
+    const submittedSettings = req.body.settings;
+    if (
+      submittedSettings &&
+      typeof submittedSettings === "object" &&
+      (submittedSettings.relayModules !== undefined ||
+        submittedSettings.sensorModules !== undefined)
+    ) {
+      mqttService.publishConfigUpdate(farmId, {
+        type: "modules_changed",
+        relayModuleCount: Array.isArray(submittedSettings.relayModules)
+          ? submittedSettings.relayModules.length
+          : undefined,
+        sensorModuleCount: Array.isArray(submittedSettings.sensorModules)
+          ? submittedSettings.sensorModules.length
+          : undefined,
+      });
+    }
 
     // collectionConfig 저장 시 모든 하우스의 collection.intervalSeconds 전파
     if (settings.collectionConfig?.intervalSeconds) {

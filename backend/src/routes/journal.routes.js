@@ -1095,6 +1095,135 @@ router.get("/:farmId/auto-fill", authenticate, async (req, res) => {
 });
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// 작기 (cropCycle) + 토양 관리 (soilManagement) — 인증 단계 4
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+// 작기 목록
+router.get("/:farmId/cycles", authenticate, async (req, res) => {
+  try {
+    const { farmId } = req.params;
+    const { status, houseId } = req.query;
+    const where = { farmId };
+    if (status) where.status = status;
+    if (houseId) where.houseId = houseId;
+    const rows = await prisma.cropCycle.findMany({ where, orderBy: { plantingDate: "desc" } });
+    res.json({ success: true, data: rows.map(formatRecord) });
+  } catch (e) { res.status(500).json({ success: false, error: e.message }); }
+});
+
+router.post("/:farmId/cycles", authenticate, async (req, res) => {
+  try {
+    const { farmId } = req.params;
+    const { houseId, cropName, variety, plantingDate, expectedHarvestDate, areaM2, plantCount, status, notes } = req.body;
+    if (!cropName || !plantingDate) return res.status(400).json({ success: false, error: "작목명·정식일 필수" });
+    const row = await prisma.cropCycle.create({
+      data: {
+        farmId, houseId: houseId || null, cropName: cropName.trim(),
+        variety: variety?.trim() || null,
+        plantingDate: new Date(plantingDate),
+        expectedHarvestDate: expectedHarvestDate ? new Date(expectedHarvestDate) : null,
+        areaM2: areaM2 != null && areaM2 !== "" ? parseFloat(areaM2) : null,
+        plantCount: plantCount != null && plantCount !== "" ? parseInt(plantCount) : null,
+        status: status || "active",
+        notes: notes || null,
+        createdBy: req.user._id || req.user.id,
+      },
+    });
+    res.status(201).json({ success: true, data: formatRecord(row) });
+  } catch (e) { res.status(400).json({ success: false, error: e.message }); }
+});
+
+router.put("/:farmId/cycles/:id", authenticate, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const data = {};
+    const fields = ["houseId", "cropName", "variety", "plantingDate", "expectedHarvestDate", "actualEndDate", "areaM2", "plantCount", "status", "notes"];
+    for (const f of fields) {
+      if (req.body[f] !== undefined) {
+        if (["plantingDate", "expectedHarvestDate", "actualEndDate"].includes(f)) data[f] = req.body[f] ? new Date(req.body[f]) : null;
+        else if (["areaM2"].includes(f)) data[f] = req.body[f] != null && req.body[f] !== "" ? parseFloat(req.body[f]) : null;
+        else if (f === "plantCount") data[f] = req.body[f] != null && req.body[f] !== "" ? parseInt(req.body[f]) : null;
+        else data[f] = req.body[f] || null;
+      }
+    }
+    const row = await prisma.cropCycle.update({ where: { id }, data });
+    res.json({ success: true, data: formatRecord(row) });
+  } catch (e) {
+    if (e.code === "P2025") return res.status(404).json({ success: false, error: "작기를 찾을 수 없습니다" });
+    res.status(400).json({ success: false, error: e.message });
+  }
+});
+
+router.delete("/:farmId/cycles/:id", authenticate, async (req, res) => {
+  try { await prisma.cropCycle.delete({ where: { id: req.params.id } }); res.json({ success: true }); }
+  catch (e) { res.status(400).json({ success: false, error: e.message }); }
+});
+
+// 토양 관리
+router.get("/:farmId/soil", authenticate, async (req, res) => {
+  try {
+    const { farmId } = req.params;
+    const { type, houseId, startDate, endDate } = req.query;
+    const where = { farmId };
+    if (type) where.type = type;
+    if (houseId) where.houseId = houseId;
+    if (startDate || endDate) {
+      where.date = {};
+      if (startDate) where.date.gte = new Date(startDate);
+      if (endDate) where.date.lte = new Date(endDate);
+    }
+    const rows = await prisma.soilManagement.findMany({ where, orderBy: { date: "desc" }, take: 200 });
+    res.json({ success: true, data: rows.map(formatRecord) });
+  } catch (e) { res.status(500).json({ success: false, error: e.message }); }
+});
+
+router.post("/:farmId/soil", authenticate, async (req, res) => {
+  try {
+    const { farmId } = req.params;
+    const { houseId, date, type, result, amendments, rotationCrop, notes, receiptPhoto } = req.body;
+    if (!date || !type) return res.status(400).json({ success: false, error: "날짜·유형 필수" });
+    const row = await prisma.soilManagement.create({
+      data: {
+        farmId, houseId: houseId || null, date: new Date(date), type,
+        result: result && typeof result === "object" ? result : {},
+        amendments: Array.isArray(amendments) ? amendments : [],
+        rotationCrop: rotationCrop?.trim() || null,
+        notes: notes || null,
+        receiptPhoto: receiptPhoto || null,
+        createdBy: req.user._id || req.user.id,
+      },
+    });
+    res.status(201).json({ success: true, data: formatRecord(row) });
+  } catch (e) { res.status(400).json({ success: false, error: e.message }); }
+});
+
+router.put("/:farmId/soil/:id", authenticate, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const data = {};
+    const fields = ["houseId", "date", "type", "result", "amendments", "rotationCrop", "notes", "receiptPhoto"];
+    for (const f of fields) {
+      if (req.body[f] !== undefined) {
+        if (f === "date") data[f] = new Date(req.body[f]);
+        else if (f === "result") data[f] = req.body[f] && typeof req.body[f] === "object" ? req.body[f] : {};
+        else if (f === "amendments") data[f] = Array.isArray(req.body[f]) ? req.body[f] : [];
+        else data[f] = req.body[f] || null;
+      }
+    }
+    const row = await prisma.soilManagement.update({ where: { id }, data });
+    res.json({ success: true, data: formatRecord(row) });
+  } catch (e) {
+    if (e.code === "P2025") return res.status(404).json({ success: false, error: "기록을 찾을 수 없습니다" });
+    res.status(400).json({ success: false, error: e.message });
+  }
+});
+
+router.delete("/:farmId/soil/:id", authenticate, async (req, res) => {
+  try { await prisma.soilManagement.delete({ where: { id: req.params.id } }); res.json({ success: true }); }
+  catch (e) { res.status(400).json({ success: false, error: e.message }); }
+});
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // 자재 입출고 대장 (친환경 인증 의무, 단계 2)
 // IN(입고) / OUT(사용) / DISPOSAL(폐기) 3 액션, 현재 보관량 자동 집계
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

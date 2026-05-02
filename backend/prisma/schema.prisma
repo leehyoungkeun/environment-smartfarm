@@ -336,6 +336,50 @@ model houseConfig {
   @@map("house_configs")
 }
 
+// 작기 (Crop Cycle) — 정식~수확 단위 추적 (GAP/친환경 의무: 작기별 기록)
+model cropCycle {
+  id                  String   @id @default(dbgenerated("(gen_random_uuid())::text"))
+  farmId              String   @map("farm_id")
+  houseId             String?  @map("house_id")
+  cropName            String   @map("crop_name")
+  variety             String?                              // 품종
+  plantingDate        DateTime @db.Date @map("planting_date")
+  expectedHarvestDate DateTime? @db.Date @map("expected_harvest_date")
+  actualEndDate       DateTime? @db.Date @map("actual_end_date")
+  areaM2              Float?   @map("area_m2")
+  plantCount          Int?     @map("plant_count")
+  status              String   @default("active")           // active / done / failed
+  notes               String?
+  createdBy           String   @map("created_by")
+  createdAt           DateTime @default(now()) @map("created_at")
+  updatedAt           DateTime @updatedAt @map("updated_at")
+
+  @@index([farmId, status])
+  @@index([farmId, houseId, plantingDate])
+  @@map("crop_cycles")
+}
+
+// 토양 관리 (친환경 인증 의무: 토양 검정 + 개량 + 윤작)
+model soilManagement {
+  id          String   @id @default(dbgenerated("(gen_random_uuid())::text"))
+  farmId      String   @map("farm_id")
+  houseId     String?  @map("house_id")
+  date        DateTime @db.Date
+  type        String                                       // test(검정) / amendment(개량) / rotation(윤작) / cover(피복)
+  result      Json     @default("{}")                       // 검정 결과: {ph, ec, om, n, p, k, ca, mg}
+  amendments  Json     @default("[]")                       // 개량 자재: [{name, qty, unit}]
+  rotationCrop String? @map("rotation_crop")                // 윤작 작목
+  notes       String?
+  receiptPhoto String? @map("receipt_photo")                // 검정증명서/영수증 사진
+  createdBy   String   @map("created_by")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  @@index([farmId, date])
+  @@index([farmId, type])
+  @@map("soil_management")
+}
+
 // 자재 입출고 대장 (친환경 인증 의무) — 구매/사용/폐기 추적
 // 친환경 인증: "농약·비료·종자 등 자재의 구매·사용·보관 사항" 기록 의무
 // currentStock 은 application 측에서 sum(IN) - sum(OUT) - sum(DISPOSAL) 로 자동 계산

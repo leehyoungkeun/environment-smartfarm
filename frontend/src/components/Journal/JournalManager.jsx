@@ -344,7 +344,7 @@ function ExportButtons({onPrint,onCSV,onPDF}){
 export default function JournalManager({ farmId = import.meta.env.VITE_FARM_ID || "farm_0001" }){
   const[activeTab,setActiveTab]=useState("journal");
   const[summary,setSummary]=useState(null);
-  const tabs=[{key:"journal",label:"영농일지",icon:"📝"},{key:"harvest",label:"수확",icon:"🌾"},{key:"input",label:"투입물",icon:"💊"},{key:"inventory",label:"자재대장",icon:"📦"},{key:"summary",label:"통계",icon:"📊"}];
+  const tabs=[{key:"journal",label:"영농일지",icon:"📝"},{key:"harvest",label:"수확",icon:"🌾"},{key:"input",label:"투입물",icon:"💊"},{key:"cert",label:"인증/관리",icon:"🏅"},{key:"summary",label:"통계",icon:"📊"}];
   useEffect(()=>{if(activeTab==="summary")api(`/journal/${farmId}/summary`).then(r=>setSummary(r.data)).catch(console.error)},[activeTab,farmId]);
   return(
     <FarmIdCtx.Provider value={farmId}>
@@ -354,7 +354,7 @@ export default function JournalManager({ farmId = import.meta.env.VITE_FARM_ID |
       {activeTab==="journal"&&<JournalTab />}
       {activeTab==="harvest"&&<HarvestTab />}
       {activeTab==="input"&&<InputTab />}
-      {activeTab==="inventory"&&<InventoryTab />}
+      {activeTab==="cert"&&<CertTab />}
       {activeTab==="summary"&&<SummaryTab data={summary} />}
     </div>
     </FarmIdCtx.Provider>
@@ -2419,11 +2419,32 @@ function InputForm({record,onSave,onCancel}){
   );
 }
 
+// ━━━ 인증/관리 통합 탭 (단계 2+4: 자재대장 + 작기 + 토양) ━━━
+function CertTab(){
+  const[mainTab,setMainTab]=useState("inventory");
+  const tabBtn=(id,emoji,label,color)=>(
+    <button key={id} onClick={()=>setMainTab(id)} className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-sm font-medium transition-all min-w-0 active:scale-[0.97] ${mainTab===id?`!text-white shadow-lg`:"bg-white border border-gray-200 !text-gray-700 hover:bg-gray-50 shadow-sm"}`} style={mainTab===id?{backgroundColor:color}:undefined}><span className="flex-shrink-0">{emoji}</span><span className="truncate">{label}</span></button>
+  );
+  return(<div className="space-y-4">
+    <div className="flex gap-1.5 flex-wrap">
+      {tabBtn("inventory","📦","자재 입출고","#10b981")}
+      {tabBtn("cycle","🌱","작기 관리","#3b82f6")}
+      {tabBtn("soil","🌍","토양 관리","#a16207")}
+    </div>
+    <div className="bg-amber-50 border border-amber-200 rounded-md px-3 py-2 text-[11px] !text-amber-800 leading-relaxed">
+      🏅 GAP / 친환경 / 농산물이력제 인증 의무 항목 통합 관리. 인증 신청 시 여기 기록을 그대로 제출.
+    </div>
+    {mainTab==="inventory"&&<InventoryTab />}
+    {mainTab==="cycle"&&<CropCycleTab />}
+    {mainTab==="soil"&&<SoilTab />}
+  </div>);
+}
+
 // ━━━ 자재 입출고 대장 (인증/규제 단계 2) ━━━
 function InventoryTab(){
   const[subTab,setSubTab]=useState("list");
   const tabBtn=(id,emoji,label)=>(
-    <button key={id} onClick={()=>setSubTab(id)} className={`flex items-center gap-1.5 px-2 md:px-4 py-2 rounded-xl text-sm font-medium transition-all min-w-0 active:scale-[0.97] ${subTab===id?"bg-blue-600 text-white shadow-lg shadow-blue-600/20":"bg-white border border-gray-200 text-gray-600 hover:bg-gray-50 shadow-sm"}`}><span className="flex-shrink-0">{emoji}</span><span className="truncate">{label}</span></button>
+    <button key={id} onClick={()=>setSubTab(id)} className={`flex items-center gap-1.5 px-2 md:px-4 py-2 rounded-xl text-sm font-medium transition-all min-w-0 active:scale-[0.97] ${subTab===id?"bg-emerald-600 text-white shadow-lg":"bg-white border border-gray-200 text-gray-600 hover:bg-gray-50 shadow-sm"}`}><span className="flex-shrink-0">{emoji}</span><span className="truncate">{label}</span></button>
   );
   return(<div className="space-y-4"><div className="flex gap-1.5 flex-wrap">
     {tabBtn("list","📋","입출고 조회")}
@@ -2434,6 +2455,305 @@ function InventoryTab(){
   {subTab==="write"&&<InventoryWrite />}
   {subTab==="stock"&&<InventoryStock />}
   </div>);
+}
+
+// ━━━ 작기 관리 (인증/규제 단계 4-A) ━━━
+function CropCycleTab(){const FARM_ID=useContext(FarmIdCtx);
+  const[cycles,setCycles]=useState([]);const[loading,setLoading]=useState(true);
+  const[houses,setHouses]=useState([]);
+  const[editing,setEditing]=useState(null);
+  const[showForm,setShowForm]=useState(false);
+  const[filterStatus,setFilterStatus]=useState("active");
+  const load=useCallback(()=>{
+    setLoading(true);
+    let url=`/journal/${FARM_ID}/cycles`;
+    if(filterStatus)url+=`?status=${filterStatus}`;
+    api(url).then(r=>setCycles(r.data||[])).finally(()=>setLoading(false));
+  },[FARM_ID,filterStatus]);
+  useEffect(()=>{load()},[load]);
+  useEffect(()=>{api(`/config/farm/${FARM_ID}`).then(r=>setHouses(r.data||[])).catch(()=>{})},[FARM_ID]);
+  const handleDelete=async(id)=>{
+    if(!confirm("작기를 삭제하시겠습니까?"))return;
+    await api(`/journal/${FARM_ID}/cycles/${id}`,{method:"DELETE"});load();
+  };
+  return(
+    <div className="space-y-3">
+      <div className="flex items-center gap-2 flex-wrap">
+        <div className="flex bg-gray-100 rounded-lg p-0.5">
+          {["active","done","failed",""].map(s=>(
+            <button key={s||"all"} onClick={()=>setFilterStatus(s)}
+              className={`px-3 py-1 rounded-md text-xs font-semibold transition-colors ${filterStatus===s?"bg-white !text-blue-800 shadow-sm":"!text-gray-600"}`}>
+              {s==="active"?"진행중":s==="done"?"완료":s==="failed"?"실패":"전체"}
+            </button>
+          ))}
+        </div>
+        <button onClick={()=>{setEditing(null);setShowForm(!showForm)}}
+          className="ml-auto px-3 py-1.5 rounded-md text-xs font-semibold bg-blue-600 text-white hover:bg-blue-700">
+          {showForm?"닫기":"➕ 새 작기"}
+        </button>
+      </div>
+      {(showForm||editing)&&(
+        <CropCycleForm cycle={editing} houses={houses}
+          onDone={()=>{setShowForm(false);setEditing(null);load();}}
+          onCancel={()=>{setShowForm(false);setEditing(null);}} />
+      )}
+      {loading?(
+        <div className="glass-card p-10 text-center text-gray-400">불러오는 중...</div>
+      ):cycles.length===0?(
+        <div className="glass-card p-10 text-center text-gray-400">{filterStatus==="active"?"진행 중인 작기가 없습니다. 새 작기를 등록하세요.":"기록이 없습니다"}</div>
+      ):(
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+          {cycles.map(c=>{
+            const today=new Date();
+            const planted=new Date(c.plantingDate);
+            const expected=c.expectedHarvestDate?new Date(c.expectedHarvestDate):null;
+            const totalDays=expected?Math.round((expected-planted)/(1000*3600*24)):null;
+            const passedDays=Math.round((today-planted)/(1000*3600*24));
+            const progress=totalDays?Math.min(100,Math.max(0,Math.round(passedDays/totalDays*100))):null;
+            const houseName=houses.find(h=>h.houseId===c.houseId)?.houseName||c.houseId||"공통";
+            const statusColor=c.status==="active"?"emerald":c.status==="done"?"blue":"rose";
+            return(
+              <div key={c._id} className="glass-card p-4">
+                <div className="flex items-start justify-between mb-2">
+                  <div>
+                    <div className="flex items-center gap-2 mb-1">
+                      <h4 className="text-base font-bold !text-gray-900">{c.cropName}</h4>
+                      {c.variety&&<span className="text-xs !text-gray-500">({c.variety})</span>}
+                      <span className={`px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-${statusColor}-100 !text-${statusColor}-800 border border-${statusColor}-300`} style={{backgroundColor:c.status==="active"?"#d1fae5":c.status==="done"?"#dbeafe":"#fee2e2",color:c.status==="active"?"#065f46":c.status==="done"?"#1e40af":"#9f1239",borderColor:c.status==="active"?"#34d399":c.status==="done"?"#60a5fa":"#fb7185"}}>
+                        {c.status==="active"?"진행중":c.status==="done"?"완료":"실패"}
+                      </span>
+                    </div>
+                    <div className="text-xs !text-gray-600">{houseName}{c.areaM2?` · ${c.areaM2}㎡`:""}{c.plantCount?` · ${c.plantCount}주`:""}</div>
+                  </div>
+                  <div className="flex gap-1">
+                    <button onClick={()=>{setEditing(c);setShowForm(false);}} className="px-2 py-1 rounded text-xs bg-blue-50 !text-blue-700 border border-blue-300 hover:bg-blue-100">✏️</button>
+                    <button onClick={()=>handleDelete(c._id)} className="px-2 py-1 rounded text-xs bg-rose-50 !text-rose-700 border border-rose-300 hover:bg-rose-100">🗑️</button>
+                  </div>
+                </div>
+                <div className="text-xs !text-gray-700 mt-1">
+                  📅 정식 {toKR(c.plantingDate)} → {expected?`수확 예정 ${toKR(c.expectedHarvestDate)}`:c.actualEndDate?`종료 ${toKR(c.actualEndDate)}`:"진행중"}
+                </div>
+                {progress!=null&&c.status==="active"&&(
+                  <div className="mt-2">
+                    <div className="flex items-center justify-between text-[10px] !text-gray-600 mb-0.5">
+                      <span>진행률 {progress}%</span>
+                      <span>{passedDays}일 / {totalDays}일</span>
+                    </div>
+                    <div className="w-full bg-gray-200 rounded-full h-2 overflow-hidden">
+                      <div className="h-full bg-gradient-to-r from-emerald-400 to-emerald-600 transition-all" style={{width:`${progress}%`}}></div>
+                    </div>
+                  </div>
+                )}
+                {c.notes&&<div className="text-xs !text-gray-700 mt-2 pt-2 border-t border-gray-200">{c.notes}</div>}
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function CropCycleForm({cycle,houses,onDone,onCancel}){const FARM_ID=useContext(FarmIdCtx);
+  const today=new Date().toISOString().split("T")[0];
+  const empty={houseId:"",cropName:"",variety:"",plantingDate:today,expectedHarvestDate:"",actualEndDate:"",areaM2:"",plantCount:"",status:"active",notes:""};
+  const[form,setForm]=useState(cycle?{...empty,...cycle,plantingDate:cycle.plantingDate?new Date(cycle.plantingDate).toISOString().split("T")[0]:today,expectedHarvestDate:cycle.expectedHarvestDate?new Date(cycle.expectedHarvestDate).toISOString().split("T")[0]:"",actualEndDate:cycle.actualEndDate?new Date(cycle.actualEndDate).toISOString().split("T")[0]:""}:empty);
+  const set=(k,v)=>setForm(p=>({...p,[k]:v}));
+  const handleSubmit=async()=>{
+    if(!form.cropName.trim()||!form.plantingDate){alert("작목명·정식일 필수");return;}
+    if(cycle)await api(`/journal/${FARM_ID}/cycles/${cycle._id}`,{method:"PUT",body:JSON.stringify(form)});
+    else await api(`/journal/${FARM_ID}/cycles`,{method:"POST",body:JSON.stringify(form)});
+    onDone();
+  };
+  return(
+    <div className="glass-card p-4 space-y-3 border-2 border-blue-300">
+      <h4 className="text-sm font-bold !text-blue-900">{cycle?"작기 수정":"새 작기 등록"}</h4>
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        <div><label className="text-xs !text-gray-600 mb-1 block">하우스</label>
+          <select style={LIGHT_INPUT} value={form.houseId} onChange={e=>set("houseId",e.target.value)} className={SC}><option value="">전체(공통)</option>{houses.map(h=><option key={h.houseId} value={h.houseId}>{h.houseName||h.houseId}</option>)}</select>
+        </div>
+        <div><label className="text-xs !text-gray-600 mb-1 block">작목 *</label><input style={LIGHT_INPUT} type="text" value={form.cropName} onChange={e=>set("cropName",e.target.value)} placeholder="예: 토마토" className="input-field text-sm w-full" /></div>
+        <div><label className="text-xs !text-gray-600 mb-1 block">품종</label><input style={LIGHT_INPUT} type="text" value={form.variety} onChange={e=>set("variety",e.target.value)} placeholder="예: 부산올레" className="input-field text-sm w-full" /></div>
+        <div><label className="text-xs !text-gray-600 mb-1 block">상태</label>
+          <select style={LIGHT_INPUT} value={form.status} onChange={e=>set("status",e.target.value)} className={SC}>
+            <option value="active">진행중</option><option value="done">완료</option><option value="failed">실패</option>
+          </select>
+        </div>
+      </div>
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        <div><label className="text-xs !text-gray-600 mb-1 block">정식일 *</label><input style={LIGHT_INPUT} type="date" value={form.plantingDate} onChange={e=>set("plantingDate",e.target.value)} className="input-field text-sm w-full" /></div>
+        <div><label className="text-xs !text-gray-600 mb-1 block">수확 예정일</label><input style={LIGHT_INPUT} type="date" value={form.expectedHarvestDate} onChange={e=>set("expectedHarvestDate",e.target.value)} className="input-field text-sm w-full" /></div>
+        <div><label className="text-xs !text-gray-600 mb-1 block">실제 종료일</label><input style={LIGHT_INPUT} type="date" value={form.actualEndDate} onChange={e=>set("actualEndDate",e.target.value)} className="input-field text-sm w-full" /></div>
+        <div><label className="text-xs !text-gray-600 mb-1 block">면적 (㎡)</label><input style={LIGHT_INPUT} type="number" step="0.1" value={form.areaM2} onChange={e=>set("areaM2",e.target.value)} className="input-field text-sm w-full" /></div>
+      </div>
+      <div className="grid grid-cols-2 gap-3">
+        <div><label className="text-xs !text-gray-600 mb-1 block">정식 주수</label><input style={LIGHT_INPUT} type="number" value={form.plantCount} onChange={e=>set("plantCount",e.target.value)} placeholder="총 몇 주" className="input-field text-sm w-full" /></div>
+        <div><label className="text-xs !text-gray-600 mb-1 block">메모</label><input style={LIGHT_INPUT} type="text" value={form.notes} onChange={e=>set("notes",e.target.value)} className="input-field text-sm w-full" /></div>
+      </div>
+      <div className="flex justify-end gap-2">
+        <button onClick={onCancel} className="btn-secondary">취소</button>
+        <button onClick={handleSubmit} className="btn-primary">{cycle?"수정":"등록"}</button>
+      </div>
+    </div>
+  );
+}
+
+// ━━━ 토양 관리 (인증/규제 단계 4-B) ━━━
+const SOIL_TYPES = [
+  { value: "test", label: "토양검정", icon: "🔬", color: "blue" },
+  { value: "amendment", label: "토양개량", icon: "🌱", color: "emerald" },
+  { value: "rotation", label: "윤작", icon: "🔄", color: "violet" },
+  { value: "cover", label: "피복", icon: "🌾", color: "amber" },
+];
+function SoilTab(){const FARM_ID=useContext(FarmIdCtx);
+  const[rows,setRows]=useState([]);const[loading,setLoading]=useState(true);
+  const[showForm,setShowForm]=useState(false);const[editing,setEditing]=useState(null);
+  const[filterType,setFilterType]=useState("");
+  const load=useCallback(()=>{
+    setLoading(true);
+    let url=`/journal/${FARM_ID}/soil`;
+    if(filterType)url+=`?type=${filterType}`;
+    api(url).then(r=>setRows(r.data||[])).finally(()=>setLoading(false));
+  },[FARM_ID,filterType]);
+  useEffect(()=>{load()},[load]);
+  const handleDelete=async(id)=>{
+    if(!confirm("기록을 삭제하시겠습니까?"))return;
+    await api(`/journal/${FARM_ID}/soil/${id}`,{method:"DELETE"});load();
+  };
+  return(
+    <div className="space-y-3">
+      <div className="flex items-center gap-2 flex-wrap">
+        <div className="flex bg-gray-100 rounded-lg p-0.5 flex-wrap">
+          <button onClick={()=>setFilterType("")} className={`px-3 py-1 rounded-md text-xs font-semibold ${!filterType?"bg-white !text-blue-800 shadow-sm":"!text-gray-600"}`}>전체</button>
+          {SOIL_TYPES.map(t=>(
+            <button key={t.value} onClick={()=>setFilterType(t.value)} className={`px-3 py-1 rounded-md text-xs font-semibold ${filterType===t.value?"bg-white !text-blue-800 shadow-sm":"!text-gray-600"}`}>
+              {t.icon} {t.label}
+            </button>
+          ))}
+        </div>
+        <button onClick={()=>{setEditing(null);setShowForm(!showForm)}}
+          className="ml-auto px-3 py-1.5 rounded-md text-xs font-semibold text-white" style={{backgroundColor:"#a16207"}}>
+          {showForm?"닫기":"➕ 새 기록"}
+        </button>
+      </div>
+      {(showForm||editing)&&(
+        <SoilForm record={editing}
+          onDone={()=>{setShowForm(false);setEditing(null);load();}}
+          onCancel={()=>{setShowForm(false);setEditing(null);}} />
+      )}
+      {loading?(
+        <div className="glass-card p-10 text-center text-gray-400">불러오는 중...</div>
+      ):rows.length===0?(
+        <div className="glass-card p-10 text-center text-gray-400">기록이 없습니다. 토양 검정/개량/윤작 기록을 입력하세요.</div>
+      ):(
+        <div className="space-y-2">
+          {rows.map(r=>{
+            const meta=SOIL_TYPES.find(t=>t.value===r.type)||SOIL_TYPES[0];
+            const result=r.result||{};
+            return(
+              <div key={r._id} className="glass-card p-4">
+                <div className="flex items-start gap-3 flex-wrap">
+                  <span className="px-2 py-1 rounded-md text-xs font-bold !text-white" style={{backgroundColor:meta.color==="blue"?"#3b82f6":meta.color==="emerald"?"#10b981":meta.color==="violet"?"#8b5cf6":"#f59e0b"}}>{meta.icon} {meta.label}</span>
+                  <span className="text-xs !text-gray-500">{toKR(r.date)}</span>
+                  <div className="flex-1"></div>
+                  <button onClick={()=>setEditing(r)} className="px-2 py-1 rounded text-xs bg-blue-50 !text-blue-700 border border-blue-300 hover:bg-blue-100">✏️</button>
+                  <button onClick={()=>handleDelete(r._id)} className="px-2 py-1 rounded text-xs bg-rose-50 !text-rose-700 border border-rose-300 hover:bg-rose-100">🗑️</button>
+                </div>
+                {r.type==="test"&&Object.keys(result).length>0&&(
+                  <div className="mt-2 grid grid-cols-3 md:grid-cols-6 gap-2">
+                    {result.ph&&<div className="text-center bg-gray-50 rounded p-1.5"><div className="text-[10px] !text-gray-500">pH</div><div className="text-sm font-bold !text-gray-900">{result.ph}</div></div>}
+                    {result.ec&&<div className="text-center bg-gray-50 rounded p-1.5"><div className="text-[10px] !text-gray-500">EC</div><div className="text-sm font-bold !text-gray-900">{result.ec}</div></div>}
+                    {result.om&&<div className="text-center bg-gray-50 rounded p-1.5"><div className="text-[10px] !text-gray-500">유기물</div><div className="text-sm font-bold !text-gray-900">{result.om}</div></div>}
+                    {result.n&&<div className="text-center bg-gray-50 rounded p-1.5"><div className="text-[10px] !text-gray-500">N</div><div className="text-sm font-bold !text-gray-900">{result.n}</div></div>}
+                    {result.p&&<div className="text-center bg-gray-50 rounded p-1.5"><div className="text-[10px] !text-gray-500">P</div><div className="text-sm font-bold !text-gray-900">{result.p}</div></div>}
+                    {result.k&&<div className="text-center bg-gray-50 rounded p-1.5"><div className="text-[10px] !text-gray-500">K</div><div className="text-sm font-bold !text-gray-900">{result.k}</div></div>}
+                  </div>
+                )}
+                {r.type==="amendment"&&Array.isArray(r.amendments)&&r.amendments.length>0&&(
+                  <div className="mt-2 flex flex-wrap gap-1.5">
+                    {r.amendments.map((a,i)=>(<span key={i} className="px-2 py-0.5 bg-emerald-100 !text-emerald-800 border border-emerald-300 rounded-full text-xs font-medium">{a.name} {a.qty}{a.unit||""}</span>))}
+                  </div>
+                )}
+                {r.type==="rotation"&&r.rotationCrop&&<div className="mt-2 text-sm !text-gray-700">→ <strong>{r.rotationCrop}</strong> 윤작</div>}
+                {r.notes&&<div className="text-xs !text-gray-600 mt-2 pt-2 border-t border-gray-200">{r.notes}</div>}
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function SoilForm({record,onDone,onCancel}){const FARM_ID=useContext(FarmIdCtx);
+  const today=new Date().toISOString().split("T")[0];
+  const empty={date:today,type:"test",result:{},amendments:[],rotationCrop:"",notes:""};
+  const[form,setForm]=useState(record?{...empty,...record,date:record.date?new Date(record.date).toISOString().split("T")[0]:today,result:record.result||{},amendments:record.amendments||[]}:empty);
+  const set=(k,v)=>setForm(p=>({...p,[k]:v}));
+  const setResult=(k,v)=>setForm(p=>({...p,result:{...p.result,[k]:v}}));
+  const addAmend=()=>setForm(p=>({...p,amendments:[...(p.amendments||[]),{name:"",qty:"",unit:"kg"}]}));
+  const updAmend=(i,k,v)=>setForm(p=>({...p,amendments:p.amendments.map((a,idx)=>idx===i?{...a,[k]:v}:a)}));
+  const rmAmend=(i)=>setForm(p=>({...p,amendments:p.amendments.filter((_,idx)=>idx!==i)}));
+  const handleSubmit=async()=>{
+    if(!form.date||!form.type){alert("날짜·유형 필수");return;}
+    if(record)await api(`/journal/${FARM_ID}/soil/${record._id}`,{method:"PUT",body:JSON.stringify(form)});
+    else await api(`/journal/${FARM_ID}/soil`,{method:"POST",body:JSON.stringify(form)});
+    onDone();
+  };
+  return(
+    <div className="glass-card p-4 space-y-3 border-2 border-amber-300">
+      <h4 className="text-sm font-bold !text-amber-900">{record?"토양 기록 수정":"새 토양 기록"}</h4>
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        <div><label className="text-xs !text-gray-600 mb-1 block">날짜 *</label><input style={LIGHT_INPUT} type="date" value={form.date} onChange={e=>set("date",e.target.value)} className="input-field text-sm w-full" /></div>
+        <div><label className="text-xs !text-gray-600 mb-1 block">유형 *</label>
+          <select style={LIGHT_INPUT} value={form.type} onChange={e=>set("type",e.target.value)} className={SC}>
+            {SOIL_TYPES.map(t=><option key={t.value} value={t.value}>{t.icon} {t.label}</option>)}
+          </select>
+        </div>
+      </div>
+      {form.type==="test"&&(
+        <div className="bg-blue-50 border border-blue-200 rounded-md p-3">
+          <div className="text-xs !text-blue-900 font-semibold mb-2">🔬 토양 검정 결과</div>
+          <div className="grid grid-cols-3 md:grid-cols-6 gap-2">
+            {[{k:"ph",l:"pH"},{k:"ec",l:"EC (dS/m)"},{k:"om",l:"유기물(%)"},{k:"n",l:"N (ppm)"},{k:"p",l:"P₂O₅ (mg/kg)"},{k:"k",l:"K (cmol+/kg)"}].map(f=>(
+              <div key={f.k}><label className="text-[10px] !text-gray-700 block">{f.l}</label>
+                <input style={LIGHT_INPUT} type="number" step="0.01" value={form.result[f.k]||""} onChange={e=>setResult(f.k,e.target.value)} className="input-field text-xs w-full" />
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+      {form.type==="amendment"&&(
+        <div className="bg-emerald-50 border border-emerald-200 rounded-md p-3 space-y-2">
+          <div className="flex items-center justify-between">
+            <span className="text-xs !text-emerald-900 font-semibold">🌱 투입 자재</span>
+            <button type="button" onClick={addAmend} className="px-2 py-1 text-xs !text-emerald-700 hover:bg-emerald-100 rounded font-medium">+ 추가</button>
+          </div>
+          {form.amendments.map((a,i)=>(
+            <div key={i} className="flex gap-2 items-center">
+              <input style={LIGHT_INPUT} type="text" value={a.name} onChange={e=>updAmend(i,"name",e.target.value)} placeholder="자재명 (예: 석회, 퇴비)" className="input-field text-xs flex-1" />
+              <input style={LIGHT_INPUT} type="number" step="0.01" value={a.qty} onChange={e=>updAmend(i,"qty",e.target.value)} placeholder="량" className="input-field text-xs w-24" />
+              <input style={LIGHT_INPUT} type="text" value={a.unit} onChange={e=>updAmend(i,"unit",e.target.value)} placeholder="단위" className="input-field text-xs w-16" />
+              <button type="button" onClick={()=>rmAmend(i)} className="px-2 py-1 text-xs !text-rose-600 hover:bg-rose-50 rounded">×</button>
+            </div>
+          ))}
+          {form.amendments.length===0&&<div className="text-[11px] !text-gray-500 text-center py-2">+ 추가 버튼으로 투입 자재 입력</div>}
+        </div>
+      )}
+      {form.type==="rotation"&&(
+        <div><label className="text-xs !text-gray-600 mb-1 block">윤작 작목</label>
+          <input style={LIGHT_INPUT} type="text" value={form.rotationCrop} onChange={e=>set("rotationCrop",e.target.value)} placeholder="예: 콩, 보리, 배추" className="input-field text-sm w-full" />
+        </div>
+      )}
+      <div><label className="text-xs !text-gray-600 mb-1 block">메모</label>
+        <textarea style={LIGHT_INPUT} value={form.notes} onChange={e=>set("notes",e.target.value)} rows={2} className="input-field text-sm w-full resize-none" />
+      </div>
+      <div className="flex justify-end gap-2">
+        <button onClick={onCancel} className="btn-secondary">취소</button>
+        <button onClick={handleSubmit} className="btn-primary">{record?"수정":"저장"}</button>
+      </div>
+    </div>
+  );
 }
 
 const INV_ACTIONS = [

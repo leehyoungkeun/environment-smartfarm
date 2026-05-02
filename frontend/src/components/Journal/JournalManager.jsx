@@ -564,6 +564,36 @@ function JournalForm({entry,onSave,onCancel}){const FARM_ID=useContext(FarmIdCtx
     finally{setParsing(false);}
   };
   useEffect(()=>{api(`/config/farm/${FARM_ID}`).then(r=>{const h=r.data||[];setHouses(h);if(!form.houseId&&h.length>0)set("houseId",h[0].houseId)}).catch(()=>{})},[FARM_ID]);
+
+  // ── 환경 자동 채움: date+houseId 변경 시 sensorData/controlLog 으로 빈 필드만 채움 ──
+  // 사용자가 이미 입력한 값(P0-2 AI 분석 포함)은 보존. 작성 부담 줄이기 핵심.
+  const[autoSummary,setAutoSummary]=useState(null);  // controlLog 요약 안내 표시용
+  useEffect(()=>{
+    if(!form.date||!form.houseId)return;
+    if(entry)return; // 기존 일지 수정 시는 자동 채움 X
+    const tid=setTimeout(async()=>{
+      try{
+        const r=await api(`/journal/${FARM_ID}/auto-fill?date=${form.date}&houseId=${encodeURIComponent(form.houseId)}`);
+        if(!r.success||!r.data)return;
+        const s=r.data.sensor||{};
+        const c=r.data.control||{};
+        const filled=new Set(aiFilled);
+        setForm(prev=>{
+          const next={...prev};
+          // 빈 값일 때만 채움. tempMin/tempMax/humidity 가 핵심.
+          if(s.available){
+            if((!prev.tempMin||prev.tempMin==='')&&s.tempMin!=null){next.tempMin=String(s.tempMin);filled.add('tempMin');}
+            if((!prev.tempMax||prev.tempMax==='')&&s.tempMax!=null){next.tempMax=String(s.tempMax);filled.add('tempMax');}
+            if((!prev.humidity||prev.humidity==='')&&s.humidity!=null){next.humidity=String(s.humidity);filled.add('humidity');}
+          }
+          return next;
+        });
+        setAiFilled(filled);
+        setAutoSummary({sensor:s,control:c});
+      }catch{/* 오프라인/권한 실패 무시 */}
+    },400);
+    return()=>clearTimeout(tid);
+  },[form.date,form.houseId,FARM_ID,entry]);
   // 사용자가 필드 수정하면 AI 표시 자동 해제 (수동 편집 의미)
   const set=(k,v)=>{
     setForm(p=>({...p,[k]:v}));
@@ -574,6 +604,18 @@ function JournalForm({entry,onSave,onCancel}){const FARM_ID=useContext(FarmIdCtx
   return(
     <div className="glass-card p-5 space-y-4">
       <h3 className="text-lg font-semibold text-white">{entry?"일지 수정":"새 일지 작성"}</h3>
+      {autoSummary&&(autoSummary.sensor?.available||autoSummary.control?.available)&&(
+        <div className="bg-emerald-500/10 border border-emerald-500/20 rounded-lg p-3 text-xs space-y-1">
+          {autoSummary.sensor?.available&&(
+            <div className="text-emerald-300">
+              🌡️ 그 날 센서 측정값 자동 반영됨 — 최저 {autoSummary.sensor.tempMin}°C / 최고 {autoSummary.sensor.tempMax}°C / 평균 습도 {autoSummary.sensor.humidity}% (기록 {autoSummary.sensor.readingCount}건)
+            </div>
+          )}
+          {autoSummary.control?.available&&autoSummary.control.summary&&(
+            <div className="text-emerald-300/90">{autoSummary.control.summary}</div>
+          )}
+        </div>
+      )}
       <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
         <div><label className="text-xs text-gray-400 mb-1 block">날짜 *</label><input type="date" value={form.date} onChange={e=>set("date",e.target.value)} className="input-field text-sm w-full" /></div>
         <div><label className="text-xs text-gray-400 mb-1 flex items-center gap-1">하우스 *{aiFilled.has('houseId')&&<span className="text-violet-400" title="AI 채움">✨</span>}</label><select value={form.houseId} onChange={e=>set("houseId",e.target.value)} className={`${SC} ${aiFilled.has('houseId')?'ring-1 ring-violet-400/40':''}`}><option value="">전체(공통)</option>{houses.map(h=><option key={h.houseId} value={h.houseId}>{h.houseName||h.houseId}</option>)}</select></div>

@@ -737,4 +737,134 @@ function formatRecord(record) {
   return { _id: id, ...rest };
 }
 
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// 자동 채움 — 일지 작성 시 환경값 자동 주입
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// 농민이 날짜·하우스만 선택하면 그 시점 sensor/control 데이터 기반으로
+// 온도/습도/CO2 + 자동 제어 이력 자동 첨부.
+// 빈 필드만 채우는 것은 프론트가 결정. 여기서는 raw 집계만 반환.
+//
+// 쿼리: ?date=YYYY-MM-DD&houseId=...&from=HH:MM&to=HH:MM
+//   - date 필수, houseId 선택 (없으면 농장 전체 평균)
+//   - from/to 선택 (default: 06:00 ~ 22:00 — 농작업 시간대)
+router.get("/:farmId/auto-fill", authenticate, async (req, res) => {
+  const { farmId } = req.params;
+  const { date, houseId, from = "06:00", to = "22:00" } = req.query;
+
+  if (!date || !/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+    return res.status(400).json({ success: false, error: "date 는 YYYY-MM-DD 형식이어야 합니다" });
+  }
+
+  // KST 기준으로 그 날의 from/to 시각 → UTC 변환
+  // 농가는 한국이므로 +09:00 고정. 변경 가능성 낮음.
+  const dayStartKst = new Date(`${date}T${from}:00+09:00`);
+  const dayEndKst = new Date(`${date}T${to}:00+09:00`);
+  if (Number.isNaN(dayStartKst.getTime()) || Number.isNaN(dayEndKst.getTime())) {
+    return res.status(400).json({ success: false, error: "from/to 시각 형식 오류 (HH:MM)" });
+  }
+
+  try {
+    const sensorWhere = { farmId, timestamp: { gte: dayStartKst, lt: dayEndKst } };
+    if (houseId) sensorWhere.houseId = houseId;
+
+    const sensorRows = await prisma.sensorData.findMany({
+      where: sensorWhere,
+      select: { timestamp: true, data: true },
+      orderBy: { timestamp: "asc" },
+    });
+
+    // sensorData.data 는 { temp_<id>: number, humidity_<id>: number, co2_<id>?, ec_<id>?, ph_<id>? }
+    // prefix 별로 모든 센서 값을 모아 평균/최저/최고 산출
+    const buckets = {}; // prefix -> [values]
+    for (const row of sensorRows) {
+      const d = row.data || {};
+      for (const [k, v] of Object.entries(d)) {
+        const m = /^([a-zA-Z]+)_/.exec(k);
+        const prefix = (m ? m[1] : k).toLowerCase();
+        const num = Number(v);
+        if (!Number.isFinite(num)) continue;
+        if (!buckets[prefix]) buckets[prefix] = [];
+        buckets[prefix].push(num);
+      }
+    }
+
+    const stats = (arr) => {
+      if (!arr || arr.length === 0) return null;
+      const sum = arr.reduce((a, b) => a + b, 0);
+      return { min: Math.min(...arr), max: Math.max(...arr), avg: Math.round((sum / arr.length) * 10) / 10, count: arr.length };
+    };
+
+    const temp = stats(buckets.temp);
+    const humid = stats(buckets.humidity);
+    const co2 = stats(buckets.co2);
+
+    // controlLog 같은 시간대 — 자동/수동 분류, 디바이스별 그룹
+    const controlWhere = { farmId, timestamp: { gte: dayStartKst, lt: dayEndKst }, success: true };
+    if (houseId) controlWhere.houseId = houseId;
+
+    const controlRows = await prisma.controlLog.findMany({
+      where: controlWhere,
+      select: { timestamp: true, deviceId: true, deviceType: true, deviceName: true, command: true, isAutomatic: true, automationReason: true, operator: true },
+      orderBy: { timestamp: "asc" },
+    });
+
+    // 디바이스별 첫/마지막 명령으로 사용 시간 계산
+    const events = controlRows.map((r) => ({
+      time: new Date(r.timestamp).toLocaleTimeString("ko-KR", { timeZone: "Asia/Seoul", hour: "2-digit", minute: "2-digit", hour12: false }),
+      deviceId: r.deviceId,
+      deviceType: r.deviceType,
+      deviceName: r.deviceName || r.deviceId,
+      command: r.command,
+      isAutomatic: !!r.isAutomatic,
+      reason: r.automationReason || null,
+      operator: r.operator,
+    }));
+
+    // 디바이스 타입별 횟수 요약 (window/fan/heater 등)
+    const byType = {};
+    for (const e of events) {
+      const k = e.deviceType || "기타";
+      if (!byType[k]) byType[k] = { auto: 0, manual: 0 };
+      if (e.isAutomatic) byType[k].auto += 1;
+      else byType[k].manual += 1;
+    }
+    const summaryParts = [];
+    for (const [type, c] of Object.entries(byType)) {
+      const total = c.auto + c.manual;
+      summaryParts.push(`${type} ${total}회${c.auto > 0 ? `(자동 ${c.auto})` : ""}`);
+    }
+    const controlSummary = events.length > 0 ? `🤖 자동 제어 ${events.filter((e) => e.isAutomatic).length}건 / 수동 ${events.filter((e) => !e.isAutomatic).length}건 — ${summaryParts.join(", ")}` : null;
+
+    return res.json({
+      success: true,
+      data: {
+        period: { date, from, to, tz: "Asia/Seoul" },
+        houseId: houseId || null,
+        sensor: {
+          tempMin: temp?.min ?? null,
+          tempMax: temp?.max ?? null,
+          tempAvg: temp?.avg ?? null,
+          humidity: humid?.avg ?? null,
+          humidityMin: humid?.min ?? null,
+          humidityMax: humid?.max ?? null,
+          co2: co2?.avg ?? null,
+          readingCount: sensorRows.length,
+          available: sensorRows.length > 0,
+        },
+        control: {
+          eventCount: events.length,
+          autoCount: events.filter((e) => e.isAutomatic).length,
+          manualCount: events.filter((e) => !e.isAutomatic).length,
+          summary: controlSummary,
+          events: events.slice(0, 50), // 표시용 최대 50건
+          available: events.length > 0,
+        },
+      },
+    });
+  } catch (err) {
+    logger.error("journal/auto-fill 실패: " + err.message);
+    return res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 export default router;

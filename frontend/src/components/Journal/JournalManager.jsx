@@ -522,6 +522,95 @@ const MEASURE_LINE_LABELS = {
   floweringRate: "개화율(%)",
   fruitSetRate: "착과율(%)",
 };
+// ━━━ 일지 타임라인 (P2-3) ━━━
+// 분석 탭 안: 같은 기간/하우스의 모든 일지를 시간순 compact 카드로
+function JournalTimeline({ entries, houses, houseId }) {
+  const filtered = useMemo(() => {
+    return entries
+      .filter(e => !houseId || e.houseId === houseId)
+      .map(e => ({ ...e, _sortKey: e.date || "" }))
+      .sort((a, b) => b._sortKey.localeCompare(a._sortKey)); // 최신 순
+  }, [entries, houseId]);
+
+  if (entries.length === 0) return null;
+
+  return (
+    <div className="glass-card p-4">
+      <div className="flex items-center justify-between mb-3">
+        <h4 className="text-sm font-bold !text-gray-800">📅 일지 타임라인</h4>
+        <span className="text-[10px] !text-gray-500">{filtered.length}건 · 최신순</span>
+      </div>
+      {filtered.length === 0 ? (
+        <div className="text-xs !text-gray-400 text-center py-6">조건에 맞는 일지가 없습니다</div>
+      ) : (
+        <div className="relative pl-4">
+          {/* 좌측 세로 라인 */}
+          <div className="absolute left-1.5 top-1 bottom-1 w-px bg-gray-200"></div>
+          <div className="space-y-3">
+            {filtered.slice(0, 50).map((e, i) => {
+              const houseName = houses.find(h => h.houseId === e.houseId)?.houseName || e.houseId || "공통";
+              const m = e.measurements || {};
+              const hasMeasure = ["plantHeight", "leafCount", "floweringRate", "fruitSetRate"].some(k => m[k] != null);
+              const photo = Array.isArray(e.photos) && e.photos.length > 0 ? e.photos[0] : null;
+              return (
+                <div key={e._id || i} className="relative">
+                  {/* 좌측 점 */}
+                  <div className="absolute -left-3.5 top-1 w-3 h-3 rounded-full border-2 border-white" style={{ backgroundColor: workTypeColor(e.workType) }}></div>
+                  <div className="flex gap-3 items-start">
+                    {photo && (
+                      <img src={photoUrl(photo)} alt="" loading="lazy"
+                        className="w-14 h-14 object-cover rounded-md border border-gray-200 flex-shrink-0" />
+                    )}
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap mb-1">
+                        <span className="text-xs !text-gray-500 font-medium">{toKR(e.date)}</span>
+                        <span className="px-1.5 py-0.5 rounded-full text-[10px] font-semibold !text-white" style={{ backgroundColor: workTypeColor(e.workType) }}>{e.workType}</span>
+                        {e.houseId && <span className="text-[10px] !text-violet-700 bg-violet-100 px-1.5 py-0.5 rounded-full font-medium">{houseName}</span>}
+                        {e.growthStage && <span className="text-[10px] !text-blue-700 bg-blue-100 px-1.5 py-0.5 rounded-full font-medium">{e.growthStage}</span>}
+                        {e.pest && <span className="text-[10px] !text-rose-700 bg-rose-100 px-1.5 py-0.5 rounded-full font-medium">⚠ {e.pest}</span>}
+                      </div>
+                      <div className="text-xs !text-gray-700 line-clamp-2 mb-1">{e.content}</div>
+                      {hasMeasure && (
+                        <div className="flex flex-wrap gap-1 mt-1">
+                          {m.plantHeight != null && <span className="px-1.5 py-0.5 bg-emerald-100 !text-emerald-800 border border-emerald-300 rounded-full text-[10px] font-medium">초장 {m.plantHeight}cm</span>}
+                          {m.leafCount != null && <span className="px-1.5 py-0.5 bg-blue-100 !text-blue-800 border border-blue-300 rounded-full text-[10px] font-medium">엽수 {m.leafCount}장</span>}
+                          {m.floweringRate != null && <span className="px-1.5 py-0.5 bg-pink-100 !text-pink-800 border border-pink-300 rounded-full text-[10px] font-medium">개화 {m.floweringRate}%</span>}
+                          {m.fruitSetRate != null && <span className="px-1.5 py-0.5 bg-amber-100 !text-amber-800 border border-amber-300 rounded-full text-[10px] font-medium">착과 {m.fruitSetRate}%</span>}
+                        </div>
+                      )}
+                      {Array.isArray(e.tags) && e.tags.length > 0 && (
+                        <div className="flex flex-wrap gap-1 mt-1">
+                          {e.tags.slice(0, 5).map(t => (
+                            <span key={t} className="text-[10px] !text-emerald-700">#{t}</span>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+          {filtered.length > 50 && (
+            <div className="text-center text-[10px] !text-gray-500 mt-3">+{filtered.length - 50}건 — 일지 조회 탭에서 전체 보기</div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// 작업유형별 색
+function workTypeColor(type) {
+  const map = {
+    "파종": "#10b981", "정식": "#059669",
+    "관수": "#3b82f6", "시비": "#6366f1",
+    "방제": "#ef4444", "수확": "#f59e0b",
+    "관리": "#8b5cf6", "기타": "#6b7280",
+  };
+  return map[type] || "#6b7280";
+}
+
 // 날짜 → 작년 같은 month-day
 function shiftYear(dateStr, deltaYears) {
   if (!dateStr) return null;
@@ -704,6 +793,9 @@ function JournalAnalytics(){const FARM_ID=useContext(FarmIdCtx);
           );
         })}
       </div>
+
+      {/* 일지 타임라인 (P2-3) — 같은 기간/하우스의 모든 일지를 시간순 카드로 */}
+      <JournalTimeline entries={entries} houses={houses} houseId={filter.houseId} />
 
       {/* 차트 */}
       <div className="glass-card p-4">

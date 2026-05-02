@@ -1,5 +1,6 @@
 // src/routes/deploy.routes.js
-// GitHub Actions webhook → 자동 배포
+// GitHub Actions webhook → smartfarm-deploy.sh trigger
+// (deploy.sh 가 lock/health/rollback/log 일체 담당)
 
 import { Router } from "express";
 import { exec } from "child_process";
@@ -7,6 +8,7 @@ import logger from "../utils/logger.js";
 
 const router = Router();
 const DEPLOY_TOKEN = process.env.DEPLOY_TOKEN || "smartfarm-deploy-2026";
+const DEPLOY_SCRIPT = "/home/afocus/smartfarm/scripts/smartfarm-deploy.sh";
 
 // POST /api/deploy
 router.post("/", (req, res) => {
@@ -16,24 +18,19 @@ router.post("/", (req, res) => {
   }
 
   const { service } = req.body;
-  logger.info(`🚀 배포 webhook 수신: ${service || "backend"}`);
+  logger.info(`🚀 배포 webhook 수신: ${service || "backend"} → deploy.sh`);
 
-  // 비동기로 배포 실행 (응답은 즉시 반환)
-  res.json({ success: true, message: "Deploy started" });
+  // 즉시 응답 (deploy.sh 는 백그라운드 + 자식 detach)
+  res.json({ success: true, message: "Deploy triggered (see deploy.log)" });
 
+  // backend 가 pm2 reload 로 자신을 재시작하므로 detach 필수.
+  // setsid + nohup + disown 으로 부모와 완전 분리.
   exec(
-    "cd ~/smartfarm/backend && " +
-      "git fetch origin main && " +
-      "git reset --hard origin/main && " +
-      "npm install --omit=dev && " +
-      "npx prisma generate && " +
-      "pm2 restart smartfarm-backend",
-    { timeout: 300000 },
-    (err, stdout, stderr) => {
+    `setsid nohup ${DEPLOY_SCRIPT} </dev/null >/dev/null 2>&1 &`,
+    { timeout: 5000 },
+    (err) => {
       if (err) {
-        logger.error(`❌ 배포 실패: ${err.message}\nstderr: ${stderr}`);
-      } else {
-        logger.info(`✅ 배포 완료: ${stdout.trim().split("\n").pop()}`);
+        logger.error(`❌ deploy.sh trigger 실패: ${err.message}`);
       }
     }
   );

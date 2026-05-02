@@ -23,25 +23,28 @@ log() {
 }
 
 # 헬스체크 (3초 timeout)
+# 이 스크립트의 목적: "Node-RED 프로세스 hang/down 감지" — Modbus 자체 장애가 아님.
+# 200 = healthy, 503 = unhealthy(워치독이 모듈 장애 감지) 둘 다 Node-RED 응답이므로 정상.
+# 000(connection refused), 5xx 게이트웨이 류만 hang 으로 카운트.
 HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" --max-time 3 "$PING_URL" || echo 000)
 
-if [ "$HTTP_CODE" = "200" ]; then
-    # 정상 — 카운터 리셋
+if [ "$HTTP_CODE" = "200" ] || [ "$HTTP_CODE" = "503" ]; then
+    # Node-RED 응답 있음 (200=healthy, 503=unhealthy but alive) — 카운터 리셋
     if [ -f "$STATE_FILE" ]; then
         prev=$(cat "$STATE_FILE" 2>/dev/null || echo 0)
         if [ "$prev" -gt 0 ]; then
-            log "헬스체크 회복 (이전 $prev 회 실패)"
+            log "헬스체크 회복 (이전 $prev 회 hang)"
         fi
         rm -f "$STATE_FILE"
     fi
     exit 0
 fi
 
-# 실패 — 카운터 증가
+# Node-RED hang/down — 카운터 증가
 COUNT=$(cat "$STATE_FILE" 2>/dev/null || echo 0)
 COUNT=$((COUNT + 1))
 echo "$COUNT" > "$STATE_FILE"
-log "헬스체크 실패 ($COUNT/$THRESHOLD) — HTTP $HTTP_CODE"
+log "Node-RED hang ($COUNT/$THRESHOLD) — HTTP $HTTP_CODE"
 
 if [ "$COUNT" -ge "$THRESHOLD" ]; then
     log "임계치 도달 → Node-RED PM2 restart"

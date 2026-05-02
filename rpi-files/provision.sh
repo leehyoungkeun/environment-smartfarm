@@ -395,6 +395,35 @@ else
   warn "first-boot.sh 없음, first-boot 서비스 스킵"
 fi
 
+# ── 9/10. USB 안정화 (있으면 자동 설치) ──
+if [ -f "${SCRIPT_DIR}/usb-stability/install.sh" ]; then
+  info "=== 9/10: USB 안정화 (udev + cron + cmdline) ==="
+  # install.sh 는 lhk 사용자 기준으로 작성됨 — 사용자 다르면 수정 필요
+  bash "${SCRIPT_DIR}/usb-stability/install.sh" || warn "USB 안정화 일부 실패 (수동 확인 필요)"
+  log "USB 안정화 설치 완료"
+else
+  warn "usb-stability/install.sh 없음 — USB 안정화 스킵"
+fi
+
+# ── 10/10. 마스터 flows + settings 복원 (있으면) ──
+# Node-RED 가 실행 중이면 의미 없으므로 설치 직후/처음 부팅 전에만 적용.
+if [ -f "${SCRIPT_DIR}/master/flows.json" ]; then
+  info "=== 10/10: 마스터 flows + settings 복원 ==="
+  sudo -u "$SMARTFARM_USER" bash -c "
+    cp '${SCRIPT_DIR}/master/flows.json' '${SMARTFARM_HOME}/.node-red/flows.json'
+  "
+  log "마스터 flows.json 복원 완료 ($(wc -l < ${SCRIPT_DIR}/master/flows.json) lines)"
+
+  if [ -f "${SCRIPT_DIR}/master/settings.js" ]; then
+    sudo -u "$SMARTFARM_USER" bash -c "
+      cp '${SCRIPT_DIR}/master/settings.js' '${SMARTFARM_HOME}/smartfarm/node-red/settings.js'
+    "
+    log "마스터 settings.js 복원 완료"
+  fi
+else
+  warn "master/flows.json 없음 — 마스터 복원 스킵 (수동 import 필요)"
+fi
+
 # ── 파일 소유권 복구 ──
 chown -R "${SMARTFARM_USER}:${SMARTFARM_USER}" "${SMARTFARM_HOME}/smartfarm"
 chown -R "${SMARTFARM_USER}:${SMARTFARM_USER}" "${SMARTFARM_HOME}/.node-red"
@@ -413,10 +442,9 @@ echo "  PM2:         $(pm2 -v 2>/dev/null || echo 'installed')"
 echo "  nginx:       $(nginx -v 2>&1 | cut -d'/' -f2)"
 echo ""
 echo "  다음 단계:"
-echo "  1. 1호 RPi에서 flows.json, settings.js 복사"
-echo "  2. 프론트엔드 빌드 파일 복사"
-echo "  3. first-boot.sh 확인"
-echo "  4. PM2 서비스 등록 (아래 명령 실행)"
+echo "  1. 프론트엔드 빌드 파일 복사 (~/smartfarm-frontend/)"
+echo "  2. .farm-id 파일 또는 setup 페이지로 FARM_ID 설정"
+echo "  3. PM2 서비스 등록 (아래 명령 실행)"
 echo ""
 echo "  # PM2로 서비스 시작:"
 echo "  sudo -u ${SMARTFARM_USER} pm2 start node-red -- -s ~/smartfarm/node-red/settings.js"
@@ -424,5 +452,5 @@ echo "  sudo -u ${SMARTFARM_USER} pm2 start ~/smartfarm/rpi-server/src/system-se
 echo "  sudo -u ${SMARTFARM_USER} pm2 save"
 echo "  sudo env PATH=\$PATH:/usr/bin pm2 startup systemd -u ${SMARTFARM_USER} --hp ${SMARTFARM_HOME}"
 echo ""
-echo "  5. SD카드 이미지 생성 (이미지 가이드 참조)"
+echo "  4. (선택) SD카드 이미지 생성 — IMAGE_CHECKLIST.md 참조"
 echo "=========================================="

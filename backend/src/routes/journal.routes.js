@@ -6,6 +6,7 @@ import express from "express";
 import multer from "multer";
 import path from "path";
 import fs from "fs";
+import { randomUUID } from "crypto";
 import { prisma } from "../db.js";
 import { authenticate } from "../middleware/auth.middleware.js";
 import logger from "../utils/logger.js";
@@ -223,6 +224,8 @@ router.post("/:farmId/entries", authenticate, async (req, res) => {
 
     const entry = await prisma.farmJournal.create({
       data: {
+        // schema 의 default(dbgenerated) 가 적용 안 된 운영 DB 대응 — 명시 생성으로 안전 확보
+        id: randomUUID(),
         farmId,
         houseId: houseId || null,
         date: new Date(date),

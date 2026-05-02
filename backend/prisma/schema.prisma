@@ -129,7 +129,7 @@ model farmDocument {
 }
 
 model farmJournal {
-  id          String   @id
+  id          String   @id @default(dbgenerated("(gen_random_uuid())::text"))
   farmId      String   @map("farm_id")
   houseId     String?  @map("house_id")
   date        DateTime @db.Date

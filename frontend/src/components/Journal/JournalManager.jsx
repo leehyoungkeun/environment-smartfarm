@@ -1415,6 +1415,38 @@ function TemplateSaveBox({onSave,onCancel}){
   );
 }
 
+// ━━━ 재사용 태그 chip 입력 ━━━
+function TagInput({ tags = [], onChange, placeholder = "태그 입력 후 Enter 또는 쉼표", aiHighlight }) {
+  const [val, setVal] = useState("");
+  const add = (raw) => {
+    const t = String(raw || "").trim().replace(/^#/, "");
+    if (!t) return;
+    if (tags.includes(t)) { setVal(""); return; }
+    onChange([...tags, t].slice(0, 20));
+    setVal("");
+  };
+  const remove = (t) => onChange(tags.filter(x => x !== t));
+  return (
+    <div className={`flex flex-wrap gap-1.5 items-center px-2 py-1.5 rounded-lg border-2 ${aiHighlight ? 'border-violet-400 bg-violet-50' : 'border-gray-300 bg-white'}`}>
+      {tags.map((t, i) => (
+        <span key={i} className="inline-flex items-center gap-1 px-2 py-0.5 bg-emerald-100 !text-emerald-800 border border-emerald-400 rounded-full text-xs font-semibold">
+          #{t}
+          <button type="button" onClick={() => remove(t)} className="!text-emerald-700 hover:!text-rose-600 font-bold ml-0.5">×</button>
+        </span>
+      ))}
+      <input type="text" value={val} onChange={e => setVal(e.target.value)}
+        onKeyDown={e => {
+          if (['Enter', ',', ' '].includes(e.key)) { e.preventDefault(); add(val); }
+          else if (e.key === 'Backspace' && !val && tags.length > 0) { remove(tags[tags.length - 1]); }
+        }}
+        onBlur={() => { if (val) add(val); }}
+        placeholder={tags.length === 0 ? placeholder : '추가...'}
+        style={LIGHT_INPUT}
+        className="flex-1 min-w-[80px] bg-transparent text-xs placeholder:!text-gray-400 outline-none" />
+    </div>
+  );
+}
+
 // ━━━ GPS 위치 (P3-B) ━━━
 function GpsSection({ lat, lng, accuracy, onSet, onClear }) {
   const [getting, setGetting] = useState(false);
@@ -2212,6 +2244,14 @@ function HarvestSearch(){const FARM_ID=useContext(FarmIdCtx);
                     <DetailRow label="단가" value={r.unitPrice?`${r.unitPrice.toLocaleString()}원/${r.unit}`:null} />
                     <DetailRow label="매출" value={r.totalRevenue?`${r.totalRevenue.toLocaleString()}원`:null} color="!text-emerald-700" />
                     <DetailRow label="비고" value={r.notes} markdown />
+                    {Array.isArray(r.tags)&&r.tags.length>0&&(
+                      <div className="flex items-start gap-3">
+                        <span className="text-xs text-gray-400 w-20 shrink-0 pt-1">태그</span>
+                        <div className="flex flex-wrap gap-1">
+                          {r.tags.map(t=>(<span key={t} className="px-2 py-0.5 bg-emerald-100 !text-emerald-800 border border-emerald-300 rounded-full text-xs font-semibold">#{t}</span>))}
+                        </div>
+                      </div>
+                    )}
                     {/* 출하 이력 chip (단계 3) */}
                     {(r.lotNumber||r.traceabilityNo||r.buyer||r.invoiceNo||r.loss||(r.qualityMetrics&&Object.keys(r.qualityMetrics||{}).length>0))&&(
                       <div className="flex items-start gap-3 pt-2 border-t border-blue-200">
@@ -2252,8 +2292,8 @@ function HarvestWrite(){const FARM_ID=useContext(FarmIdCtx);
 // ━━━ 수확 폼 ━━━
 function HarvestForm({record,onSave,onCancel}){const FARM_ID=useContext(FarmIdCtx);
   const today=new Date().toISOString().split("T")[0];
-  const empty={houseId:"",date:today,cropName:"",variety:"",cropCycleId:"",quantity:"",unit:"kg",grade:"",destination:"",unitPrice:"",notes:"",lotNumber:"",traceabilityNo:"",buyer:"",invoiceNo:"",loss:"",lossReason:"",qualityMetrics:{}};
-  const[form,setForm]=useState({houseId:record?.houseId||"",date:record?.date?new Date(record.date).toISOString().split("T")[0]:today,cropName:record?.cropName||"",variety:record?.variety||"",cropCycleId:record?.cropCycleId||"",quantity:record?.quantity||"",unit:record?.unit||"kg",grade:record?.grade||"",destination:record?.destination||"",unitPrice:record?.unitPrice||"",notes:record?.notes||"",lotNumber:record?.lotNumber||"",traceabilityNo:record?.traceabilityNo||"",buyer:record?.buyer||"",invoiceNo:record?.invoiceNo||"",loss:record?.loss||"",lossReason:record?.lossReason||"",qualityMetrics:record?.qualityMetrics||{}});
+  const empty={houseId:"",date:today,cropName:"",variety:"",cropCycleId:"",quantity:"",unit:"kg",grade:"",destination:"",unitPrice:"",notes:"",tags:[],lotNumber:"",traceabilityNo:"",buyer:"",invoiceNo:"",loss:"",lossReason:"",qualityMetrics:{}};
+  const[form,setForm]=useState({houseId:record?.houseId||"",date:record?.date?new Date(record.date).toISOString().split("T")[0]:today,cropName:record?.cropName||"",variety:record?.variety||"",cropCycleId:record?.cropCycleId||"",quantity:record?.quantity||"",unit:record?.unit||"kg",grade:record?.grade||"",destination:record?.destination||"",unitPrice:record?.unitPrice||"",notes:record?.notes||"",tags:record?.tags||[],lotNumber:record?.lotNumber||"",traceabilityNo:record?.traceabilityNo||"",buyer:record?.buyer||"",invoiceNo:record?.invoiceNo||"",loss:record?.loss||"",lossReason:record?.lossReason||"",qualityMetrics:record?.qualityMetrics||{}});
   // 활성 작기 자동 매핑
   const[houses,setHouses]=useState([]);const[activeCycles,setActiveCycles]=useState({});
   useEffect(()=>{api(`/config/farm/${FARM_ID}`).then(r=>setHouses(r.data||[])).catch(()=>{})},[FARM_ID]);
@@ -2328,7 +2368,12 @@ function HarvestForm({record,onSave,onCancel}){const FARM_ID=useContext(FarmIdCt
           <div><label className="text-[11px] text-gray-700 mb-1 block">색·외관</label><input style={LIGHT_INPUT} type="text" value={form.qualityMetrics?.color||""} onChange={e=>setQM("color",e.target.value)} placeholder="예: 진홍" className="input-field text-sm w-full" /></div>
         </div>
       </div>
-      <div><label className="text-xs text-gray-600 mb-1 block">비고</label><input style={LIGHT_INPUT} type="text" value={form.notes} onChange={e=>set("notes",e.target.value)} className="input-field text-sm w-full" /></div>
+      <div><label className="text-xs text-gray-600 mb-1 block">비고 <span className="text-[10px] !text-gray-500">(마크다운 지원)</span></label>
+        <textarea style={LIGHT_INPUT} value={form.notes} onChange={e=>set("notes",e.target.value)} rows={2} className="input-field text-sm w-full resize-none" />
+      </div>
+      <div><label className="text-xs text-gray-600 mb-1 block">태그 <span className="text-[10px] !text-gray-500">— #출하급함 #특상품 #학교급식 등</span></label>
+        <TagInput tags={form.tags||[]} onChange={(t)=>set("tags",t)} placeholder="태그 입력 (Enter/쉼표)" />
+      </div>
       <div className="flex justify-end gap-2">{onCancel&&<button onClick={onCancel} className="btn-secondary">취소</button>}<button onClick={handleSubmit} className="btn-primary">{record?"수정":"저장"}</button></div>
     </div>
   );
@@ -2433,7 +2478,15 @@ function InputSearch(){const FARM_ID=useContext(FarmIdCtx);
                     <DetailRow label="비용" value={r.cost?`${r.cost.toLocaleString()}원`:null} color="text-orange-400" />
                     <DetailRow label="투입면적" value={r.targetArea?`${r.targetArea}평`:null} />
                     <DetailRow label="투입방법" value={r.method} />
-                    <DetailRow label="비고" value={r.notes} />
+                    <DetailRow label="비고" value={r.notes} markdown />
+                    {Array.isArray(r.tags)&&r.tags.length>0&&(
+                      <div className="flex items-start gap-3">
+                        <span className="text-xs text-gray-400 w-20 shrink-0 pt-1">태그</span>
+                        <div className="flex flex-wrap gap-1">
+                          {r.tags.map(t=>(<span key={t} className="px-2 py-0.5 bg-emerald-100 !text-emerald-800 border border-emerald-300 rounded-full text-xs font-semibold">#{t}</span>))}
+                        </div>
+                      </div>
+                    )}
                     {/* PLS 정보 (농약일 때만) */}
                     {r.inputType==="농약"&&(r.pesticideRegNo||r.dilutionRatio||r.applicationCount||r.safeUseInterval||r.applicator||r.preHarvestDate)&&(
                       <div className="flex items-start gap-3 pt-2 border-t border-amber-200">
@@ -2471,8 +2524,8 @@ function InputWrite(){const FARM_ID=useContext(FarmIdCtx);
 // ━━━ 투입물 폼 ━━━
 function InputForm({record,onSave,onCancel}){const FARM_ID=useContext(FarmIdCtx);
   const today=new Date().toISOString().split("T")[0];
-  const emptyForm={houseId:"",date:today,inputType:"비료",cropName:"",cropCycleId:"",productName:"",manufacturer:"",quantity:"",unit:"kg",cost:"",targetArea:"",method:"",notes:"",pesticideRegNo:"",dilutionRatio:"",applicationCount:"",safeUseInterval:"",applicator:""};
-  const[form,setForm]=useState({houseId:record?.houseId||"",date:record?.date?new Date(record.date).toISOString().split("T")[0]:today,inputType:record?.inputType||"비료",cropName:record?.cropName||"",cropCycleId:record?.cropCycleId||"",productName:record?.productName||"",manufacturer:record?.manufacturer||"",quantity:record?.quantity||"",unit:record?.unit||"kg",cost:record?.cost||"",targetArea:record?.targetArea||"",method:record?.method||"",notes:record?.notes||"",pesticideRegNo:record?.pesticideRegNo||"",dilutionRatio:record?.dilutionRatio||"",applicationCount:record?.applicationCount||"",safeUseInterval:record?.safeUseInterval||"",applicator:record?.applicator||""});
+  const emptyForm={houseId:"",date:today,inputType:"비료",cropName:"",cropCycleId:"",productName:"",manufacturer:"",quantity:"",unit:"kg",cost:"",targetArea:"",method:"",notes:"",tags:[],pesticideRegNo:"",dilutionRatio:"",applicationCount:"",safeUseInterval:"",applicator:""};
+  const[form,setForm]=useState({houseId:record?.houseId||"",date:record?.date?new Date(record.date).toISOString().split("T")[0]:today,inputType:record?.inputType||"비료",cropName:record?.cropName||"",cropCycleId:record?.cropCycleId||"",productName:record?.productName||"",manufacturer:record?.manufacturer||"",quantity:record?.quantity||"",unit:record?.unit||"kg",cost:record?.cost||"",targetArea:record?.targetArea||"",method:record?.method||"",notes:record?.notes||"",tags:record?.tags||[],pesticideRegNo:record?.pesticideRegNo||"",dilutionRatio:record?.dilutionRatio||"",applicationCount:record?.applicationCount||"",safeUseInterval:record?.safeUseInterval||"",applicator:record?.applicator||""});
   const[houses,setHouses]=useState([]);const[activeCycles,setActiveCycles]=useState({});
   useEffect(()=>{api(`/config/farm/${FARM_ID}`).then(r=>setHouses(r.data||[])).catch(()=>{})},[FARM_ID]);
   useEffect(()=>{api(`/journal/${FARM_ID}/cycles/active`).then(r=>setActiveCycles(r.data||{})).catch(()=>{})},[FARM_ID]);
@@ -2544,7 +2597,12 @@ function InputForm({record,onSave,onCancel}){const FARM_ID=useContext(FarmIdCtx)
           </p>
         </div>
       )}
-      <div><label className="text-xs text-gray-600 mb-1 block">비고</label><input style={LIGHT_INPUT} type="text" value={form.notes} onChange={e=>set("notes",e.target.value)} className="input-field text-sm w-full" /></div>
+      <div><label className="text-xs text-gray-600 mb-1 block">비고 <span className="text-[10px] !text-gray-500">(마크다운 지원)</span></label>
+        <textarea style={LIGHT_INPUT} value={form.notes} onChange={e=>set("notes",e.target.value)} rows={2} className="input-field text-sm w-full resize-none" />
+      </div>
+      <div><label className="text-xs text-gray-600 mb-1 block">태그 <span className="text-[10px] !text-gray-500">— #방제 #신제품 #테스트 등</span></label>
+        <TagInput tags={form.tags||[]} onChange={(t)=>set("tags",t)} placeholder="태그 입력 (Enter/쉼표)" />
+      </div>
       <div className="flex justify-end gap-2">{onCancel&&<button onClick={onCancel} className="btn-secondary">취소</button>}<button onClick={handleSubmit} className="btn-primary">{record?"수정":"저장"}</button></div>
     </div>
   );

@@ -428,6 +428,7 @@ router.post("/:farmId/harvests", authenticate, async (req, res) => {
       destination,
       unitPrice,
       notes,
+      tags,
       // 출하 이력 (단계 3)
       lotNumber,
       traceabilityNo,
@@ -452,6 +453,12 @@ router.post("/:farmId/harvests", authenticate, async (req, res) => {
     // 로트번호 미입력 시 자동 생성
     const finalLot = (lotNumber && lotNumber.trim()) ? lotNumber.trim() : await generateLotNumber(farmId, date, cropName);
 
+    // 태그 정규화
+    const normTagsHarvest = (() => {
+      const arr = Array.isArray(tags) ? tags : (typeof tags === "string" ? tags.split(",") : []);
+      return Array.from(new Set(arr.map(t => String(t).trim().replace(/^#/, "")).filter(Boolean))).slice(0, 20);
+    })();
+
     const record = await prisma.harvestRecord.create({
       data: {
         farmId,
@@ -460,6 +467,7 @@ router.post("/:farmId/harvests", authenticate, async (req, res) => {
         cropName,
         variety: variety?.trim() || null,
         cropCycleId: cropCycleId || null,
+        tags: normTagsHarvest,
         quantity: qty,
         unit: unit || "kg",
         grade: grade || null,
@@ -499,6 +507,7 @@ router.put("/:farmId/harvests/:id", authenticate, async (req, res) => {
       "cropName",
       "variety",
       "cropCycleId",
+      "tags",
       "quantity",
       "unit",
       "grade",
@@ -522,6 +531,10 @@ router.put("/:farmId/harvests/:id", authenticate, async (req, res) => {
         else if (["quantity", "unitPrice", "loss"].includes(f))
           data[f] = req.body[f] != null && req.body[f] !== "" ? parseFloat(req.body[f]) : null;
         else if (f === "qualityMetrics") data[f] = req.body[f] && typeof req.body[f] === "object" ? req.body[f] : {};
+        else if (f === "tags") {
+          const arr = Array.isArray(req.body[f]) ? req.body[f] : (typeof req.body[f] === "string" ? req.body[f].split(",") : []);
+          data[f] = Array.from(new Set(arr.map(t => String(t).trim().replace(/^#/, "")).filter(Boolean))).slice(0, 20);
+        }
         else data[f] = req.body[f] || null;
       }
     }
@@ -642,6 +655,7 @@ router.post("/:farmId/inputs", authenticate, async (req, res) => {
       targetArea,
       method,
       notes,
+      tags,
       // PLS 농약 정밀 기록 (인증 의무)
       pesticideRegNo,
       dilutionRatio,
@@ -666,6 +680,11 @@ router.post("/:farmId/inputs", authenticate, async (req, res) => {
       safeUseInterval: safeUseInterval != null && safeUseInterval !== "" ? parseInt(safeUseInterval) : null,
       applicator: applicator?.trim() || null,
     } : {};
+    // 태그 정규화 (input)
+    const normTagsInput = (() => {
+      const arr = Array.isArray(tags) ? tags : (typeof tags === "string" ? tags.split(",") : []);
+      return Array.from(new Set(arr.map(t => String(t).trim().replace(/^#/, "")).filter(Boolean))).slice(0, 20);
+    })();
     const preHarvestDate = (inputType === "농약" && pls.safeUseInterval && date) ? (() => {
       const d = new Date(date);
       d.setDate(d.getDate() + pls.safeUseInterval);
@@ -688,6 +707,7 @@ router.post("/:farmId/inputs", authenticate, async (req, res) => {
         targetArea: targetArea ? parseFloat(targetArea) : null,
         method: method || null,
         notes: notes || null,
+        tags: normTagsInput,
         ...pls,
         preHarvestDate,
         createdBy: req.user._id || req.user.id,
@@ -724,6 +744,7 @@ router.put("/:farmId/inputs/:id", authenticate, async (req, res) => {
       "targetArea",
       "method",
       "notes",
+      "tags",
       // PLS 6 필드
       "pesticideRegNo",
       "dilutionRatio",
@@ -739,6 +760,10 @@ router.put("/:farmId/inputs/:id", authenticate, async (req, res) => {
           data[f] = req.body[f] ? parseFloat(req.body[f]) : null;
         else if (["applicationCount", "safeUseInterval"].includes(f))
           data[f] = req.body[f] != null && req.body[f] !== "" ? parseInt(req.body[f]) : null;
+        else if (f === "tags") {
+          const arr = Array.isArray(req.body[f]) ? req.body[f] : (typeof req.body[f] === "string" ? req.body[f].split(",") : []);
+          data[f] = Array.from(new Set(arr.map(t => String(t).trim().replace(/^#/, "")).filter(Boolean))).slice(0, 20);
+        }
         else data[f] = req.body[f] || null;
       }
     }

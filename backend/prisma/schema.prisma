@@ -300,6 +300,7 @@ model harvestRecord {
   cropName     String   @map("crop_name")
   variety      String?                                  // 품종
   cropCycleId  String?  @map("crop_cycle_id")           // 활성 작기 매핑
+  tags         String[] @default([])                    // 분류·검색용 태그
   quantity     Float
   unit         String   @default("kg")
   grade        String?
@@ -434,6 +435,7 @@ model inputRecord {
   targetArea   Float?   @map("target_area")
   method       String?
   notes        String?
+  tags         String[] @default([])                    // 분류·검색용 태그
   // PLS / GAP 농약 정밀 기록 (인증/규제 의무) — inputType="농약" 일 때만 의미
   pesticideRegNo    String?  @map("pesticide_reg_no")     // 농약 등록번호 (PSIS 시스템 검색용)
   dilutionRatio     String?  @map("dilution_ratio")        // "1000배" 같은 희석 배수

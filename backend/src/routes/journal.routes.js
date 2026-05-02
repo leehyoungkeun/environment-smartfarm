@@ -1056,6 +1056,128 @@ router.get("/:farmId/auto-fill", authenticate, async (req, res) => {
 });
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// 자재 입출고 대장 (친환경 인증 의무, 단계 2)
+// IN(입고) / OUT(사용) / DISPOSAL(폐기) 3 액션, 현재 보관량 자동 집계
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+// 목록 (날짜 내림차순)
+router.get("/:farmId/inventory", authenticate, async (req, res) => {
+  try {
+    const { farmId } = req.params;
+    const { type, productName, action, startDate, endDate, limit = 100, page = 1 } = req.query;
+    const where = { farmId };
+    if (type) where.type = type;
+    if (productName) where.productName = { contains: productName };
+    if (action) where.action = action;
+    if (startDate || endDate) {
+      where.date = {};
+      if (startDate) where.date.gte = new Date(startDate);
+      if (endDate) where.date.lte = new Date(endDate);
+    }
+    const limitNum = Math.min(parseInt(limit) || 100, 500);
+    const pageNum = Math.max(parseInt(page) || 1, 1);
+    const [rows, total] = await Promise.all([
+      prisma.inputInventory.findMany({ where, orderBy: { date: "desc" }, skip: (pageNum - 1) * limitNum, take: limitNum }),
+      prisma.inputInventory.count({ where }),
+    ]);
+    res.json({ success: true, data: rows.map(formatRecord), pagination: { total, page: pageNum, totalPages: Math.ceil(total / limitNum) } });
+  } catch (e) { res.status(500).json({ success: false, error: e.message }); }
+});
+
+// 등록
+router.post("/:farmId/inventory", authenticate, async (req, res) => {
+  try {
+    const { farmId } = req.params;
+    const { date, type, productName, manufacturer, action, quantity, unit, supplier, cost, receiptPhoto, notes } = req.body;
+    if (!date || !type || !productName || !action || !quantity || !unit) {
+      return res.status(400).json({ success: false, error: "날짜·유형·제품명·액션·수량·단위는 필수입니다" });
+    }
+    if (!["IN", "OUT", "DISPOSAL"].includes(action)) {
+      return res.status(400).json({ success: false, error: "action 은 IN / OUT / DISPOSAL 중 하나" });
+    }
+    const row = await prisma.inputInventory.create({
+      data: {
+        farmId,
+        date: new Date(date),
+        type,
+        productName: productName.trim(),
+        manufacturer: manufacturer?.trim() || null,
+        action,
+        quantity: parseFloat(quantity),
+        unit,
+        supplier: supplier?.trim() || null,
+        cost: cost ? parseFloat(cost) : null,
+        receiptPhoto: receiptPhoto || null,
+        notes: notes || null,
+        createdBy: req.user._id || req.user.id,
+      },
+    });
+    res.status(201).json({ success: true, data: formatRecord(row) });
+  } catch (e) { res.status(400).json({ success: false, error: e.message }); }
+});
+
+// 수정
+router.put("/:farmId/inventory/:id", authenticate, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const data = {};
+    const fields = ["date", "type", "productName", "manufacturer", "action", "quantity", "unit", "supplier", "cost", "receiptPhoto", "notes"];
+    for (const f of fields) {
+      if (req.body[f] !== undefined) {
+        if (f === "date") data[f] = new Date(req.body[f]);
+        else if (["quantity", "cost"].includes(f)) data[f] = req.body[f] != null && req.body[f] !== "" ? parseFloat(req.body[f]) : null;
+        else data[f] = req.body[f] || null;
+      }
+    }
+    const row = await prisma.inputInventory.update({ where: { id }, data });
+    res.json({ success: true, data: formatRecord(row) });
+  } catch (e) {
+    if (e.code === "P2025") return res.status(404).json({ success: false, error: "기록을 찾을 수 없습니다" });
+    res.status(400).json({ success: false, error: e.message });
+  }
+});
+
+// 삭제
+router.delete("/:farmId/inventory/:id", authenticate, async (req, res) => {
+  try {
+    await prisma.inputInventory.delete({ where: { id: req.params.id } });
+    res.json({ success: true });
+  } catch (e) {
+    if (e.code === "P2025") return res.status(404).json({ success: false, error: "기록을 찾을 수 없습니다" });
+    res.status(400).json({ success: false, error: e.message });
+  }
+});
+
+// 보관량 집계 — 제품별 IN - OUT - DISPOSAL = 현재 보관량
+router.get("/:farmId/inventory/summary", authenticate, async (req, res) => {
+  try {
+    const { farmId } = req.params;
+    const rows = await prisma.inputInventory.findMany({
+      where: { farmId },
+      orderBy: [{ productName: "asc" }, { date: "desc" }],
+    });
+    const map = new Map();
+    for (const r of rows) {
+      const key = `${r.type}|${r.productName}`;
+      if (!map.has(key)) {
+        map.set(key, {
+          type: r.type, productName: r.productName, manufacturer: r.manufacturer || null, unit: r.unit,
+          inQty: 0, outQty: 0, disposalQty: 0, currentStock: 0, lastDate: r.date, totalCost: 0,
+        });
+      }
+      const cur = map.get(key);
+      const q = Number(r.quantity) || 0;
+      if (r.action === "IN") { cur.inQty += q; if (r.cost) cur.totalCost += Number(r.cost); }
+      else if (r.action === "OUT") cur.outQty += q;
+      else if (r.action === "DISPOSAL") cur.disposalQty += q;
+      cur.currentStock = cur.inQty - cur.outQty - cur.disposalQty;
+    }
+    const summary = Array.from(map.values()).sort((a, b) => a.productName.localeCompare(b.productName));
+    res.json({ success: true, data: summary });
+  } catch (e) { res.status(500).json({ success: false, error: e.message }); }
+});
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // AI 자동 요약 (P2-4) — 주간/월간 일지를 Gemini 가 요약
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 import { callAI as _callAI } from "./ai.routes.js";

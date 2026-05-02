@@ -327,6 +327,32 @@ model houseConfig {
   @@map("house_configs")
 }
 
+// 자재 입출고 대장 (친환경 인증 의무) — 구매/사용/폐기 추적
+// 친환경 인증: "농약·비료·종자 등 자재의 구매·사용·보관 사항" 기록 의무
+// currentStock 은 application 측에서 sum(IN) - sum(OUT) - sum(DISPOSAL) 로 자동 계산
+model inputInventory {
+  id            String   @id @default(dbgenerated("(gen_random_uuid())::text"))
+  farmId        String   @map("farm_id")
+  date          DateTime @db.Date
+  type          String                                    // 비료 / 농약 / 종자 / 기타
+  productName   String   @map("product_name")
+  manufacturer  String?
+  action        String                                    // IN(입고) / OUT(사용) / DISPOSAL(폐기)
+  quantity      Float
+  unit          String
+  supplier      String?                                   // 공급처/판매처
+  cost          Float?                                    // IN 일 때만 의미
+  receiptPhoto  String?  @map("receipt_photo")            // 영수증 사진 path
+  notes         String?
+  createdBy     String   @map("created_by")
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  @@index([farmId, date])
+  @@index([farmId, productName])
+  @@map("input_inventory")
+}
+
 model inputRecord {
   id           String   @id
   farmId       String   @map("farm_id")

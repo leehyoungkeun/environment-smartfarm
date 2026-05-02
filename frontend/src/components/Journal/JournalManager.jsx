@@ -344,16 +344,17 @@ function ExportButtons({onPrint,onCSV,onPDF}){
 export default function JournalManager({ farmId = import.meta.env.VITE_FARM_ID || "farm_0001" }){
   const[activeTab,setActiveTab]=useState("journal");
   const[summary,setSummary]=useState(null);
-  const tabs=[{key:"journal",label:"영농일지",icon:"📝"},{key:"harvest",label:"수확 기록",icon:"🌾"},{key:"input",label:"투입물 기록",icon:"💊"},{key:"summary",label:"통계",icon:"📊"}];
+  const tabs=[{key:"journal",label:"영농일지",icon:"📝"},{key:"harvest",label:"수확",icon:"🌾"},{key:"input",label:"투입물",icon:"💊"},{key:"inventory",label:"자재대장",icon:"📦"},{key:"summary",label:"통계",icon:"📊"}];
   useEffect(()=>{if(activeTab==="summary")api(`/journal/${farmId}/summary`).then(r=>setSummary(r.data)).catch(console.error)},[activeTab,farmId]);
   return(
     <FarmIdCtx.Provider value={farmId}>
     <div className="space-y-2 md:space-y-6">
-      <div className="hidden md:block"><h2 className="text-2xl font-bold text-white">영농일지</h2><p className="text-gray-400 mt-1">작업 기록, 수확, 투입물 관리</p></div>
-      <div className="flex gap-2">{tabs.map(tab=>(<button key={tab.key} onClick={()=>setActiveTab(tab.key)} className={`flex items-center justify-center gap-1.5 px-3 md:px-4 py-2.5 rounded-xl font-semibold transition-all text-sm flex-1 md:flex-none active:scale-[0.97] ${activeTab===tab.key?"bg-blue-600 text-white shadow-lg shadow-blue-600/20":"bg-white border border-gray-200 text-gray-600 hover:bg-gray-50 shadow-sm"}`}><span className="text-lg">{tab.icon}</span><span className="hidden md:inline">{tab.label}</span><span className="md:hidden text-xs">{tab.label.replace(' 기록','').replace('투입물','투입')}</span></button>))}</div>
+      <div className="hidden md:block"><h2 className="text-2xl font-bold text-white">영농일지</h2><p className="text-gray-400 mt-1">작업 기록, 수확, 투입물, 자재 대장</p></div>
+      <div className="flex gap-2 flex-wrap">{tabs.map(tab=>(<button key={tab.key} onClick={()=>setActiveTab(tab.key)} className={`flex items-center justify-center gap-1.5 px-3 md:px-4 py-2.5 rounded-xl font-semibold transition-all text-sm flex-1 md:flex-none active:scale-[0.97] ${activeTab===tab.key?"bg-blue-600 text-white shadow-lg shadow-blue-600/20":"bg-white border border-gray-200 text-gray-600 hover:bg-gray-50 shadow-sm"}`}><span className="text-lg">{tab.icon}</span><span className="hidden md:inline">{tab.label}</span><span className="md:hidden text-xs">{tab.label}</span></button>))}</div>
       {activeTab==="journal"&&<JournalTab />}
       {activeTab==="harvest"&&<HarvestTab />}
       {activeTab==="input"&&<InputTab />}
+      {activeTab==="inventory"&&<InventoryTab />}
       {activeTab==="summary"&&<SummaryTab data={summary} />}
     </div>
     </FarmIdCtx.Provider>
@@ -2366,6 +2367,220 @@ function InputForm({record,onSave,onCancel}){
       )}
       <div><label className="text-xs text-gray-600 mb-1 block">비고</label><input style={LIGHT_INPUT} type="text" value={form.notes} onChange={e=>set("notes",e.target.value)} className="input-field text-sm w-full" /></div>
       <div className="flex justify-end gap-2">{onCancel&&<button onClick={onCancel} className="btn-secondary">취소</button>}<button onClick={handleSubmit} className="btn-primary">{record?"수정":"저장"}</button></div>
+    </div>
+  );
+}
+
+// ━━━ 자재 입출고 대장 (인증/규제 단계 2) ━━━
+function InventoryTab(){
+  const[subTab,setSubTab]=useState("list");
+  const tabBtn=(id,emoji,label)=>(
+    <button key={id} onClick={()=>setSubTab(id)} className={`flex items-center gap-1.5 px-2 md:px-4 py-2 rounded-xl text-sm font-medium transition-all min-w-0 active:scale-[0.97] ${subTab===id?"bg-blue-600 text-white shadow-lg shadow-blue-600/20":"bg-white border border-gray-200 text-gray-600 hover:bg-gray-50 shadow-sm"}`}><span className="flex-shrink-0">{emoji}</span><span className="truncate">{label}</span></button>
+  );
+  return(<div className="space-y-4"><div className="flex gap-1.5 flex-wrap">
+    {tabBtn("list","📋","입출고 조회")}
+    {tabBtn("write","➕","새 등록")}
+    {tabBtn("stock","📊","현재 보관량")}
+  </div>
+  {subTab==="list"&&<InventoryList />}
+  {subTab==="write"&&<InventoryWrite />}
+  {subTab==="stock"&&<InventoryStock />}
+  </div>);
+}
+
+const INV_ACTIONS = [
+  { value: "IN", label: "입고", icon: "📥", color: "emerald" },
+  { value: "OUT", label: "사용", icon: "📤", color: "blue" },
+  { value: "DISPOSAL", label: "폐기", icon: "🗑️", color: "rose" },
+];
+
+function InventoryList(){const FARM_ID=useContext(FarmIdCtx);
+  const df=useDateFilter();
+  const[rows,setRows]=useState([]);const[loading,setLoading]=useState(true);
+  const[filter,setFilter]=useState({type:"",action:"",productName:""});
+  const[editing,setEditing]=useState(null);
+  const load=useCallback(async()=>{
+    try{setLoading(true);
+      let url=`/journal/${FARM_ID}/inventory?limit=200`;
+      if(df.dateRange.start)url+=`&startDate=${df.dateRange.start}`;
+      if(df.dateRange.end)url+=`&endDate=${df.dateRange.end}`;
+      if(filter.type)url+=`&type=${filter.type}`;
+      if(filter.action)url+=`&action=${filter.action}`;
+      if(filter.productName)url+=`&productName=${encodeURIComponent(filter.productName)}`;
+      const r=await api(url);
+      setRows(r.data||[]);
+    }finally{setLoading(false);}
+  },[FARM_ID,df.dateRange,filter]);
+  useEffect(()=>{load()},[load]);
+  const handleDelete=async(id)=>{
+    if(!confirm("삭제하시겠습니까?"))return;
+    await api(`/journal/${FARM_ID}/inventory/${id}`,{method:"DELETE"});
+    load();
+  };
+  const actionMeta=(a)=>INV_ACTIONS.find(x=>x.value===a)||INV_ACTIONS[0];
+  return(
+    <div className="space-y-4">
+      <SearchFilterBar {...df}>
+        <div className="flex items-center gap-3 flex-wrap">
+          <div className="flex items-center gap-2"><span className="text-xs text-gray-600 font-medium">유형</span>
+            <select value={filter.type} onChange={e=>setFilter(p=>({...p,type:e.target.value}))} style={LIGHT_INPUT} className="input-field jrn-select text-xs py-1 px-2 w-24"><option value="">전체</option>{INPUT_TYPES.map(t=><option key={t} value={t}>{t}</option>)}</select>
+          </div>
+          <div className="flex items-center gap-2"><span className="text-xs text-gray-600 font-medium">액션</span>
+            <select value={filter.action} onChange={e=>setFilter(p=>({...p,action:e.target.value}))} style={LIGHT_INPUT} className="input-field jrn-select text-xs py-1 px-2 w-24"><option value="">전체</option>{INV_ACTIONS.map(a=><option key={a.value} value={a.value}>{a.label}</option>)}</select>
+          </div>
+          <div className="flex items-center gap-2"><span className="text-xs text-gray-600 font-medium">제품명</span>
+            <input style={LIGHT_INPUT} type="text" value={filter.productName} onChange={e=>setFilter(p=>({...p,productName:e.target.value}))} placeholder="검색" className="input-field text-xs py-1 px-2 w-32" />
+          </div>
+          <button onClick={()=>{setFilter({type:"",action:"",productName:""});df.resetFilters()}} className="px-3 py-1 rounded-lg text-xs bg-white !text-gray-700 border border-gray-300 hover:bg-gray-50 font-medium">↺ 초기화</button>
+          <span className="text-xs text-gray-500 ml-auto">{rows.length}건</span>
+        </div>
+      </SearchFilterBar>
+      {editing&&<InventoryWrite editing={editing} onDone={()=>{setEditing(null);load();}} />}
+      {loading?(
+        <div className="glass-card p-10 text-center text-gray-400">불러오는 중...</div>
+      ):rows.length===0?(
+        <div className="glass-card p-10 text-center text-gray-400">조건에 맞는 기록이 없습니다</div>
+      ):(
+        <div className="space-y-2">
+          {rows.map(r=>{
+            const m=actionMeta(r.action);
+            return(
+              <div key={r._id} className="glass-card p-3 flex items-center gap-3 flex-wrap">
+                <span className={`px-2 py-1 rounded-md text-xs font-bold bg-${m.color}-100 !text-${m.color}-800 border border-${m.color}-300 w-20 text-center`} style={m.color==="emerald"?{backgroundColor:"#d1fae5",color:"#065f46",borderColor:"#34d399"}:m.color==="blue"?{backgroundColor:"#dbeafe",color:"#1e40af",borderColor:"#60a5fa"}:{backgroundColor:"#fee2e2",color:"#9f1239",borderColor:"#fb7185"}}>
+                  {m.icon} {m.label}
+                </span>
+                <span className="text-xs text-gray-500 w-24">{toKR(r.date)}</span>
+                <span className="text-xs px-1.5 py-0.5 bg-gray-100 !text-gray-700 rounded font-medium">{r.type}</span>
+                <span className="text-sm font-semibold !text-gray-900 flex-1 min-w-[150px]">{r.productName}{r.manufacturer&&<span className="text-xs !text-gray-500 ml-1">({r.manufacturer})</span>}</span>
+                <span className="text-sm !text-gray-700 font-medium">{r.quantity} {r.unit}</span>
+                {r.cost&&<span className="text-xs !text-amber-700 font-medium">{r.cost.toLocaleString()}원</span>}
+                {r.supplier&&<span className="text-xs !text-violet-700">📍 {r.supplier}</span>}
+                <button onClick={()=>setEditing(r)} className="px-2 py-1 rounded text-xs bg-blue-50 !text-blue-700 border border-blue-300 hover:bg-blue-100">✏️</button>
+                <button onClick={()=>handleDelete(r._id)} className="px-2 py-1 rounded text-xs bg-rose-50 !text-rose-700 border border-rose-300 hover:bg-rose-100">🗑️</button>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function InventoryWrite({editing,onDone}){const FARM_ID=useContext(FarmIdCtx);
+  const today=new Date().toISOString().split("T")[0];
+  const empty={date:today,type:"비료",productName:"",manufacturer:"",action:"IN",quantity:"",unit:"kg",supplier:"",cost:"",notes:""};
+  const[form,setForm]=useState(editing?{...empty,...editing,date:editing.date?new Date(editing.date).toISOString().split("T")[0]:today}:empty);
+  const[saving,setSaving]=useState(false);const[saved,setSaved]=useState(false);
+  const set=(k,v)=>setForm(p=>({...p,[k]:v}));
+  const handleSubmit=async()=>{
+    if(!form.productName.trim()||!form.quantity||!form.unit){alert("제품명·수량·단위는 필수");return;}
+    setSaving(true);
+    try{
+      if(editing){
+        await api(`/journal/${FARM_ID}/inventory/${editing._id}`,{method:"PUT",body:JSON.stringify(form)});
+        if(onDone)onDone();
+      }else{
+        await api(`/journal/${FARM_ID}/inventory`,{method:"POST",body:JSON.stringify(form)});
+        setSaved(true);setTimeout(()=>setSaved(false),3000);
+        setForm(empty);
+      }
+    }catch(e){alert("저장 실패: "+e.message);}finally{setSaving(false);}
+  };
+  return(
+    <div className="glass-card p-5 space-y-4">
+      {saved&&<div className="bg-emerald-500/20 border border-emerald-500/30 text-emerald-600 px-4 py-3 rounded-lg text-sm">✅ 자재 기록이 저장되었습니다!</div>}
+      <h3 className="text-lg font-semibold !text-gray-900">{editing?"자재 기록 수정":"새 자재 기록"}</h3>
+      <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+        <div className="col-span-2 md:col-span-1"><label className="text-xs text-gray-600 mb-1 block">날짜 *</label><input style={LIGHT_INPUT} type="date" value={form.date} onChange={e=>set("date",e.target.value)} className="input-field text-sm w-full" /></div>
+        <div><label className="text-xs text-gray-600 mb-1 block">자재 유형 *</label><select style={LIGHT_INPUT} value={form.type} onChange={e=>set("type",e.target.value)} className={SC}>{INPUT_TYPES.map(t=><option key={t} value={t}>{t}</option>)}</select></div>
+        <div><label className="text-xs text-gray-600 mb-1 block">액션 *</label>
+          <div className="flex gap-1">
+            {INV_ACTIONS.map(a=>(
+              <button key={a.value} type="button" onClick={()=>set("action",a.value)}
+                className={`flex-1 px-1 py-1.5 rounded-md text-[11px] font-bold border transition-colors ${form.action===a.value?"!text-white":"bg-white !text-gray-600 border-gray-300 hover:bg-gray-50"}`}
+                style={form.action===a.value?{backgroundColor:a.color==="emerald"?"#10b981":a.color==="blue"?"#3b82f6":"#f43f5e",borderColor:a.color==="emerald"?"#10b981":a.color==="blue"?"#3b82f6":"#f43f5e"}:undefined}>
+                {a.icon} {a.label}
+              </button>
+            ))}
+          </div>
+        </div>
+      </div>
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        <div className="col-span-2"><label className="text-xs text-gray-600 mb-1 block">제품명 *</label><input style={LIGHT_INPUT} type="text" value={form.productName} onChange={e=>set("productName",e.target.value)} placeholder="예: 다이센엠45 수화제" className="input-field text-sm w-full" /></div>
+        <div><label className="text-xs text-gray-600 mb-1 block">제조사</label><input style={LIGHT_INPUT} type="text" value={form.manufacturer} onChange={e=>set("manufacturer",e.target.value)} className="input-field text-sm w-full" /></div>
+        <div><label className="text-xs text-gray-600 mb-1 block">{form.action==="IN"?"공급처/판매처":form.action==="OUT"?"사용 위치":"폐기 사유"}</label><input style={LIGHT_INPUT} type="text" value={form.supplier} onChange={e=>set("supplier",e.target.value)} className="input-field text-sm w-full" /></div>
+      </div>
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        <div className="col-span-2"><label className="text-xs text-gray-600 mb-1 block">수량 *</label>
+          <div className="flex gap-1">
+            <input style={LIGHT_INPUT} type="number" step="0.01" value={form.quantity} onChange={e=>set("quantity",e.target.value)} className="input-field text-sm flex-1" />
+            <select style={LIGHT_INPUT} value={form.unit} onChange={e=>set("unit",e.target.value)} className="input-field jrn-select text-sm w-16">{INPUT_UNITS.map(u=><option key={u} value={u}>{u}</option>)}</select>
+          </div>
+        </div>
+        {form.action==="IN"&&(
+          <div className="col-span-2"><label className="text-xs text-gray-600 mb-1 block">구매 비용 (원)</label><input style={LIGHT_INPUT} type="number" value={form.cost} onChange={e=>set("cost",e.target.value)} placeholder="영수증 합계" className="input-field text-sm w-full" /></div>
+        )}
+      </div>
+      <div><label className="text-xs text-gray-600 mb-1 block">비고</label><input style={LIGHT_INPUT} type="text" value={form.notes} onChange={e=>set("notes",e.target.value)} className="input-field text-sm w-full" /></div>
+      <div className="bg-amber-50 border border-amber-200 rounded-md px-3 py-2 text-[11px] !text-amber-800">
+        💡 친환경/GAP 인증 시 자재의 <strong>구매·사용·보관</strong> 기록 의무. 입고 시 영수증 보관 권장.
+      </div>
+      <div className="flex justify-end gap-2">
+        {editing&&<button onClick={onDone} className="btn-secondary">취소</button>}
+        <button onClick={handleSubmit} disabled={saving} className="btn-primary disabled:opacity-50">{saving?"저장 중...":editing?"수정":"저장"}</button>
+      </div>
+    </div>
+  );
+}
+
+function InventoryStock(){const FARM_ID=useContext(FarmIdCtx);
+  const[summary,setSummary]=useState([]);const[loading,setLoading]=useState(true);
+  useEffect(()=>{
+    setLoading(true);
+    api(`/journal/${FARM_ID}/inventory/summary`).then(r=>setSummary(r.data||[])).finally(()=>setLoading(false));
+  },[FARM_ID]);
+  const totalValue=summary.reduce((a,r)=>a+(r.totalCost||0),0);
+  const lowStock=summary.filter(r=>r.currentStock<=0&&r.outQty>0);
+  return(
+    <div className="space-y-4">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        <div className="glass-card p-3"><div className="text-[11px] !text-gray-600 mb-1">총 품목</div><div className="text-2xl font-bold !text-gray-900">{summary.length}</div></div>
+        <div className="glass-card p-3"><div className="text-[11px] !text-gray-600 mb-1">총 구매액</div><div className="text-2xl font-bold !text-emerald-700">{totalValue.toLocaleString()}원</div></div>
+        <div className="glass-card p-3"><div className="text-[11px] !text-gray-600 mb-1">소진/부족</div><div className="text-2xl font-bold !text-rose-700">{lowStock.length}품목</div></div>
+        <div className="glass-card p-3"><div className="text-[11px] !text-gray-600 mb-1">활성 품목</div><div className="text-2xl font-bold !text-blue-700">{summary.filter(r=>r.currentStock>0).length}</div></div>
+      </div>
+      {loading?(
+        <div className="glass-card p-10 text-center text-gray-400">불러오는 중...</div>
+      ):summary.length===0?(
+        <div className="glass-card p-10 text-center text-gray-400">자재 기록이 없습니다. "새 등록" 탭에서 입고를 먼저 등록하세요.</div>
+      ):(
+        <div className="glass-card p-4 overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead><tr className="border-b border-gray-200">
+              <th className="text-left py-2 px-2 text-xs !text-gray-600 font-semibold">유형</th>
+              <th className="text-left py-2 px-2 text-xs !text-gray-600 font-semibold">제품명</th>
+              <th className="text-right py-2 px-2 text-xs !text-gray-600 font-semibold">입고</th>
+              <th className="text-right py-2 px-2 text-xs !text-gray-600 font-semibold">사용</th>
+              <th className="text-right py-2 px-2 text-xs !text-gray-600 font-semibold">폐기</th>
+              <th className="text-right py-2 px-2 text-xs !text-gray-600 font-semibold">현재 보관량</th>
+              <th className="text-right py-2 px-2 text-xs !text-gray-600 font-semibold">구매액</th>
+            </tr></thead>
+            <tbody>
+              {summary.map((r,i)=>(
+                <tr key={i} className="border-b border-gray-100 hover:bg-gray-50">
+                  <td className="py-2 px-2 text-xs"><span className="px-1.5 py-0.5 bg-gray-100 !text-gray-700 rounded font-medium">{r.type}</span></td>
+                  <td className="py-2 px-2 text-sm font-semibold !text-gray-900">{r.productName}{r.manufacturer&&<span className="text-xs !text-gray-500 ml-1">({r.manufacturer})</span>}</td>
+                  <td className="py-2 px-2 text-right !text-emerald-700 font-medium">{r.inQty.toFixed(2)} {r.unit}</td>
+                  <td className="py-2 px-2 text-right !text-blue-700 font-medium">{r.outQty.toFixed(2)}</td>
+                  <td className="py-2 px-2 text-right !text-rose-700">{r.disposalQty.toFixed(2)}</td>
+                  <td className={`py-2 px-2 text-right font-bold ${r.currentStock<=0?'!text-rose-700':r.currentStock<r.inQty*0.2?'!text-amber-700':'!text-gray-900'}`}>{r.currentStock.toFixed(2)} {r.unit}</td>
+                  <td className="py-2 px-2 text-right text-xs !text-gray-700">{r.totalCost?r.totalCost.toLocaleString():"-"}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
     </div>
   );
 }

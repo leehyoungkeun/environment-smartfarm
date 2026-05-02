@@ -438,7 +438,8 @@ function JournalSearch(){const FARM_ID=useContext(FarmIdCtx);
   const df=useDateFilter();
   const[entries,setEntries]=useState([]);const[loading,setLoading]=useState(true);
   const[pagination,setPagination]=useState({page:1,totalPages:1});
-  const[entryDates,setEntryDates]=useState([]);const[filter,setFilter]=useState({workType:"",keyword:""});
+  const[entryDates,setEntryDates]=useState([]);const[filter,setFilter]=useState({workType:"",keyword:"",tags:[],tagsMode:"any"});
+  const[tagInput,setTagInput]=useState("");
   const[editingEntry,setEditingEntry]=useState(null);const[expandedId,setExpandedId]=useState(null);
 
   useEffect(()=>{api(`/journal/${FARM_ID}/entries?limit=200&startDate=${df.dateRange.start}&endDate=${df.dateRange.end}`).then(res=>setEntryDates([...new Set(res.data.map(e=>e.date?.split("T")[0]))])).catch(console.error)},[df.dateRange]);
@@ -448,11 +449,25 @@ function JournalSearch(){const FARM_ID=useContext(FarmIdCtx);
       if(df.selectedDate)url+=`&startDate=${df.selectedDate}&endDate=${df.selectedDate}`;
       else{if(df.dateRange.start)url+=`&startDate=${df.dateRange.start}`;if(df.dateRange.end)url+=`&endDate=${df.dateRange.end}`}
       if(filter.workType)url+=`&workType=${filter.workType}`;
+      if(filter.tags.length>0)url+=`&tags=${encodeURIComponent(filter.tags.join(','))}&tagsMode=${filter.tagsMode}`;
       const res=await api(url);let data=res.data;
-      if(filter.keyword.trim()){const kw=filter.keyword.trim().toLowerCase();data=data.filter(e=>e.content?.toLowerCase().includes(kw)||e.pest?.toLowerCase().includes(kw)||e.notes?.toLowerCase().includes(kw))}
+      if(filter.keyword.trim()){const kw=filter.keyword.trim().toLowerCase();data=data.filter(e=>e.content?.toLowerCase().includes(kw)||e.pest?.toLowerCase().includes(kw)||e.notes?.toLowerCase().includes(kw)||e.tags?.some(t=>t.toLowerCase().includes(kw)))}
       setEntries(data);setPagination(res.pagination);
     }catch(e){console.error(e)}finally{setLoading(false)}
   },[df.dateRange,df.selectedDate,filter]);
+
+  // 태그 필터 조작 헬퍼
+  const addFilterTag=(raw)=>{
+    const t=String(raw||'').trim().replace(/^#/,'');
+    if(!t||filter.tags.includes(t))return;
+    setFilter(p=>({...p,tags:[...p.tags,t]}));
+    setTagInput('');
+  };
+  const removeFilterTag=(t)=>setFilter(p=>({...p,tags:p.tags.filter(x=>x!==t)}));
+  const toggleFilterTagFromCard=(t)=>{
+    if(filter.tags.includes(t))removeFilterTag(t);
+    else setFilter(p=>({...p,tags:[...p.tags,t]}));
+  };
   useEffect(()=>{load()},[load]);
 
   const handleDelete=async id=>{if(!confirm("삭제하시겠습니까?"))return;await api(`/journal/${FARM_ID}/entries/${id}`,{method:"DELETE"});load(pagination.page)};
@@ -491,7 +506,31 @@ function JournalSearch(){const FARM_ID=useContext(FarmIdCtx);
             <div className="flex items-center gap-3 flex-wrap">
               <div className="flex items-center gap-2"><span className="text-xs text-gray-400 font-medium">작업유형</span><select value={filter.workType} onChange={e=>setFilter(p=>({...p,workType:e.target.value}))} className="input-field jrn-select text-xs py-1 px-2 w-28"><option value="">전체</option>{WORK_TYPES.map(w=><option key={w} value={w}>{w}</option>)}</select></div>
               <div className="flex items-center gap-2"><span className="text-xs text-gray-400 font-medium">작업내용</span><input type="text" value={filter.keyword} onChange={e=>setFilter(p=>({...p,keyword:e.target.value}))} placeholder="검색어" className="input-field text-xs py-1 px-2 w-40" /></div>
-              <button onClick={()=>{setFilter({workType:"",keyword:""});df.resetFilters()}} className="px-3 py-1 rounded-lg text-xs bg-white/5 text-gray-400 hover:bg-white/10 hover:text-white">↺ 초기화</button>
+              {/* 태그 필터 — chip 입력 + AND/ANY 토글 */}
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-gray-400 font-medium">태그</span>
+                <div className={`flex items-center gap-1 px-2 py-1 rounded-md border ${filter.tags.length>0?'border-emerald-500/40 bg-emerald-500/5':'border-white/10 bg-white/5'}`}>
+                  {filter.tags.map(t=>(
+                    <span key={t} className="inline-flex items-center gap-1 px-1.5 py-0.5 bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 rounded-full text-[11px]">
+                      #{t}
+                      <button type="button" onClick={()=>removeFilterTag(t)} className="text-emerald-400/60 hover:text-rose-300">×</button>
+                    </span>
+                  ))}
+                  <input type="text" value={tagInput} onChange={e=>setTagInput(e.target.value)}
+                    onKeyDown={e=>{if(['Enter',',',' '].includes(e.key)){e.preventDefault();addFilterTag(tagInput);}else if(e.key==='Backspace'&&!tagInput&&filter.tags.length>0){removeFilterTag(filter.tags[filter.tags.length-1]);}}}
+                    onBlur={()=>{if(tagInput)addFilterTag(tagInput);}}
+                    placeholder={filter.tags.length===0?'#방제 #수확':'추가'}
+                    className="bg-transparent text-xs text-white placeholder:text-gray-500 outline-none w-24" />
+                </div>
+                {filter.tags.length>1&&(
+                  <button type="button" onClick={()=>setFilter(p=>({...p,tagsMode:p.tagsMode==='any'?'all':'any'}))}
+                    title="any: 일부만 일치 / all: 모두 포함"
+                    className={`px-2 py-1 rounded-md text-[10px] font-bold transition-colors ${filter.tagsMode==='all'?'bg-blue-500/20 text-blue-300 border border-blue-500/40':'bg-white/5 text-gray-400 border border-white/10'}`}>
+                    {filter.tagsMode==='all'?'AND':'OR'}
+                  </button>
+                )}
+              </div>
+              <button onClick={()=>{setFilter({workType:"",keyword:"",tags:[],tagsMode:"any"});setTagInput("");df.resetFilters()}} className="px-3 py-1 rounded-lg text-xs bg-white/5 text-gray-400 hover:bg-white/10 hover:text-white">↺ 초기화</button>
             </div>
             {entries.length>0&&<ExportButtons onPrint={handlePrint} onCSV={handleCSV} onPDF={handlePDF} />}
           </div>
@@ -504,14 +543,22 @@ function JournalSearch(){const FARM_ID=useContext(FarmIdCtx);
             const isOpen=expandedId===entry._id;
             return(
               <div key={entry._id} className={`glass-card transition-all ${isOpen?"ring-1 ring-emerald-500/30":"hover:bg-white/[0.03] cursor-pointer"}`}>
-                <div className="p-4 flex items-center gap-3" onClick={()=>setExpandedId(isOpen?null:entry._id)}>
+                <div className="p-4 flex items-center gap-3 flex-wrap" onClick={()=>setExpandedId(isOpen?null:entry._id)}>
                   <span className={`text-xs transition-transform ${isOpen?"rotate-90":""}`}>▶</span>
                   <span className="text-sm text-gray-400 w-24 shrink-0">{toKR(entry.date)}</span>
                   {entry.houseId&&<span className="px-2 py-0.5 rounded-full text-xs font-medium bg-violet-500/20 text-violet-400">{entry.houseName||entry.houseId}</span>}
                   <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-emerald-500/20 text-emerald-400">{entry.workType}</span>
                   {entry.growthStage&&<span className="px-2 py-0.5 rounded-full text-xs bg-blue-500/20 text-blue-400">{entry.growthStage}</span>}
                   {entry.weather&&<span className="text-xs text-gray-500">☁ {entry.weather}</span>}
-                  <span className="text-sm text-gray-300 truncate flex-1">{entry.content}</span>
+                  <span className="text-sm text-gray-300 truncate flex-1 min-w-[120px]">{entry.content}</span>
+                  {entry.tags?.length>0&&entry.tags.slice(0,3).map(t=>(
+                    <button key={t} type="button" onClick={e=>{e.stopPropagation();toggleFilterTagFromCard(t);}}
+                      title={filter.tags.includes(t)?'필터에서 제거':'이 태그로 필터'}
+                      className={`px-1.5 py-0.5 rounded-full text-[10px] font-medium border transition-colors ${filter.tags.includes(t)?'bg-emerald-500 text-white border-emerald-600':'bg-emerald-500/15 text-emerald-300 border-emerald-500/30 hover:bg-emerald-500/25'}`}>
+                      #{t}
+                    </button>
+                  ))}
+                  {entry.tags?.length>3&&<span className="text-[10px] text-gray-500">+{entry.tags.length-3}</span>}
                   {entry.photos?.length>0&&<span className="text-xs text-gray-500">📷 {entry.photos.length}</span>}
                 </div>
                 {isOpen&&(
@@ -525,6 +572,20 @@ function JournalSearch(){const FARM_ID=useContext(FarmIdCtx);
                       <DetailRow label="생육단계" value={entry.growthStage} color="text-blue-400" />
                       <DetailRow label="병해충" value={entry.pest} color="text-orange-400" />
                       <DetailRow label="비고" value={entry.notes} />
+                      {entry.tags?.length>0&&(
+                        <div className="flex items-start gap-3">
+                          <span className="text-xs text-gray-400 w-20 shrink-0 pt-1">태그</span>
+                          <div className="flex flex-wrap gap-1">
+                            {entry.tags.map(t=>(
+                              <button key={t} type="button" onClick={e=>{e.stopPropagation();toggleFilterTagFromCard(t);}}
+                                title={filter.tags.includes(t)?'필터에서 제거':'이 태그로 필터'}
+                                className={`px-2 py-0.5 rounded-full text-xs font-medium border transition-colors ${filter.tags.includes(t)?'bg-emerald-500 text-white border-emerald-600':'bg-emerald-500/15 text-emerald-300 border-emerald-500/30 hover:bg-emerald-500/25'}`}>
+                                #{t}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      )}
                       <PhotoThumbs photos={entry.photos} />
                     </div>
                     <div className="flex gap-2 mt-3 pt-3 border-t border-white/5">

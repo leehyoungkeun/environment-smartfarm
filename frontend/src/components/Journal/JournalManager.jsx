@@ -522,6 +522,132 @@ const MEASURE_LINE_LABELS = {
   floweringRate: "개화율(%)",
   fruitSetRate: "착과율(%)",
 };
+// ━━━ 권장 작업 / 알림 (일지 기반 룰) ━━━
+// 룰:
+// 1) 마지막 방제일 + 14일 경과 → 다음 방제 검토
+// 2) 마지막 측정일 + 7일 경과 → 생육 측정 누락
+// 3) 병해충 발견 후 7일 경과 → 후속 조치 확인
+// 4) 작년 같은 시기(±3일)에 했던 작업 → "작년 이맘때는 X"
+function JournalRecommendations({ entries, entriesYoY, houses, houseId }) {
+  const recs = useMemo(() => {
+    const today = new Date();
+    const todayStr = today.toISOString().slice(0, 10);
+    const filtered = entries.filter(e => !houseId || e.houseId === houseId);
+    const list = [];
+
+    const dayDiff = (date) => {
+      if (!date) return Infinity;
+      const d = new Date(date);
+      return Math.floor((today - d) / (1000 * 3600 * 24));
+    };
+
+    // 1) 마지막 방제일
+    const lastSpray = filtered.filter(e => e.workType === "방제").sort((a, b) => (b.date || "").localeCompare(a.date || ""))[0];
+    if (lastSpray) {
+      const diff = dayDiff(lastSpray.date);
+      if (diff >= 14 && diff < 60) {
+        list.push({
+          icon: "🧪",
+          color: "amber",
+          title: `방제 검토 시점`,
+          desc: `마지막 방제 ${diff}일 전 (${toKR(lastSpray.date)}). PLS 안전사용기준 확인 후 다음 방제 검토.`,
+        });
+      }
+    } else if (filtered.length >= 5) {
+      list.push({ icon: "🧪", color: "amber", title: "방제 기록 없음", desc: "최근 5건 일지에 방제 작업이 없습니다. 정기 점검 권장." });
+    }
+
+    // 2) 마지막 측정일
+    const lastMeasure = filtered.filter(e => {
+      const m = e.measurements || {};
+      return ["plantHeight", "leafCount", "floweringRate", "fruitSetRate"].some(k => m[k] != null);
+    }).sort((a, b) => (b.date || "").localeCompare(a.date || ""))[0];
+    if (lastMeasure) {
+      const diff = dayDiff(lastMeasure.date);
+      if (diff >= 7) {
+        list.push({
+          icon: "📈",
+          color: "blue",
+          title: `생육 측정 누락 ${diff}일`,
+          desc: `마지막 측정 ${toKR(lastMeasure.date)}. 매주 측정으로 추세 파악 정확도 ↑.`,
+        });
+      }
+    } else if (filtered.length >= 3) {
+      list.push({ icon: "📈", color: "blue", title: "생육 측정 시작 권장", desc: "측정값 0건. 일지 작성 시 📈 측정 영역 입력으로 시계열 분석 가능." });
+    }
+
+    // 3) 병해충 발견 후 후속 조치
+    const lastPest = filtered.filter(e => e.pest && e.pest.trim()).sort((a, b) => (b.date || "").localeCompare(a.date || ""))[0];
+    if (lastPest) {
+      const diff = dayDiff(lastPest.date);
+      if (diff >= 5 && diff <= 21) {
+        // 그 사이에 방제 작업 있었나?
+        const sprayAfter = filtered.find(e => e.workType === "방제" && e.date && e.date > lastPest.date);
+        if (!sprayAfter) {
+          list.push({
+            icon: "⚠",
+            color: "rose",
+            title: `병해 후속 조치 필요`,
+            desc: `${toKR(lastPest.date)}에 "${lastPest.pest}" 발견 후 ${diff}일 — 방제 기록 없음.`,
+          });
+        }
+      }
+    }
+
+    // 4) 작년 같은 시기 ±3일 작업
+    if (Array.isArray(entriesYoY) && entriesYoY.length > 0) {
+      const today_mmdd = todayStr.slice(5);
+      const close = entriesYoY.filter(e => {
+        const m = (e.date || "").slice(5);
+        if (!m) return false;
+        // mmdd 차이 ±3일 (단순 비교)
+        return Math.abs(parseInt(m.replace("-", "")) - parseInt(today_mmdd.replace("-", ""))) <= 3;
+      });
+      const types = [...new Set(close.map(e => e.workType).filter(Boolean))];
+      if (types.length > 0) {
+        list.push({
+          icon: "📅",
+          color: "violet",
+          title: `작년 이맘때는`,
+          desc: `${types.join(", ")} 작업을 했습니다 (${close.length}건). 분석 탭의 작년 비교 ON 으로 자세히.`,
+        });
+      }
+    }
+
+    return list;
+  }, [entries, entriesYoY, houseId]);
+
+  if (recs.length === 0) return null;
+
+  const colorMap = {
+    amber: "bg-amber-50 border-amber-300 !text-amber-900",
+    blue: "bg-blue-50 border-blue-300 !text-blue-900",
+    rose: "bg-rose-50 border-rose-300 !text-rose-900",
+    violet: "bg-violet-50 border-violet-300 !text-violet-900",
+    emerald: "bg-emerald-50 border-emerald-300 !text-emerald-900",
+  };
+
+  return (
+    <div className="glass-card p-4">
+      <h4 className="text-sm font-bold !text-gray-800 mb-3 flex items-center gap-2">
+        📌 권장 작업
+        <span className="text-[10px] !text-gray-500 font-normal">— 일지 데이터 기반</span>
+      </h4>
+      <div className="space-y-2">
+        {recs.map((r, i) => (
+          <div key={i} className={`rounded-lg border-2 px-3 py-2 flex items-start gap-2 ${colorMap[r.color] || colorMap.blue}`}>
+            <span className="text-lg leading-none mt-0.5">{r.icon}</span>
+            <div className="flex-1 min-w-0">
+              <div className="text-xs font-bold">{r.title}</div>
+              <div className="text-[11px] mt-0.5 opacity-90">{r.desc}</div>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 // ━━━ AI 자동 요약 (P2-4) ━━━
 function AiSummaryCard({ farmId }) {
   const [period, setPeriod] = useState("week");
@@ -862,6 +988,9 @@ function JournalAnalytics(){const FARM_ID=useContext(FarmIdCtx);
           );
         })}
       </div>
+
+      {/* 📌 권장 작업 / 알림 — 일지 데이터 기반 룰 */}
+      <JournalRecommendations entries={entries} entriesYoY={entriesYoY} houses={houses} houseId={filter.houseId} />
 
       {/* AI 자동 요약 (P2-4) */}
       <AiSummaryCard farmId={FARM_ID} />

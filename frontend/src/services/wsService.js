@@ -122,6 +122,11 @@ class WsService {
     return this.send({ type: "sync:command", farmId, action });
   }
 
+  // 시스템 상태 조회 (Category A: query) — 정확한 PM2 process status
+  requestSystemStatus(farmId) {
+    return this.send({ type: "system:query", farmId });
+  }
+
   // 이벤트 구독
   subscribe(eventType, callback) {
     if (!this.listeners[eventType]) {

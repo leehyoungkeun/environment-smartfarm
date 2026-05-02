@@ -3412,40 +3412,56 @@ const SystemManagePanel = ({ farmId }) => {
   // 시스템 관리 API — WS 연결 시 MQTT 경유, 아니면 RPi 직접
   const sysUrl = getRpiApiBase().replace(/:\d+\/api.*$/, '') + ':3100/api';
 
+  // hybrid: WebSocket 우선 (정확한 PM2 status, Category A) + LAN HTTP fallback
+  const fmtUptime = (ms) => {
+    if (!ms) return '';
+    const sec = Math.floor((Date.now() - ms) / 1000);
+    if (sec < 60) return `${sec}초`;
+    if (sec < 3600) return `${Math.floor(sec/60)}분`;
+    return `${Math.floor(sec/3600)}시간 ${Math.floor((sec%3600)/60)}분`;
+  };
+
+  const mapStatus = (d) => ({
+    nodeRed: d?.nodeRed ? {
+      online: d.nodeRed.status === 'online',
+      uptime: fmtUptime(d.nodeRed.uptime),
+      restarts: d.nodeRed.restarts,
+    } : null,
+    rpiExpress: d?.rpiExpress ? {
+      online: d.rpiExpress.status === 'online',
+      uptime: fmtUptime(d.rpiExpress.uptime),
+    } : null,
+  });
+
   const loadStatus = useCallback(async () => {
     try {
-      // WebSocket 연결 시 MQTT 경유로 상태 확인
+      // 1. WebSocket 우선 (Category A: RPi query)
       if (wsService.isConnected()) {
-        // MQTT heartbeat 기반으로 RPi 온라인 판단
-        setStatus({
-          nodeRed: { online: true, uptime: 'MQTT 연결됨' },
-          rpiExpress: { online: true, uptime: 'MQTT 연결됨' },
+        const result = await new Promise((resolve) => {
+          const timeout = setTimeout(() => { unsub(); resolve(null); }, 5000);
+          const unsub = wsService.subscribe('system:status', (msg) => {
+            clearTimeout(timeout); unsub(); resolve(msg.data);
+          });
+          wsService.requestSystemStatus(farmId);
         });
-        setLoading(false);
-        return;
+        if (result) {
+          setStatus(mapStatus(result));
+          setLoading(false);
+          return;
+        }
       }
 
+      // 2. HTTP fallback (LAN 모드 — smartfarm-system :3100/api/system/status)
       const res = await axiosBase.get(`${sysUrl}/system/status`, { timeout: 5000 });
       const d = res.data;
       if (d?.nodeRed || d?.rpiExpress) {
-        // uptime 계산
-        const fmtUptime = (ms) => {
-          if (!ms) return '';
-          const sec = Math.floor((Date.now() - ms) / 1000);
-          if (sec < 60) return `${sec}초`;
-          if (sec < 3600) return `${Math.floor(sec/60)}분`;
-          return `${Math.floor(sec/3600)}시간 ${Math.floor((sec%3600)/60)}분`;
-        };
-        setStatus({
-          nodeRed: d.nodeRed ? { online: d.nodeRed.status === 'online', uptime: fmtUptime(d.nodeRed.uptime), restarts: d.nodeRed.restarts } : null,
-          rpiExpress: d.rpiExpress ? { online: d.rpiExpress.status === 'online', uptime: fmtUptime(d.rpiExpress.uptime) } : null,
-        });
+        setStatus(mapStatus(d));
       }
     } catch (err) {
       setStatus(null);
       console.warn('[SystemManage] status load failed:', err.message);
     } finally { setLoading(false); }
-  }, [sysUrl]);
+  }, [sysUrl, farmId]);
 
   useEffect(() => {
     loadStatus();

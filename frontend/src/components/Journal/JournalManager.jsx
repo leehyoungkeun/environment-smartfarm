@@ -1426,10 +1426,57 @@ function MeasurementSection({ measurements, onChange, aiHighlight, farmId }) {
 }
 
 // ━━━ 영농일지 폼 ━━━
+// drafts — LocalStorage 자동 저장 (작성 도중 페이지 닫혀도 복구)
+const DRAFT_KEY = (farmId) => `smartfarm_journal_draft_${farmId}`;
+const DRAFT_DEBOUNCE_MS = 1000;
+
 function JournalForm({entry,onSave,onCancel}){const FARM_ID=useContext(FarmIdCtx);
   const today=new Date().toISOString().split("T")[0];
   const[houses,setHouses]=useState([]);
+  const emptyForm={houseId:"",date:today,weather:"",tempMin:"",tempMax:"",humidity:"",workType:"관리",growthStage:"",content:"",pest:"",notes:"",tags:[],measurements:{},photos:[]};
   const[form,setForm]=useState({houseId:entry?.houseId||"",date:entry?.date?new Date(entry.date).toISOString().split("T")[0]:today,weather:entry?.weather||"",tempMin:entry?.tempMin||"",tempMax:entry?.tempMax||"",humidity:entry?.humidity||"",workType:entry?.workType||"관리",growthStage:entry?.growthStage||"",content:entry?.content||"",pest:entry?.pest||"",notes:entry?.notes||"",tags:entry?.tags||[],measurements:entry?.measurements||{},photos:entry?.photos||[]});
+  // ── drafts ──
+  const[draftRestore,setDraftRestore]=useState(null); // { form, savedAt } 또는 null
+  // 마운트 시 LocalStorage에서 draft 검사 (새 일지 작성 모드만)
+  useEffect(()=>{
+    if(entry)return; // 수정 모드는 draft 무시
+    try{
+      const raw=localStorage.getItem(DRAFT_KEY(FARM_ID));
+      if(!raw)return;
+      const d=JSON.parse(raw);
+      if(d?.form&&d?.savedAt){
+        // 24시간 이상 묵으면 폐기
+        const age=Date.now()-new Date(d.savedAt).getTime();
+        if(age>24*3600*1000){localStorage.removeItem(DRAFT_KEY(FARM_ID));return;}
+        // 폼이 거의 비어있으면 무시
+        const meaningful=d.form.content?.trim()||d.form.pest||d.form.notes||(d.form.photos?.length>0)||(d.form.tags?.length>0);
+        if(!meaningful){localStorage.removeItem(DRAFT_KEY(FARM_ID));return;}
+        setDraftRestore(d);
+      }
+    }catch{}
+  },[FARM_ID,entry]);
+  const restoreDraft=()=>{
+    if(!draftRestore?.form)return;
+    setForm({...emptyForm,...draftRestore.form,date:draftRestore.form.date||today});
+    setDraftRestore(null);
+  };
+  const discardDraft=()=>{
+    localStorage.removeItem(DRAFT_KEY(FARM_ID));
+    setDraftRestore(null);
+  };
+  // 폼 변경 시 debounced 저장 (수정 모드 X, 빈 폼 X)
+  useEffect(()=>{
+    if(entry)return;
+    if(draftRestore)return; // 복구 결정 전엔 저장 안 함 (덮어쓰기 방지)
+    const meaningful=form.content?.trim()||form.pest||form.notes||(form.photos?.length>0)||(form.tags?.length>0);
+    if(!meaningful)return;
+    const tid=setTimeout(()=>{
+      try{
+        localStorage.setItem(DRAFT_KEY(FARM_ID),JSON.stringify({form,savedAt:new Date().toISOString()}));
+      }catch{}
+    },DRAFT_DEBOUNCE_MS);
+    return()=>clearTimeout(tid);
+  },[form,FARM_ID,entry,draftRestore]);
   const[uploading,setUploading]=useState(false);
   const[listening,setListening]=useState(false);
   const[parsing,setParsing]=useState(false);
@@ -1631,6 +1678,8 @@ function JournalForm({entry,onSave,onCancel}){const FARM_ID=useContext(FarmIdCtx
     try{
       await onSave(form);
       if(!entry){
+        // 저장 성공 — draft 폐기
+        try{localStorage.removeItem(DRAFT_KEY(FARM_ID));}catch{}
         setForm({houseId:houses[0]?.houseId||"",date:today,weather:"",tempMin:"",tempMax:"",humidity:"",workType:"관리",growthStage:"",content:"",pest:"",notes:"",tags:[],measurements:{},photos:[]});
         setAiFilled(new Set());setPhotoAi(null);setAutoSummary(null);
       }
@@ -1686,6 +1735,27 @@ function JournalForm({entry,onSave,onCancel}){const FARM_ID=useContext(FarmIdCtx
   const removeTag=(t)=>setForm(p=>({...p,tags:p.tags.filter(x=>x!==t)}));
   return(
     <div className="glass-card p-5 space-y-4">
+      {draftRestore&&(
+        <div className="bg-blue-50 border-2 border-blue-300 rounded-lg p-3 flex items-start gap-3 flex-wrap">
+          <span className="text-2xl">📝</span>
+          <div className="flex-1 min-w-[200px]">
+            <p className="text-sm font-semibold !text-blue-900">이전에 작성하던 일지가 있습니다</p>
+            <p className="text-[11px] !text-blue-700 mt-0.5">
+              {(() => {
+                const age=Math.round((Date.now()-new Date(draftRestore.savedAt).getTime())/60000);
+                if(age<60)return `${age}분 전 자동 저장됨`;
+                const h=Math.floor(age/60);
+                return `${h}시간 ${age%60}분 전 자동 저장됨`;
+              })()}
+              {draftRestore.form?.content&&` · "${draftRestore.form.content.slice(0,40)}${draftRestore.form.content.length>40?'…':''}"`}
+            </p>
+          </div>
+          <div className="flex gap-2">
+            <button type="button" onClick={restoreDraft} className="px-3 py-1.5 rounded-md text-xs font-semibold bg-blue-600 text-white hover:bg-blue-700">↩️ 복구</button>
+            <button type="button" onClick={discardDraft} className="px-3 py-1.5 rounded-md text-xs font-semibold bg-white !text-gray-700 border border-gray-300 hover:bg-gray-50">🗑️ 버리기</button>
+          </div>
+        </div>
+      )}
       <div className="flex items-center justify-between flex-wrap gap-2">
         <h3 className="text-lg font-semibold text-white">{entry?"일지 수정":"새 일지 작성"}</h3>
         {!entry&&(

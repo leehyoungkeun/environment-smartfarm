@@ -506,25 +506,26 @@ function JournalWrite(){const FARM_ID=useContext(FarmIdCtx);
 function TemplateSaveBox({onSave,onCancel}){
   const[name,setName]=useState('');
   const[emoji,setEmoji]=useState('');
+  const canSave=!!name.trim();
   return(
-    <div className="bg-amber-500/10 border border-amber-500/20 rounded-lg p-3 flex items-end gap-2 flex-wrap">
+    <div className="bg-amber-500/15 border border-amber-500/40 rounded-lg p-3 flex items-end gap-2 flex-wrap">
       <div className="flex-1 min-w-[140px]">
-        <label className="text-[10px] text-amber-300/80 mb-1 block">템플릿 이름</label>
+        <label className="text-xs text-amber-700 dark:text-amber-200 font-semibold mb-1 block">템플릿 이름</label>
         <input autoFocus type="text" value={name} onChange={e=>setName(e.target.value)}
           placeholder="예: 매일 양액 점검"
-          className="input-field text-xs w-full" />
+          className="input-field text-sm w-full" />
       </div>
       <div className="w-20">
-        <label className="text-[10px] text-amber-300/80 mb-1 block">이모지</label>
+        <label className="text-xs text-amber-700 dark:text-amber-200 font-semibold mb-1 block">이모지</label>
         <input type="text" value={emoji} onChange={e=>setEmoji(e.target.value)}
           placeholder="⭐"
-          className="input-field text-xs w-full" />
+          className="input-field text-sm w-full text-center" />
       </div>
-      <button type="button" onClick={()=>onSave(name,emoji)} disabled={!name.trim()}
-        className="px-3 py-1.5 bg-amber-500/20 text-amber-300 border border-amber-500/30 rounded-md text-xs hover:bg-amber-500/30 disabled:opacity-40 disabled:cursor-not-allowed">
+      <button type="button" onClick={()=>onSave(name,emoji)} disabled={!canSave}
+        className={`px-4 py-2 rounded-md text-sm font-semibold border transition-colors ${canSave?'bg-amber-500 text-white border-amber-600 hover:bg-amber-600':'bg-gray-200 dark:bg-white/5 text-gray-400 border-gray-300 dark:border-white/10 cursor-not-allowed'}`}>
         저장
       </button>
-      <button type="button" onClick={onCancel} className="px-3 py-1.5 text-xs text-gray-400 hover:text-gray-200">취소</button>
+      <button type="button" onClick={onCancel} className="px-3 py-2 text-sm text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white">취소</button>
     </div>
   );
 }
@@ -766,7 +767,7 @@ function JournalForm({entry,onSave,onCancel}){const FARM_ID=useContext(FarmIdCtx
         </div>
       )}
       <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
-        <div><label className="text-xs text-gray-400 mb-1 block">날짜 *</label><input type="date" value={form.date} onChange={e=>set("date",e.target.value)} className="input-field text-sm w-full" /></div>
+        <div className="col-span-2 md:col-span-1"><label className="text-xs text-gray-400 mb-1 block">날짜 *</label><input type="date" value={form.date} onChange={e=>set("date",e.target.value)} className="input-field text-sm w-full" /></div>
         <div><label className="text-xs text-gray-400 mb-1 flex items-center gap-1">하우스 *{aiFilled.has('houseId')&&<span className="text-violet-400" title="AI 채움">✨</span>}</label><select value={form.houseId} onChange={e=>set("houseId",e.target.value)} className={`${SC} ${aiFilled.has('houseId')?'ring-1 ring-violet-400/40':''}`}><option value="">전체(공통)</option>{houses.map(h=><option key={h.houseId} value={h.houseId}>{h.houseName||h.houseId}</option>)}</select></div>
         <div><label className="text-xs text-gray-400 mb-1 flex items-center gap-1">작업유형 *{aiFilled.has('workType')&&<span className="text-violet-400" title="AI 채움">✨</span>}</label><select value={form.workType} onChange={e=>set("workType",e.target.value)} className={`${SC} ${aiFilled.has('workType')?'ring-1 ring-violet-400/40':''}`}>{WORK_TYPES.map(w=><option key={w} value={w}>{w}</option>)}</select></div>
         <div><label className="text-xs text-gray-400 mb-1 flex items-center gap-1">날씨{aiFilled.has('weather')&&<span className="text-violet-400" title="AI 채움">✨</span>}</label><select value={form.weather} onChange={e=>set("weather",e.target.value)} className={`${SC} ${aiFilled.has('weather')?'ring-1 ring-violet-400/40':''}`}><option value="">선택</option>{WEATHER_OPTIONS.map(w=><option key={w} value={w}>{w}</option>)}</select></div>

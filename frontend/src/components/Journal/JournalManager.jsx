@@ -21,6 +21,53 @@ const SC = "input-field jrn-select text-sm w-full";
 
 function getToken(){return localStorage.getItem("accessToken")}
 async function api(path,options={}){const token=getToken();const res=await fetch(`${API_BASE}${path}`,{...options,headers:{...(options.body instanceof FormData?{}:{"Content-Type":"application/json"}),Authorization:`Bearer ${token}`,...options.headers}});const data=await res.json();if(!data.success)throw new Error(data.error||"요청 실패");return data}
+
+// 이미지 클라이언트 압축 — 서버 용량 / 네트워크 절약
+// - maxWidth: 비율 유지하며 너비 제한 (FHD 1920 기본)
+// - quality: JPEG 품질 (0.82 기본 — 시각적 손실 거의 없음)
+// - maxBytes: 그래도 크면 quality 낮춰가며 재시도
+async function compressImageFile(file, opts = {}) {
+  const { maxWidth = 1920, quality = 0.82, maxBytes = 1.5 * 1024 * 1024 } = opts;
+  if (!file || !file.type?.startsWith("image/")) return file;
+  // 이미 작은 이미지(<300KB)는 압축 안 함 (시간 절약)
+  if (file.size < 300 * 1024) return file;
+
+  const dataUrl = await new Promise((resolve, reject) => {
+    const r = new FileReader();
+    r.onload = () => resolve(r.result);
+    r.onerror = reject;
+    r.readAsDataURL(file);
+  });
+  const img = await new Promise((resolve, reject) => {
+    const i = new Image();
+    i.onload = () => resolve(i);
+    i.onerror = reject;
+    i.src = dataUrl;
+  });
+
+  let { width, height } = img;
+  if (width > maxWidth) {
+    height = Math.round((height * maxWidth) / width);
+    width = maxWidth;
+  }
+  const canvas = document.createElement("canvas");
+  canvas.width = width;
+  canvas.height = height;
+  const ctx = canvas.getContext("2d");
+  ctx.drawImage(img, 0, 0, width, height);
+
+  // quality 단계적으로 낮춰가며 maxBytes 충족 시도
+  const tryQualities = [quality, 0.7, 0.6, 0.5];
+  for (const q of tryQualities) {
+    const blob = await new Promise((res) => canvas.toBlob(res, "image/jpeg", q));
+    if (!blob) break;
+    if (blob.size <= maxBytes || q === tryQualities[tryQualities.length - 1]) {
+      const baseName = (file.name || "photo").replace(/\.[^.]+$/, "") + ".jpg";
+      return new File([blob], baseName, { type: "image/jpeg", lastModified: Date.now() });
+    }
+  }
+  return file;
+}
 function formatDate(d){return d.toISOString().split("T")[0]}
 function toKR(ds){return new Date(ds).toLocaleDateString("ko-KR")}
 function photoUrl(photo){
@@ -664,22 +711,51 @@ function JournalForm({entry,onSave,onCancel}){const FARM_ID=useContext(FarmIdCtx
     finally{setPhotoAnalyzing(false);}
   };
   const handlePhotoUpload=async e=>{
-    const files=e.target.files;if(!files?.length)return;
+    const filesList=e.target.files;if(!filesList?.length)return;
+    // 5 장 한도 — 추가 가능한 만큼만 처리
+    const remaining=5-form.photos.length;
+    if(remaining<=0){alert("사진은 최대 5 장까지 첨부할 수 있습니다");e.target.value="";return;}
+    const files=Array.from(filesList).slice(0,remaining);
+    if(filesList.length>remaining){
+      alert(`사진은 최대 5 장까지만 추가할 수 있어 ${files.length} 장만 처리됩니다 (선택 ${filesList.length} 장)`);
+    }
+
     setUploading(true);
     try{
-      const fd=new FormData();for(const f of files)fd.append("photos",f);
+      // 1) 각 파일 클라이언트 압축 — 서버 용량/네트워크 절약
+      let beforeTotal=0,afterTotal=0;
+      const compressed=await Promise.all(files.map(async f=>{
+        beforeTotal+=f.size;
+        try{
+          const c=await compressImageFile(f,{maxWidth:1920,quality:0.82,maxBytes:1.5*1024*1024});
+          afterTotal+=c.size;
+          return c;
+        }catch{
+          // 압축 실패 (HEIC 등 디코드 불가) — 원본 사용
+          afterTotal+=f.size;
+          return f;
+        }
+      }));
+
+      // 2) 업로드
+      const fd=new FormData();for(const f of compressed)fd.append("photos",f);
       const res=await fetch(`${API_BASE}/journal/${FARM_ID}/photos`,{method:"POST",headers:{Authorization:`Bearer ${getToken()}`},body:fd});
       const data=await res.json();
       if(data.success&&data.data?.length){
         set("photos",[...form.photos,...data.data]);
+        // 압축 통계 (사용자에게 한 번만)
+        if(beforeTotal>afterTotal*1.1){
+          const ratio=Math.round((1-afterTotal/beforeTotal)*100);
+          console.log(`📦 사진 압축: ${(beforeTotal/1024/1024).toFixed(1)}MB → ${(afterTotal/1024/1024).toFixed(1)}MB (${ratio}% 절약)`);
+        }
         // 첫 사진 자동 분석 (이미 분석된 게 없을 때만)
         if(!photoAi&&!entry){
           const first=data.data[0];
           if(first?.filename)analyzePhoto(first.filename);
         }
-      }
-    }catch(err){alert("업로드 실패")}
-    finally{setUploading(false)}
+      }else if(data.error){alert("업로드 실패: "+data.error);}
+    }catch(err){console.error("사진 업로드 실패",err);alert("업로드 실패: "+(err?.message||"네트워크 오류"));}
+    finally{setUploading(false);e.target.value="";}
   };
   const[saving,setSaving]=useState(false);
   const handleSubmit=async()=>{
@@ -848,6 +924,9 @@ function JournalForm({entry,onSave,onCancel}){const FARM_ID=useContext(FarmIdCtx
         </div>
       </div>
       <div><label className="text-xs text-gray-400 mb-1 flex items-center gap-2">사진
+        <span className="text-[10px] text-gray-500">— 최대 5장 · 자동 압축</span>
+        <span className="text-[10px] text-gray-500">({form.photos.length}/5)</span>
+        {uploading&&<span className="text-[10px] text-emerald-300 animate-pulse">압축·업로드 중…</span>}
         {photoAnalyzing&&<span className="text-[10px] text-violet-300 animate-pulse">✨ 사진 분석 중…</span>}
       </label><div className="flex gap-2 items-center flex-wrap">
         {form.photos.map((photo,i)=>(<div key={i} className="relative"><img src={photoUrl(photo)} alt="" className="w-20 h-20 object-cover rounded-lg border border-white/10" /><button onClick={()=>set("photos",form.photos.filter((_,j)=>j!==i))} className="absolute -top-1 -right-1 bg-red-500 text-white text-xs w-5 h-5 rounded-full flex items-center justify-center">×</button></div>))}

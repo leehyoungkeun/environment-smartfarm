@@ -1,0 +1,19 @@
+[
+    {
+        "id": "rr_mqtt_in",
+        "type": "mqtt in",
+        "z": "relay_reset_flow",
+        "name": "relay/reset 구독",
+        "topic": "smartfarm/+/relay/reset",
+        "qos": "1",
+        "datatype": "auto",
+        "broker": "mqtt_broker_aws",
+        "nl": false,
+        "rap": true,
+        "rh": 0,
+        "inputs": 0,
+        "x": 140,
+        "y": 220,
+        "wires": [["relay_reset_func"]]
+    }
+]

@@ -107,6 +107,11 @@ class WsService {
     return this.send({ type: "sensor:query", farmId });
   }
 
+  // 릴레이 전체 OFF 요청 (RPi 가 등록된 모든 모듈 순회)
+  requestRelayReset(farmId) {
+    return this.send({ type: "relay:reset", farmId });
+  }
+
   // 이벤트 구독
   subscribe(eventType, callback) {
     if (!this.listeners[eventType]) {

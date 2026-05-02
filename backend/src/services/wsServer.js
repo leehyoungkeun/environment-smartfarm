@@ -134,6 +134,23 @@ function handleClientMessage(ws, msg) {
       break;
     }
 
+    case "relay:reset": {
+      // 릴레이 전체 OFF 요청 → MQTT 발행 (RPi 가 등록된 모든 모듈 순회)
+      const farmId = msg.farmId || ws.farmId;
+      if (!ws.isSystemWide && farmId !== ws.farmId) {
+        ws.send(JSON.stringify({ type: "error", message: "권한 없음" }));
+        return;
+      }
+      const sent = mqttService.publishRelayReset(farmId, ws.username || "unknown");
+      ws.send(JSON.stringify({
+        type: "relay:reset:ack",
+        farmId,
+        sent,
+        mqtt: mqttService.isConnected(),
+      }));
+      break;
+    }
+
     case "system:command": {
       // 시스템 명령 → MQTT로 RPi에 전달
       const farmId = msg.farmId || ws.farmId;

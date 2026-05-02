@@ -203,6 +203,25 @@ class MqttService extends EventEmitter {
     return true;
   }
 
+  // 릴레이 전체 OFF 요청 발행
+  // RPi 가 global.relayModules 순회하며 모든 모듈 OFF (모듈 추가/unit-id 변경에도 자동 동작)
+  publishRelayReset(farmId, operator = "unknown") {
+    if (!this.client || !this.connected) {
+      logger.warn("MQTT 미연결 — 릴레이 reset 불가");
+      return false;
+    }
+    const topic = `smartfarm/${farmId}/relay/reset`;
+    const payload = JSON.stringify({
+      action: "reset-all",
+      farmId,
+      operator,
+      timestamp: new Date().toISOString(),
+    });
+    this.client.publish(topic, payload, { qos: 1 });
+    logger.info(`📤 MQTT 릴레이 reset 요청: ${topic} (by ${operator})`);
+    return true;
+  }
+
   // 설정 업데이트 발행 (모듈 추가/삭제 시 RPi 즉시 동기화)
   publishConfigUpdate(farmId, payload = {}) {
     if (!this.client || !this.connected) {

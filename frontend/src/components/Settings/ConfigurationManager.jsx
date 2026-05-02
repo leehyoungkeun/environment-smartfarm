@@ -3466,28 +3466,22 @@ const SystemManagePanel = ({ farmId }) => {
     } finally { setActionLoading(null); }
   };
 
-  // 릴레이 전체 OFF — AWS Lambda 경유 또는 Node-RED 직접
+  // 릴레이 전체 OFF — relay:query / sensor:query / system:command 와 동일 WebSocket 패턴
+  // backend → MQTT relay/reset publish → RPi 가 global.relayModules 순회하며 OFF (자동매핑)
   const handleRelayReset = async () => {
     if (!confirm('모든 릴레이를 OFF 하시겠습니까?\n(동작 중인 장치가 모두 정지됩니다)')) return;
     setActionLoading('relay-reset');
     setActionMsg(null);
     try {
       if (wsService.isConnected()) {
-        // AWS Lambda 경유로 각 채널 OFF
-        const AWS_ENDPOINT = import.meta.env.VITE_AWS_CONTROL_ENDPOINT;
-        if (AWS_ENDPOINT) {
-          for (let ch = 0; ch < 8; ch++) {
-            await axiosBase.post(AWS_ENDPOINT, {
-              house_id: 'house1', window_id: `reset_ch${ch}`,
-              command: 'off', operator: 'relay_reset',
-              request_id: `reset-${Date.now()}-${ch}`,
-              modbus: { unitId: 1, moduleType: 'waveshare', controlType: 'single', address: ch },
-            }, { timeout: 5000 }).catch(() => {});
-            await new Promise(r => setTimeout(r, 300));
-          }
-          setActionMsg({ type: 'success', text: '릴레이 전체 OFF 완료 (MQTT)' });
+        const sent = wsService.requestRelayReset(farmId);
+        if (sent) {
+          setActionMsg({ type: 'success', text: '릴레이 전체 OFF 요청 전송 (MQTT)' });
+        } else {
+          setActionMsg({ type: 'error', text: 'WebSocket 미연결 — 요청 실패' });
         }
       } else {
+        // 오프라인 fallback: RPi 직접 (LAN 모드)
         const rpiBase = getRpiApiBase();
         const res = await axiosBase.post(`${rpiBase}/relay/reset-all`, {}, { timeout: 15000 });
         if (res.data?.success) {

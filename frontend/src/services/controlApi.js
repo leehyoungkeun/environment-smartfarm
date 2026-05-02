@@ -14,8 +14,6 @@ import axios from 'axios';
 import { getSystemMode, getApiBase, getRpiApiBase } from './apiSwitcher';
 
 const AWS_CONTROL_ENDPOINT = import.meta.env.VITE_AWS_CONTROL_ENDPOINT;
-const RPI_CONTROL_URL = (import.meta.env.VITE_RPI_API_URL || 'http://192.168.137.30:1880/api') + '/control/local';
-
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3000/api';
 
 const TIMEOUT = 10000;
@@ -249,8 +247,19 @@ export const saveControlLog = async (logData) => {
 
 /**
  * 제어 이력 조회
+ * 팜로컬/오프라인 모드: 빈 결과 + 안내 메시지 (PC API 호출 시도조차 안 함 → 네트워크 노이즈 제거)
  */
 export const getControlLogs = async (farmId, options = {}) => {
+  const mode = getSystemMode();
+  if (mode.isFarmLocal || !mode.serverOnline) {
+    return {
+      success: true,
+      data: [],
+      pagination: { total: 0 },
+      offline: true,
+      message: mode.isFarmLocal ? '팜로컬 모드 — 이력은 서버 연동 시에만 표시' : '서버 연결 끊김',
+    };
+  }
   try {
     const params = new URLSearchParams();
     if (options.houseId) params.set('houseId', options.houseId);
@@ -269,8 +278,18 @@ export const getControlLogs = async (farmId, options = {}) => {
 
 /**
  * 제어 통계 조회
+ * 팜로컬/오프라인: 빈 결과 + 안내
  */
 export const getControlStats = async (farmId, options = {}) => {
+  const mode = getSystemMode();
+  if (mode.isFarmLocal || !mode.serverOnline) {
+    return {
+      success: true,
+      data: {},
+      offline: true,
+      message: mode.isFarmLocal ? '팜로컬 모드 — 통계는 서버 연동 시에만 표시' : '서버 연결 끊김',
+    };
+  }
   try {
     const params = new URLSearchParams();
     if (options.houseId) params.set('houseId', options.houseId);

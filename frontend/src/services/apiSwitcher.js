@@ -35,13 +35,24 @@ const CONFIG_CACHE_TTL_MS = 10 * 60 * 1000;
 
 /**
  * 팜로컬 모드 확인 (RPi 단독 운영, 인터넷 없음)
- * 1) localStorage에 명시적으로 설정된 경우
- * 2) 터치패널 자동 감지: localhost/127.0.0.1 + port 80/443/빈값
- *    → PC 서버 의존 없이 항상 로컬 모드로 동작 (농장 현장 안정성)
+ * 우선순위: 명시적 'true' → 명시적 'false' → 자동 감지(터치패널)
+ *  · 명시적 'false' 는 자동 감지를 무력화 (LAN PC 에서 의도적 OFF, 터치패널에서 사용자 OFF 보존)
+ *  · 미설정 시만 자동 감지 동작 (터치패널: localhost/127.0.0.1 + port 80/443/빈값)
  */
 export function isFarmLocalMode() {
-  if (localStorage.getItem(FARM_LOCAL_KEY) === 'true') return true;
-  // 터치패널 자동 감지 (nginx port 80)
+  const explicit = localStorage.getItem(FARM_LOCAL_KEY);
+  if (explicit === 'true') return true;
+  if (explicit === 'false') return false;
+  const host = window.location.hostname;
+  const port = window.location.port;
+  return ['localhost', '127.0.0.1'].includes(host)
+    && ['80', '443', ''].includes(port);
+}
+
+/**
+ * 자동 감지 가능 환경인지 (UI 안내용)
+ */
+export function isFarmLocalAutoDetected() {
   const host = window.location.hostname;
   const port = window.location.port;
   return ['localhost', '127.0.0.1'].includes(host)
@@ -50,6 +61,7 @@ export function isFarmLocalMode() {
 
 /**
  * 팜로컬 모드 설정
+ * 양 분기 모두 S 상태 명시 복원 — 페이지 새로고침에 의존하지 않음
  * @param {boolean} enabled
  */
 export function setFarmLocalMode(enabled) {
@@ -61,7 +73,16 @@ export function setFarmLocalMode(enabled) {
     S.manualOverride = false;
     stopHealthCheck();
   } else {
-    localStorage.removeItem(FARM_LOCAL_KEY);
+    // 'false' 명시 — 자동 감지 환경(터치패널)에서도 사용자 의도 보존
+    localStorage.setItem(FARM_LOCAL_KEY, 'false');
+    // 일반 모드로 S 상태 명시 복원 (새로고침 없이도 정합)
+    S.currentApiBase = PC_SERVER;
+    S.serverOnline = true; // checkServerHealth 가 즉시 갱신
+    S.manualOverride = false;
+    S.consecutiveFailures = 0;
+    S.healthInterval = HEALTH_BASE_INTERVAL;
+    S.downSince = null;
+    startHealthCheck();
   }
   saveState();
   notifyListeners();

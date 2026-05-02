@@ -2129,8 +2129,23 @@ function HarvestSearch(){const FARM_ID=useContext(FarmIdCtx);
                     <DetailRow label="등급" value={r.grade} color="text-yellow-400" />
                     <DetailRow label="출하처" value={r.destination} />
                     <DetailRow label="단가" value={r.unitPrice?`${r.unitPrice.toLocaleString()}원/${r.unit}`:null} />
-                    <DetailRow label="매출" value={r.totalRevenue?`${r.totalRevenue.toLocaleString()}원`:null} color="text-emerald-400" />
-                    <DetailRow label="비고" value={r.notes} />
+                    <DetailRow label="매출" value={r.totalRevenue?`${r.totalRevenue.toLocaleString()}원`:null} color="!text-emerald-700" />
+                    <DetailRow label="비고" value={r.notes} markdown />
+                    {/* 출하 이력 chip (단계 3) */}
+                    {(r.lotNumber||r.traceabilityNo||r.buyer||r.invoiceNo||r.loss||(r.qualityMetrics&&Object.keys(r.qualityMetrics||{}).length>0))&&(
+                      <div className="flex items-start gap-3 pt-2 border-t border-blue-200">
+                        <span className="text-xs text-gray-400 w-20 shrink-0 pt-1">📦 이력</span>
+                        <div className="flex flex-wrap gap-1.5">
+                          {r.lotNumber&&<span className="px-2 py-0.5 bg-blue-100 !text-blue-800 border border-blue-300 rounded-full text-xs font-mono font-medium">LOT {r.lotNumber}</span>}
+                          {r.traceabilityNo&&<span className="px-2 py-0.5 bg-violet-100 !text-violet-800 border border-violet-300 rounded-full text-xs font-mono font-medium">이력 {r.traceabilityNo}</span>}
+                          {r.buyer&&<span className="px-2 py-0.5 bg-emerald-100 !text-emerald-800 border border-emerald-300 rounded-full text-xs font-medium">🏪 {r.buyer}</span>}
+                          {r.invoiceNo&&<span className="px-2 py-0.5 bg-gray-100 !text-gray-700 border border-gray-300 rounded-full text-xs font-medium">📄 {r.invoiceNo}</span>}
+                          {r.loss!=null&&<span className="px-2 py-0.5 bg-rose-100 !text-rose-800 border border-rose-300 rounded-full text-xs font-medium">폐기 {r.loss}{r.unit}{r.lossReason?` · ${r.lossReason}`:''}</span>}
+                          {r.qualityMetrics?.brix&&<span className="px-2 py-0.5 bg-amber-100 !text-amber-800 border border-amber-300 rounded-full text-xs font-medium">당도 {r.qualityMetrics.brix}Brix</span>}
+                          {r.qualityMetrics?.acidity&&<span className="px-2 py-0.5 bg-amber-100 !text-amber-800 border border-amber-300 rounded-full text-xs font-medium">pH {r.qualityMetrics.acidity}</span>}
+                        </div>
+                      </div>
+                    )}
                     <PhotoThumbs photos={r.photos} />
                   </div><div className="flex gap-2 mt-3 pt-3 border-t border-white/5">
                     <button onClick={e=>{e.stopPropagation();setEditing(r)}} className="px-3 py-1.5 rounded-lg text-xs bg-blue-500/20 text-blue-400 hover:bg-blue-500/30">✏️ 수정</button>
@@ -2156,10 +2171,21 @@ function HarvestWrite(){const FARM_ID=useContext(FarmIdCtx);
 // ━━━ 수확 폼 ━━━
 function HarvestForm({record,onSave,onCancel}){
   const today=new Date().toISOString().split("T")[0];
-  const[form,setForm]=useState({date:record?.date?new Date(record.date).toISOString().split("T")[0]:today,cropName:record?.cropName||"",quantity:record?.quantity||"",unit:record?.unit||"kg",grade:record?.grade||"",destination:record?.destination||"",unitPrice:record?.unitPrice||"",notes:record?.notes||""});
+  const empty={date:today,cropName:"",quantity:"",unit:"kg",grade:"",destination:"",unitPrice:"",notes:"",lotNumber:"",traceabilityNo:"",buyer:"",invoiceNo:"",loss:"",lossReason:"",qualityMetrics:{}};
+  const[form,setForm]=useState({date:record?.date?new Date(record.date).toISOString().split("T")[0]:today,cropName:record?.cropName||"",quantity:record?.quantity||"",unit:record?.unit||"kg",grade:record?.grade||"",destination:record?.destination||"",unitPrice:record?.unitPrice||"",notes:record?.notes||"",lotNumber:record?.lotNumber||"",traceabilityNo:record?.traceabilityNo||"",buyer:record?.buyer||"",invoiceNo:record?.invoiceNo||"",loss:record?.loss||"",lossReason:record?.lossReason||"",qualityMetrics:record?.qualityMetrics||{}});
   const set=(k,v)=>setForm(p=>({...p,[k]:v}));
+  const setQM=(k,v)=>setForm(p=>({...p,qualityMetrics:{...p.qualityMetrics,[k]:v}}));
   const revenue=form.quantity&&form.unitPrice?(parseFloat(form.quantity)*parseFloat(form.unitPrice)).toLocaleString():null;
-  const handleSubmit=async()=>{if(!form.cropName.trim()||!form.quantity){alert("작물명과 수확량은 필수입니다");return}await onSave(form);if(!record)setForm({date:today,cropName:"",quantity:"",unit:"kg",grade:"",destination:"",unitPrice:"",notes:""})};
+  const handleSubmit=async()=>{if(!form.cropName.trim()||!form.quantity){alert("작물명과 수확량은 필수입니다");return}await onSave(form);if(!record)setForm(empty)};
+  // 로트번호 미리보기 (입력 안 했을 때)
+  const lotPreview=(()=>{
+    if(form.lotNumber)return null;
+    if(!form.date||!form.cropName)return null;
+    const dt=new Date(form.date);
+    const ymd=`${dt.getFullYear()}${String(dt.getMonth()+1).padStart(2,'0')}${String(dt.getDate()).padStart(2,'0')}`;
+    const cropPart=form.cropName.slice(0,4).toUpperCase();
+    return `${ymd}-${cropPart}-001`;
+  })();
   return(
     <div className="glass-card p-5 space-y-4">
       <h3 className="text-lg font-semibold text-white">{record?"수확 기록 수정":"새 수확 기록"}</h3>
@@ -2173,6 +2199,28 @@ function HarvestForm({record,onSave,onCancel}){
         <div><label className="text-xs text-gray-600 mb-1 block">출하처</label><input style={LIGHT_INPUT} type="text" value={form.destination} onChange={e=>set("destination",e.target.value)} className="input-field text-sm w-full" /></div>
         <div><label className="text-xs text-gray-600 mb-1 block">단가 (원/{form.unit})</label><input style={LIGHT_INPUT} type="number" value={form.unitPrice} onChange={e=>set("unitPrice",e.target.value)} className="input-field text-sm w-full" /></div>
         <div><label className="text-xs text-gray-600 mb-1 block">예상 매출</label><div className="input-field text-sm w-full bg-emerald-50 !text-emerald-800 border-emerald-300 font-semibold" style={LIGHT_INPUT}>{revenue?`${revenue}원`:"-"}</div></div>
+      </div>
+      {/* 출하 이력 (단계 3) — 농산물이력제 */}
+      <div className="bg-blue-50 border-2 border-blue-300 rounded-lg p-3 space-y-3">
+        <div className="flex items-center gap-2 flex-wrap">
+          <span className="text-sm font-bold !text-blue-900">📦 출하 이력 / 거래</span>
+          <span className="text-[11px] !text-blue-700">— 농산물이력제 + 거래 추적</span>
+        </div>
+        <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+          <div><label className="text-xs text-gray-700 mb-1 block">로트번호 <span className="text-[10px] text-gray-500">(미입력 시 자동)</span></label><input style={LIGHT_INPUT} type="text" value={form.lotNumber} onChange={e=>set("lotNumber",e.target.value)} placeholder={lotPreview||"YYYYMMDD-CROP-001"} className="input-field text-sm w-full" /></div>
+          <div><label className="text-xs text-gray-700 mb-1 block">이력추적번호 <a href="https://www.naqs.go.kr" target="_blank" rel="noreferrer" className="!text-blue-700 underline text-[10px]">NAQS</a></label><input style={LIGHT_INPUT} type="text" value={form.traceabilityNo} onChange={e=>set("traceabilityNo",e.target.value)} placeholder="12자리 (등록 시)" className="input-field text-sm w-full" /></div>
+          <div><label className="text-xs text-gray-700 mb-1 block">거래처/구매자</label><input style={LIGHT_INPUT} type="text" value={form.buyer} onChange={e=>set("buyer",e.target.value)} placeholder="대형마트·학교급식·도매시장" className="input-field text-sm w-full" /></div>
+          <div><label className="text-xs text-gray-700 mb-1 block">거래명세서 번호</label><input style={LIGHT_INPUT} type="text" value={form.invoiceNo} onChange={e=>set("invoiceNo",e.target.value)} className="input-field text-sm w-full" /></div>
+          <div><label className="text-xs text-gray-700 mb-1 block">폐기/등외품 ({form.unit})</label><input style={LIGHT_INPUT} type="number" step="0.1" value={form.loss} onChange={e=>set("loss",e.target.value)} className="input-field text-sm w-full" /></div>
+          <div><label className="text-xs text-gray-700 mb-1 block">폐기 사유</label><input style={LIGHT_INPUT} type="text" value={form.lossReason} onChange={e=>set("lossReason",e.target.value)} placeholder="크기 미달·병해·낙과 등" className="input-field text-sm w-full" /></div>
+        </div>
+        {/* 품질 측정 — 거래처 요구 시 */}
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 pt-2 border-t border-blue-200">
+          <div><label className="text-[11px] text-gray-700 mb-1 block">당도 (Brix)</label><input style={LIGHT_INPUT} type="number" step="0.1" value={form.qualityMetrics?.brix||""} onChange={e=>setQM("brix",e.target.value)} className="input-field text-sm w-full" /></div>
+          <div><label className="text-[11px] text-gray-700 mb-1 block">산도 (pH)</label><input style={LIGHT_INPUT} type="number" step="0.1" value={form.qualityMetrics?.acidity||""} onChange={e=>setQM("acidity",e.target.value)} className="input-field text-sm w-full" /></div>
+          <div><label className="text-[11px] text-gray-700 mb-1 block">평균 크기 (mm/g)</label><input style={LIGHT_INPUT} type="text" value={form.qualityMetrics?.size||""} onChange={e=>setQM("size",e.target.value)} placeholder="예: 80mm" className="input-field text-sm w-full" /></div>
+          <div><label className="text-[11px] text-gray-700 mb-1 block">색·외관</label><input style={LIGHT_INPUT} type="text" value={form.qualityMetrics?.color||""} onChange={e=>setQM("color",e.target.value)} placeholder="예: 진홍" className="input-field text-sm w-full" /></div>
+        </div>
       </div>
       <div><label className="text-xs text-gray-600 mb-1 block">비고</label><input style={LIGHT_INPUT} type="text" value={form.notes} onChange={e=>set("notes",e.target.value)} className="input-field text-sm w-full" /></div>
       <div className="flex justify-end gap-2">{onCancel&&<button onClick={onCancel} className="btn-secondary">취소</button>}<button onClick={handleSubmit} className="btn-primary">{record?"수정":"저장"}</button></div>

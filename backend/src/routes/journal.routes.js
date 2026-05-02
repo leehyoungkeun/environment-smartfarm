@@ -382,6 +382,19 @@ router.get("/:farmId/harvests", authenticate, async (req, res) => {
 /**
  * POST /api/journal/:farmId/harvests
  */
+// 로트번호 자동 생성 — YYYYMMDD-CROP-NNN (사용자 미입력 시)
+async function generateLotNumber(farmId, date, cropName) {
+  const dt = new Date(date);
+  const ymd = `${dt.getFullYear()}${String(dt.getMonth() + 1).padStart(2, "0")}${String(dt.getDate()).padStart(2, "0")}`;
+  const cropPart = String(cropName || "X").slice(0, 4).toUpperCase();
+  // 같은 일자/작목 시퀀스 카운트
+  const count = await prisma.harvestRecord.count({
+    where: { farmId, date: dt, cropName },
+  });
+  const seq = String(count + 1).padStart(3, "0");
+  return `${ymd}-${cropPart}-${seq}`;
+}
+
 router.post("/:farmId/harvests", authenticate, async (req, res) => {
   try {
     const { farmId } = req.params;
@@ -395,6 +408,14 @@ router.post("/:farmId/harvests", authenticate, async (req, res) => {
       destination,
       unitPrice,
       notes,
+      // 출하 이력 (단계 3)
+      lotNumber,
+      traceabilityNo,
+      buyer,
+      invoiceNo,
+      loss,
+      lossReason,
+      qualityMetrics,
       photos,
     } = req.body;
 
@@ -408,6 +429,8 @@ router.post("/:farmId/harvests", authenticate, async (req, res) => {
     const qty = parseFloat(quantity);
     const price = unitPrice ? parseFloat(unitPrice) : null;
     const totalRevenue = price ? qty * price : null;
+    // 로트번호 미입력 시 자동 생성
+    const finalLot = (lotNumber && lotNumber.trim()) ? lotNumber.trim() : await generateLotNumber(farmId, date, cropName);
 
     const record = await prisma.harvestRecord.create({
       data: {
@@ -422,6 +445,13 @@ router.post("/:farmId/harvests", authenticate, async (req, res) => {
         unitPrice: price,
         totalRevenue,
         notes: notes || null,
+        lotNumber: finalLot,
+        traceabilityNo: traceabilityNo?.trim() || null,
+        buyer: buyer?.trim() || null,
+        invoiceNo: invoiceNo?.trim() || null,
+        loss: loss != null && loss !== "" ? parseFloat(loss) : null,
+        lossReason: lossReason?.trim() || null,
+        qualityMetrics: qualityMetrics && typeof qualityMetrics === "object" ? qualityMetrics : {},
         photos: photos || [],
         createdBy: req.user._id || req.user.id,
       },
@@ -452,14 +482,23 @@ router.put("/:farmId/harvests/:id", authenticate, async (req, res) => {
       "unitPrice",
       "notes",
       "photos",
+      // 출하 이력 (단계 3)
+      "lotNumber",
+      "traceabilityNo",
+      "buyer",
+      "invoiceNo",
+      "loss",
+      "lossReason",
+      "qualityMetrics",
     ];
 
     for (const f of fields) {
       if (req.body[f] !== undefined) {
         if (f === "date") data[f] = new Date(req.body[f]);
-        else if (["quantity", "unitPrice"].includes(f))
-          data[f] = req.body[f] ? parseFloat(req.body[f]) : null;
-        else data[f] = req.body[f];
+        else if (["quantity", "unitPrice", "loss"].includes(f))
+          data[f] = req.body[f] != null && req.body[f] !== "" ? parseFloat(req.body[f]) : null;
+        else if (f === "qualityMetrics") data[f] = req.body[f] && typeof req.body[f] === "object" ? req.body[f] : {};
+        else data[f] = req.body[f] || null;
       }
     }
 

@@ -296,12 +296,21 @@ model harvestRecord {
   unitPrice    Float?   @map("unit_price")
   totalRevenue Float?   @map("total_revenue")
   notes        String?
+  // 출하 이력 (농산물이력제 의무, 단계 3)
+  lotNumber       String?  @map("lot_number")        // 로트번호 (자율 부여, 일자 + 작목 + 일련번호 권장)
+  traceabilityNo  String?  @map("traceability_no")   // 농산물이력추적관리 등록번호 (12 자리)
+  buyer           String?                              // 거래처/구매자 (출하 추적)
+  invoiceNo       String?  @map("invoice_no")          // 거래명세서 번호
+  loss            Float?                               // 폐기/등외품 수량
+  lossReason      String?  @map("loss_reason")
+  qualityMetrics  Json?    @default("{}") @map("quality_metrics")  // {brix, acidity, size, color}
   photos       Json     @default("[]")
   createdBy    String   @map("created_by")
   createdAt    DateTime @default(now()) @map("created_at")
   updatedAt    DateTime @updatedAt @map("updated_at")
 
   @@index([farmId, date])
+  @@index([lotNumber])
   @@map("harvest_records")
 }
 

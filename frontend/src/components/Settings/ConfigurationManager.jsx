@@ -3592,21 +3592,28 @@ const SyncPanel = ({ farmId }) => {
   const [actionLoading, setActionLoading] = useState(null);
   const [actionMsg, setActionMsg] = useState(null); // { type: 'success'|'error', text }
 
+  // hybrid: WebSocket 우선 (외부 환경 동작) + LAN HTTP fallback (빠름)
   const loadStatus = useCallback(async () => {
     try {
-      const apiKeyHeader = { 'x-api-key': import.meta.env.VITE_SENSOR_API_KEY || 'smartfarm-sensor-key' };
-      let res;
-      try {
-        res = await axios.get(`${getApiBase()}/config/sync-status/${farmId}`, { timeout: 5000, headers: apiKeyHeader });
-      } catch {
-        // 클라우드 모드: RPi 직접 접근 불가 — 동기화 불필요 (단일 DB)
-        if (wsService.isConnected()) {
-          setSyncStatus({ syncRunning: false, pending: 0, synced: 0, total: 0, mode: 'cloud' });
+      // 1. WebSocket 경로 (Category A: RPi query)
+      if (wsService.isConnected()) {
+        const result = await new Promise((resolve) => {
+          const timeout = setTimeout(() => { unsub(); resolve(null); }, 5000);
+          const unsub = wsService.subscribe('sync:status', (msg) => {
+            clearTimeout(timeout); unsub(); resolve(msg.data);
+          });
+          wsService.requestSyncStatus(farmId);
+        });
+        if (result) {
+          setSyncStatus(result);
           setLoading(false);
           return;
         }
-        res = await axiosBase.get(`${getRpiApiBase()}/sync/status`, { timeout: 5000 });
       }
+
+      // 2. HTTP fallback (LAN 모드 — RPi 직접 접근 가능 시 빠름)
+      const rpiUrl = getRpiApiBase();
+      const res = await axiosBase.get(`${rpiUrl}/sync/status`, { timeout: 5000 });
       if (res.data?.success) setSyncStatus(res.data.data);
     } catch (err) {
       console.warn('[SyncPanel] status load failed:', err.message);
@@ -3622,23 +3629,27 @@ const SyncPanel = ({ farmId }) => {
     return () => clearInterval(id);
   }, [loadStatus, isRunning]);
 
+  // hybrid: WebSocket 우선 (Category B: RPi command) + LAN HTTP fallback
   const handleAction = async (action) => {
     if (action === 'skip' && !window.confirm('미동기화 데이터를 동기화 안함으로 처리하시겠습니까?\n해당 데이터는 서버에 전송되지 않습니다.')) return;
     setActionLoading(action);
     setActionMsg(null);
     const labels = { start: '동기화 시작', stop: '동기화 중지', skip: '동기화 안함' };
     try {
-      const apiKeyHeader = { 'x-api-key': import.meta.env.VITE_SENSOR_API_KEY || 'smartfarm-sensor-key' };
-      try {
-        await axios.post(`${getApiBase()}/config/sync-action/${farmId}`, { action }, { timeout: 10000, headers: apiKeyHeader });
-      } catch {
-        const rpiUrl = getRpiApiBase();
-        if (action === 'start') await axiosBase.post(`${rpiUrl}/sync/start`, {}, { timeout: 10000 });
-        else if (action === 'stop') await axiosBase.post(`${rpiUrl}/sync/stop`, {}, { timeout: 10000 });
-        else await axiosBase.post(`${rpiUrl}/sync/skip`, {}, { timeout: 10000 });
+      // 1. WebSocket 경로
+      if (wsService.isConnected()) {
+        const sent = wsService.requestSyncCommand(farmId, action);
+        if (sent) {
+          setActionMsg({ type: 'success', text: `${labels[action]} 요청 전송 (MQTT)` });
+          setTimeout(loadStatus, 1500);
+          setTimeout(loadStatus, 3000);
+          return;
+        }
       }
-      setActionMsg({ type: 'success', text: `${labels[action]} 명령을 전송했습니다` });
-      // 빠른 폴링으로 즉시 반영
+      // 2. HTTP fallback (LAN)
+      const rpiUrl = getRpiApiBase();
+      await axiosBase.post(`${rpiUrl}/sync/${action}`, {}, { timeout: 10000 });
+      setActionMsg({ type: 'success', text: `${labels[action]} 명령 전송됨` });
       setTimeout(loadStatus, 500);
       setTimeout(loadStatus, 2000);
     } catch (err) {

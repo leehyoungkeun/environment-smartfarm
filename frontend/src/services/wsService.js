@@ -112,6 +112,16 @@ class WsService {
     return this.send({ type: "relay:reset", farmId });
   }
 
+  // 동기화 상태 조회 (Category A: query)
+  requestSyncStatus(farmId) {
+    return this.send({ type: "sync:query", farmId });
+  }
+
+  // 동기화 명령 — start/stop/skip (Category B: command)
+  requestSyncCommand(farmId, action) {
+    return this.send({ type: "sync:command", farmId, action });
+  }
+
   // 이벤트 구독
   subscribe(eventType, callback) {
     if (!this.listeners[eventType]) {

@@ -151,6 +151,50 @@ function handleClientMessage(ws, msg) {
       break;
     }
 
+    case "sync:query": {
+      // 동기화 상태 조회 (Category A)
+      const farmId = msg.farmId || ws.farmId;
+      if (!ws.isSystemWide && farmId !== ws.farmId) {
+        ws.send(JSON.stringify({ type: "error", message: "권한 없음" }));
+        return;
+      }
+      const sent = mqttService.publishSyncQuery(farmId);
+      ws.send(JSON.stringify({
+        type: "sync:query:ack",
+        farmId,
+        sent,
+        mqtt: mqttService.isConnected(),
+      }));
+      const cached = mqttService.getSyncStatus(farmId);
+      if (cached) {
+        ws.send(JSON.stringify({ type: "sync:status", farmId, data: cached, cached: true }));
+      }
+      break;
+    }
+
+    case "sync:command": {
+      // 동기화 명령 — start/stop/skip (Category B)
+      const farmId = msg.farmId || ws.farmId;
+      if (!ws.isSystemWide && farmId !== ws.farmId) {
+        ws.send(JSON.stringify({ type: "error", message: "권한 없음" }));
+        return;
+      }
+      const action = msg.action;
+      if (!["start", "stop", "skip"].includes(action)) {
+        ws.send(JSON.stringify({ type: "error", message: "잘못된 sync action" }));
+        return;
+      }
+      const sent = mqttService.publishSyncCommand(farmId, action, ws.username || "unknown");
+      ws.send(JSON.stringify({
+        type: "sync:command:ack",
+        farmId,
+        action,
+        sent,
+        mqtt: mqttService.isConnected(),
+      }));
+      break;
+    }
+
     case "system:command": {
       // 시스템 명령 → MQTT로 RPi에 전달
       const farmId = msg.farmId || ws.farmId;
@@ -197,6 +241,11 @@ function setupMqttBridge() {
   // 센서 상태 → 해당 농장 WebSocket 클라이언트로 전달
   mqttService.on("sensor:status", ({ farmId, data }) => {
     broadcast(farmId, { type: "sensor:status", farmId, data });
+  });
+
+  // 동기화 상태 → 해당 농장 WebSocket 클라이언트로 전달
+  mqttService.on("sync:status", ({ farmId, data }) => {
+    broadcast(farmId, { type: "sync:status", farmId, data });
   });
 
   // 릴레이 조회 응답 → 해당 농장 WebSocket 클라이언트로 전달

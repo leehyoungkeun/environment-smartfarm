@@ -1041,9 +1041,26 @@ function PhotoGallery(){const FARM_ID=useContext(FarmIdCtx);
   const df=useDateFilter();
   const[entries,setEntries]=useState([]);const[loading,setLoading]=useState(true);
   const[houses,setHouses]=useState([]);
-  const[filter,setFilter]=useState({houseId:"",workType:"",tag:""});
+  const[filter,setFilter]=useState({houseId:"",workType:"",tag:"",keyword:""});
   const[groupBy,setGroupBy]=useState("date"); // date|house|workType
   const[lightbox,setLightbox]=useState(null); // { url, entry, idx, total }
+  // AI 의미 검색 — entryIds 결과로 필터
+  const[aiQuery,setAiQuery]=useState("");
+  const[aiSearching,setAiSearching]=useState(false);
+  const[aiResult,setAiResult]=useState(null); // { entryIds: Set, reasoning }
+  const runAiSearch=async()=>{
+    const q=aiQuery.trim();
+    if(q.length<2)return;
+    setAiSearching(true);
+    try{
+      const r=await api(`/ai/${FARM_ID}/photo-search`,{method:'POST',body:JSON.stringify({query:q})});
+      if(r?.success){
+        setAiResult({entryIds:new Set(r.data?.entryIds||[]),reasoning:r.data?.reasoning||""});
+      }
+    }catch(e){alert("AI 검색 실패: "+e.message);}
+    finally{setAiSearching(false);}
+  };
+  const clearAi=()=>{setAiQuery("");setAiResult(null);};
 
   useEffect(()=>{api(`/config/farm/${FARM_ID}`).then(r=>setHouses(r.data||[])).catch(()=>{})},[FARM_ID]);
   useEffect(()=>{
@@ -1060,10 +1077,18 @@ function PhotoGallery(){const FARM_ID=useContext(FarmIdCtx);
   // 평탄화 — 사진 1 장 = 1 row + 출처 일지 메타
   const photos=useMemo(()=>{
     const list=[];
+    const kw=filter.keyword.trim().toLowerCase();
     for(const e of entries){
       if(filter.houseId&&e.houseId!==filter.houseId)continue;
       if(filter.workType&&e.workType!==filter.workType)continue;
       if(filter.tag&&!(Array.isArray(e.tags)&&e.tags.includes(filter.tag)))continue;
+      // AI 의미 검색 결과 (있으면 entryIds 에 포함된 것만)
+      if(aiResult&&!aiResult.entryIds.has(e._id))continue;
+      // 키워드 검색 — content/pest/notes/tags/cropName/variety 매칭
+      if(kw){
+        const hay=[e.content,e.pest,e.notes,e.cropName,e.variety,...(e.tags||[])].filter(Boolean).join(' ').toLowerCase();
+        if(!hay.includes(kw))continue;
+      }
       (e.photos||[]).forEach((p,idx)=>{
         list.push({
           url:photoUrl(p),
@@ -1110,6 +1135,29 @@ function PhotoGallery(){const FARM_ID=useContext(FarmIdCtx);
 
   return(
     <div className="space-y-4">
+      {/* ✨ AI 의미 검색 — 자연어 질의 */}
+      <div className="glass-card p-3">
+        <div className="flex items-center gap-2 flex-wrap">
+          <span className="text-sm font-semibold !text-violet-800">✨ AI 검색</span>
+          <input style={LIGHT_INPUT} type="text" value={aiQuery} onChange={e=>setAiQuery(e.target.value)}
+            onKeyDown={e=>{if(e.key==='Enter')runAiSearch();}}
+            placeholder='예: "작년 같은 시기 황화", "토마토 탄저병", "8월 수확"'
+            className="input-field text-sm flex-1 min-w-[200px]" />
+          <button type="button" onClick={runAiSearch} disabled={aiSearching||aiQuery.trim().length<2}
+            className={`px-3 py-1.5 rounded-md text-xs font-semibold border ${aiSearching?'bg-violet-200 !text-violet-800 border-violet-500 animate-pulse':'bg-violet-100 !text-violet-800 border-violet-400 hover:bg-violet-200'} disabled:opacity-50`}>
+            {aiSearching?'검색 중...':'✨ 검색'}
+          </button>
+          {aiResult&&(
+            <button type="button" onClick={clearAi} className="px-3 py-1.5 rounded-md text-xs bg-white !text-gray-700 border border-gray-300 hover:bg-gray-50">×해제</button>
+          )}
+        </div>
+        {aiResult&&(
+          <div className={`mt-2 text-xs px-3 py-1.5 rounded ${aiResult.entryIds.size>0?'bg-emerald-50 !text-emerald-800 border border-emerald-300':'bg-amber-50 !text-amber-800 border border-amber-300'}`}>
+            🎯 {aiResult.reasoning} {aiResult.entryIds.size>0&&<span className="font-semibold">({aiResult.entryIds.size}건 매칭)</span>}
+          </div>
+        )}
+      </div>
+
       <SearchFilterBar {...df}>
         <div className="flex items-center gap-3 flex-wrap">
           <div className="flex items-center gap-2"><span className="text-xs text-gray-600 font-medium">하우스</span>
@@ -1123,6 +1171,9 @@ function PhotoGallery(){const FARM_ID=useContext(FarmIdCtx);
               <select value={filter.tag} onChange={e=>setFilter(p=>({...p,tag:e.target.value}))} style={LIGHT_INPUT} className="input-field jrn-select text-xs py-1 px-2 w-32"><option value="">전체</option>{allTags.map(t=><option key={t} value={t}>#{t}</option>)}</select>
             </div>
           )}
+          <div className="flex items-center gap-2"><span className="text-xs text-gray-600 font-medium">검색</span>
+            <input style={LIGHT_INPUT} type="text" value={filter.keyword} onChange={e=>setFilter(p=>({...p,keyword:e.target.value}))} placeholder="키워드 (작목·병해·작업…)" className="input-field text-xs py-1 px-2 w-44" />
+          </div>
           <div className="flex items-center gap-2"><span className="text-xs text-gray-600 font-medium">묶음</span>
             <select value={groupBy} onChange={e=>setGroupBy(e.target.value)} style={LIGHT_INPUT} className="input-field jrn-select text-xs py-1 px-2 w-24">
               <option value="date">날짜별</option>
@@ -1130,7 +1181,7 @@ function PhotoGallery(){const FARM_ID=useContext(FarmIdCtx);
               <option value="workType">작업별</option>
             </select>
           </div>
-          <button onClick={()=>{setFilter({houseId:"",workType:"",tag:""});df.resetFilters();}} className="px-3 py-1 rounded-lg text-xs bg-white !text-gray-700 border border-gray-300 hover:bg-gray-50 font-medium">↺ 초기화</button>
+          <button onClick={()=>{setFilter({houseId:"",workType:"",tag:"",keyword:""});df.resetFilters();}} className="px-3 py-1 rounded-lg text-xs bg-white !text-gray-700 border border-gray-300 hover:bg-gray-50 font-medium">↺ 초기화</button>
           <span className="text-xs text-gray-500 ml-auto">사진 {photos.length}장 / 일지 {entries.length}건</span>
         </div>
       </SearchFilterBar>

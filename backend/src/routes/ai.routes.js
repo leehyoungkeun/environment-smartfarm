@@ -716,6 +716,73 @@ router.post("/:farmId/journal/parse-photo", authenticate, async (req, res) => {
   }
 });
 
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// 사진 의미 검색 — 자연어 질의 → 매칭 일지 ID 반환
+// "작년 같은 시기 황화" / "토마토 탄저병" / "8월 수확" 같은 자유 질의
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+router.post("/:farmId/photo-search", authenticate, async (req, res) => {
+  const { query, limit = 200 } = req.body || {};
+  if (!query || typeof query !== "string" || query.trim().length < 2) {
+    return res.status(400).json({ success: false, error: "검색어를 2글자 이상 입력하세요" });
+  }
+  try {
+    // 사진 있는 일지만 (모든 기간)
+    const entries = await prisma.farmJournal.findMany({
+      where: { farmId: req.params.farmId, photos: { not: { equals: [] } } },
+      select: {
+        id: true, date: true, houseId: true, workType: true, growthStage: true,
+        cropName: true, variety: true, content: true, pest: true, notes: true, tags: true,
+      },
+      orderBy: { date: "desc" },
+      take: parseInt(limit) || 200,
+    });
+
+    if (entries.length === 0) {
+      return res.json({ success: true, data: { entryIds: [], reasoning: "사진 있는 일지가 없습니다" } });
+    }
+
+    // 일지 압축 (Gemini token 절약)
+    const text = entries.map((e, i) => {
+      const d = e.date?.toISOString?.().slice(0, 10) || e.date;
+      return `${i + 1}) ID=${e.id} [${d}] ${e.workType}${e.cropName ? `/${e.cropName}` : ""}${e.variety ? `(${e.variety})` : ""}${e.houseId ? `/${e.houseId}` : ""}${e.growthStage ? `/${e.growthStage}` : ""}: ${e.content?.slice(0, 100) || ""}${e.pest ? ` | 병해: ${e.pest}` : ""}${e.notes ? ` | ${e.notes.slice(0, 50)}` : ""}${Array.isArray(e.tags) && e.tags.length ? ` | #${e.tags.join(" #")}` : ""}`;
+    }).join("\n");
+
+    const systemPrompt = `당신은 한국 농가 영농일지 검색 AI 입니다. 사용자 질의에 가장 잘 맞는 일지를 찾아주세요.
+
+다음 JSON 으로만 응답:
+{
+  "entryIds": ["id1", "id2", ...],   // 매칭 일지 ID. 정확히 일치 + 유사 의미 모두. 우선순위 높은 순.
+  "reasoning": "왜 이 일지들을 골랐는지 한 문장 (한국어)"
+}
+
+규칙:
+- 일치 없으면 "entryIds": []
+- 최대 50 개. 정확도 낮은 건 제외.
+- 의미 검색 — "황화" 질의에 "잎 노랑", "leaf yellowing" 도 매칭
+- 시기 키워드 ("작년", "8월", "수확기") 정확히 처리
+- JSON 만 출력. 마크다운 코드블록 금지.`;
+
+    const userPrompt = `사용자 질의: "${query.trim()}"\n\n일지 목록 (${entries.length}건):\n${text}`;
+    const raw = await callAI(userPrompt, { systemPrompt, model: "gemini-2.5-flash" });
+
+    let parsed = null;
+    try {
+      let s = String(raw).trim().replace(/^```(?:json)?\s*/i, "").replace(/```\s*$/i, "").trim();
+      const f = s.indexOf("{"), l = s.lastIndexOf("}");
+      if (f >= 0 && l > f) s = s.slice(f, l + 1);
+      parsed = JSON.parse(s);
+    } catch { /* fallback */ }
+
+    const entryIds = Array.isArray(parsed?.entryIds) ? parsed.entryIds.filter(id => typeof id === "string").slice(0, 50) : [];
+    const reasoning = String(parsed?.reasoning || "").trim() || (entryIds.length === 0 ? "관련 일지가 없습니다" : `${entryIds.length}건 매칭`);
+
+    res.json({ success: true, data: { entryIds, reasoning, totalSearched: entries.length } });
+  } catch (err) {
+    logger.error("photo-search 실패: " + err.message);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 router.post("/:farmId/journal/parse-text", authenticate, async (req, res) => {
   const { text, hints } = req.body || {};
   if (!text || typeof text !== "string" || text.trim().length < 2) {

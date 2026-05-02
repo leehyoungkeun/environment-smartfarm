@@ -142,6 +142,7 @@ model farmJournal {
   content     String
   pest        String?
   notes       String?
+  tags        String[] @default([])
   photos      Json     @default("[]")
   createdBy   String   @map("created_by")
   createdAt   DateTime @default(now()) @map("created_at")
@@ -149,7 +150,26 @@ model farmJournal {
 
   @@index([farmId, date])
   @@index([farmId, houseId, date])
+  @@index([tags], type: Gin)
   @@map("farm_journals")
+}
+
+// 영농일지 템플릿 — 자주 쓰는 작업을 1 클릭으로 일지 생성
+// payload 는 farmJournal 의 일부 필드 (workType, content, tags 등) 를 미리 저장한 JSON
+model journalTemplate {
+  id        String   @id @default(dbgenerated("(gen_random_uuid())::text"))
+  farmId    String   @map("farm_id")
+  name      String
+  emoji     String?
+  payload   Json     @default("{}")
+  useCount  Int      @default(0) @map("use_count")
+  sortOrder Int      @default(0) @map("sort_order")
+  createdBy String   @map("created_by")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@index([farmId, sortOrder])
+  @@map("journal_templates")
 }
 
 model farmNote {

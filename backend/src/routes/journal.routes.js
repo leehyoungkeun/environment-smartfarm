@@ -113,6 +113,8 @@ router.get("/:farmId/entries", authenticate, async (req, res) => {
       workType,
       startDate,
       endDate,
+      tags, // CSV: "방제,수확" (전체 일치 = AND, 일부는 hasSome)
+      tagsMode = "any", // any|all
       limit = 50,
       page = 1,
     } = req.query;
@@ -124,6 +126,12 @@ router.get("/:farmId/entries", authenticate, async (req, res) => {
       where.date = {};
       if (startDate) where.date.gte = new Date(startDate);
       if (endDate) where.date.lte = new Date(endDate);
+    }
+    if (tags && typeof tags === "string") {
+      const tagList = tags.split(",").map((t) => t.trim()).filter(Boolean);
+      if (tagList.length > 0) {
+        where.tags = tagsMode === "all" ? { hasEvery: tagList } : { hasSome: tagList };
+      }
     }
 
     const limitNum = Math.min(parseInt(limit) || 50, 200);
@@ -195,6 +203,7 @@ router.post("/:farmId/entries", authenticate, async (req, res) => {
       content,
       pest,
       notes,
+      tags,
       photos,
     } = req.body;
 
@@ -204,6 +213,13 @@ router.post("/:farmId/entries", authenticate, async (req, res) => {
         error: "날짜, 작업유형, 작업내용은 필수입니다",
       });
     }
+
+    // 태그 정규화: 배열 또는 CSV 문자열, 공백/중복 제거, max 20
+    const normTags = (() => {
+      const arr = Array.isArray(tags) ? tags : (typeof tags === "string" ? tags.split(",") : []);
+      const cleaned = arr.map((t) => String(t).trim().replace(/^#/, "")).filter(Boolean);
+      return Array.from(new Set(cleaned)).slice(0, 20);
+    })();
 
     const entry = await prisma.farmJournal.create({
       data: {
@@ -219,6 +235,7 @@ router.post("/:farmId/entries", authenticate, async (req, res) => {
         content,
         pest: pest || null,
         notes: notes || null,
+        tags: normTags,
         photos: photos || [],
         createdBy: req.user._id || req.user.id,
       },
@@ -252,6 +269,7 @@ router.put("/:farmId/entries/:id", authenticate, async (req, res) => {
       "content",
       "pest",
       "notes",
+      "tags",
       "photos",
     ];
 
@@ -260,6 +278,10 @@ router.put("/:farmId/entries/:id", authenticate, async (req, res) => {
         if (f === "date") data[f] = new Date(req.body[f]);
         else if (["tempMin", "tempMax", "humidity"].includes(f))
           data[f] = req.body[f] ? parseFloat(req.body[f]) : null;
+        else if (f === "tags") {
+          const arr = Array.isArray(req.body[f]) ? req.body[f] : (typeof req.body[f] === "string" ? req.body[f].split(",") : []);
+          data[f] = Array.from(new Set(arr.map((t) => String(t).trim().replace(/^#/, "")).filter(Boolean))).slice(0, 20);
+        }
         else data[f] = req.body[f];
       }
     }
@@ -736,6 +758,80 @@ function formatRecord(record) {
   const { id, ...rest } = record;
   return { _id: id, ...rest };
 }
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// 영농일지 템플릿 (P0-4) — 자주 쓰는 작업 1 클릭 생성
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// 목록
+router.get("/:farmId/templates", authenticate, async (req, res) => {
+  try {
+    const { farmId } = req.params;
+    const list = await prisma.journalTemplate.findMany({
+      where: { farmId },
+      orderBy: [{ sortOrder: "asc" }, { useCount: "desc" }, { createdAt: "desc" }],
+    });
+    res.json({ success: true, data: list.map(formatJournal) });
+  } catch (e) { res.status(500).json({ success: false, error: e.message }); }
+});
+
+// 생성
+router.post("/:farmId/templates", authenticate, async (req, res) => {
+  try {
+    const { farmId } = req.params;
+    const { name, emoji, payload, sortOrder } = req.body || {};
+    if (!name || !name.trim()) return res.status(400).json({ success: false, error: "name 은 필수입니다" });
+    const t = await prisma.journalTemplate.create({
+      data: {
+        farmId,
+        name: name.trim(),
+        emoji: emoji?.trim() || null,
+        payload: payload || {},
+        sortOrder: Number.isFinite(Number(sortOrder)) ? Number(sortOrder) : 0,
+        createdBy: req.user._id || req.user.id,
+      },
+    });
+    res.json({ success: true, data: formatJournal(t) });
+  } catch (e) { res.status(400).json({ success: false, error: e.message }); }
+});
+
+// 수정
+router.put("/:farmId/templates/:id", authenticate, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const data = {};
+    if (req.body.name !== undefined) data.name = String(req.body.name).trim();
+    if (req.body.emoji !== undefined) data.emoji = req.body.emoji?.trim() || null;
+    if (req.body.payload !== undefined) data.payload = req.body.payload;
+    if (req.body.sortOrder !== undefined) data.sortOrder = Number(req.body.sortOrder) || 0;
+    const t = await prisma.journalTemplate.update({ where: { id }, data });
+    res.json({ success: true, data: formatJournal(t) });
+  } catch (e) {
+    if (e.code === "P2025") return res.status(404).json({ success: false, error: "템플릿을 찾을 수 없습니다" });
+    res.status(400).json({ success: false, error: e.message });
+  }
+});
+
+// 삭제
+router.delete("/:farmId/templates/:id", authenticate, async (req, res) => {
+  try {
+    await prisma.journalTemplate.delete({ where: { id: req.params.id } });
+    res.json({ success: true });
+  } catch (e) {
+    if (e.code === "P2025") return res.status(404).json({ success: false, error: "템플릿을 찾을 수 없습니다" });
+    res.status(400).json({ success: false, error: e.message });
+  }
+});
+
+// 사용 카운트 증가 (템플릿 적용 시 호출)
+router.post("/:farmId/templates/:id/use", authenticate, async (req, res) => {
+  try {
+    const t = await prisma.journalTemplate.update({
+      where: { id: req.params.id },
+      data: { useCount: { increment: 1 } },
+    });
+    res.json({ success: true, data: formatJournal(t) });
+  } catch (e) { res.status(400).json({ success: false, error: e.message }); }
+});
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // 자동 채움 — 일지 작성 시 환경값 자동 주입

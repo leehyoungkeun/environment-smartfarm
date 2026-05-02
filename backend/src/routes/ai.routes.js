@@ -585,6 +585,7 @@ function buildJournalParseSystemPrompt(hints) {
   "content": "정제된 작업 내용(원문에서 군더더기 제거, 한국어 자연스러운 1~3문장)",
   "pest": "발견된 병해충 (없으면 null)",
   "notes": "특이사항/메모 (없으면 null)",
+  "tags": ["#기호 없는 짧은 단어 1~5개. 예: 방제, 수확, 황화, 곁순정리, 양액. 없으면 빈 배열 []"],
   "confidence": {
     "houseId": "high|medium|low|null",
     "workType": "high|medium|low|null",
@@ -732,6 +733,11 @@ router.post("/:farmId/journal/parse-text", authenticate, async (req, res) => {
     };
     const str = (v) => (v === null || v === undefined ? null : String(v).trim() || null);
 
+    // tags 배열 정규화
+    const tags = Array.isArray(parsed.tags)
+      ? Array.from(new Set(parsed.tags.map((t) => String(t).trim().replace(/^#/, "")).filter(Boolean))).slice(0, 10)
+      : [];
+
     const data = {
       houseId: str(parsed.houseId),
       workType: str(parsed.workType),
@@ -743,6 +749,7 @@ router.post("/:farmId/journal/parse-text", authenticate, async (req, res) => {
       content: str(parsed.content),
       pest: str(parsed.pest),
       notes: str(parsed.notes),
+      tags,
       confidence: parsed.confidence && typeof parsed.confidence === "object" ? parsed.confidence : {},
     };
 

@@ -502,11 +502,38 @@ function JournalWrite(){const FARM_ID=useContext(FarmIdCtx);
   return(<div className="space-y-4">{saved&&<div className="bg-emerald-500/20 border border-emerald-500/30 text-emerald-400 px-4 py-3 rounded-lg text-sm">✅ 영농일지가 저장되었습니다!</div>}<JournalForm entry={null} onSave={handleSave} onCancel={null} /></div>);
 }
 
+// ━━━ 템플릿 저장 박스 (이름·이모지) ━━━
+function TemplateSaveBox({onSave,onCancel}){
+  const[name,setName]=useState('');
+  const[emoji,setEmoji]=useState('');
+  return(
+    <div className="bg-amber-500/10 border border-amber-500/20 rounded-lg p-3 flex items-end gap-2 flex-wrap">
+      <div className="flex-1 min-w-[140px]">
+        <label className="text-[10px] text-amber-300/80 mb-1 block">템플릿 이름</label>
+        <input autoFocus type="text" value={name} onChange={e=>setName(e.target.value)}
+          placeholder="예: 매일 양액 점검"
+          className="input-field text-xs w-full" />
+      </div>
+      <div className="w-20">
+        <label className="text-[10px] text-amber-300/80 mb-1 block">이모지</label>
+        <input type="text" value={emoji} onChange={e=>setEmoji(e.target.value)}
+          placeholder="⭐"
+          className="input-field text-xs w-full" />
+      </div>
+      <button type="button" onClick={()=>onSave(name,emoji)} disabled={!name.trim()}
+        className="px-3 py-1.5 bg-amber-500/20 text-amber-300 border border-amber-500/30 rounded-md text-xs hover:bg-amber-500/30 disabled:opacity-40 disabled:cursor-not-allowed">
+        저장
+      </button>
+      <button type="button" onClick={onCancel} className="px-3 py-1.5 text-xs text-gray-400 hover:text-gray-200">취소</button>
+    </div>
+  );
+}
+
 // ━━━ 영농일지 폼 ━━━
 function JournalForm({entry,onSave,onCancel}){const FARM_ID=useContext(FarmIdCtx);
   const today=new Date().toISOString().split("T")[0];
   const[houses,setHouses]=useState([]);
-  const[form,setForm]=useState({houseId:entry?.houseId||"",date:entry?.date?new Date(entry.date).toISOString().split("T")[0]:today,weather:entry?.weather||"",tempMin:entry?.tempMin||"",tempMax:entry?.tempMax||"",humidity:entry?.humidity||"",workType:entry?.workType||"관리",growthStage:entry?.growthStage||"",content:entry?.content||"",pest:entry?.pest||"",notes:entry?.notes||"",photos:entry?.photos||[]});
+  const[form,setForm]=useState({houseId:entry?.houseId||"",date:entry?.date?new Date(entry.date).toISOString().split("T")[0]:today,weather:entry?.weather||"",tempMin:entry?.tempMin||"",tempMax:entry?.tempMax||"",humidity:entry?.humidity||"",workType:entry?.workType||"관리",growthStage:entry?.growthStage||"",content:entry?.content||"",pest:entry?.pest||"",notes:entry?.notes||"",tags:entry?.tags||[],photos:entry?.photos||[]});
   const[uploading,setUploading]=useState(false);
   const[listening,setListening]=useState(false);
   const[parsing,setParsing]=useState(false);
@@ -555,6 +582,11 @@ function JournalForm({entry,onSave,onCancel}){const FARM_ID=useContext(FarmIdCtx
         fill('humidity',d.humidity);
         fill('pest',d.pest);
         fill('notes',d.notes);
+        // tags: AI 추천 태그를 기존 태그와 합치기 (중복 제거)
+        if(Array.isArray(d.tags)&&d.tags.length>0){
+          const merged=Array.from(new Set([...(prev.tags||[]),...d.tags])).slice(0,20);
+          if(merged.length>(prev.tags||[]).length){next.tags=merged;filled.add('tags');}
+        }
         // content 는 AI 가 정제한 버전이 있으면 교체 (원문은 이미 음성/타자 그대로)
         if(d.content&&d.content.length>0&&d.content!==prev.content){next.content=d.content;filled.add('content')}
         return next;
@@ -648,10 +680,79 @@ function JournalForm({entry,onSave,onCancel}){const FARM_ID=useContext(FarmIdCtx
     }catch(err){alert("업로드 실패")}
     finally{setUploading(false)}
   };
-  const handleSubmit=async()=>{if(!form.content.trim()){alert("작업 내용을 입력하세요");return}await onSave(form);if(!entry)setForm({houseId:houses[0]?.houseId||"",date:today,weather:"",tempMin:"",tempMax:"",humidity:"",workType:"관리",growthStage:"",content:"",pest:"",notes:"",photos:[]})};
+  const handleSubmit=async()=>{if(!form.content.trim()){alert("작업 내용을 입력하세요");return}await onSave(form);if(!entry){setForm({houseId:houses[0]?.houseId||"",date:today,weather:"",tempMin:"",tempMax:"",humidity:"",workType:"관리",growthStage:"",content:"",pest:"",notes:"",tags:[],photos:[]});setAiFilled(new Set());setPhotoAi(null);setAutoSummary(null);}};
+
+  // ── 템플릿 (P0-4) ──
+  const[templates,setTemplates]=useState([]);
+  const[showTplSave,setShowTplSave]=useState(false);
+  useEffect(()=>{api(`/journal/${FARM_ID}/templates`).then(r=>setTemplates(r.data||[])).catch(()=>{})},[FARM_ID]);
+  const applyTemplate=async(t)=>{
+    const p=t.payload||{};
+    setForm(prev=>({
+      ...prev,
+      workType:p.workType||prev.workType,
+      growthStage:p.growthStage||prev.growthStage,
+      content:p.content||prev.content,
+      pest:p.pest||prev.pest,
+      notes:p.notes||prev.notes,
+      tags:Array.isArray(p.tags)?p.tags:prev.tags,
+    }));
+    // 사용 카운트 증가 (실패해도 UI 영향 없음)
+    api(`/journal/${FARM_ID}/templates/${t._id}/use`,{method:'POST'}).catch(()=>{});
+  };
+  const saveCurrentAsTemplate=async(name,emoji)=>{
+    if(!name?.trim())return;
+    const r=await api(`/journal/${FARM_ID}/templates`,{method:'POST',body:JSON.stringify({
+      name:name.trim(),emoji:emoji||null,
+      payload:{workType:form.workType,growthStage:form.growthStage,content:form.content,pest:form.pest,notes:form.notes,tags:form.tags},
+    })});
+    if(r.success){setTemplates(prev=>[r.data,...prev]);setShowTplSave(false);}
+  };
+  const deleteTemplate=async(id)=>{
+    if(!confirm('템플릿을 삭제하시겠습니까?'))return;
+    await api(`/journal/${FARM_ID}/templates/${id}`,{method:'DELETE'});
+    setTemplates(prev=>prev.filter(t=>t._id!==id));
+  };
+
+  // ── 태그 chip 입력 (P0-5) ──
+  const[tagInput,setTagInput]=useState('');
+  const addTag=(raw)=>{
+    const t=String(raw||'').trim().replace(/^#/,'');
+    if(!t)return;
+    if(form.tags.includes(t))return;
+    setForm(p=>({...p,tags:[...p.tags,t].slice(0,20)}));
+    setTagInput('');
+  };
+  const removeTag=(t)=>setForm(p=>({...p,tags:p.tags.filter(x=>x!==t)}));
   return(
     <div className="glass-card p-5 space-y-4">
-      <h3 className="text-lg font-semibold text-white">{entry?"일지 수정":"새 일지 작성"}</h3>
+      <div className="flex items-center justify-between flex-wrap gap-2">
+        <h3 className="text-lg font-semibold text-white">{entry?"일지 수정":"새 일지 작성"}</h3>
+        {!entry&&(
+          <div className="flex items-center gap-2 flex-wrap">
+            {templates.length>0&&(
+              <div className="flex items-center gap-1 flex-wrap">
+                <span className="text-xs text-gray-400">템플릿:</span>
+                {templates.slice(0,5).map(t=>(
+                  <button key={t._id} type="button" onClick={()=>applyTemplate(t)}
+                    className="px-2 py-1 text-xs bg-amber-500/10 text-amber-300 border border-amber-500/30 rounded-md hover:bg-amber-500/20 transition-colors group">
+                    <span>{t.emoji||'⭐'} {t.name}</span>
+                    <span onClick={e=>{e.stopPropagation();deleteTemplate(t._id);}} className="ml-1.5 text-amber-400/40 group-hover:text-rose-400 cursor-pointer" title="삭제">×</span>
+                  </button>
+                ))}
+              </div>
+            )}
+            <button type="button" onClick={()=>setShowTplSave(true)}
+              disabled={!form.content?.trim()&&!form.workType}
+              className="px-2 py-1 text-xs bg-white/5 text-gray-400 border border-white/10 rounded-md hover:bg-white/10 disabled:opacity-40 disabled:cursor-not-allowed">
+              💾 템플릿 저장
+            </button>
+          </div>
+        )}
+      </div>
+      {showTplSave&&(
+        <TemplateSaveBox onSave={saveCurrentAsTemplate} onCancel={()=>setShowTplSave(false)} />
+      )}
       {autoSummary&&(autoSummary.sensor?.available||autoSummary.control?.available)&&(
         <div className="bg-emerald-500/10 border border-emerald-500/20 rounded-lg p-3 text-xs space-y-1">
           {autoSummary.sensor?.available&&(
@@ -698,6 +799,23 @@ function JournalForm({entry,onSave,onCancel}){const FARM_ID=useContext(FarmIdCtx
       <div className="grid grid-cols-2 gap-3">
         <div><label className="text-xs text-gray-400 mb-1 flex items-center gap-1">병해충{aiFilled.has('pest')&&<span className="text-violet-400" title="AI 채움">✨</span>}</label><input type="text" value={form.pest} onChange={e=>set("pest",e.target.value)} placeholder="발견된 병해충" className={`input-field text-sm w-full ${aiFilled.has('pest')?'ring-1 ring-violet-400/40':''}`} /></div>
         <div><label className="text-xs text-gray-400 mb-1 flex items-center gap-1">비고{aiFilled.has('notes')&&<span className="text-violet-400" title="AI 채움">✨</span>}</label><input type="text" value={form.notes} onChange={e=>set("notes",e.target.value)} className={`input-field text-sm w-full ${aiFilled.has('notes')?'ring-1 ring-violet-400/40':''}`} /></div>
+      </div>
+      {/* 태그 chip 입력 (P0-5) */}
+      <div>
+        <label className="text-xs text-gray-400 mb-1 flex items-center gap-1">태그 {aiFilled.has('tags')&&<span className="text-violet-400" title="AI 채움">✨</span>}<span className="text-[10px] text-gray-500">— 검색·분류용 (#방제 #수확 등)</span></label>
+        <div className={`flex flex-wrap gap-1.5 items-center px-2 py-1.5 rounded-lg border ${aiFilled.has('tags')?'border-violet-400/40 bg-violet-500/5':'border-white/10 bg-white/5'}`}>
+          {form.tags.map((t,i)=>(
+            <span key={i} className="inline-flex items-center gap-1 px-2 py-0.5 bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 rounded-full text-xs">
+              #{t}
+              <button type="button" onClick={()=>removeTag(t)} className="text-emerald-400/60 hover:text-rose-300 ml-0.5">×</button>
+            </span>
+          ))}
+          <input type="text" value={tagInput} onChange={e=>setTagInput(e.target.value)}
+            onKeyDown={e=>{if(['Enter',',',' '].includes(e.key)){e.preventDefault();addTag(tagInput);}else if(e.key==='Backspace'&&!tagInput&&form.tags.length>0){removeTag(form.tags[form.tags.length-1]);}}}
+            onBlur={()=>{if(tagInput)addTag(tagInput);}}
+            placeholder={form.tags.length===0?'태그 입력 후 Enter 또는 쉼표':'추가...'}
+            className="flex-1 min-w-[80px] bg-transparent text-xs text-white placeholder:text-gray-500 outline-none" />
+        </div>
       </div>
       <div><label className="text-xs text-gray-400 mb-1 flex items-center gap-2">사진
         {photoAnalyzing&&<span className="text-[10px] text-violet-300 animate-pulse">✨ 사진 분석 중…</span>}

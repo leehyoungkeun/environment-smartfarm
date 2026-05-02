@@ -599,7 +599,55 @@ function JournalForm({entry,onSave,onCancel}){const FARM_ID=useContext(FarmIdCtx
     setForm(p=>({...p,[k]:v}));
     if(aiFilled.has(k)){const ns=new Set(aiFilled);ns.delete(k);setAiFilled(ns);}
   };
-  const handlePhotoUpload=async e=>{const files=e.target.files;if(!files?.length)return;setUploading(true);try{const fd=new FormData();for(const f of files)fd.append("photos",f);const res=await fetch(`${API_BASE}/journal/${FARM_ID}/photos`,{method:"POST",headers:{Authorization:`Bearer ${getToken()}`},body:fd});const data=await res.json();if(data.success)set("photos",[...form.photos,...data.data])}catch(err){alert("업로드 실패")}finally{setUploading(false)}};
+  // 사진 업로드 후 AI 가 분석한 결과 (병해충 진단 등) — 별도 패널 표시용
+  const[photoAi,setPhotoAi]=useState(null);
+  const[photoAnalyzing,setPhotoAnalyzing]=useState(false);
+  // 사진 한 장으로 폼 빈 필드 자동 채움 + 분석 패널 표시
+  const analyzePhoto=async(filename)=>{
+    if(!filename)return;
+    setPhotoAnalyzing(true);
+    try{
+      const r=await api(`/ai/${FARM_ID}/journal/parse-photo`,{method:'POST',body:JSON.stringify({
+        filename,
+        text:form.content||'',
+        hints:{workTypes:WORK_TYPES,growthStages:GROWTH_STAGES},
+      })});
+      if(!r.success){return}
+      const d=r.data||{};
+      const filled=new Set(aiFilled);
+      setForm(prev=>{
+        const next={...prev};
+        const fill=(k,v)=>{if(v!==null&&v!==undefined&&v!==''&&(!prev[k]||prev[k]===''||(k==='workType'&&prev[k]==='관리'))){next[k]=v;filled.add(k);}};
+        fill('growthStage',d.growthStage);
+        fill('workType',d.workType);
+        fill('pest',d.pest);
+        // observation 은 content 가 비었을 때만 채움 (사용자 음성/타자 보존 우선)
+        if(d.observation&&!prev.content){next.content=d.observation;filled.add('content');}
+        return next;
+      });
+      setAiFilled(filled);
+      setPhotoAi(d);
+    }catch{/* 분석 실패해도 사진은 첨부된 상태 */}
+    finally{setPhotoAnalyzing(false);}
+  };
+  const handlePhotoUpload=async e=>{
+    const files=e.target.files;if(!files?.length)return;
+    setUploading(true);
+    try{
+      const fd=new FormData();for(const f of files)fd.append("photos",f);
+      const res=await fetch(`${API_BASE}/journal/${FARM_ID}/photos`,{method:"POST",headers:{Authorization:`Bearer ${getToken()}`},body:fd});
+      const data=await res.json();
+      if(data.success&&data.data?.length){
+        set("photos",[...form.photos,...data.data]);
+        // 첫 사진 자동 분석 (이미 분석된 게 없을 때만)
+        if(!photoAi&&!entry){
+          const first=data.data[0];
+          if(first?.filename)analyzePhoto(first.filename);
+        }
+      }
+    }catch(err){alert("업로드 실패")}
+    finally{setUploading(false)}
+  };
   const handleSubmit=async()=>{if(!form.content.trim()){alert("작업 내용을 입력하세요");return}await onSave(form);if(!entry)setForm({houseId:houses[0]?.houseId||"",date:today,weather:"",tempMin:"",tempMax:"",humidity:"",workType:"관리",growthStage:"",content:"",pest:"",notes:"",photos:[]})};
   return(
     <div className="glass-card p-5 space-y-4">
@@ -651,13 +699,36 @@ function JournalForm({entry,onSave,onCancel}){const FARM_ID=useContext(FarmIdCtx
         <div><label className="text-xs text-gray-400 mb-1 flex items-center gap-1">병해충{aiFilled.has('pest')&&<span className="text-violet-400" title="AI 채움">✨</span>}</label><input type="text" value={form.pest} onChange={e=>set("pest",e.target.value)} placeholder="발견된 병해충" className={`input-field text-sm w-full ${aiFilled.has('pest')?'ring-1 ring-violet-400/40':''}`} /></div>
         <div><label className="text-xs text-gray-400 mb-1 flex items-center gap-1">비고{aiFilled.has('notes')&&<span className="text-violet-400" title="AI 채움">✨</span>}</label><input type="text" value={form.notes} onChange={e=>set("notes",e.target.value)} className={`input-field text-sm w-full ${aiFilled.has('notes')?'ring-1 ring-violet-400/40':''}`} /></div>
       </div>
-      <div><label className="text-xs text-gray-400 mb-1 block">사진</label><div className="flex gap-2 items-center flex-wrap">
+      <div><label className="text-xs text-gray-400 mb-1 flex items-center gap-2">사진
+        {photoAnalyzing&&<span className="text-[10px] text-violet-300 animate-pulse">✨ 사진 분석 중…</span>}
+      </label><div className="flex gap-2 items-center flex-wrap">
         {form.photos.map((photo,i)=>(<div key={i} className="relative"><img src={photoUrl(photo)} alt="" className="w-20 h-20 object-cover rounded-lg border border-white/10" /><button onClick={()=>set("photos",form.photos.filter((_,j)=>j!==i))} className="absolute -top-1 -right-1 bg-red-500 text-white text-xs w-5 h-5 rounded-full flex items-center justify-center">×</button></div>))}
         {form.photos.length<5&&(<>
           <label className="w-20 h-20 flex flex-col items-center justify-center border-2 border-dashed border-white/20 rounded-lg cursor-pointer hover:border-emerald-400/50 transition-colors"><input type="file" accept="image/*" multiple onChange={handlePhotoUpload} className="hidden" />{uploading?<span className="text-xs text-gray-400">...</span>:<><span className="text-2xl text-gray-500">+</span><span className="text-[10px] text-gray-500 mt-0.5">갤러리</span></>}</label>
           <label className="w-20 h-20 flex flex-col items-center justify-center border-2 border-dashed border-white/20 rounded-lg cursor-pointer hover:border-blue-400/50 transition-colors"><input type="file" accept="image/*" capture="environment" onChange={handlePhotoUpload} className="hidden" />{uploading?<span className="text-xs text-gray-400">...</span>:<><span className="text-2xl">📷</span><span className="text-[10px] text-gray-500 mt-0.5">촬영</span></>}</label>
         </>)}
       </div></div>
+      {photoAi&&(
+        <div className="bg-violet-500/10 border border-violet-500/20 rounded-lg p-3 space-y-1 text-xs">
+          <div className="flex items-center justify-between">
+            <span className="text-violet-300 font-semibold">✨ 사진 AI 분석 결과</span>
+            <button type="button" onClick={()=>setPhotoAi(null)} className="text-violet-400/60 hover:text-violet-300 text-[10px]">닫기</button>
+          </div>
+          <div className="grid grid-cols-2 gap-x-3 gap-y-0.5 text-violet-200/90">
+            {photoAi.cropName&&<div>🌱 작목: <span className="text-white">{photoAi.cropName}</span></div>}
+            {photoAi.growthStage&&<div>📈 생육: <span className="text-white">{photoAi.growthStage}</span></div>}
+            {photoAi.leafColor&&<div>🍃 잎상태: <span className="text-white">{photoAi.leafColor}</span></div>}
+            {photoAi.confidence&&<div>🎯 신뢰도: <span className="text-white">{photoAi.confidence}</span></div>}
+          </div>
+          {photoAi.diagnosis&&(
+            <div className="mt-1 pt-1 border-t border-violet-500/20">
+              <div className="text-amber-300">⚠️ 진단: {photoAi.diagnosis}{photoAi.pestSeverity?` · ${photoAi.pestSeverity}`:''}</div>
+              {photoAi.treatment&&<div className="text-amber-200/90 mt-0.5">💊 권장: {photoAi.treatment}</div>}
+            </div>
+          )}
+          {photoAi.observation&&<div className="mt-1 pt-1 border-t border-violet-500/20 text-violet-100/80">{photoAi.observation}</div>}
+        </div>
+      )}
       <div className="flex justify-end gap-2">{onCancel&&<button onClick={onCancel} className="btn-secondary">취소</button>}<button onClick={handleSubmit} className="btn-primary">{entry?"수정":"저장"}</button></div>
     </div>
   );

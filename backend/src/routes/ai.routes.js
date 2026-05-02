@@ -613,6 +613,96 @@ function safeJsonParse(text) {
   try { return JSON.parse(s); } catch { return null; }
 }
 
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// 영농일지 사진 분석 — 사진 1장 → 작목/생육/병해충/관찰 자동 추론
+// 농민이 사진만 찍어도 일지 폼이 자동으로 채워지는 흐름.
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+const JOURNAL_PHOTO_DIR = process.env.UPLOAD_DIR_JOURNAL || "uploads/journal";
+
+function buildJournalPhotoSystemPrompt(hints) {
+  const workTypes = (hints?.workTypes || []).join(", ") || "관찰, 관수, 시비, 방제, 정식, 수확, 관리, 기타";
+  const growth = (hints?.growthStages || []).join(", ") || "발아기, 생장기, 개화기, 착과기, 수확기";
+
+  return `당신은 한국 농가 영농일지 보조 AI 입니다. 농가 사진 1 장을 보고 영농일지 폼 필드를 추론하세요.
+
+다음 JSON 스키마로만 응답하세요. 사진에서 확실히 보이지 않는 필드는 null. 추측 금지.
+
+{
+  "cropName": "작목명 추정 (예: 토마토, 오이, 딸기, 상추) 또는 null",
+  "growthStage": "${growth} 중 하나 또는 null",
+  "workType": "사진에서 추정 가능한 작업 유형. ${workTypes} 중 하나 또는 null",
+  "pest": "발견된 병/해충/이상 증상 (없으면 null). 예: '잎 황화 의심', '응애 흔적', '탄저병 초기'",
+  "pestSeverity": "발견된 경우 정도 (경미/중간/심각/null)",
+  "observation": "사진에서 관찰한 자연스러운 문장 1~3 문장 (한국어)",
+  "leafColor": "잎 색상 상태 (정상/황화/갈변/얼룩 등) 또는 null",
+  "diagnosis": "병해충 의심 시 진단명 후보 또는 null",
+  "treatment": "병해충 발견 시 권장 대처 1~3 문장 (없으면 null)",
+  "confidence": "전체 추론 신뢰도 high|medium|low"
+}
+
+규칙:
+- 사진에 잎/줄기/과실이 명확히 보일 때만 작목/생육/병해충 추론.
+- 흙바닥/구조물/사람만 보이면 cropName/growthStage/pest 모두 null.
+- observation 은 사실 묘사만. "추측해보면..." 같은 말 금지.
+- JSON 만 출력. 마크다운 코드블록(\`\`\`) 금지.`;
+}
+
+// 안전한 파일명 (path traversal 방지) — basename + 화이트리스트
+function safePhotoFilename(name) {
+  if (!name || typeof name !== "string") return null;
+  const base = path.basename(name);
+  // 영숫자/하이픈/밑줄/점만 허용. 빈 결과면 reject
+  if (!/^[a-zA-Z0-9._-]+$/.test(base)) return null;
+  return base;
+}
+
+router.post("/:farmId/journal/parse-photo", authenticate, async (req, res) => {
+  const { filename, text, hints } = req.body || {};
+  const safeName = safePhotoFilename(filename);
+  if (!safeName) {
+    return res.status(400).json({ success: false, error: "유효하지 않은 파일명" });
+  }
+
+  const farmDir = path.join(JOURNAL_PHOTO_DIR, sanitizeFarmId(req.params.farmId));
+  const filePath = path.join(farmDir, safeName);
+  if (!fs.existsSync(filePath)) {
+    return res.status(404).json({ success: false, error: "사진 파일을 찾을 수 없습니다" });
+  }
+
+  const systemPrompt = buildJournalPhotoSystemPrompt(hints);
+  const userPrompt = text && typeof text === "string" && text.trim()
+    ? `참고 텍스트: ${text.trim()}\n\n사진을 분석하여 JSON 으로 응답.`
+    : "사진을 분석하여 JSON 으로 응답.";
+  const model = AI_CONFIG.geminiKey ? "gemini-2.5-flash" : undefined;
+
+  try {
+    const raw = await callAI(userPrompt, { systemPrompt, image: filePath, model });
+    const parsed = safeJsonParse(raw);
+    if (!parsed || typeof parsed !== "object") {
+      return res.json({ success: false, error: "AI 응답을 구조화하지 못했습니다", rawResponse: raw });
+    }
+
+    const str = (v) => (v === null || v === undefined ? null : String(v).trim() || null);
+    const data = {
+      cropName: str(parsed.cropName),
+      growthStage: str(parsed.growthStage),
+      workType: str(parsed.workType),
+      pest: str(parsed.pest),
+      pestSeverity: str(parsed.pestSeverity),
+      observation: str(parsed.observation),
+      leafColor: str(parsed.leafColor),
+      diagnosis: str(parsed.diagnosis),
+      treatment: str(parsed.treatment),
+      confidence: str(parsed.confidence) || "medium",
+    };
+
+    return res.json({ success: true, data });
+  } catch (err) {
+    logger.error("journal parse-photo 실패: " + err.message);
+    return res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 router.post("/:farmId/journal/parse-text", authenticate, async (req, res) => {
   const { text, hints } = req.body || {};
   if (!text || typeof text !== "string" || text.trim().length < 2) {

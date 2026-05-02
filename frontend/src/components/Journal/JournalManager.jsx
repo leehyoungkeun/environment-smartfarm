@@ -423,7 +423,67 @@ function useDateFilter(){
   return{dateRange,setDateRange,periodLabel,setPeriod,selectedDate,setSelectedDate,handleDateSelect,resetFilters};
 }
 
-function DetailRow({label,value,color}){if(!value&&value!==0)return null;return(<div className="flex"><span className="text-xs text-gray-500 w-20 shrink-0">{label}</span><span className={`text-xs ${color||"text-gray-300"} whitespace-pre-wrap`}>{value}</span></div>)}
+function DetailRow({label,value,color,markdown}){if(!value&&value!==0)return null;return(<div className="flex"><span className="text-xs text-gray-500 w-20 shrink-0">{label}</span><span className={`text-xs ${color||"!text-gray-700"} whitespace-pre-wrap flex-1`}>{markdown?<MarkdownText text={String(value)} />:value}</span></div>)}
+
+// ━━━ 간단 마크다운 렌더러 (P1-D) ━━━
+// 농민 메모 수준만 지원: # 제목, ## 작은제목, **굵은**, *기울임*, `코드`, - 리스트, 1. 번호 리스트, 줄바꿈
+function MarkdownInline({ text }) {
+  if (!text) return null;
+  const parts = [];
+  const re = /\*\*([^*]+?)\*\*|\*([^*]+?)\*|`([^`]+?)`/g;
+  let last = 0, m, key = 0;
+  while ((m = re.exec(text)) !== null) {
+    if (m.index > last) parts.push(text.slice(last, m.index));
+    if (m[1]) parts.push(<strong key={key++} className="font-bold">{m[1]}</strong>);
+    else if (m[2]) parts.push(<em key={key++} className="italic">{m[2]}</em>);
+    else if (m[3]) parts.push(<code key={key++} className="bg-gray-100 px-1 rounded text-[0.95em] font-mono !text-rose-700">{m[3]}</code>);
+    last = re.lastIndex;
+  }
+  if (last < text.length) parts.push(text.slice(last));
+  return <>{parts}</>;
+}
+function MarkdownText({ text }) {
+  if (!text) return null;
+  const blocks = String(text).split(/\n\s*\n+/);
+  return (
+    <div className="space-y-1.5">
+      {blocks.map((block, bi) => {
+        const lines = block.split('\n');
+        // 불릿 리스트
+        if (lines.every((l) => /^\s*[-*]\s/.test(l))) {
+          return (
+            <ul key={bi} className="list-disc pl-5 space-y-0.5">
+              {lines.map((l, i) => <li key={i}><MarkdownInline text={l.replace(/^\s*[-*]\s/, '')} /></li>)}
+            </ul>
+          );
+        }
+        // 번호 리스트
+        if (lines.every((l) => /^\s*\d+\.\s/.test(l))) {
+          return (
+            <ol key={bi} className="list-decimal pl-5 space-y-0.5">
+              {lines.map((l, i) => <li key={i}><MarkdownInline text={l.replace(/^\s*\d+\.\s/, '')} /></li>)}
+            </ol>
+          );
+        }
+        // 헤더 (블록 단독)
+        if (lines.length === 1) {
+          const h1 = /^#\s+(.+)/.exec(lines[0]);
+          if (h1) return <div key={bi} className="text-sm font-bold !text-gray-900 mt-1"><MarkdownInline text={h1[1]} /></div>;
+          const h2 = /^##\s+(.+)/.exec(lines[0]);
+          if (h2) return <div key={bi} className="text-xs font-bold !text-gray-800 mt-0.5"><MarkdownInline text={h2[1]} /></div>;
+        }
+        // 일반 단락 — 줄바꿈 보존
+        return (
+          <p key={bi} className="whitespace-pre-line">
+            {lines.map((l, i) => (
+              <span key={i}>{i > 0 && <br />}<MarkdownInline text={l} /></span>
+            ))}
+          </p>
+        );
+      })}
+    </div>
+  );
+}
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // 영농일지 탭
@@ -587,7 +647,7 @@ function PhotoGallery(){const FARM_ID=useContext(FarmIdCtx);
             </div>
             <img src={lightbox.url} alt="" className="w-full max-h-[70vh] object-contain bg-black" />
             <div className="px-5 py-3 space-y-2 text-sm">
-              {lightbox.content&&<div className="!text-gray-800">{lightbox.content}</div>}
+              {lightbox.content&&<div className="!text-gray-800"><MarkdownText text={lightbox.content} /></div>}
               {lightbox.pest&&<div className="!text-rose-700"><span className="font-semibold">⚠ 병해충:</span> {lightbox.pest}</div>}
               {lightbox.tags?.length>0&&(
                 <div className="flex flex-wrap gap-1 pt-1">
@@ -736,13 +796,13 @@ function JournalSearch(){const FARM_ID=useContext(FarmIdCtx);
                   <div className="px-4 pb-4 pt-0 border-t border-white/5 detail-expand">
                     <div className="mt-3 space-y-2">
                       {entry.houseId&&<DetailRow label="하우스" value={entry.houseName||entry.houseId} color="text-violet-400" />}
-                      <DetailRow label="작업 내용" value={entry.content} color="text-white" />
+                      <DetailRow label="작업 내용" value={entry.content} color="!text-gray-800" markdown />
                       <DetailRow label="날씨" value={entry.weather} />
                       <DetailRow label="온도" value={(entry.tempMin||entry.tempMax)?`${entry.tempMin||"-"} ~ ${entry.tempMax||"-"} °C`:null} />
                       <DetailRow label="습도" value={entry.humidity?`${entry.humidity}%`:null} />
                       <DetailRow label="생육단계" value={entry.growthStage} color="text-blue-400" />
                       <DetailRow label="병해충" value={entry.pest} color="text-orange-400" />
-                      <DetailRow label="비고" value={entry.notes} />
+                      <DetailRow label="비고" value={entry.notes} markdown />
                       {entry.measurements&&Object.keys(entry.measurements).length>0&&(
                         <div className="flex items-start gap-3">
                           <span className="text-xs text-gray-400 w-20 shrink-0 pt-1">📈 생육 측정</span>
@@ -1306,7 +1366,8 @@ function JournalForm({entry,onSave,onCancel}){const FARM_ID=useContext(FarmIdCtx
             <span className="text-[11px] !text-violet-700 font-medium ml-auto">✨ AI가 {aiFilled.size}개 필드를 채웠습니다 — 수정 가능</span>
           )}
         </div>
-        <textarea style={LIGHT_INPUT} value={form.content} onChange={e=>set("content",e.target.value)} rows={4} placeholder="음성 또는 자유 문장으로 작성 후 ✨AI 자동 채움 버튼을 눌러보세요. 예: '오전 10시 1번 하우스 토마토 곁순 정리, 잎이 노랗게 변해서 사진 찍었어요'" className={`input-field text-sm w-full resize-none ${aiFilled.has('content')?'ring-1 ring-violet-400/40':''}`} />
+        <textarea style={LIGHT_INPUT} value={form.content} onChange={e=>set("content",e.target.value)} rows={4} placeholder="음성 또는 자유 문장으로 작성 후 ✨AI 자동 채움 버튼을 눌러보세요.&#10;&#10;마크다운 사용 가능:&#10;# 큰 제목&#10;## 작은 제목&#10;**굵은 글씨**, *기울임*, `코드`&#10;- 리스트 항목&#10;1. 번호 리스트" className={`input-field text-sm w-full resize-none ${aiFilled.has('content')?'ring-1 ring-violet-400/40':''}`} />
+        <p className="text-[10px] text-gray-500 mt-1">💡 마크다운 사용 가능: <code className="bg-gray-100 px-1 rounded font-mono">**굵은**</code> <code className="bg-gray-100 px-1 rounded font-mono">- 리스트</code> <code className="bg-gray-100 px-1 rounded font-mono"># 제목</code></p>
       </div>
       <div className="grid grid-cols-2 gap-3">
         <div><label className="text-xs text-gray-600 mb-1 flex items-center gap-1">병해충{aiFilled.has('pest')&&<span className="text-violet-400" title="AI 채움">✨</span>}</label><input style={LIGHT_INPUT} type="text" value={form.pest} onChange={e=>set("pest",e.target.value)} placeholder="발견된 병해충" className={`input-field text-sm w-full ${aiFilled.has('pest')?'ring-1 ring-violet-400/40':''}`} /></div>

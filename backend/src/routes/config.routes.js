@@ -547,40 +547,37 @@ router.post("/:farmId/rpi-ack", async (req, res) => {
 });
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 동기화 상태/제어 프록시 (프론트 → 백엔드 → RPi)
+// 동기화 상태/제어 프록시 (DEPRECATED — WebSocket sync:query/sync:command 사용)
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-const RPI_BASE = process.env.RPI_URL || "http://192.168.137.30:1880";
+// 기존 RPi 직접 fetch 는 backend(Ubuntu) → RPi(LAN) 다른 네트워크라 항상 timeout.
+// 새 패턴: frontend → WebSocket → backend mqttService.publishSyncQuery/Command
+//   → MQTT smartfarm/+/sync/{query,command,status} → RPi → MQTT 응답 → cache
+// 호환성을 위해 라우트 유지하되 mqttService 캐시 응답 + MQTT publish 트리거.
+
+import mqttService from "../services/mqttClient.js";
 
 router.get("/sync-status/:farmId", async (req, res) => {
-  try {
-    const response = await fetch(`${RPI_BASE}/api/sync/status`, { timeout: 5000 });
-    const data = await response.json();
-    res.json(data);
-  } catch (error) {
-    logger.warn("RPi sync-status 조회 실패:", error.message);
-    res.json({ success: false, error: "RPi 연결 실패" });
+  const { farmId } = req.params;
+  // 캐시된 sync status 즉시 반환 + 백그라운드로 publishSyncQuery 트리거 (다음 호출에 최신)
+  const cached = mqttService.getSyncStatus(farmId);
+  mqttService.publishSyncQuery(farmId);  // 비동기 — 캐시 갱신용
+  if (cached) {
+    return res.json({ success: true, data: cached, cached: true });
   }
+  return res.json({ success: false, error: "캐시 없음 — WebSocket sync:query 사용 권장" });
 });
 
 router.post("/sync-action/:farmId", async (req, res) => {
-  try {
-    const { action } = req.body;
-    if (!["start", "stop", "skip"].includes(action)) {
-      return res.status(400).json({ success: false, error: "Invalid action" });
-    }
-
-    let url, method;
-    if (action === "start") { url = `${RPI_BASE}/api/sync/start`; method = "POST"; }
-    else if (action === "stop") { url = `${RPI_BASE}/api/sync/stop`; method = "POST"; }
-    else { url = `${RPI_BASE}/api/sync/skip`; method = "POST"; }
-
-    const response = await fetch(url, { method, headers: { "Content-Type": "application/json" }, timeout: 10000 });
-    const data = await response.json();
-    res.json(data);
-  } catch (error) {
-    logger.warn("RPi sync-action 실패:", error.message);
-    res.status(502).json({ success: false, error: "RPi 연결 실패" });
+  const { farmId } = req.params;
+  const { action } = req.body;
+  if (!["start", "stop", "skip"].includes(action)) {
+    return res.status(400).json({ success: false, error: "Invalid action" });
   }
+  const sent = mqttService.publishSyncCommand(farmId, action, "rest-api");
+  if (!sent) {
+    return res.status(502).json({ success: false, error: "MQTT 미연결" });
+  }
+  res.json({ success: true, action, sent: true });
 });
 
 export default router;

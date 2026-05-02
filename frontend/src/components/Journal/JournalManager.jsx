@@ -658,13 +658,14 @@ function TemplateSaveBox({onSave,onCancel}){
 // ━━━ 생육 측정 입력 (P1-A) ━━━
 // 표준 4 필드 (초장/엽수/개화율/착과율) + 사용자 정의 metric 최대 8 개
 // 측정 1 개라도 있으면 자동 펼침, 없으면 접힘 (입력 부담 0)
+// 음성 입력 지원 — 농민이 "초장 25, 엽수 12, 개화율 60" 말하면 AI 가 4 필드로 추출
 const MEASURE_FIELDS = [
   { key: "plantHeight", label: "초장(草長)", unit: "cm", min: 0, max: 500, step: 0.5 },
   { key: "leafCount", label: "엽수", unit: "장", min: 0, max: 200, step: 1 },
   { key: "floweringRate", label: "개화율", unit: "%", min: 0, max: 100, step: 1 },
   { key: "fruitSetRate", label: "착과율", unit: "%", min: 0, max: 100, step: 1 },
 ];
-function MeasurementSection({ measurements, onChange, aiHighlight }) {
+function MeasurementSection({ measurements, onChange, aiHighlight, farmId }) {
   const m = measurements || {};
   const hasAny = MEASURE_FIELDS.some((f) => m[f.key] !== undefined && m[f.key] !== null && m[f.key] !== "")
     || (Array.isArray(m.custom) && m.custom.length > 0);
@@ -677,6 +678,56 @@ function MeasurementSection({ measurements, onChange, aiHighlight }) {
   const addCustom = () => setCustom([...custom, { name: "", value: "", unit: "" }]);
   const updCustom = (i, k, v) => setCustom(custom.map((c, idx) => idx === i ? { ...c, [k]: v } : c));
   const rmCustom = (i) => setCustom(custom.filter((_, idx) => idx !== i));
+
+  // ── 음성 → AI → 측정값 자동 채움 ──
+  const [listening, setListening] = useState(false);
+  const [parsing, setParsing] = useState(false);
+  const recRef = useRef(null);
+  const startVoice = () => {
+    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SR) { alert('이 브라우저는 음성인식을 지원하지 않습니다'); return; }
+    if (listening) { recRef.current?.stop(); return; }
+    let buffer = "";
+    const r = new SR();
+    r.lang = 'ko-KR';
+    r.continuous = true;
+    r.interimResults = false;
+    r.onresult = (e) => {
+      const last = e.results[e.results.length - 1];
+      if (last.isFinal) buffer += (buffer ? ' ' : '') + last[0].transcript.trim();
+    };
+    r.onend = async () => {
+      setListening(false);
+      const text = buffer.trim();
+      if (!text) return;
+      // AI 호출 — 측정값 4 필드만 추출 (parse-text 동일 endpoint)
+      setParsing(true);
+      try {
+        const res = await api(`/ai/${farmId}/journal/parse-text`, {
+          method: 'POST',
+          body: JSON.stringify({ text: `생육 측정 음성 메모: ${text}`, hints: {} }),
+        });
+        if (res?.success && res.data?.measurements) {
+          const got = res.data.measurements;
+          const next = { ...m };
+          let added = false;
+          ['plantHeight', 'leafCount', 'floweringRate', 'fruitSetRate'].forEach((k) => {
+            if (got[k] != null && (m[k] == null || m[k] === '' || m[k] === undefined)) {
+              next[k] = got[k];
+              added = true;
+            }
+          });
+          if (added) onChange(next);
+          else alert(`AI 가 측정값을 인식하지 못했습니다.\n인식된 음성: "${text}"`);
+        }
+      } catch (err) { alert('AI 분석 실패: ' + err.message); }
+      finally { setParsing(false); }
+    };
+    r.onerror = () => setListening(false);
+    recRef.current = r;
+    r.start();
+    setListening(true);
+  };
 
   return (
     <div className={`rounded-lg border ${aiHighlight ? 'border-violet-400 bg-violet-50' : 'border-gray-300 bg-white'}`}>
@@ -692,6 +743,22 @@ function MeasurementSection({ measurements, onChange, aiHighlight }) {
       </button>
       {open && (
         <div className="p-3 space-y-3">
+          {/* 음성 입력 — 농민이 "초장 25, 엽수 12" 말하면 자동 채움 */}
+          {(window.SpeechRecognition || window.webkitSpeechRecognition) && (
+            <div className="flex items-center gap-2 flex-wrap">
+              <button type="button" onClick={startVoice} disabled={parsing}
+                className={`px-2.5 py-1 rounded-md text-xs font-semibold transition-all border ${
+                  listening ? 'bg-red-100 !text-red-700 border-red-400 animate-pulse'
+                  : parsing ? 'bg-violet-200 !text-violet-800 border-violet-500 animate-pulse'
+                  : 'bg-emerald-50 !text-emerald-700 border-emerald-300 hover:bg-emerald-100'
+                }`}>
+                🎙️ {listening ? '듣는 중... (다시 누르면 분석)' : parsing ? 'AI 분석 중...' : '음성으로 측정값 입력'}
+              </button>
+              <span className="text-[10px] text-gray-500">
+                예: "초장 25, 엽수 12장, 개화율 60%, 착과율 80%"
+              </span>
+            </div>
+          )}
           <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
             {MEASURE_FIELDS.map((f) => (
               <div key={f.key}>
@@ -1091,7 +1158,7 @@ function JournalForm({entry,onSave,onCancel}){const FARM_ID=useContext(FarmIdCtx
         </div>
       </div>
       {/* 생육 측정 (P1-A) — 토글로 펼침. 매주 1회 정도 측정한 수치를 기록. */}
-      <MeasurementSection measurements={form.measurements||{}} onChange={(m)=>set('measurements',m)} aiHighlight={aiFilled.has('measurements')} />
+      <MeasurementSection measurements={form.measurements||{}} onChange={(m)=>set('measurements',m)} aiHighlight={aiFilled.has('measurements')} farmId={FARM_ID} />
       <div><label className="text-xs text-gray-600 mb-1 flex items-center gap-2">사진
         <span className="text-[10px] text-gray-500">— 최대 5장 · 자동 압축</span>
         <span className="text-[10px] text-gray-500">({form.photos.length}/5)</span>

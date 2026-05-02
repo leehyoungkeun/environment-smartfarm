@@ -509,6 +509,9 @@ function JournalForm({entry,onSave,onCancel}){const FARM_ID=useContext(FarmIdCtx
   const[form,setForm]=useState({houseId:entry?.houseId||"",date:entry?.date?new Date(entry.date).toISOString().split("T")[0]:today,weather:entry?.weather||"",tempMin:entry?.tempMin||"",tempMax:entry?.tempMax||"",humidity:entry?.humidity||"",workType:entry?.workType||"관리",growthStage:entry?.growthStage||"",content:entry?.content||"",pest:entry?.pest||"",notes:entry?.notes||"",photos:entry?.photos||[]});
   const[uploading,setUploading]=useState(false);
   const[listening,setListening]=useState(false);
+  const[parsing,setParsing]=useState(false);
+  // AI 가 채운 필드 추적 — 사용자에게 시각적 표시 (보라 ring + ✨)
+  const[aiFilled,setAiFilled]=useState(/** @type {Set<string>} */(new Set()));
   const recognitionRef=useRef(null);
   const contentRef=useRef(form.content);
   useEffect(()=>{contentRef.current=form.content},[form.content]);
@@ -521,8 +524,51 @@ function JournalForm({entry,onSave,onCancel}){const FARM_ID=useContext(FarmIdCtx
     r.onend=()=>setListening(false);r.onerror=()=>setListening(false);
     recognitionRef.current=r;r.start();setListening(true);
   };
+
+  // 자유 텍스트(음성/타자) → AI 구조화 → 빈 필드 자동 채움
+  // 사용자가 이미 입력한 필드는 보존 (덮어쓰지 않음)
+  const handleAiParse=async()=>{
+    const text=(form.content||'').trim();
+    if(text.length<5){alert('작업 내용에 문장을 입력하거나 음성으로 말한 후 다시 눌러주세요');return}
+    setParsing(true);
+    try{
+      const r=await api(`/ai/${FARM_ID}/journal/parse-text`,{method:'POST',body:JSON.stringify({
+        text,
+        hints:{
+          houses:houses.map(h=>({houseId:h.houseId,houseName:h.houseName})),
+          workTypes:WORK_TYPES,weatherOptions:WEATHER_OPTIONS,growthStages:GROWTH_STAGES,
+        },
+      })});
+      if(!r.success){alert('AI 분석 실패: '+(r.error||'unknown'));return}
+      const d=r.data||{};
+      const filled=new Set(aiFilled);
+      setForm(prev=>{
+        const next={...prev};
+        // 빈 필드만 채움 (사용자가 직접 입력한 값은 보존)
+        const fill=(k,v)=>{if(v!==null&&v!==undefined&&v!==''&&(!prev[k]||prev[k]===''||(k==='workType'&&prev[k]==='관리'))){next[k]=v;filled.add(k)}};
+        fill('houseId',d.houseId);
+        fill('workType',d.workType);
+        fill('weather',d.weather);
+        fill('growthStage',d.growthStage);
+        fill('tempMin',d.tempMin);
+        fill('tempMax',d.tempMax);
+        fill('humidity',d.humidity);
+        fill('pest',d.pest);
+        fill('notes',d.notes);
+        // content 는 AI 가 정제한 버전이 있으면 교체 (원문은 이미 음성/타자 그대로)
+        if(d.content&&d.content.length>0&&d.content!==prev.content){next.content=d.content;filled.add('content')}
+        return next;
+      });
+      setAiFilled(filled);
+    }catch(err){alert('AI 분석 오류: '+err.message);}
+    finally{setParsing(false);}
+  };
   useEffect(()=>{api(`/config/farm/${FARM_ID}`).then(r=>{const h=r.data||[];setHouses(h);if(!form.houseId&&h.length>0)set("houseId",h[0].houseId)}).catch(()=>{})},[FARM_ID]);
-  const set=(k,v)=>setForm(p=>({...p,[k]:v}));
+  // 사용자가 필드 수정하면 AI 표시 자동 해제 (수동 편집 의미)
+  const set=(k,v)=>{
+    setForm(p=>({...p,[k]:v}));
+    if(aiFilled.has(k)){const ns=new Set(aiFilled);ns.delete(k);setAiFilled(ns);}
+  };
   const handlePhotoUpload=async e=>{const files=e.target.files;if(!files?.length)return;setUploading(true);try{const fd=new FormData();for(const f of files)fd.append("photos",f);const res=await fetch(`${API_BASE}/journal/${FARM_ID}/photos`,{method:"POST",headers:{Authorization:`Bearer ${getToken()}`},body:fd});const data=await res.json();if(data.success)set("photos",[...form.photos,...data.data])}catch(err){alert("업로드 실패")}finally{setUploading(false)}};
   const handleSubmit=async()=>{if(!form.content.trim()){alert("작업 내용을 입력하세요");return}await onSave(form);if(!entry)setForm({houseId:houses[0]?.houseId||"",date:today,weather:"",tempMin:"",tempMax:"",humidity:"",workType:"관리",growthStage:"",content:"",pest:"",notes:"",photos:[]})};
   return(
@@ -530,30 +576,38 @@ function JournalForm({entry,onSave,onCancel}){const FARM_ID=useContext(FarmIdCtx
       <h3 className="text-lg font-semibold text-white">{entry?"일지 수정":"새 일지 작성"}</h3>
       <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
         <div><label className="text-xs text-gray-400 mb-1 block">날짜 *</label><input type="date" value={form.date} onChange={e=>set("date",e.target.value)} className="input-field text-sm w-full" /></div>
-        <div><label className="text-xs text-gray-400 mb-1 block">하우스 *</label><select value={form.houseId} onChange={e=>set("houseId",e.target.value)} className={SC}><option value="">전체(공통)</option>{houses.map(h=><option key={h.houseId} value={h.houseId}>{h.houseName||h.houseId}</option>)}</select></div>
-        <div><label className="text-xs text-gray-400 mb-1 block">작업유형 *</label><select value={form.workType} onChange={e=>set("workType",e.target.value)} className={SC}>{WORK_TYPES.map(w=><option key={w} value={w}>{w}</option>)}</select></div>
-        <div><label className="text-xs text-gray-400 mb-1 block">날씨</label><select value={form.weather} onChange={e=>set("weather",e.target.value)} className={SC}><option value="">선택</option>{WEATHER_OPTIONS.map(w=><option key={w} value={w}>{w}</option>)}</select></div>
-        <div><label className="text-xs text-gray-400 mb-1 block">생육단계</label><select value={form.growthStage} onChange={e=>set("growthStage",e.target.value)} className={SC}><option value="">선택</option>{GROWTH_STAGES.map(g=><option key={g} value={g}>{g}</option>)}</select></div>
+        <div><label className="text-xs text-gray-400 mb-1 flex items-center gap-1">하우스 *{aiFilled.has('houseId')&&<span className="text-violet-400" title="AI 채움">✨</span>}</label><select value={form.houseId} onChange={e=>set("houseId",e.target.value)} className={`${SC} ${aiFilled.has('houseId')?'ring-1 ring-violet-400/40':''}`}><option value="">전체(공통)</option>{houses.map(h=><option key={h.houseId} value={h.houseId}>{h.houseName||h.houseId}</option>)}</select></div>
+        <div><label className="text-xs text-gray-400 mb-1 flex items-center gap-1">작업유형 *{aiFilled.has('workType')&&<span className="text-violet-400" title="AI 채움">✨</span>}</label><select value={form.workType} onChange={e=>set("workType",e.target.value)} className={`${SC} ${aiFilled.has('workType')?'ring-1 ring-violet-400/40':''}`}>{WORK_TYPES.map(w=><option key={w} value={w}>{w}</option>)}</select></div>
+        <div><label className="text-xs text-gray-400 mb-1 flex items-center gap-1">날씨{aiFilled.has('weather')&&<span className="text-violet-400" title="AI 채움">✨</span>}</label><select value={form.weather} onChange={e=>set("weather",e.target.value)} className={`${SC} ${aiFilled.has('weather')?'ring-1 ring-violet-400/40':''}`}><option value="">선택</option>{WEATHER_OPTIONS.map(w=><option key={w} value={w}>{w}</option>)}</select></div>
+        <div><label className="text-xs text-gray-400 mb-1 flex items-center gap-1">생육단계{aiFilled.has('growthStage')&&<span className="text-violet-400" title="AI 채움">✨</span>}</label><select value={form.growthStage} onChange={e=>set("growthStage",e.target.value)} className={`${SC} ${aiFilled.has('growthStage')?'ring-1 ring-violet-400/40':''}`}><option value="">선택</option>{GROWTH_STAGES.map(g=><option key={g} value={g}>{g}</option>)}</select></div>
       </div>
       <div className="grid grid-cols-3 gap-3">
-        <div><label className="text-xs text-gray-400 mb-1 block">최저 온도</label><input type="number" step="0.1" value={form.tempMin} onChange={e=>set("tempMin",e.target.value)} placeholder="°C" className="input-field text-sm w-full" /></div>
-        <div><label className="text-xs text-gray-400 mb-1 block">최고 온도</label><input type="number" step="0.1" value={form.tempMax} onChange={e=>set("tempMax",e.target.value)} placeholder="°C" className="input-field text-sm w-full" /></div>
-        <div><label className="text-xs text-gray-400 mb-1 block">습도</label><input type="number" step="0.1" value={form.humidity} onChange={e=>set("humidity",e.target.value)} placeholder="%" className="input-field text-sm w-full" /></div>
+        <div><label className="text-xs text-gray-400 mb-1 flex items-center gap-1">최저 온도{aiFilled.has('tempMin')&&<span className="text-violet-400" title="AI 채움">✨</span>}</label><input type="number" step="0.1" value={form.tempMin} onChange={e=>set("tempMin",e.target.value)} placeholder="°C" className={`input-field text-sm w-full ${aiFilled.has('tempMin')?'ring-1 ring-violet-400/40':''}`} /></div>
+        <div><label className="text-xs text-gray-400 mb-1 flex items-center gap-1">최고 온도{aiFilled.has('tempMax')&&<span className="text-violet-400" title="AI 채움">✨</span>}</label><input type="number" step="0.1" value={form.tempMax} onChange={e=>set("tempMax",e.target.value)} placeholder="°C" className={`input-field text-sm w-full ${aiFilled.has('tempMax')?'ring-1 ring-violet-400/40':''}`} /></div>
+        <div><label className="text-xs text-gray-400 mb-1 flex items-center gap-1">습도{aiFilled.has('humidity')&&<span className="text-violet-400" title="AI 채움">✨</span>}</label><input type="number" step="0.1" value={form.humidity} onChange={e=>set("humidity",e.target.value)} placeholder="%" className={`input-field text-sm w-full ${aiFilled.has('humidity')?'ring-1 ring-violet-400/40':''}`} /></div>
       </div>
       <div>
-        <div className="flex items-center gap-2 mb-1">
+        <div className="flex items-center gap-2 mb-1 flex-wrap">
           <label className="text-xs text-gray-400">작업 내용 *</label>
           {(window.SpeechRecognition||window.webkitSpeechRecognition)&&(
             <button type="button" onClick={toggleSTT} className={`px-2 py-0.5 rounded-md text-xs font-medium transition-all ${listening?'bg-red-500/20 text-red-400 border border-red-500/30 animate-pulse':'bg-white/5 text-gray-400 border border-white/10 hover:bg-white/10'}`}>
               🎙️ {listening?'듣는 중...':'음성입력'}
             </button>
           )}
+          <button type="button" onClick={handleAiParse} disabled={parsing||!form.content?.trim()}
+            title="작업 내용을 AI가 읽고 빈 필드들(하우스/작업유형/날씨/생육/온습도/병해충)을 자동으로 채웁니다"
+            className={`px-2 py-0.5 rounded-md text-xs font-medium transition-all border ${parsing?'bg-violet-500/20 text-violet-300 border-violet-500/30 animate-pulse':'bg-white/5 text-violet-300 border-violet-500/30 hover:bg-violet-500/10 disabled:opacity-40 disabled:cursor-not-allowed'}`}>
+            ✨ {parsing?'분석 중...':'AI 자동 채움'}
+          </button>
+          {aiFilled.size>0&&(
+            <span className="text-[10px] text-violet-400/80 ml-auto">✨ AI가 {aiFilled.size}개 필드를 채웠습니다 — 수정 가능</span>
+          )}
         </div>
-        <textarea value={form.content} onChange={e=>set("content",e.target.value)} rows={4} placeholder="오늘의 작업 내용을 기록하세요..." className="input-field text-sm w-full resize-none" />
+        <textarea value={form.content} onChange={e=>set("content",e.target.value)} rows={4} placeholder="음성 또는 자유 문장으로 작성 후 ✨AI 자동 채움 버튼을 눌러보세요. 예: '오전 10시 1번 하우스 토마토 곁순 정리, 잎이 노랗게 변해서 사진 찍었어요'" className={`input-field text-sm w-full resize-none ${aiFilled.has('content')?'ring-1 ring-violet-400/40':''}`} />
       </div>
       <div className="grid grid-cols-2 gap-3">
-        <div><label className="text-xs text-gray-400 mb-1 block">병해충</label><input type="text" value={form.pest} onChange={e=>set("pest",e.target.value)} placeholder="발견된 병해충" className="input-field text-sm w-full" /></div>
-        <div><label className="text-xs text-gray-400 mb-1 block">비고</label><input type="text" value={form.notes} onChange={e=>set("notes",e.target.value)} className="input-field text-sm w-full" /></div>
+        <div><label className="text-xs text-gray-400 mb-1 flex items-center gap-1">병해충{aiFilled.has('pest')&&<span className="text-violet-400" title="AI 채움">✨</span>}</label><input type="text" value={form.pest} onChange={e=>set("pest",e.target.value)} placeholder="발견된 병해충" className={`input-field text-sm w-full ${aiFilled.has('pest')?'ring-1 ring-violet-400/40':''}`} /></div>
+        <div><label className="text-xs text-gray-400 mb-1 flex items-center gap-1">비고{aiFilled.has('notes')&&<span className="text-violet-400" title="AI 채움">✨</span>}</label><input type="text" value={form.notes} onChange={e=>set("notes",e.target.value)} className={`input-field text-sm w-full ${aiFilled.has('notes')?'ring-1 ring-violet-400/40':''}`} /></div>
       </div>
       <div><label className="text-xs text-gray-400 mb-1 block">사진</label><div className="flex gap-2 items-center flex-wrap">
         {form.photos.map((photo,i)=>(<div key={i} className="relative"><img src={photoUrl(photo)} alt="" className="w-20 h-20 object-cover rounded-lg border border-white/10" /><button onClick={()=>set("photos",form.photos.filter((_,j)=>j!==i))} className="absolute -top-1 -right-1 bg-red-500 text-white text-xs w-5 h-5 rounded-full flex items-center justify-center">×</button></div>))}

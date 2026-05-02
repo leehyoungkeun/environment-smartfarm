@@ -559,4 +559,108 @@ router.get("/config", authenticate, (req, res) => {
   });
 });
 
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// 영농일지 자유 텍스트 → 구조화 (음성/메모 → 폼 자동 채움)
+// 농민이 자연어로 적은 일지를 분류된 필드로 구조화. 빈칸은 null.
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+function buildJournalParseSystemPrompt(hints) {
+  const houses = (hints?.houses || []).map(h => `${h.houseId}:${h.houseName || h.houseId}`).join(", ") || "(없음)";
+  const workTypes = (hints?.workTypes || []).join(", ") || "관찰, 관수, 시비, 방제, 정식, 수확, 관리, 기타";
+  const weather = (hints?.weatherOptions || []).join(", ") || "맑음, 흐림, 비, 눈, 안개, 바람";
+  const growth = (hints?.growthStages || []).join(", ") || "발아, 영양생장, 생식생장, 개화, 착과, 비대, 성숙, 수확";
+
+  return `당신은 한국 농가 영농일지 보조 AI 입니다.
+농민이 자유롭게 말한/쓴 텍스트를 영농일지 폼 필드로 구조화하는 게 임무입니다.
+
+다음 JSON 스키마로만 응답하세요. 텍스트에서 추론할 수 없는 필드는 null 로 두세요. 임의로 만들지 마세요.
+
+{
+  "houseId": "텍스트의 하우스 언급에 가장 가까운 houseId, 없으면 null",
+  "workType": "다음 중 하나 또는 null: ${workTypes}",
+  "weather": "다음 중 하나 또는 null: ${weather}",
+  "growthStage": "다음 중 하나 또는 null: ${growth}",
+  "tempMin": "최저온도(℃ 숫자) 또는 null",
+  "tempMax": "최고온도(℃ 숫자) 또는 null",
+  "humidity": "습도(% 숫자) 또는 null",
+  "content": "정제된 작업 내용(원문에서 군더더기 제거, 한국어 자연스러운 1~3문장)",
+  "pest": "발견된 병해충 (없으면 null)",
+  "notes": "특이사항/메모 (없으면 null)",
+  "confidence": {
+    "houseId": "high|medium|low|null",
+    "workType": "high|medium|low|null",
+    "_other_fields_too": "..."
+  }
+}
+
+참고할 하우스 목록 (houseId:이름): ${houses}
+
+규칙:
+- 사용자가 명시적으로 말한 값만 채우세요. 추측 금지.
+- "1번 하우스" / "1동" → 가능한 houseId 매칭, 모호하면 null + low confidence.
+- 작업 내용(content)은 원문 보존하되 "어 그러니까" 같은 발화 군더더기 제거.
+- JSON 만 출력. 다른 텍스트, 마크다운 코드블록(\`\`\`) 금지.`;
+}
+
+function safeJsonParse(text) {
+  if (!text) return null;
+  let s = String(text).trim();
+  // ```json ... ``` 또는 ``` ... ``` 제거
+  s = s.replace(/^```(?:json)?\s*/i, "").replace(/```\s*$/i, "").trim();
+  // 첫 { 부터 마지막 } 까지 추출
+  const first = s.indexOf("{");
+  const last = s.lastIndexOf("}");
+  if (first >= 0 && last > first) s = s.slice(first, last + 1);
+  try { return JSON.parse(s); } catch { return null; }
+}
+
+router.post("/:farmId/journal/parse-text", authenticate, async (req, res) => {
+  const { text, hints } = req.body || {};
+  if (!text || typeof text !== "string" || text.trim().length < 2) {
+    return res.status(400).json({ success: false, error: "텍스트가 비어있거나 너무 짧습니다" });
+  }
+
+  const systemPrompt = buildJournalParseSystemPrompt(hints);
+  // Gemini 우선 — 한국어 + JSON 구조화에 강하고 비용 무료
+  const model = AI_CONFIG.geminiKey ? "gemini-2.5-flash" : undefined;
+
+  try {
+    const raw = await callAI(text, { systemPrompt, model });
+    const parsed = safeJsonParse(raw);
+    if (!parsed || typeof parsed !== "object") {
+      return res.json({
+        success: false,
+        error: "AI 응답을 구조화하지 못했습니다",
+        rawResponse: raw,
+      });
+    }
+
+    // 안전 캐스팅: 숫자 필드는 number 또는 null
+    const num = (v) => {
+      if (v === null || v === undefined || v === "") return null;
+      const n = Number(v);
+      return Number.isFinite(n) ? n : null;
+    };
+    const str = (v) => (v === null || v === undefined ? null : String(v).trim() || null);
+
+    const data = {
+      houseId: str(parsed.houseId),
+      workType: str(parsed.workType),
+      weather: str(parsed.weather),
+      growthStage: str(parsed.growthStage),
+      tempMin: num(parsed.tempMin),
+      tempMax: num(parsed.tempMax),
+      humidity: num(parsed.humidity),
+      content: str(parsed.content),
+      pest: str(parsed.pest),
+      notes: str(parsed.notes),
+      confidence: parsed.confidence && typeof parsed.confidence === "object" ? parsed.confidence : {},
+    };
+
+    return res.json({ success: true, data });
+  } catch (err) {
+    logger.error("journal parse-text 실패: " + err.message);
+    return res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 export default router;

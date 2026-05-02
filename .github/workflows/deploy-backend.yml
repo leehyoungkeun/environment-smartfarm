@@ -5,6 +5,7 @@ on:
     branches: [main]
     paths:
       - 'backend/**'
+      - 'rpi-files/backend-deploy/**'
 
 jobs:
   deploy:

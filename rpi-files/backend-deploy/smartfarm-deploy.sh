@@ -97,7 +97,18 @@ LOCAL=$(git rev-parse HEAD)
 REMOTE=$(git rev-parse "origin/$BRANCH")
 
 if [ "$LOCAL" = "$REMOTE" ]; then
-    log "✓ NOOP: 이미 최신 ($LOCAL)"
+    # NOOP catch-up: 외부 경로(옛 webhook 등)로 동기화된 경우 last_known_good 자동 정합화
+    EXISTING_LKG=$(cat "$LAST_GOOD_FILE" 2>/dev/null || echo "")
+    if [ "$EXISTING_LKG" != "$LOCAL" ]; then
+        if [ "$DRY_RUN" = "1" ]; then
+            log "✓ NOOP: 이미 최신 ($LOCAL) — [DRY-RUN] last_known_good catch-up 예정 ($EXISTING_LKG → $LOCAL)"
+        else
+            echo "$LOCAL" > "$LAST_GOOD_FILE" 2>/dev/null
+            log "✓ NOOP: 이미 최신 ($LOCAL) — last_known_good catch-up 갱신"
+        fi
+    else
+        log "✓ NOOP: 이미 최신 ($LOCAL)"
+    fi
     exit 0
 fi
 

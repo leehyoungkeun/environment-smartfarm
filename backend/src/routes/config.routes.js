@@ -554,8 +554,6 @@ router.post("/:farmId/rpi-ack", async (req, res) => {
 //   → MQTT smartfarm/+/sync/{query,command,status} → RPi → MQTT 응답 → cache
 // 호환성을 위해 라우트 유지하되 mqttService 캐시 응답 + MQTT publish 트리거.
 
-import mqttService from "../services/mqttClient.js";
-
 router.get("/sync-status/:farmId", async (req, res) => {
   const { farmId } = req.params;
   // 캐시된 sync status 즉시 반환 + 백그라운드로 publishSyncQuery 트리거 (다음 호출에 최신)

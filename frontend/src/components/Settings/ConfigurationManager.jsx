@@ -2975,15 +2975,26 @@ const ModbusOverviewPanel = ({ farmId }) => {
     loadAllConfigs();
   }, []);
 
+  // hybrid: PC API 우선 (외부 환경 동작 + Category C) + RPi LAN fallback (빠름)
   const loadAllConfigs = async () => {
     setLoading(true);
     try {
+      const pcUrl = getApiBase();
       const rpiUrl = getRpiApiBase();
-      const [housesRes, settingsRes] = await Promise.all([
-        axiosBase.get(`${rpiUrl}/config/farm/${farmId}`, { timeout: 5000 }),
-        axiosBase.get(`${API}/config/system-settings/${farmId}`, { timeout: 5000 }).catch(() => null),
-      ]);
-      if (housesRes.data?.success && Array.isArray(housesRes.data.data)) {
+
+      // 1. PC API 우선 시도
+      let housesRes;
+      try {
+        housesRes = await axios.get(`${pcUrl}/config/farm/${farmId}`, { timeout: 5000 });
+      } catch {
+        // 2. PC 실패 → RPi LAN fallback (외부 환경에선 차단되어 더 실패하지만 LAN 에선 동작)
+        housesRes = await axiosBase.get(`${rpiUrl}/config/farm/${farmId}`, { timeout: 5000 });
+      }
+
+      // settings 는 항상 PC API
+      const settingsRes = await axiosBase.get(`${API}/config/system-settings/${farmId}`, { timeout: 5000 }).catch(() => null);
+
+      if (housesRes?.data?.success && Array.isArray(housesRes.data.data)) {
         setHouses(housesRes.data.data);
       }
       const s = settingsRes?.data?.data?.settings;

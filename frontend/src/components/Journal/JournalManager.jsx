@@ -575,6 +575,20 @@ function JournalSearch(){const FARM_ID=useContext(FarmIdCtx);
                       <DetailRow label="생육단계" value={entry.growthStage} color="text-blue-400" />
                       <DetailRow label="병해충" value={entry.pest} color="text-orange-400" />
                       <DetailRow label="비고" value={entry.notes} />
+                      {entry.measurements&&Object.keys(entry.measurements).length>0&&(
+                        <div className="flex items-start gap-3">
+                          <span className="text-xs text-gray-400 w-20 shrink-0 pt-1">📈 생육 측정</span>
+                          <div className="flex flex-wrap gap-1.5">
+                            {entry.measurements.plantHeight!=null&&<span className="px-2 py-0.5 bg-emerald-100 !text-emerald-800 border border-emerald-300 rounded-full text-xs font-medium">초장 {entry.measurements.plantHeight}cm</span>}
+                            {entry.measurements.leafCount!=null&&<span className="px-2 py-0.5 bg-emerald-100 !text-emerald-800 border border-emerald-300 rounded-full text-xs font-medium">엽수 {entry.measurements.leafCount}장</span>}
+                            {entry.measurements.floweringRate!=null&&<span className="px-2 py-0.5 bg-pink-100 !text-pink-800 border border-pink-300 rounded-full text-xs font-medium">개화율 {entry.measurements.floweringRate}%</span>}
+                            {entry.measurements.fruitSetRate!=null&&<span className="px-2 py-0.5 bg-amber-100 !text-amber-800 border border-amber-300 rounded-full text-xs font-medium">착과율 {entry.measurements.fruitSetRate}%</span>}
+                            {Array.isArray(entry.measurements.custom)&&entry.measurements.custom.map((c,i)=>(
+                              <span key={i} className="px-2 py-0.5 bg-blue-100 !text-blue-800 border border-blue-300 rounded-full text-xs font-medium">{c.name} {c.value}{c.unit||''}</span>
+                            ))}
+                          </div>
+                        </div>
+                      )}
                       {entry.tags?.length>0&&(
                         <div className="flex items-start gap-3">
                           <span className="text-xs text-gray-400 w-20 shrink-0 pt-1">태그</span>
@@ -641,11 +655,85 @@ function TemplateSaveBox({onSave,onCancel}){
   );
 }
 
+// ━━━ 생육 측정 입력 (P1-A) ━━━
+// 표준 4 필드 (초장/엽수/개화율/착과율) + 사용자 정의 metric 최대 8 개
+// 측정 1 개라도 있으면 자동 펼침, 없으면 접힘 (입력 부담 0)
+const MEASURE_FIELDS = [
+  { key: "plantHeight", label: "초장(草長)", unit: "cm", min: 0, max: 500, step: 0.5 },
+  { key: "leafCount", label: "엽수", unit: "장", min: 0, max: 200, step: 1 },
+  { key: "floweringRate", label: "개화율", unit: "%", min: 0, max: 100, step: 1 },
+  { key: "fruitSetRate", label: "착과율", unit: "%", min: 0, max: 100, step: 1 },
+];
+function MeasurementSection({ measurements, onChange, aiHighlight }) {
+  const m = measurements || {};
+  const hasAny = MEASURE_FIELDS.some((f) => m[f.key] !== undefined && m[f.key] !== null && m[f.key] !== "")
+    || (Array.isArray(m.custom) && m.custom.length > 0);
+  const [open, setOpen] = useState(hasAny || aiHighlight);
+  useEffect(() => { if (hasAny || aiHighlight) setOpen(true); }, [hasAny, aiHighlight]);
+
+  const setField = (k, v) => onChange({ ...m, [k]: v === "" ? null : v });
+  const custom = Array.isArray(m.custom) ? m.custom : [];
+  const setCustom = (next) => onChange({ ...m, custom: next });
+  const addCustom = () => setCustom([...custom, { name: "", value: "", unit: "" }]);
+  const updCustom = (i, k, v) => setCustom(custom.map((c, idx) => idx === i ? { ...c, [k]: v } : c));
+  const rmCustom = (i) => setCustom(custom.filter((_, idx) => idx !== i));
+
+  return (
+    <div className={`rounded-lg border ${aiHighlight ? 'border-violet-400 bg-violet-50' : 'border-gray-300 bg-white'}`}>
+      <button type="button" onClick={() => setOpen(!open)}
+        className={`w-full px-3 py-2 flex items-center justify-between text-xs font-semibold !text-gray-800 hover:bg-gray-50 transition-colors ${open ? 'border-b border-gray-200' : ''}`}>
+        <span className="flex items-center gap-2">
+          📈 생육 측정
+          {aiHighlight && <span className="!text-violet-700" title="AI 채움">✨</span>}
+          {hasAny && <span className="text-[10px] !text-emerald-700 bg-emerald-100 px-1.5 py-0.5 rounded-full">기록됨</span>}
+          <span className="text-[10px] text-gray-500 font-normal">— 측정 안 했으면 비워두세요</span>
+        </span>
+        <span className="text-gray-500">{open ? '▼' : '▶'}</span>
+      </button>
+      {open && (
+        <div className="p-3 space-y-3">
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+            {MEASURE_FIELDS.map((f) => (
+              <div key={f.key}>
+                <label className="text-[11px] text-gray-600 mb-0.5 block">{f.label} <span className="text-gray-400">({f.unit})</span></label>
+                <input type="number" step={f.step} min={f.min} max={f.max}
+                  value={m[f.key] ?? ""}
+                  onChange={(e) => setField(f.key, e.target.value)}
+                  placeholder="-"
+                  style={LIGHT_INPUT}
+                  className="input-field text-sm w-full" />
+              </div>
+            ))}
+          </div>
+          {/* 사용자 정의 metric */}
+          {custom.length > 0 && (
+            <div className="space-y-1.5">
+              <div className="text-[11px] !text-gray-600 font-medium">사용자 정의 측정</div>
+              {custom.map((c, i) => (
+                <div key={i} className="flex gap-2 items-center">
+                  <input type="text" value={c.name} onChange={(e) => updCustom(i, "name", e.target.value)} placeholder="항목명 (예: 줄기 두께)" style={LIGHT_INPUT} className="input-field text-xs flex-1" />
+                  <input type="number" step="0.01" value={c.value} onChange={(e) => updCustom(i, "value", e.target.value)} placeholder="값" style={LIGHT_INPUT} className="input-field text-xs w-24" />
+                  <input type="text" value={c.unit} onChange={(e) => updCustom(i, "unit", e.target.value)} placeholder="단위" style={LIGHT_INPUT} className="input-field text-xs w-20" />
+                  <button type="button" onClick={() => rmCustom(i)} className="px-2 py-1 text-xs !text-rose-600 hover:bg-rose-50 rounded">×</button>
+                </div>
+              ))}
+            </div>
+          )}
+          <button type="button" onClick={addCustom}
+            className="text-xs !text-blue-700 hover:!text-blue-900 hover:bg-blue-50 px-2 py-1 rounded font-medium">
+            + 사용자 정의 측정 추가
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ━━━ 영농일지 폼 ━━━
 function JournalForm({entry,onSave,onCancel}){const FARM_ID=useContext(FarmIdCtx);
   const today=new Date().toISOString().split("T")[0];
   const[houses,setHouses]=useState([]);
-  const[form,setForm]=useState({houseId:entry?.houseId||"",date:entry?.date?new Date(entry.date).toISOString().split("T")[0]:today,weather:entry?.weather||"",tempMin:entry?.tempMin||"",tempMax:entry?.tempMax||"",humidity:entry?.humidity||"",workType:entry?.workType||"관리",growthStage:entry?.growthStage||"",content:entry?.content||"",pest:entry?.pest||"",notes:entry?.notes||"",tags:entry?.tags||[],photos:entry?.photos||[]});
+  const[form,setForm]=useState({houseId:entry?.houseId||"",date:entry?.date?new Date(entry.date).toISOString().split("T")[0]:today,weather:entry?.weather||"",tempMin:entry?.tempMin||"",tempMax:entry?.tempMax||"",humidity:entry?.humidity||"",workType:entry?.workType||"관리",growthStage:entry?.growthStage||"",content:entry?.content||"",pest:entry?.pest||"",notes:entry?.notes||"",tags:entry?.tags||[],measurements:entry?.measurements||{},photos:entry?.photos||[]});
   const[uploading,setUploading]=useState(false);
   const[listening,setListening]=useState(false);
   const[parsing,setParsing]=useState(false);
@@ -698,6 +786,19 @@ function JournalForm({entry,onSave,onCancel}){const FARM_ID=useContext(FarmIdCtx
         if(Array.isArray(d.tags)&&d.tags.length>0){
           const merged=Array.from(new Set([...(prev.tags||[]),...d.tags])).slice(0,20);
           if(merged.length>(prev.tags||[]).length){next.tags=merged;filled.add('tags');}
+        }
+        // measurements: AI 가 추출한 수치를 빈 필드만 채움
+        if(d.measurements&&typeof d.measurements==='object'){
+          const prevM=prev.measurements||{};
+          const nextM={...prevM};
+          let added=false;
+          ['plantHeight','leafCount','floweringRate','fruitSetRate'].forEach(k=>{
+            if(d.measurements[k]!=null&&(prevM[k]==null||prevM[k]===''||prevM[k]===undefined)){
+              nextM[k]=d.measurements[k];
+              added=true;
+            }
+          });
+          if(added){next.measurements=nextM;filled.add('measurements');}
         }
         // content 는 AI 가 정제한 버전이 있으면 교체 (원문은 이미 음성/타자 그대로)
         if(d.content&&d.content.length>0&&d.content!==prev.content){next.content=d.content;filled.add('content')}
@@ -829,7 +930,7 @@ function JournalForm({entry,onSave,onCancel}){const FARM_ID=useContext(FarmIdCtx
     try{
       await onSave(form);
       if(!entry){
-        setForm({houseId:houses[0]?.houseId||"",date:today,weather:"",tempMin:"",tempMax:"",humidity:"",workType:"관리",growthStage:"",content:"",pest:"",notes:"",tags:[],photos:[]});
+        setForm({houseId:houses[0]?.houseId||"",date:today,weather:"",tempMin:"",tempMax:"",humidity:"",workType:"관리",growthStage:"",content:"",pest:"",notes:"",tags:[],measurements:{},photos:[]});
         setAiFilled(new Set());setPhotoAi(null);setAutoSummary(null);
       }
     }catch(e){
@@ -989,6 +1090,8 @@ function JournalForm({entry,onSave,onCancel}){const FARM_ID=useContext(FarmIdCtx
             className="flex-1 min-w-[80px] bg-transparent text-xs placeholder:!text-gray-400 outline-none" />
         </div>
       </div>
+      {/* 생육 측정 (P1-A) — 토글로 펼침. 매주 1회 정도 측정한 수치를 기록. */}
+      <MeasurementSection measurements={form.measurements||{}} onChange={(m)=>set('measurements',m)} aiHighlight={aiFilled.has('measurements')} />
       <div><label className="text-xs text-gray-600 mb-1 flex items-center gap-2">사진
         <span className="text-[10px] text-gray-500">— 최대 5장 · 자동 압축</span>
         <span className="text-[10px] text-gray-500">({form.photos.length}/5)</span>

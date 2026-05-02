@@ -205,6 +205,7 @@ router.post("/:farmId/entries", authenticate, async (req, res) => {
       pest,
       notes,
       tags,
+      measurements,
       photos,
     } = req.body;
 
@@ -221,6 +222,9 @@ router.post("/:farmId/entries", authenticate, async (req, res) => {
       const cleaned = arr.map((t) => String(t).trim().replace(/^#/, "")).filter(Boolean);
       return Array.from(new Set(cleaned)).slice(0, 20);
     })();
+
+    // 생육 측정 정규화 (P1-A) — 표준 필드 4 + custom 배열
+    const normMeasurements = normalizeMeasurements(measurements);
 
     const entry = await prisma.farmJournal.create({
       data: {
@@ -239,6 +243,7 @@ router.post("/:farmId/entries", authenticate, async (req, res) => {
         pest: pest || null,
         notes: notes || null,
         tags: normTags,
+        measurements: normMeasurements,
         photos: photos || [],
         createdBy: req.user._id || req.user.id,
       },
@@ -273,6 +278,7 @@ router.put("/:farmId/entries/:id", authenticate, async (req, res) => {
       "pest",
       "notes",
       "tags",
+      "measurements",
       "photos",
     ];
 
@@ -281,6 +287,9 @@ router.put("/:farmId/entries/:id", authenticate, async (req, res) => {
         if (f === "date") data[f] = new Date(req.body[f]);
         else if (["tempMin", "tempMax", "humidity"].includes(f))
           data[f] = req.body[f] ? parseFloat(req.body[f]) : null;
+        else if (f === "measurements") {
+          data[f] = normalizeMeasurements(req.body[f]);
+        }
         else if (f === "tags") {
           const arr = Array.isArray(req.body[f]) ? req.body[f] : (typeof req.body[f] === "string" ? req.body[f].split(",") : []);
           data[f] = Array.from(new Set(arr.map((t) => String(t).trim().replace(/^#/, "")).filter(Boolean))).slice(0, 20);
@@ -760,6 +769,40 @@ function formatRecord(record) {
   if (!record) return null;
   const { id, ...rest } = record;
   return { _id: id, ...rest };
+}
+
+// 생육 측정 정규화 (P1-A)
+// - 표준 4 필드 (plantHeight cm, leafCount 개, floweringRate %, fruitSetRate %) 는 number 또는 null
+// - custom: [{name, value, unit}] 최대 8 개
+// - 모든 값 빈 입력이면 빈 객체 {} 반환 (DB 저장량 최소화)
+function normalizeMeasurements(m) {
+  if (!m || typeof m !== "object") return {};
+  const num = (v) => {
+    if (v === null || v === undefined || v === "") return null;
+    const n = Number(v);
+    return Number.isFinite(n) ? n : null;
+  };
+  const out = {};
+  const ph = num(m.plantHeight);
+  const lc = num(m.leafCount);
+  const fr = num(m.floweringRate);
+  const fs = num(m.fruitSetRate);
+  if (ph !== null) out.plantHeight = ph;
+  if (lc !== null) out.leafCount = lc;
+  if (fr !== null) out.floweringRate = fr;
+  if (fs !== null) out.fruitSetRate = fs;
+  if (Array.isArray(m.custom)) {
+    const cleaned = m.custom
+      .map((c) => ({
+        name: String(c?.name || "").trim().slice(0, 30),
+        value: num(c?.value),
+        unit: String(c?.unit || "").trim().slice(0, 10),
+      }))
+      .filter((c) => c.name && c.value !== null)
+      .slice(0, 8);
+    if (cleaned.length > 0) out.custom = cleaned;
+  }
+  return out;
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

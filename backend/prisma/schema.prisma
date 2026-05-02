@@ -143,6 +143,9 @@ model farmJournal {
   pest        String?
   notes       String?
   tags        String[] @default([])
+  // 생육 측정 (P1-A) — 선택 입력. 매주 1회 정도 농민이 측정한 수치.
+  // { plantHeight, leafCount, floweringRate, fruitSetRate, custom: [{name, value, unit}] }
+  measurements Json?   @default("{}")
   photos      Json     @default("[]")
   createdBy   String   @map("created_by")
   createdAt   DateTime @default(now()) @map("created_at")

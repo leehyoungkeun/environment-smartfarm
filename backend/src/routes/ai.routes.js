@@ -586,6 +586,12 @@ function buildJournalParseSystemPrompt(hints) {
   "pest": "발견된 병해충 (없으면 null)",
   "notes": "특이사항/메모 (없으면 null)",
   "tags": ["#기호 없는 짧은 단어 1~5개. 예: 방제, 수확, 황화, 곁순정리, 양액. 없으면 빈 배열 []"],
+  "measurements": {
+    "plantHeight": "초장 cm 숫자 또는 null. 예: '초장 25cm' / '키가 30센치' → 25 또는 30",
+    "leafCount": "엽수(잎 개수) 또는 null. 예: '잎 12장'",
+    "floweringRate": "개화율 % 또는 null. 예: '개화 60%'",
+    "fruitSetRate": "착과율 % 또는 null. 예: '착과 80%'"
+  },
   "confidence": {
     "houseId": "high|medium|low|null",
     "workType": "high|medium|low|null",
@@ -738,6 +744,17 @@ router.post("/:farmId/journal/parse-text", authenticate, async (req, res) => {
       ? Array.from(new Set(parsed.tags.map((t) => String(t).trim().replace(/^#/, "")).filter(Boolean))).slice(0, 10)
       : [];
 
+    // 측정 정규화 — 표준 4 필드만, null 가능
+    const m = parsed.measurements && typeof parsed.measurements === "object" ? parsed.measurements : {};
+    const measurements = {
+      plantHeight: num(m.plantHeight),
+      leafCount: num(m.leafCount),
+      floweringRate: num(m.floweringRate),
+      fruitSetRate: num(m.fruitSetRate),
+    };
+    // 모두 null 이면 빈 객체로
+    const hasMeasure = Object.values(measurements).some((v) => v !== null);
+
     const data = {
       houseId: str(parsed.houseId),
       workType: str(parsed.workType),
@@ -750,6 +767,7 @@ router.post("/:farmId/journal/parse-text", authenticate, async (req, res) => {
       pest: str(parsed.pest),
       notes: str(parsed.notes),
       tags,
+      measurements: hasMeasure ? measurements : null,
       confidence: parsed.confidence && typeof parsed.confidence === "object" ? parsed.confidence : {},
     };
 

@@ -206,6 +206,9 @@ router.post("/:farmId/entries", authenticate, async (req, res) => {
       notes,
       tags,
       measurements,
+      cropName,
+      variety,
+      cropCycleId,
       gpsLat,
       gpsLng,
       gpsAccuracy,
@@ -247,6 +250,9 @@ router.post("/:farmId/entries", authenticate, async (req, res) => {
         notes: notes || null,
         tags: normTags,
         measurements: normMeasurements,
+        cropName: cropName?.trim() || null,
+        variety: variety?.trim() || null,
+        cropCycleId: cropCycleId || null,
         gpsLat: gpsLat != null && gpsLat !== "" ? parseFloat(gpsLat) : null,
         gpsLng: gpsLng != null && gpsLng !== "" ? parseFloat(gpsLng) : null,
         gpsAccuracy: gpsAccuracy != null && gpsAccuracy !== "" ? parseFloat(gpsAccuracy) : null,
@@ -285,6 +291,9 @@ router.put("/:farmId/entries/:id", authenticate, async (req, res) => {
       "notes",
       "tags",
       "measurements",
+      "cropName",
+      "variety",
+      "cropCycleId",
       "gpsLat",
       "gpsLng",
       "gpsAccuracy",
@@ -411,6 +420,8 @@ router.post("/:farmId/harvests", authenticate, async (req, res) => {
       houseId,
       date,
       cropName,
+      variety,
+      cropCycleId,
       quantity,
       unit,
       grade,
@@ -447,6 +458,8 @@ router.post("/:farmId/harvests", authenticate, async (req, res) => {
         houseId: houseId || null,
         date: new Date(date),
         cropName,
+        variety: variety?.trim() || null,
+        cropCycleId: cropCycleId || null,
         quantity: qty,
         unit: unit || "kg",
         grade: grade || null,
@@ -484,6 +497,8 @@ router.put("/:farmId/harvests/:id", authenticate, async (req, res) => {
       "houseId",
       "date",
       "cropName",
+      "variety",
+      "cropCycleId",
       "quantity",
       "unit",
       "grade",
@@ -617,6 +632,8 @@ router.post("/:farmId/inputs", authenticate, async (req, res) => {
       houseId,
       date,
       inputType,
+      cropName,
+      cropCycleId,
       productName,
       manufacturer,
       quantity,
@@ -661,6 +678,8 @@ router.post("/:farmId/inputs", authenticate, async (req, res) => {
         houseId: houseId || null,
         date: new Date(date),
         inputType,
+        cropName: cropName?.trim() || null,
+        cropCycleId: cropCycleId || null,
         productName,
         manufacturer: manufacturer || null,
         quantity: parseFloat(quantity),
@@ -695,6 +714,8 @@ router.put("/:farmId/inputs/:id", authenticate, async (req, res) => {
       "houseId",
       "date",
       "inputType",
+      "cropName",
+      "cropCycleId",
       "productName",
       "manufacturer",
       "quantity",
@@ -1106,6 +1127,25 @@ router.get("/:farmId/auto-fill", authenticate, async (req, res) => {
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // 작기 (cropCycle) + 토양 관리 (soilManagement) — 인증 단계 4
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+// 활성 작기 — 하우스별 현재 진행 중인 작기 (일지/투입 작성 시 자동 매핑용)
+// 응답 형식: { houseId: { id, cropName, variety, plantingDate, ... }, ... }
+router.get("/:farmId/cycles/active", authenticate, async (req, res) => {
+  try {
+    const { farmId } = req.params;
+    const rows = await prisma.cropCycle.findMany({
+      where: { farmId, status: "active" },
+      orderBy: { plantingDate: "desc" },
+    });
+    // 하우스별 가장 최근 정식 작기 (다중 작기 시 최신 우선)
+    const map = {};
+    for (const r of rows) {
+      const key = r.houseId || "_global";
+      if (!map[key]) map[key] = formatRecord(r);
+    }
+    res.json({ success: true, data: map });
+  } catch (e) { res.status(500).json({ success: false, error: e.message }); }
+});
 
 // 작기 목록
 router.get("/:farmId/cycles", authenticate, async (req, res) => {

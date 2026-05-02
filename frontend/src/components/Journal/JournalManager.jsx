@@ -1312,6 +1312,7 @@ function JournalSearch(){const FARM_ID=useContext(FarmIdCtx);
                   <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-emerald-500/20 text-emerald-400">{entry.workType}</span>
                   {entry.growthStage&&<span className="px-2 py-0.5 rounded-full text-xs bg-blue-500/20 text-blue-400">{entry.growthStage}</span>}
                   {entry.weather&&<span className="text-xs text-gray-500">☁ {entry.weather}</span>}
+                  {entry.cropName&&<span className="px-2 py-0.5 rounded-full text-xs font-medium bg-green-100 !text-green-800 border border-green-300">🌱 {entry.cropName}{entry.variety?` · ${entry.variety}`:""}</span>}
                   <span className="text-sm text-gray-300 truncate flex-1 min-w-[120px]">{entry.content}</span>
                   {entry.tags?.length>0&&entry.tags.slice(0,3).map(t=>(
                     <button key={t} type="button" onClick={e=>{e.stopPropagation();toggleFilterTagFromCard(t);}}
@@ -1607,8 +1608,8 @@ const DRAFT_DEBOUNCE_MS = 1000;
 function JournalForm({entry,onSave,onCancel}){const FARM_ID=useContext(FarmIdCtx);
   const today=new Date().toISOString().split("T")[0];
   const[houses,setHouses]=useState([]);
-  const emptyForm={houseId:"",date:today,weather:"",tempMin:"",tempMax:"",humidity:"",workType:"관리",growthStage:"",content:"",pest:"",notes:"",tags:[],measurements:{},gpsLat:"",gpsLng:"",gpsAccuracy:"",photos:[]};
-  const[form,setForm]=useState({houseId:entry?.houseId||"",date:entry?.date?new Date(entry.date).toISOString().split("T")[0]:today,weather:entry?.weather||"",tempMin:entry?.tempMin||"",tempMax:entry?.tempMax||"",humidity:entry?.humidity||"",workType:entry?.workType||"관리",growthStage:entry?.growthStage||"",content:entry?.content||"",pest:entry?.pest||"",notes:entry?.notes||"",tags:entry?.tags||[],measurements:entry?.measurements||{},gpsLat:entry?.gpsLat||"",gpsLng:entry?.gpsLng||"",gpsAccuracy:entry?.gpsAccuracy||"",photos:entry?.photos||[]});
+  const emptyForm={houseId:"",date:today,weather:"",tempMin:"",tempMax:"",humidity:"",workType:"관리",growthStage:"",content:"",pest:"",notes:"",tags:[],measurements:{},cropName:"",variety:"",cropCycleId:"",gpsLat:"",gpsLng:"",gpsAccuracy:"",photos:[]};
+  const[form,setForm]=useState({houseId:entry?.houseId||"",date:entry?.date?new Date(entry.date).toISOString().split("T")[0]:today,weather:entry?.weather||"",tempMin:entry?.tempMin||"",tempMax:entry?.tempMax||"",humidity:entry?.humidity||"",workType:entry?.workType||"관리",growthStage:entry?.growthStage||"",content:entry?.content||"",pest:entry?.pest||"",notes:entry?.notes||"",tags:entry?.tags||[],measurements:entry?.measurements||{},cropName:entry?.cropName||"",variety:entry?.variety||"",cropCycleId:entry?.cropCycleId||"",gpsLat:entry?.gpsLat||"",gpsLng:entry?.gpsLng||"",gpsAccuracy:entry?.gpsAccuracy||"",photos:entry?.photos||[]});
   // ── drafts ──
   const[draftRestore,setDraftRestore]=useState(null); // { form, savedAt } 또는 null
   // 마운트 시 LocalStorage에서 draft 검사 (새 일지 작성 모드만)
@@ -1726,6 +1727,25 @@ function JournalForm({entry,onSave,onCancel}){const FARM_ID=useContext(FarmIdCtx
     finally{setParsing(false);}
   };
   useEffect(()=>{api(`/config/farm/${FARM_ID}`).then(r=>{const h=r.data||[];setHouses(h);if(!form.houseId&&h.length>0)set("houseId",h[0].houseId)}).catch(()=>{})},[FARM_ID]);
+
+  // 활성 작기 매핑 — 하우스별 현재 진행 중인 작기 (시설별 작목/품종 자동 채움)
+  const[activeCycles,setActiveCycles]=useState({});
+  useEffect(()=>{api(`/journal/${FARM_ID}/cycles/active`).then(r=>setActiveCycles(r.data||{})).catch(()=>{})},[FARM_ID]);
+  // 하우스 변경 시 활성 작기 자동 매핑 (수정 모드 X, 비어있을 때만)
+  useEffect(()=>{
+    if(entry)return;
+    if(!form.houseId)return;
+    const cycle=activeCycles[form.houseId]||activeCycles._global;
+    if(!cycle)return;
+    setForm(prev=>{
+      const next={...prev};
+      let changed=false;
+      if(!prev.cropName&&cycle.cropName){next.cropName=cycle.cropName;changed=true;}
+      if(!prev.variety&&cycle.variety){next.variety=cycle.variety;changed=true;}
+      if(!prev.cropCycleId&&cycle._id){next.cropCycleId=cycle._id;changed=true;}
+      return changed?next:prev;
+    });
+  },[form.houseId,activeCycles,entry]);
 
   // ── 환경 자동 채움: date+houseId 변경 시 sensorData/controlLog 으로 빈 필드만 채움 ──
   // 사용자가 이미 입력한 값(P0-2 AI 분석 포함)은 보존. 작성 부담 줄이기 핵심.
@@ -1854,7 +1874,7 @@ function JournalForm({entry,onSave,onCancel}){const FARM_ID=useContext(FarmIdCtx
       if(!entry){
         // 저장 성공 — draft 폐기
         try{localStorage.removeItem(DRAFT_KEY(FARM_ID));}catch{}
-        setForm({houseId:houses[0]?.houseId||"",date:today,weather:"",tempMin:"",tempMax:"",humidity:"",workType:"관리",growthStage:"",content:"",pest:"",notes:"",tags:[],measurements:{},gpsLat:"",gpsLng:"",gpsAccuracy:"",photos:[]});
+        setForm({houseId:houses[0]?.houseId||"",date:today,weather:"",tempMin:"",tempMax:"",humidity:"",workType:"관리",growthStage:"",content:"",pest:"",notes:"",tags:[],measurements:{},cropName:"",variety:"",cropCycleId:"",gpsLat:"",gpsLng:"",gpsAccuracy:"",photos:[]});
         setAiFilled(new Set());setPhotoAi(null);setAutoSummary(null);
       }
     }catch(e){
@@ -1987,6 +2007,20 @@ function JournalForm({entry,onSave,onCancel}){const FARM_ID=useContext(FarmIdCtx
         <div><label className="text-xs text-gray-600 mb-1 flex items-center gap-1">작업유형 *{aiFilled.has('workType')&&<span className="text-violet-400" title="AI 채움">✨</span>}</label><select style={LIGHT_INPUT} value={form.workType} onChange={e=>set("workType",e.target.value)} className={`${SC} ${aiFilled.has('workType')?'ring-1 ring-violet-400/40':''}`}>{WORK_TYPES.map(w=><option key={w} value={w}>{w}</option>)}</select></div>
         <div><label className="text-xs text-gray-600 mb-1 flex items-center gap-1">날씨{aiFilled.has('weather')&&<span className="text-violet-400" title="AI 채움">✨</span>}</label><select style={LIGHT_INPUT} value={form.weather} onChange={e=>set("weather",e.target.value)} className={`${SC} ${aiFilled.has('weather')?'ring-1 ring-violet-400/40':''}`}><option value="">선택</option>{WEATHER_OPTIONS.map(w=><option key={w} value={w}>{w}</option>)}</select></div>
         <div><label className="text-xs text-gray-600 mb-1 flex items-center gap-1">생육단계{aiFilled.has('growthStage')&&<span className="text-violet-400" title="AI 채움">✨</span>}</label><select style={LIGHT_INPUT} value={form.growthStage} onChange={e=>set("growthStage",e.target.value)} className={`${SC} ${aiFilled.has('growthStage')?'ring-1 ring-violet-400/40':''}`}><option value="">선택</option>{GROWTH_STAGES.map(g=><option key={g} value={g}>{g}</option>)}</select></div>
+      </div>
+      {/* 작목/품종 — 활성 작기에서 자동 매핑, 사용자 수정 가능 */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+        <div><label className="text-xs text-gray-600 mb-1 flex items-center gap-2">🌱 작목 {form.cropCycleId&&<span className="text-[10px] !text-emerald-700 bg-emerald-100 px-1.5 py-0.5 rounded-full font-medium">자동 매핑</span>}</label>
+          <input style={LIGHT_INPUT} type="text" value={form.cropName} onChange={e=>{set("cropName",e.target.value);if(form.cropCycleId)set("cropCycleId","");}} placeholder="예: 토마토, 오이" className="input-field text-sm w-full" />
+        </div>
+        <div><label className="text-xs text-gray-600 mb-1 block">🌿 품종</label>
+          <input style={LIGHT_INPUT} type="text" value={form.variety} onChange={e=>{set("variety",e.target.value);if(form.cropCycleId)set("cropCycleId","");}} placeholder="예: 부산올레, 다복 등" className="input-field text-sm w-full" />
+        </div>
+        <div className="flex items-end">
+          {form.houseId&&!activeCycles[form.houseId]&&!activeCycles._global&&(
+            <span className="text-[11px] !text-amber-700 bg-amber-50 border border-amber-300 rounded-md px-2 py-1.5 w-full">💡 이 하우스의 활성 작기가 없습니다. <a href="#" onClick={e=>{e.preventDefault();alert("인증/관리 → 작기 관리 탭에서 정식 정보를 등록하세요");}} className="!text-blue-700 underline">작기 등록</a></span>
+          )}
+        </div>
       </div>
       <div className="grid grid-cols-3 gap-3">
         <div><label className="text-xs text-gray-600 mb-1 flex items-center gap-1">최저 온도{aiFilled.has('tempMin')&&<span className="text-violet-400" title="AI 채움">✨</span>}</label><input style={LIGHT_INPUT} type="number" step="0.1" value={form.tempMin} onChange={e=>set("tempMin",e.target.value)} placeholder="°C" className={`input-field text-sm w-full ${aiFilled.has('tempMin')?'ring-1 ring-violet-400/40':''}`} /></div>
@@ -2216,10 +2250,27 @@ function HarvestWrite(){const FARM_ID=useContext(FarmIdCtx);
 }
 
 // ━━━ 수확 폼 ━━━
-function HarvestForm({record,onSave,onCancel}){
+function HarvestForm({record,onSave,onCancel}){const FARM_ID=useContext(FarmIdCtx);
   const today=new Date().toISOString().split("T")[0];
-  const empty={date:today,cropName:"",quantity:"",unit:"kg",grade:"",destination:"",unitPrice:"",notes:"",lotNumber:"",traceabilityNo:"",buyer:"",invoiceNo:"",loss:"",lossReason:"",qualityMetrics:{}};
-  const[form,setForm]=useState({date:record?.date?new Date(record.date).toISOString().split("T")[0]:today,cropName:record?.cropName||"",quantity:record?.quantity||"",unit:record?.unit||"kg",grade:record?.grade||"",destination:record?.destination||"",unitPrice:record?.unitPrice||"",notes:record?.notes||"",lotNumber:record?.lotNumber||"",traceabilityNo:record?.traceabilityNo||"",buyer:record?.buyer||"",invoiceNo:record?.invoiceNo||"",loss:record?.loss||"",lossReason:record?.lossReason||"",qualityMetrics:record?.qualityMetrics||{}});
+  const empty={houseId:"",date:today,cropName:"",variety:"",cropCycleId:"",quantity:"",unit:"kg",grade:"",destination:"",unitPrice:"",notes:"",lotNumber:"",traceabilityNo:"",buyer:"",invoiceNo:"",loss:"",lossReason:"",qualityMetrics:{}};
+  const[form,setForm]=useState({houseId:record?.houseId||"",date:record?.date?new Date(record.date).toISOString().split("T")[0]:today,cropName:record?.cropName||"",variety:record?.variety||"",cropCycleId:record?.cropCycleId||"",quantity:record?.quantity||"",unit:record?.unit||"kg",grade:record?.grade||"",destination:record?.destination||"",unitPrice:record?.unitPrice||"",notes:record?.notes||"",lotNumber:record?.lotNumber||"",traceabilityNo:record?.traceabilityNo||"",buyer:record?.buyer||"",invoiceNo:record?.invoiceNo||"",loss:record?.loss||"",lossReason:record?.lossReason||"",qualityMetrics:record?.qualityMetrics||{}});
+  // 활성 작기 자동 매핑
+  const[houses,setHouses]=useState([]);const[activeCycles,setActiveCycles]=useState({});
+  useEffect(()=>{api(`/config/farm/${FARM_ID}`).then(r=>setHouses(r.data||[])).catch(()=>{})},[FARM_ID]);
+  useEffect(()=>{api(`/journal/${FARM_ID}/cycles/active`).then(r=>setActiveCycles(r.data||{})).catch(()=>{})},[FARM_ID]);
+  useEffect(()=>{
+    if(record)return;
+    if(!form.houseId)return;
+    const cycle=activeCycles[form.houseId]||activeCycles._global;
+    if(!cycle)return;
+    setForm(prev=>{
+      const next={...prev};let changed=false;
+      if(!prev.cropName&&cycle.cropName){next.cropName=cycle.cropName;changed=true;}
+      if(!prev.variety&&cycle.variety){next.variety=cycle.variety;changed=true;}
+      if(!prev.cropCycleId&&cycle._id){next.cropCycleId=cycle._id;changed=true;}
+      return changed?next:prev;
+    });
+  },[form.houseId,activeCycles,record]);
   const set=(k,v)=>setForm(p=>({...p,[k]:v}));
   const setQM=(k,v)=>setForm(p=>({...p,qualityMetrics:{...p.qualityMetrics,[k]:v}}));
   const revenue=form.quantity&&form.unitPrice?(parseFloat(form.quantity)*parseFloat(form.unitPrice)).toLocaleString():null;
@@ -2238,7 +2289,15 @@ function HarvestForm({record,onSave,onCancel}){
       <h3 className="text-lg font-semibold text-white">{record?"수확 기록 수정":"새 수확 기록"}</h3>
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         <div><label className="text-xs text-gray-600 mb-1 block">날짜 *</label><input style={LIGHT_INPUT} type="date" value={form.date} onChange={e=>set("date",e.target.value)} className="input-field text-sm w-full" /></div>
-        <div><label className="text-xs text-gray-600 mb-1 block">작물명 *</label><input style={LIGHT_INPUT} type="text" value={form.cropName} onChange={e=>set("cropName",e.target.value)} placeholder="예: 토마토" className="input-field text-sm w-full" /></div>
+        <div><label className="text-xs text-gray-600 mb-1 block">하우스</label>
+          <select style={LIGHT_INPUT} value={form.houseId} onChange={e=>set("houseId",e.target.value)} className={SC}>
+            <option value="">전체(공통)</option>{houses.map(h=><option key={h.houseId} value={h.houseId}>{h.houseName||h.houseId}</option>)}
+          </select>
+        </div>
+        <div><label className="text-xs text-gray-600 mb-1 flex items-center gap-2">작물명 * {form.cropCycleId&&<span className="text-[10px] !text-emerald-700 bg-emerald-100 px-1.5 py-0.5 rounded-full font-medium">자동</span>}</label><input style={LIGHT_INPUT} type="text" value={form.cropName} onChange={e=>{set("cropName",e.target.value);if(form.cropCycleId)set("cropCycleId","");}} placeholder="예: 토마토" className="input-field text-sm w-full" /></div>
+        <div><label className="text-xs text-gray-600 mb-1 block">품종</label><input style={LIGHT_INPUT} type="text" value={form.variety} onChange={e=>{set("variety",e.target.value);if(form.cropCycleId)set("cropCycleId","");}} placeholder="예: 부산올레" className="input-field text-sm w-full" /></div>
+      </div>
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         <div><label className="text-xs text-gray-600 mb-1 block">수확량 *</label><div className="flex gap-1"><input style={LIGHT_INPUT} type="number" step="0.1" value={form.quantity} onChange={e=>set("quantity",e.target.value)} className="input-field text-sm flex-1" /><select style={LIGHT_INPUT} value={form.unit} onChange={e=>set("unit",e.target.value)} className="input-field jrn-select text-sm w-16"><option value="kg">kg</option><option value="g">g</option><option value="개">개</option><option value="박스">박스</option></select></div></div>
         <div><label className="text-xs text-gray-600 mb-1 block">등급</label><select style={LIGHT_INPUT} value={form.grade} onChange={e=>set("grade",e.target.value)} className={SC}><option value="">선택</option>{GRADES.map(g=><option key={g} value={g}>{g}</option>)}</select></div>
       </div>
@@ -2410,10 +2469,25 @@ function InputWrite(){const FARM_ID=useContext(FarmIdCtx);
 }
 
 // ━━━ 투입물 폼 ━━━
-function InputForm({record,onSave,onCancel}){
+function InputForm({record,onSave,onCancel}){const FARM_ID=useContext(FarmIdCtx);
   const today=new Date().toISOString().split("T")[0];
-  const emptyForm={date:today,inputType:"비료",productName:"",manufacturer:"",quantity:"",unit:"kg",cost:"",targetArea:"",method:"",notes:"",pesticideRegNo:"",dilutionRatio:"",applicationCount:"",safeUseInterval:"",applicator:""};
-  const[form,setForm]=useState({date:record?.date?new Date(record.date).toISOString().split("T")[0]:today,inputType:record?.inputType||"비료",productName:record?.productName||"",manufacturer:record?.manufacturer||"",quantity:record?.quantity||"",unit:record?.unit||"kg",cost:record?.cost||"",targetArea:record?.targetArea||"",method:record?.method||"",notes:record?.notes||"",pesticideRegNo:record?.pesticideRegNo||"",dilutionRatio:record?.dilutionRatio||"",applicationCount:record?.applicationCount||"",safeUseInterval:record?.safeUseInterval||"",applicator:record?.applicator||""});
+  const emptyForm={houseId:"",date:today,inputType:"비료",cropName:"",cropCycleId:"",productName:"",manufacturer:"",quantity:"",unit:"kg",cost:"",targetArea:"",method:"",notes:"",pesticideRegNo:"",dilutionRatio:"",applicationCount:"",safeUseInterval:"",applicator:""};
+  const[form,setForm]=useState({houseId:record?.houseId||"",date:record?.date?new Date(record.date).toISOString().split("T")[0]:today,inputType:record?.inputType||"비료",cropName:record?.cropName||"",cropCycleId:record?.cropCycleId||"",productName:record?.productName||"",manufacturer:record?.manufacturer||"",quantity:record?.quantity||"",unit:record?.unit||"kg",cost:record?.cost||"",targetArea:record?.targetArea||"",method:record?.method||"",notes:record?.notes||"",pesticideRegNo:record?.pesticideRegNo||"",dilutionRatio:record?.dilutionRatio||"",applicationCount:record?.applicationCount||"",safeUseInterval:record?.safeUseInterval||"",applicator:record?.applicator||""});
+  const[houses,setHouses]=useState([]);const[activeCycles,setActiveCycles]=useState({});
+  useEffect(()=>{api(`/config/farm/${FARM_ID}`).then(r=>setHouses(r.data||[])).catch(()=>{})},[FARM_ID]);
+  useEffect(()=>{api(`/journal/${FARM_ID}/cycles/active`).then(r=>setActiveCycles(r.data||{})).catch(()=>{})},[FARM_ID]);
+  useEffect(()=>{
+    if(record)return;
+    if(!form.houseId)return;
+    const cycle=activeCycles[form.houseId]||activeCycles._global;
+    if(!cycle)return;
+    setForm(prev=>{
+      const next={...prev};let changed=false;
+      if(!prev.cropName&&cycle.cropName){next.cropName=cycle.cropName;changed=true;}
+      if(!prev.cropCycleId&&cycle._id){next.cropCycleId=cycle._id;changed=true;}
+      return changed?next:prev;
+    });
+  },[form.houseId,activeCycles,record]);
   const set=(k,v)=>setForm(p=>({...p,[k]:v}));
   const handleSubmit=async()=>{if(!form.productName.trim()||!form.quantity||!form.unit){alert("제품명, 사용량, 단위는 필수입니다");return}await onSave(form);if(!record)setForm(emptyForm)};
   // 살포일 + 안전사용기준 = 마지막 농약사용일자 (수확 가능 시점) 자동 계산
@@ -2423,7 +2497,17 @@ function InputForm({record,onSave,onCancel}){
       <h3 className="text-lg font-semibold text-white">{record?"투입물 수정":"새 투입물 기록"}</h3>
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         <div><label className="text-xs text-gray-600 mb-1 block">날짜 *</label><input style={LIGHT_INPUT} type="date" value={form.date} onChange={e=>set("date",e.target.value)} className="input-field text-sm w-full" /></div>
+        <div><label className="text-xs text-gray-600 mb-1 block">하우스</label>
+          <select style={LIGHT_INPUT} value={form.houseId} onChange={e=>set("houseId",e.target.value)} className={SC}>
+            <option value="">전체(공통)</option>{houses.map(h=><option key={h.houseId} value={h.houseId}>{h.houseName||h.houseId}</option>)}
+          </select>
+        </div>
+        <div><label className="text-xs text-gray-600 mb-1 flex items-center gap-2">🌱 작목 {form.cropCycleId&&<span className="text-[10px] !text-emerald-700 bg-emerald-100 px-1.5 py-0.5 rounded-full font-medium">자동</span>}</label>
+          <input style={LIGHT_INPUT} type="text" value={form.cropName} onChange={e=>{set("cropName",e.target.value);if(form.cropCycleId)set("cropCycleId","");}} placeholder="예: 토마토" className="input-field text-sm w-full" />
+        </div>
         <div><label className="text-xs text-gray-600 mb-1 block">투입유형 *</label><select style={LIGHT_INPUT} value={form.inputType} onChange={e=>set("inputType",e.target.value)} className={SC}>{INPUT_TYPES.map(t=><option key={t} value={t}>{t}</option>)}</select></div>
+      </div>
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         <div><label className="text-xs text-gray-600 mb-1 block">제품명 *</label><input style={LIGHT_INPUT} type="text" value={form.productName} onChange={e=>set("productName",e.target.value)} className="input-field text-sm w-full" /></div>
         <div><label className="text-xs text-gray-600 mb-1 block">제조사</label><input style={LIGHT_INPUT} type="text" value={form.manufacturer} onChange={e=>set("manufacturer",e.target.value)} className="input-field text-sm w-full" /></div>
       </div>

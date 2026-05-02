@@ -139,6 +139,10 @@ model farmJournal {
   humidity    Float?
   workType    String   @map("work_type")
   growthStage String?  @map("growth_stage")
+  // 작목·품종·작기 (시설별 현재 작물 추적, 인증/규제 + 일관성)
+  cropName    String?  @map("crop_name")              // 활성 작기에서 자동 채움 (작성 시 snapshot)
+  variety     String?                                  // 품종
+  cropCycleId String?  @map("crop_cycle_id")          // FK to cropCycle (선택, 자동 매핑)
   content     String
   pest        String?
   notes       String?
@@ -157,6 +161,7 @@ model farmJournal {
 
   @@index([farmId, date])
   @@index([farmId, houseId, date])
+  @@index([cropCycleId])
   @@index([tags], type: Gin)
   @@map("farm_journals")
 }
@@ -293,6 +298,8 @@ model harvestRecord {
   houseId      String?  @map("house_id")
   date         DateTime @db.Date
   cropName     String   @map("crop_name")
+  variety      String?                                  // 품종
+  cropCycleId  String?  @map("crop_cycle_id")           // 활성 작기 매핑
   quantity     Float
   unit         String   @default("kg")
   grade        String?
@@ -416,6 +423,9 @@ model inputRecord {
   houseId      String?  @map("house_id")
   date         DateTime @db.Date
   inputType    String   @map("input_type")
+  // 작목 매핑 (PLS 작목별 사용횟수 제한 추적용)
+  cropName     String?  @map("crop_name")
+  cropCycleId  String?  @map("crop_cycle_id")
   productName  String   @map("product_name")
   manufacturer String?
   quantity     Float

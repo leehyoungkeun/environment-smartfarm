@@ -162,6 +162,8 @@ scp lhk@192.168.137.30:/home/lhk/smartfarm/node-red/settings.js rpi-files/master
 
 1. **FARM_ID 환경변수 트랩** (commit `cbeefac`): `/home/lhk/.env` 에 FARM_ID 가 박혀있으면 `.farm-id` 파일보다 우선됨 → 새 농장이 farm_0001 로 잘못 등록. 이미지 청소 시 `.env` 삭제 필수.
 
+1-1. **VITE_FARM_ID 빌드 타임 트랩** (해결됨, 2026-05-02): 프론트 빌드 시 `.env.production` 의 `VITE_FARM_ID=farm_0001` 이 dist 에 박힘 → 1호 dist 를 새 농장에 그대로 가져가면 farm_0001 로 동작. 해결: `system-api.js` 의 `GET /api/system/info` 가 `.farm-id` 파일을 동적 반환, `AuthContext` 가 fetch 로 farmId 결정. 빌드 환경변수는 fallback 으로만 남음.
+
 2. **Tailscale 등록 정보**: `/var/lib/tailscale/` 에 등록 상태가 남아있으면 새 RPi 가 farm-0001 로 등록됨. 청소 시 `logout + 파일 삭제` 모두 필수.
 
 3. **healthcheck flow**: 표준 이미지에 반드시 포함되어야 cron(`smartfarm-modbus-healthcheck.sh`)이 의미 있게 작동. 빠지면 cron 이 무한 재시작 루프를 일으킬 수 있음. 마스터 `flows.json` 에 `mh_*` 노드 4개 있는지 확인:

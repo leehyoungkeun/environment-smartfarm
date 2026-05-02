@@ -120,13 +120,29 @@ export const AuthProvider = ({ children }) => {
   useEffect(() => {
     const initAuth = async () => {
       // 팜로컬 모드: 자동 로그인 (JWT 서버 없음)
+      // farmId 는 RPi /api/system/info 동적 조회 우선 → 빌드 타임 환경변수 → 최종 fallback
+      // (1호 빌드 dist 가 새 농장 RPi 에 그대로 가도 .farm-id 기반으로 정확히 동작)
       if (isFarmLocalMode()) {
+        let farmId = null;
+        try {
+          const r = await fetch('/api/system/info', {
+            cache: 'no-store',
+            signal: AbortSignal.timeout(2000),
+          });
+          if (r.ok) {
+            const d = await r.json();
+            if (d?.success && d?.configured && d?.farmId) farmId = d.farmId;
+          }
+        } catch { /* same-origin 실패 — fallback 으로 진행 */ }
+
+        if (!farmId) farmId = import.meta.env.VITE_FARM_ID || 'farm_0001';
+
         const farmLocalUser = {
           id: 'farm-local',
           username: 'farmer',
           name: '농장관리자',
           role: 'owner',
-          farmId: import.meta.env.VITE_FARM_ID || 'farm_0001',
+          farmId,
         };
         setUser(farmLocalUser);
         cacheUser(farmLocalUser);
@@ -225,12 +241,26 @@ export const AuthProvider = ({ children }) => {
           } else if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
             // RPi 로컬 접속 + PC 서버 없음 + 캐시 없음 → 로컬 농장관리자로 자동 진입
             console.log('[Auth] 로컬 접속 + 서버 없음 → 로컬 모드 자동 진입');
+            // farmId 동적 조회 (팜로컬 자동 로그인과 동일 흐름)
+            let farmId = null;
+            try {
+              const r = await fetch('/api/system/info', {
+                cache: 'no-store',
+                signal: AbortSignal.timeout(2000),
+              });
+              if (r.ok) {
+                const d = await r.json();
+                if (d?.success && d?.configured && d?.farmId) farmId = d.farmId;
+              }
+            } catch { /* fallback */ }
+            if (!farmId) farmId = import.meta.env.VITE_FARM_ID || 'farm_0001';
+
             const localUser = {
               id: 'local-user',
               username: 'farmer',
               name: '농장관리자',
               role: 'owner',
-              farmId: import.meta.env.VITE_FARM_ID || 'farm_0001',
+              farmId,
             };
             setUser(localUser);
             cacheUser(localUser);

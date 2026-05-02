@@ -1,10 +1,13 @@
-// system-api.js — RPi 시스템 관리 API (PM2 프로세스 제어)
+// system-api.js — RPi 시스템 관리 API (PM2 프로세스 제어 + 농장 ID 동적 조회)
 // 포트 3100에서 독립 실행 (Node-RED와 분리)
 
 const http = require('http');
+const fs = require('fs');
+const os = require('os');
 const { exec } = require('child_process');
 
 const PORT = 3100;
+const FARM_ID_FILE = '/home/lhk/smartfarm/.farm-id';
 
 // CORS 헤더
 function setCors(res) {
@@ -47,6 +50,28 @@ function getPm2Status(name) {
   });
 }
 
+// 농장 ID 읽기 (.farm-id 파일 → 환경변수 → fallback)
+function readFarmId() {
+  try {
+    var raw = fs.readFileSync(FARM_ID_FILE, 'utf8').trim();
+    if (raw && raw !== 'UNSET') return raw;
+  } catch (e) { /* 파일 없음 */ }
+  return process.env.FARM_ID || null;
+}
+
+// 첫 번째 non-internal IPv4 주소
+function primaryIPv4() {
+  var nets = os.networkInterfaces();
+  for (var name in nets) {
+    var ifaces = nets[name] || [];
+    for (var i = 0; i < ifaces.length; i++) {
+      var n = ifaces[i];
+      if (n.family === 'IPv4' && !n.internal) return n.address;
+    }
+  }
+  return null;
+}
+
 // PM2 프로세스 재시작
 function restartPm2(name) {
   return new Promise(function(resolve) {
@@ -67,6 +92,22 @@ var server = http.createServer(function(req, res) {
     setCors(res);
     res.writeHead(204);
     res.end();
+    return;
+  }
+
+  // GET /api/system/info — 농장 ID 동적 조회 (터치패널/팜로컬 자동 로그인용)
+  // 빌드 타임 VITE_FARM_ID 의존성 제거 — 표준 이미지 배포 시 새 농장에서도 정상 동작.
+  if (req.method === 'GET' && req.url === '/api/system/info') {
+    var farmId = readFarmId();
+    jsonRes(res, 200, {
+      success: true,
+      farmId: farmId,
+      configured: !!farmId,             // false 이면 setup 페이지로 유도
+      hostname: os.hostname(),
+      ipv4: primaryIPv4(),
+      nodeVersion: process.version,
+      timestamp: new Date().toISOString()
+    });
     return;
   }
 

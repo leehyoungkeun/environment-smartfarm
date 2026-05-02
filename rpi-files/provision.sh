@@ -195,7 +195,26 @@ server {
         try_files $uri $uri/ /index.html;
     }
 
-    # Node-RED API 프록시
+    # 시스템 API (system-api.js, port 3100)
+    # 더 긴 prefix /api/system/ 가 /api/ 보다 먼저 매칭됨
+    # /api/system/info — 농장 ID 동적 조회 (터치패널 자동 로그인용)
+    # /api/system/status — PM2 상태
+    location /api/system/ {
+        proxy_pass http://localhost:3100/api/system/;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+    }
+
+    # 초기 설정 페이지 (system-api.js 의 /setup 라우터)
+    location /setup {
+        proxy_pass http://localhost:3100/setup;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+    }
+
+    # Node-RED API 프록시 (위에서 매칭 안 된 /api/* 전부)
     location /api/ {
         proxy_pass http://localhost:1880/api/;
         proxy_http_version 1.1;
@@ -205,18 +224,12 @@ server {
         proxy_set_header X-Real-IP $remote_addr;
     }
 
-    # 초기 설정 페이지 프록시
-    location /setup {
-        proxy_pass http://localhost:3100/setup;
+    # Node-RED 에디터 + WebSocket (관리용)
+    location /node-red {
+        proxy_pass http://localhost:1880/node-red;
         proxy_http_version 1.1;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-    }
-
-    # 시스템 API 프록시
-    location /api/system/ {
-        proxy_pass http://localhost:3100/api/system/;
-        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
         proxy_set_header Host $host;
     }
 }

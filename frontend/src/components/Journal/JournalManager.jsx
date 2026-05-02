@@ -735,11 +735,22 @@ function JournalForm({entry,onSave,onCancel}){const FARM_ID=useContext(FarmIdCtx
               <div className="flex items-center gap-1 flex-wrap">
                 <span className="text-xs text-gray-400">템플릿:</span>
                 {templates.slice(0,5).map(t=>(
-                  <button key={t._id} type="button" onClick={()=>applyTemplate(t)}
-                    className="px-2 py-1 text-xs bg-amber-500/10 text-amber-300 border border-amber-500/30 rounded-md hover:bg-amber-500/20 transition-colors group">
-                    <span>{t.emoji||'⭐'} {t.name}</span>
-                    <span onClick={e=>{e.stopPropagation();deleteTemplate(t._id);}} className="ml-1.5 text-amber-400/40 group-hover:text-rose-400 cursor-pointer" title="삭제">×</span>
-                  </button>
+                  <div key={t._id} className="inline-flex items-stretch text-xs bg-amber-500/10 text-amber-300 border border-amber-500/30 rounded-md overflow-hidden hover:bg-amber-500/15 transition-colors">
+                    {/* 적용 — 좌측 영역 */}
+                    <button type="button" onClick={()=>applyTemplate(t)}
+                      title="이 템플릿으로 폼 채우기"
+                      className="px-2.5 py-1.5 hover:bg-amber-500/15 transition-colors">
+                      {t.emoji||'⭐'} {t.name}
+                    </button>
+                    {/* 삭제 — 우측 영역, 충분한 터치 영역 (32px+) */}
+                    <button type="button"
+                      onClick={(e)=>{e.preventDefault();e.stopPropagation();deleteTemplate(t._id);}}
+                      title="템플릿 삭제"
+                      aria-label={`템플릿 삭제: ${t.name}`}
+                      className="px-2.5 py-1.5 border-l border-amber-500/30 text-amber-400/70 hover:bg-rose-500/20 hover:text-rose-300 transition-colors">
+                      ×
+                    </button>
+                  </div>
                 ))}
               </div>
             )}

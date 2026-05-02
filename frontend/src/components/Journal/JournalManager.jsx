@@ -935,6 +935,11 @@ function JournalForm({entry,onSave,onCancel}){const FARM_ID=useContext(FarmIdCtx
         fill('pest',d.pest);
         // observation 은 content 가 비었을 때만 채움 (사용자 음성/타자 보존 우선)
         if(d.observation&&!prev.content){next.content=d.observation;filled.add('content');}
+        // tags: AI 가 사진에서 추출한 태그를 기존과 머지 (P1-B 강화)
+        if(Array.isArray(d.tags)&&d.tags.length>0){
+          const merged=Array.from(new Set([...(prev.tags||[]),...d.tags])).slice(0,20);
+          if(merged.length>(prev.tags||[]).length){next.tags=merged;filled.add('tags');}
+        }
         return next;
       });
       setAiFilled(filled);

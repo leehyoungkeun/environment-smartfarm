@@ -644,6 +644,7 @@ function buildJournalPhotoSystemPrompt(hints) {
   "leafColor": "잎 색상 상태 (정상/황화/갈변/얼룩 등) 또는 null",
   "diagnosis": "병해충 의심 시 진단명 후보 또는 null",
   "treatment": "병해충 발견 시 권장 대처 1~3 문장 (없으면 null)",
+  "tags": ["#기호 없는 짧은 단어 1~5개. 사진 핵심 키워드 — 작목·병해명·작업·생육 단계 같은 검색 친화 단어. 예: 토마토, 황화, 탄저병, 곁순정리, 개화. 없으면 빈 배열 []"],
   "confidence": "전체 추론 신뢰도 high|medium|low"
 }
 
@@ -690,6 +691,10 @@ router.post("/:farmId/journal/parse-photo", authenticate, async (req, res) => {
     }
 
     const str = (v) => (v === null || v === undefined ? null : String(v).trim() || null);
+    // tags 정규화 — 배열 + #제거 + 중복 제거 + max 10
+    const tags = Array.isArray(parsed.tags)
+      ? Array.from(new Set(parsed.tags.map((t) => String(t).trim().replace(/^#/, "")).filter(Boolean))).slice(0, 10)
+      : [];
     const data = {
       cropName: str(parsed.cropName),
       growthStage: str(parsed.growthStage),
@@ -700,6 +705,7 @@ router.post("/:farmId/journal/parse-photo", authenticate, async (req, res) => {
       leafColor: str(parsed.leafColor),
       diagnosis: str(parsed.diagnosis),
       treatment: str(parsed.treatment),
+      tags,
       confidence: str(parsed.confidence) || "medium",
     };
 

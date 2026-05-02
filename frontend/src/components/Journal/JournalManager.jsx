@@ -1414,6 +1414,50 @@ function TemplateSaveBox({onSave,onCancel}){
   );
 }
 
+// ━━━ GPS 위치 (P3-B) ━━━
+function GpsSection({ lat, lng, accuracy, onSet, onClear }) {
+  const [getting, setGetting] = useState(false);
+  const [error, setError] = useState(null);
+  const supported = "geolocation" in navigator;
+  const fetch = () => {
+    if (!supported) { setError("이 브라우저는 위치 서비스를 지원하지 않습니다"); return; }
+    setError(null); setGetting(true);
+    navigator.geolocation.getCurrentPosition(
+      (p) => {
+        onSet({ lat: p.coords.latitude.toFixed(6), lng: p.coords.longitude.toFixed(6), accuracy: Math.round(p.coords.accuracy) });
+        setGetting(false);
+      },
+      (err) => { setError(err.message || "위치 가져오기 실패"); setGetting(false); },
+      { enableHighAccuracy: true, timeout: 10000, maximumAge: 60000 }
+    );
+  };
+  const has = lat && lng;
+  return (
+    <div className={`rounded-lg border ${has ? 'border-emerald-300 bg-emerald-50' : 'border-gray-300 bg-white'} px-3 py-2`}>
+      <div className="flex items-center gap-2 flex-wrap">
+        <span className="text-xs font-semibold !text-gray-700">📍 위치</span>
+        {has ? (
+          <>
+            <span className="text-xs !text-emerald-800 font-mono">{lat}, {lng}</span>
+            {accuracy && <span className="text-[10px] !text-emerald-700">±{accuracy}m</span>}
+            <a href={`https://www.google.com/maps?q=${lat},${lng}`} target="_blank" rel="noreferrer" className="text-[10px] !text-blue-700 underline">지도 보기</a>
+            <button type="button" onClick={onClear} className="ml-auto text-[10px] !text-rose-600 hover:!text-rose-800">제거</button>
+          </>
+        ) : (
+          <>
+            <span className="text-[11px] !text-gray-500">미설정 — 모바일에서 작업 위치 자동 기록</span>
+            <button type="button" onClick={fetch} disabled={getting||!supported}
+              className={`ml-auto px-2.5 py-1 rounded-md text-xs font-semibold border transition-all ${getting?'bg-blue-100 !text-blue-800 border-blue-400 animate-pulse':'bg-blue-50 !text-blue-700 border-blue-300 hover:bg-blue-100'} disabled:opacity-50`}>
+              📡 {getting ? '위치 가져오는 중...' : '현재 위치 사용'}
+            </button>
+          </>
+        )}
+      </div>
+      {error && <div className="text-[11px] !text-rose-700 mt-1">{error}</div>}
+    </div>
+  );
+}
+
 // ━━━ 생육 측정 입력 (P1-A) ━━━
 // 표준 4 필드 (초장/엽수/개화율/착과율) + 사용자 정의 metric 최대 8 개
 // 측정 1 개라도 있으면 자동 펼침, 없으면 접힘 (입력 부담 0)
@@ -1563,8 +1607,8 @@ const DRAFT_DEBOUNCE_MS = 1000;
 function JournalForm({entry,onSave,onCancel}){const FARM_ID=useContext(FarmIdCtx);
   const today=new Date().toISOString().split("T")[0];
   const[houses,setHouses]=useState([]);
-  const emptyForm={houseId:"",date:today,weather:"",tempMin:"",tempMax:"",humidity:"",workType:"관리",growthStage:"",content:"",pest:"",notes:"",tags:[],measurements:{},photos:[]};
-  const[form,setForm]=useState({houseId:entry?.houseId||"",date:entry?.date?new Date(entry.date).toISOString().split("T")[0]:today,weather:entry?.weather||"",tempMin:entry?.tempMin||"",tempMax:entry?.tempMax||"",humidity:entry?.humidity||"",workType:entry?.workType||"관리",growthStage:entry?.growthStage||"",content:entry?.content||"",pest:entry?.pest||"",notes:entry?.notes||"",tags:entry?.tags||[],measurements:entry?.measurements||{},photos:entry?.photos||[]});
+  const emptyForm={houseId:"",date:today,weather:"",tempMin:"",tempMax:"",humidity:"",workType:"관리",growthStage:"",content:"",pest:"",notes:"",tags:[],measurements:{},gpsLat:"",gpsLng:"",gpsAccuracy:"",photos:[]};
+  const[form,setForm]=useState({houseId:entry?.houseId||"",date:entry?.date?new Date(entry.date).toISOString().split("T")[0]:today,weather:entry?.weather||"",tempMin:entry?.tempMin||"",tempMax:entry?.tempMax||"",humidity:entry?.humidity||"",workType:entry?.workType||"관리",growthStage:entry?.growthStage||"",content:entry?.content||"",pest:entry?.pest||"",notes:entry?.notes||"",tags:entry?.tags||[],measurements:entry?.measurements||{},gpsLat:entry?.gpsLat||"",gpsLng:entry?.gpsLng||"",gpsAccuracy:entry?.gpsAccuracy||"",photos:entry?.photos||[]});
   // ── drafts ──
   const[draftRestore,setDraftRestore]=useState(null); // { form, savedAt } 또는 null
   // 마운트 시 LocalStorage에서 draft 검사 (새 일지 작성 모드만)
@@ -1810,7 +1854,7 @@ function JournalForm({entry,onSave,onCancel}){const FARM_ID=useContext(FarmIdCtx
       if(!entry){
         // 저장 성공 — draft 폐기
         try{localStorage.removeItem(DRAFT_KEY(FARM_ID));}catch{}
-        setForm({houseId:houses[0]?.houseId||"",date:today,weather:"",tempMin:"",tempMax:"",humidity:"",workType:"관리",growthStage:"",content:"",pest:"",notes:"",tags:[],measurements:{},photos:[]});
+        setForm({houseId:houses[0]?.houseId||"",date:today,weather:"",tempMin:"",tempMax:"",humidity:"",workType:"관리",growthStage:"",content:"",pest:"",notes:"",tags:[],measurements:{},gpsLat:"",gpsLng:"",gpsAccuracy:"",photos:[]});
         setAiFilled(new Set());setPhotoAi(null);setAutoSummary(null);
       }
     }catch(e){
@@ -1994,6 +2038,9 @@ function JournalForm({entry,onSave,onCancel}){const FARM_ID=useContext(FarmIdCtx
       </div>
       {/* 생육 측정 (P1-A) — 토글로 펼침. 매주 1회 정도 측정한 수치를 기록. */}
       <MeasurementSection measurements={form.measurements||{}} onChange={(m)=>set('measurements',m)} aiHighlight={aiFilled.has('measurements')} farmId={FARM_ID} />
+
+      {/* 📍 GPS 위치 (P3-B) — 모바일 농장 작업 시 자동 캡처 */}
+      <GpsSection lat={form.gpsLat} lng={form.gpsLng} accuracy={form.gpsAccuracy} onSet={(v)=>setForm(p=>({...p,gpsLat:v.lat,gpsLng:v.lng,gpsAccuracy:v.accuracy}))} onClear={()=>setForm(p=>({...p,gpsLat:"",gpsLng:"",gpsAccuracy:""}))} />
       <div><label className="text-xs text-gray-600 mb-1 flex items-center gap-2">사진
         <span className="text-[10px] text-gray-500">— 최대 5장 · 자동 압축</span>
         <span className="text-[10px] text-gray-500">({form.photos.length}/5)</span>

@@ -206,6 +206,9 @@ router.post("/:farmId/entries", authenticate, async (req, res) => {
       notes,
       tags,
       measurements,
+      gpsLat,
+      gpsLng,
+      gpsAccuracy,
       photos,
     } = req.body;
 
@@ -244,6 +247,9 @@ router.post("/:farmId/entries", authenticate, async (req, res) => {
         notes: notes || null,
         tags: normTags,
         measurements: normMeasurements,
+        gpsLat: gpsLat != null && gpsLat !== "" ? parseFloat(gpsLat) : null,
+        gpsLng: gpsLng != null && gpsLng !== "" ? parseFloat(gpsLng) : null,
+        gpsAccuracy: gpsAccuracy != null && gpsAccuracy !== "" ? parseFloat(gpsAccuracy) : null,
         photos: photos || [],
         createdBy: req.user._id || req.user.id,
       },
@@ -279,14 +285,17 @@ router.put("/:farmId/entries/:id", authenticate, async (req, res) => {
       "notes",
       "tags",
       "measurements",
+      "gpsLat",
+      "gpsLng",
+      "gpsAccuracy",
       "photos",
     ];
 
     for (const f of fields) {
       if (req.body[f] !== undefined) {
         if (f === "date") data[f] = new Date(req.body[f]);
-        else if (["tempMin", "tempMax", "humidity"].includes(f))
-          data[f] = req.body[f] ? parseFloat(req.body[f]) : null;
+        else if (["tempMin", "tempMax", "humidity", "gpsLat", "gpsLng", "gpsAccuracy"].includes(f))
+          data[f] = req.body[f] != null && req.body[f] !== "" ? parseFloat(req.body[f]) : null;
         else if (f === "measurements") {
           data[f] = normalizeMeasurements(req.body[f]);
         }

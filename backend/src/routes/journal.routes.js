@@ -577,6 +577,12 @@ router.post("/:farmId/inputs", authenticate, async (req, res) => {
       targetArea,
       method,
       notes,
+      // PLS 농약 정밀 기록 (인증 의무)
+      pesticideRegNo,
+      dilutionRatio,
+      applicationCount,
+      safeUseInterval,
+      applicator,
     } = req.body;
 
     if (!date || !inputType || !productName || !quantity || !unit) {
@@ -585,6 +591,21 @@ router.post("/:farmId/inputs", authenticate, async (req, res) => {
         error: "날짜, 투입유형, 제품명, 사용량, 단위는 필수입니다",
       });
     }
+
+    // PLS 안전사용기준 일수 → 마지막 농약사용일자 자동 계산
+    // GAP 의무: "최초 수확 가능일자 = 살포일 + safeUseInterval"
+    const pls = inputType === "농약" ? {
+      pesticideRegNo: pesticideRegNo?.trim() || null,
+      dilutionRatio: dilutionRatio?.trim() || null,
+      applicationCount: applicationCount != null && applicationCount !== "" ? parseInt(applicationCount) : null,
+      safeUseInterval: safeUseInterval != null && safeUseInterval !== "" ? parseInt(safeUseInterval) : null,
+      applicator: applicator?.trim() || null,
+    } : {};
+    const preHarvestDate = (inputType === "농약" && pls.safeUseInterval && date) ? (() => {
+      const d = new Date(date);
+      d.setDate(d.getDate() + pls.safeUseInterval);
+      return d;
+    })() : null;
 
     const record = await prisma.inputRecord.create({
       data: {
@@ -600,6 +621,8 @@ router.post("/:farmId/inputs", authenticate, async (req, res) => {
         targetArea: targetArea ? parseFloat(targetArea) : null,
         method: method || null,
         notes: notes || null,
+        ...pls,
+        preHarvestDate,
         createdBy: req.user._id || req.user.id,
       },
     });
@@ -632,6 +655,12 @@ router.put("/:farmId/inputs/:id", authenticate, async (req, res) => {
       "targetArea",
       "method",
       "notes",
+      // PLS 6 필드
+      "pesticideRegNo",
+      "dilutionRatio",
+      "applicationCount",
+      "safeUseInterval",
+      "applicator",
     ];
 
     for (const f of fields) {
@@ -639,7 +668,24 @@ router.put("/:farmId/inputs/:id", authenticate, async (req, res) => {
         if (f === "date") data[f] = new Date(req.body[f]);
         else if (["quantity", "cost", "targetArea"].includes(f))
           data[f] = req.body[f] ? parseFloat(req.body[f]) : null;
-        else data[f] = req.body[f];
+        else if (["applicationCount", "safeUseInterval"].includes(f))
+          data[f] = req.body[f] != null && req.body[f] !== "" ? parseInt(req.body[f]) : null;
+        else data[f] = req.body[f] || null;
+      }
+    }
+    // safeUseInterval 또는 date 변경 시 preHarvestDate 자동 재계산
+    if (data.safeUseInterval !== undefined || data.date !== undefined) {
+      const cur = await prisma.inputRecord.findUnique({ where: { id } });
+      if (cur) {
+        const dt = data.date || cur.date;
+        const sui = data.safeUseInterval !== undefined ? data.safeUseInterval : cur.safeUseInterval;
+        if (sui != null && dt) {
+          const d = new Date(dt);
+          d.setDate(d.getDate() + sui);
+          data.preHarvestDate = d;
+        } else {
+          data.preHarvestDate = null;
+        }
       }
     }
 

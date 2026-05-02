@@ -2279,6 +2279,19 @@ function InputSearch(){const FARM_ID=useContext(FarmIdCtx);
                     <DetailRow label="투입면적" value={r.targetArea?`${r.targetArea}평`:null} />
                     <DetailRow label="투입방법" value={r.method} />
                     <DetailRow label="비고" value={r.notes} />
+                    {/* PLS 정보 (농약일 때만) */}
+                    {r.inputType==="농약"&&(r.pesticideRegNo||r.dilutionRatio||r.applicationCount||r.safeUseInterval||r.applicator||r.preHarvestDate)&&(
+                      <div className="flex items-start gap-3 pt-2 border-t border-amber-200">
+                        <span className="text-xs text-gray-400 w-20 shrink-0 pt-1">🏅 PLS</span>
+                        <div className="flex flex-wrap gap-1.5">
+                          {r.pesticideRegNo&&<span className="px-2 py-0.5 bg-amber-100 !text-amber-800 border border-amber-300 rounded-full text-xs font-medium">등록 {r.pesticideRegNo}</span>}
+                          {r.dilutionRatio&&<span className="px-2 py-0.5 bg-amber-100 !text-amber-800 border border-amber-300 rounded-full text-xs font-medium">{r.dilutionRatio}</span>}
+                          {r.applicationCount!=null&&<span className="px-2 py-0.5 bg-amber-100 !text-amber-800 border border-amber-300 rounded-full text-xs font-medium">{r.applicationCount}회차</span>}
+                          {r.applicator&&<span className="px-2 py-0.5 bg-amber-100 !text-amber-800 border border-amber-300 rounded-full text-xs font-medium">살포자 {r.applicator}</span>}
+                          {r.preHarvestDate&&<span className="px-2 py-0.5 bg-emerald-100 !text-emerald-800 border border-emerald-300 rounded-full text-xs font-medium">📅 수확가능 {String(r.preHarvestDate).slice(0,10)}</span>}
+                        </div>
+                      </div>
+                    )}
                   </div><div className="flex gap-2 mt-3 pt-3 border-t border-white/5">
                     <button onClick={e=>{e.stopPropagation();setEditing(r)}} className="px-3 py-1.5 rounded-lg text-xs bg-blue-500/20 text-blue-400 hover:bg-blue-500/30">✏️ 수정</button>
                     <button onClick={e=>{e.stopPropagation();handleDelete(r._id)}} className="px-3 py-1.5 rounded-lg text-xs bg-red-500/20 text-red-400 hover:bg-red-500/30">🗑️ 삭제</button>
@@ -2303,9 +2316,12 @@ function InputWrite(){const FARM_ID=useContext(FarmIdCtx);
 // ━━━ 투입물 폼 ━━━
 function InputForm({record,onSave,onCancel}){
   const today=new Date().toISOString().split("T")[0];
-  const[form,setForm]=useState({date:record?.date?new Date(record.date).toISOString().split("T")[0]:today,inputType:record?.inputType||"비료",productName:record?.productName||"",manufacturer:record?.manufacturer||"",quantity:record?.quantity||"",unit:record?.unit||"kg",cost:record?.cost||"",targetArea:record?.targetArea||"",method:record?.method||"",notes:record?.notes||""});
+  const emptyForm={date:today,inputType:"비료",productName:"",manufacturer:"",quantity:"",unit:"kg",cost:"",targetArea:"",method:"",notes:"",pesticideRegNo:"",dilutionRatio:"",applicationCount:"",safeUseInterval:"",applicator:""};
+  const[form,setForm]=useState({date:record?.date?new Date(record.date).toISOString().split("T")[0]:today,inputType:record?.inputType||"비료",productName:record?.productName||"",manufacturer:record?.manufacturer||"",quantity:record?.quantity||"",unit:record?.unit||"kg",cost:record?.cost||"",targetArea:record?.targetArea||"",method:record?.method||"",notes:record?.notes||"",pesticideRegNo:record?.pesticideRegNo||"",dilutionRatio:record?.dilutionRatio||"",applicationCount:record?.applicationCount||"",safeUseInterval:record?.safeUseInterval||"",applicator:record?.applicator||""});
   const set=(k,v)=>setForm(p=>({...p,[k]:v}));
-  const handleSubmit=async()=>{if(!form.productName.trim()||!form.quantity||!form.unit){alert("제품명, 사용량, 단위는 필수입니다");return}await onSave(form);if(!record)setForm({date:today,inputType:"비료",productName:"",manufacturer:"",quantity:"",unit:"kg",cost:"",targetArea:"",method:"",notes:""})};
+  const handleSubmit=async()=>{if(!form.productName.trim()||!form.quantity||!form.unit){alert("제품명, 사용량, 단위는 필수입니다");return}await onSave(form);if(!record)setForm(emptyForm)};
+  // 살포일 + 안전사용기준 = 마지막 농약사용일자 (수확 가능 시점) 자동 계산
+  const preHarvestDate=(form.inputType==="농약"&&form.safeUseInterval&&form.date)?(()=>{const d=new Date(form.date);d.setDate(d.getDate()+parseInt(form.safeUseInterval));return d.toISOString().slice(0,10);})():null;
   return(
     <div className="glass-card p-5 space-y-4">
       <h3 className="text-lg font-semibold text-white">{record?"투입물 수정":"새 투입물 기록"}</h3>
@@ -2321,6 +2337,33 @@ function InputForm({record,onSave,onCancel}){
         <div><label className="text-xs text-gray-600 mb-1 block">투입 면적 (평)</label><input style={LIGHT_INPUT} type="number" value={form.targetArea} onChange={e=>set("targetArea",e.target.value)} className="input-field text-sm w-full" /></div>
         <div><label className="text-xs text-gray-600 mb-1 block">투입 방법</label><select style={LIGHT_INPUT} value={form.method} onChange={e=>set("method",e.target.value)} className={SC}><option value="">선택</option><option value="관주">관주</option><option value="엽면살포">엽면살포</option><option value="토양시비">토양시비</option><option value="점적">점적</option><option value="직접투입">직접투입</option><option value="기타">기타</option></select></div>
       </div>
+      {/* PLS 농약 정밀 기록 — 농약일 때만 노출 (GAP/PLS 인증 의무 항목) */}
+      {form.inputType==="농약"&&(
+        <div className="bg-amber-50 border-2 border-amber-300 rounded-lg p-3 space-y-3">
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="text-sm font-bold !text-amber-900">🏅 PLS / GAP 의무 기록</span>
+            <span className="text-[11px] !text-amber-700">— 농약 등록번호·희석배수·안전사용기준 (인증 필수 항목)</span>
+          </div>
+          <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+            <div><label className="text-xs text-gray-700 mb-1 block">농약 등록번호 <a href="https://psis.rda.go.kr/" target="_blank" rel="noreferrer" className="!text-blue-700 underline text-[10px]">PSIS 검색</a></label><input style={LIGHT_INPUT} type="text" value={form.pesticideRegNo} onChange={e=>set("pesticideRegNo",e.target.value)} placeholder="예: 12345-호" className="input-field text-sm w-full" /></div>
+            <div><label className="text-xs text-gray-700 mb-1 block">희석 배수</label><input style={LIGHT_INPUT} type="text" value={form.dilutionRatio} onChange={e=>set("dilutionRatio",e.target.value)} placeholder="예: 1000배" className="input-field text-sm w-full" /></div>
+            <div><label className="text-xs text-gray-700 mb-1 block">사용 횟수 (PLS 제한)</label><input style={LIGHT_INPUT} type="number" value={form.applicationCount} onChange={e=>set("applicationCount",e.target.value)} placeholder="작목별 제한 횟수" className="input-field text-sm w-full" /></div>
+            <div><label className="text-xs text-gray-700 mb-1 block">수확 전 사용 가능일</label><input style={LIGHT_INPUT} type="number" value={form.safeUseInterval} onChange={e=>set("safeUseInterval",e.target.value)} placeholder="예: 7 (수확 7일 전까지)" className="input-field text-sm w-full" /></div>
+            <div><label className="text-xs text-gray-700 mb-1 block">살포자</label><input style={LIGHT_INPUT} type="text" value={form.applicator} onChange={e=>set("applicator",e.target.value)} placeholder="이름 (안전관리)" className="input-field text-sm w-full" /></div>
+            {preHarvestDate&&(
+              <div className="flex flex-col justify-end">
+                <div className="bg-emerald-50 border border-emerald-400 rounded-md px-2 py-1.5 text-xs">
+                  <div className="!text-emerald-700 font-semibold text-[10px]">📅 수확 가능일 (자동 계산)</div>
+                  <div className="!text-emerald-900 font-bold">{preHarvestDate}</div>
+                </div>
+              </div>
+            )}
+          </div>
+          <p className="text-[11px] !text-amber-800 leading-relaxed">
+            ⚠ <strong>PLS 안전사용기준</strong>: 농약을 작물별 등록된 횟수·희석배수로만 사용. 수확 전 사용 가능일자 이후엔 살포 금지. GAP 인증 시 의무 기록.
+          </p>
+        </div>
+      )}
       <div><label className="text-xs text-gray-600 mb-1 block">비고</label><input style={LIGHT_INPUT} type="text" value={form.notes} onChange={e=>set("notes",e.target.value)} className="input-field text-sm w-full" /></div>
       <div className="flex justify-end gap-2">{onCancel&&<button onClick={onCancel} className="btn-secondary">취소</button>}<button onClick={handleSubmit} className="btn-primary">{record?"수정":"저장"}</button></div>
     </div>

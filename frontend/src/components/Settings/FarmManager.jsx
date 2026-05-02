@@ -4159,63 +4159,94 @@ sudo systemctl restart nodered`}</div>
       )}
 
       {/* ═══ Excel Import Modal ═══ */}
-      {showImport && (
-        <div className="fixed inset-0 bg-black/50 flex items-start justify-center z-50 p-4 pt-[10vh] overflow-y-auto">
-          <div className="bg-white rounded-lg w-full max-w-2xl shadow-xl">
-            <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200 bg-slate-600 rounded-t-lg">
-              <h3 className="text-base font-bold text-white">엑셀 일괄 등록</h3>
-              <button onClick={() => { setShowImport(false); setImportData([]); setImportResult(null); }}
-                className="text-white/70 hover:text-white transition-colors">
-                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
-              </button>
-            </div>
-            <div className="p-6 space-y-4">
-              <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
-                <p className="text-xs text-blue-700">
-                  엑셀 파일의 열 이름: <strong>농장ID, 농장명, 주소, 대표자, 형태, 면적, 시스템, 상태, 유지보수(월), 메모</strong>
-                </p>
+      {showImport && (() => {
+        const closeImport = () => { setShowImport(false); setImportData([]); setImportResult(null); };
+        return (
+          <div
+            className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4"
+            onMouseDown={(e) => { if (e.target === e.currentTarget) closeImport(); }}
+            onKeyDown={(e) => { if (e.key === 'Escape') closeImport(); }}
+            tabIndex={-1}
+            role="dialog"
+            aria-modal="true"
+            aria-label="엑셀 일괄 등록"
+          >
+            <div className="bg-white rounded-lg w-full max-w-2xl shadow-xl flex flex-col max-h-[90vh]">
+              {/* Header — 항상 모달 상단 고정, X 버튼 명확 */}
+              <div className="flex-shrink-0 flex items-center justify-between px-6 py-4 border-b border-gray-200 bg-slate-600 rounded-t-lg">
+                <h3 className="text-base font-bold text-white">엑셀 일괄 등록</h3>
+                <button
+                  onClick={closeImport}
+                  aria-label="닫기"
+                  title="닫기 (Esc)"
+                  className="text-white/80 hover:text-white hover:bg-white/10 rounded-md p-1 transition-colors"
+                >
+                  <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+                </button>
               </div>
-              <div>
-                <input type="file" accept=".xlsx,.xls,.csv" onChange={handleImportFile}
-                  className="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded file:border-0 file:text-sm file:font-medium file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100" />
-              </div>
-              {importData.length > 0 && (
-                <>
-                  <div className="text-sm text-gray-600">{importData.length}개 농장 데이터 인식됨</div>
-                  <div className="max-h-48 overflow-auto border border-gray-200 rounded">
-                    <table className="w-full text-xs">
-                      <thead><tr className="bg-gray-50">
-                        <th className="px-2 py-1.5 text-left">농장ID</th><th className="px-2 py-1.5 text-left">농장명</th>
-                        <th className="px-2 py-1.5 text-left">주소</th><th className="px-2 py-1.5 text-left">상태</th>
-                      </tr></thead>
-                      <tbody>{importData.map((f, i) => (
-                        <tr key={i} className="border-t border-gray-100">
-                          <td className="px-2 py-1 font-mono">{f.farmId}</td><td className="px-2 py-1">{f.name}</td>
-                          <td className="px-2 py-1 text-gray-500">{f.location || '-'}</td><td className="px-2 py-1">{f.status}</td>
-                        </tr>
-                      ))}</tbody>
-                    </table>
-                  </div>
-                  <button onClick={submitImport}
-                    className="w-full py-2.5 bg-indigo-600 text-white rounded-lg text-sm font-medium hover:bg-indigo-700 transition-colors">
-                    {importData.length}개 농장 일괄 등록
-                  </button>
-                </>
-              )}
-              {importResult && (
-                <div className={`p-3 rounded-lg border text-sm ${importResult.failed > 0 ? 'bg-amber-50 border-amber-200' : 'bg-emerald-50 border-emerald-200'}`}>
-                  <p>성공: <strong>{importResult.success}</strong>건, 실패: <strong>{importResult.failed}</strong>건</p>
-                  {importResult.errors?.length > 0 && (
-                    <ul className="mt-2 text-xs text-red-600 list-disc list-inside">
-                      {importResult.errors.map((e, i) => <li key={i}>{e}</li>)}
-                    </ul>
-                  )}
+
+              {/* Body — 콘텐츠가 길면 본문만 스크롤 */}
+              <div className="flex-1 overflow-y-auto p-6 space-y-4">
+                <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
+                  <p className="text-xs text-blue-700">
+                    엑셀 파일의 열 이름: <strong>농장ID, 농장명, 주소, 대표자, 형태, 면적, 시스템, 상태, 유지보수(월), 메모</strong>
+                  </p>
                 </div>
-              )}
+                <div>
+                  <input type="file" accept=".xlsx,.xls,.csv" onChange={handleImportFile}
+                    className="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded file:border-0 file:text-sm file:font-medium file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100" />
+                </div>
+                {importData.length > 0 && (
+                  <>
+                    <div className="text-sm text-gray-600">{importData.length}개 농장 데이터 인식됨</div>
+                    <div className="max-h-48 overflow-auto border border-gray-200 rounded">
+                      <table className="w-full text-xs">
+                        <thead><tr className="bg-gray-50">
+                          <th className="px-2 py-1.5 text-left">농장ID</th><th className="px-2 py-1.5 text-left">농장명</th>
+                          <th className="px-2 py-1.5 text-left">주소</th><th className="px-2 py-1.5 text-left">상태</th>
+                        </tr></thead>
+                        <tbody>{importData.map((f, i) => (
+                          <tr key={i} className="border-t border-gray-100">
+                            <td className="px-2 py-1 font-mono">{f.farmId}</td><td className="px-2 py-1">{f.name}</td>
+                            <td className="px-2 py-1 text-gray-500">{f.location || '-'}</td><td className="px-2 py-1">{f.status}</td>
+                          </tr>
+                        ))}</tbody>
+                      </table>
+                    </div>
+                  </>
+                )}
+                {importResult && (
+                  <div className={`p-3 rounded-lg border text-sm ${importResult.failed > 0 ? 'bg-amber-50 border-amber-200' : 'bg-emerald-50 border-emerald-200'}`}>
+                    <p>성공: <strong>{importResult.success}</strong>건, 실패: <strong>{importResult.failed}</strong>건</p>
+                    {importResult.errors?.length > 0 && (
+                      <ul className="mt-2 text-xs text-red-600 list-disc list-inside">
+                        {importResult.errors.map((e, i) => <li key={i}>{e}</li>)}
+                      </ul>
+                    )}
+                  </div>
+                )}
+              </div>
+
+              {/* Footer — 항상 모달 하단 고정, 취소 + 일괄 등록 두 출구 명확 */}
+              <div className="flex-shrink-0 flex items-center gap-2 px-6 py-3 border-t border-gray-200 bg-gray-50 rounded-b-lg">
+                <button
+                  onClick={closeImport}
+                  className="px-4 py-2 bg-white border border-gray-300 text-gray-700 rounded-lg text-sm font-medium hover:bg-gray-100 transition-colors"
+                >
+                  취소
+                </button>
+                <button
+                  onClick={submitImport}
+                  disabled={importData.length === 0}
+                  className="flex-1 py-2 bg-indigo-600 text-white rounded-lg text-sm font-medium hover:bg-indigo-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors"
+                >
+                  {importData.length > 0 ? `${importData.length}개 농장 일괄 등록` : '파일을 선택하세요'}
+                </button>
+              </div>
             </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
 
       {/* ═══ Alert Feed Slide Panel ═══ */}
       {showAlertFeed && (

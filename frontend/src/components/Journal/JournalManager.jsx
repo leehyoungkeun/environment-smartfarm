@@ -752,19 +752,20 @@ function JournalForm({entry,onSave,onCancel}){const FARM_ID=useContext(FarmIdCtx
               <div className="flex items-center gap-1 flex-wrap">
                 <span className="text-xs text-gray-400">템플릿:</span>
                 {templates.slice(0,5).map(t=>(
-                  <div key={t._id} className="inline-flex items-stretch text-xs bg-amber-100 dark:bg-amber-500/15 text-amber-900 dark:text-amber-100 border border-amber-400 dark:border-amber-500/40 rounded-md overflow-hidden">
-                    {/* 적용 — 좌측 영역 */}
+                  <div key={t._id} className="inline-flex items-stretch text-xs bg-amber-100 dark:bg-amber-900/40 border border-amber-500 dark:border-amber-600 rounded-md overflow-hidden">
+                    {/* 적용 — 좌측 영역. button 에 색 직접 명시 (부모 상속 안 되는 경우 대비) */}
                     <button type="button" onClick={()=>applyTemplate(t)}
                       title="이 템플릿으로 폼 채우기"
-                      className="px-2.5 py-1.5 font-medium hover:bg-amber-200 dark:hover:bg-amber-500/25 transition-colors">
+                      style={{color:'inherit'}}
+                      className="px-2.5 py-1.5 font-semibold !text-amber-900 dark:!text-amber-100 hover:bg-amber-200 dark:hover:bg-amber-800/40 transition-colors">
                       {t.emoji||'⭐'} {t.name}
                     </button>
-                    {/* 삭제 — 우측 영역, 충분한 터치 영역 (32px+) */}
+                    {/* 삭제 — 우측 영역, 충분한 터치 영역 */}
                     <button type="button"
                       onClick={(e)=>{e.preventDefault();e.stopPropagation();deleteTemplate(t._id);}}
                       title="템플릿 삭제"
                       aria-label={`템플릿 삭제: ${t.name}`}
-                      className="px-2.5 py-1.5 border-l border-amber-400 dark:border-amber-500/40 text-amber-700 dark:text-amber-300 hover:bg-rose-500 hover:text-white transition-colors">
+                      className="px-2.5 py-1.5 border-l border-amber-500 dark:border-amber-600 !text-amber-700 dark:!text-amber-300 font-bold hover:bg-rose-500 hover:!text-white transition-colors">
                       ×
                     </button>
                   </div>

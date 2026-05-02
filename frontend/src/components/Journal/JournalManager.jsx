@@ -681,7 +681,24 @@ function JournalForm({entry,onSave,onCancel}){const FARM_ID=useContext(FarmIdCtx
     }catch(err){alert("업로드 실패")}
     finally{setUploading(false)}
   };
-  const handleSubmit=async()=>{if(!form.content.trim()){alert("작업 내용을 입력하세요");return}await onSave(form);if(!entry){setForm({houseId:houses[0]?.houseId||"",date:today,weather:"",tempMin:"",tempMax:"",humidity:"",workType:"관리",growthStage:"",content:"",pest:"",notes:"",tags:[],photos:[]});setAiFilled(new Set());setPhotoAi(null);setAutoSummary(null);}};
+  const[saving,setSaving]=useState(false);
+  const handleSubmit=async()=>{
+    if(!form.content.trim()){alert("작업 내용을 입력하세요");return}
+    if(saving)return;
+    setSaving(true);
+    try{
+      await onSave(form);
+      if(!entry){
+        setForm({houseId:houses[0]?.houseId||"",date:today,weather:"",tempMin:"",tempMax:"",humidity:"",workType:"관리",growthStage:"",content:"",pest:"",notes:"",tags:[],photos:[]});
+        setAiFilled(new Set());setPhotoAi(null);setAutoSummary(null);
+      }
+    }catch(e){
+      console.error('일지 저장 실패',e);
+      alert('저장 실패: '+(e?.message||'알 수 없는 오류')+'\n\n잠시 후 다시 시도해주세요.');
+    }finally{
+      setSaving(false);
+    }
+  };
 
   // ── 템플릿 (P0-4) ──
   const[templates,setTemplates]=useState([]);
@@ -735,11 +752,11 @@ function JournalForm({entry,onSave,onCancel}){const FARM_ID=useContext(FarmIdCtx
               <div className="flex items-center gap-1 flex-wrap">
                 <span className="text-xs text-gray-400">템플릿:</span>
                 {templates.slice(0,5).map(t=>(
-                  <div key={t._id} className="inline-flex items-stretch text-xs bg-amber-500/10 text-amber-300 border border-amber-500/30 rounded-md overflow-hidden hover:bg-amber-500/15 transition-colors">
+                  <div key={t._id} className="inline-flex items-stretch text-xs bg-amber-100 dark:bg-amber-500/15 text-amber-900 dark:text-amber-100 border border-amber-400 dark:border-amber-500/40 rounded-md overflow-hidden">
                     {/* 적용 — 좌측 영역 */}
                     <button type="button" onClick={()=>applyTemplate(t)}
                       title="이 템플릿으로 폼 채우기"
-                      className="px-2.5 py-1.5 hover:bg-amber-500/15 transition-colors">
+                      className="px-2.5 py-1.5 font-medium hover:bg-amber-200 dark:hover:bg-amber-500/25 transition-colors">
                       {t.emoji||'⭐'} {t.name}
                     </button>
                     {/* 삭제 — 우측 영역, 충분한 터치 영역 (32px+) */}
@@ -747,7 +764,7 @@ function JournalForm({entry,onSave,onCancel}){const FARM_ID=useContext(FarmIdCtx
                       onClick={(e)=>{e.preventDefault();e.stopPropagation();deleteTemplate(t._id);}}
                       title="템플릿 삭제"
                       aria-label={`템플릿 삭제: ${t.name}`}
-                      className="px-2.5 py-1.5 border-l border-amber-500/30 text-amber-400/70 hover:bg-rose-500/20 hover:text-rose-300 transition-colors">
+                      className="px-2.5 py-1.5 border-l border-amber-400 dark:border-amber-500/40 text-amber-700 dark:text-amber-300 hover:bg-rose-500 hover:text-white transition-colors">
                       ×
                     </button>
                   </div>
@@ -859,7 +876,7 @@ function JournalForm({entry,onSave,onCancel}){const FARM_ID=useContext(FarmIdCtx
           {photoAi.observation&&<div className="mt-1 pt-1 border-t border-violet-500/20 text-violet-100/80">{photoAi.observation}</div>}
         </div>
       )}
-      <div className="flex justify-end gap-2">{onCancel&&<button onClick={onCancel} className="btn-secondary">취소</button>}<button onClick={handleSubmit} className="btn-primary">{entry?"수정":"저장"}</button></div>
+      <div className="flex justify-end gap-2">{onCancel&&<button onClick={onCancel} disabled={saving} className="btn-secondary disabled:opacity-50">취소</button>}<button onClick={handleSubmit} disabled={saving||!form.content?.trim()} className="btn-primary disabled:opacity-50 disabled:cursor-not-allowed">{saving?"저장 중...":(entry?"수정":"저장")}</button></div>
     </div>
   );
 }

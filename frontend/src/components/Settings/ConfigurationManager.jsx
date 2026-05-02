@@ -559,7 +559,18 @@ const ConfigurationManager = ({ farmId = import.meta.env.VITE_FARM_ID || 'farm_0
 
           {housesSubTab === 'detail' && (
             selectedHouse ? (
-              <HouseDetailEditor house={selectedHouse} farmId={farmId} onUpdate={() => { loadHouses(); syncConfigToPC(farmId); }} />
+              <HouseDetailEditor house={selectedHouse} farmId={farmId} onUpdate={(updatedHouse) => {
+                // PUT 응답의 새 데이터로 직접 갱신 — loadHouses race 회피
+                if (updatedHouse && updatedHouse.houseId) {
+                  setHouses(prev => prev.map(h => h.houseId === updatedHouse.houseId ? updatedHouse : h));
+                  setSelectedHouse(updatedHouse);
+                  syncConfigToPC(farmId);
+                } else {
+                  // fallback (옛 호출자 호환)
+                  loadHouses();
+                  syncConfigToPC(farmId);
+                }
+              }} />
             ) : (
               <div className="glass-card p-12 text-center">
                 <div className="text-4xl mb-4 opacity-30">⚙️</div>
@@ -673,7 +684,10 @@ const HouseDetailEditor = ({ house, farmId, onUpdate }) => {
     try {
       const response = await rpiApi('put', `/config/${house.houseId}?farmId=${house.farmId}`, editedHouse);
       if (response.data.success) {
-        onUpdate();
+        // PUT 응답의 새 데이터로 직접 갱신 — loadHouses race 회피 (2번 클릭 버그 fix)
+        const updatedHouse = response.data.data || editedHouse;
+        setEditedHouse(updatedHouse);
+        onUpdate(updatedHouse);
       }
     } catch (error) {
       alert('❌ 저장 실패: ' + (error.response?.data?.error || error.message));

@@ -1,5 +1,6 @@
 // src/components/Journal/JournalManager.jsx
 import { useState, useEffect, useCallback, useMemo, createContext, useContext, useRef } from "react";
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from "recharts";
 import Pagination from "./Pagination.jsx";
 
 if (!document.getElementById("journal-select-fix")) {
@@ -497,11 +498,187 @@ function JournalTab(){
     {tabBtn("list","📋","일지 조회")}
     {tabBtn("write","✏️","일지 작성")}
     {tabBtn("gallery","📸","사진 갤러리")}
+    {tabBtn("analytics","📊","분석")}
   </div>
   {subTab==="list"&&<JournalSearch />}
   {subTab==="write"&&<JournalWrite />}
   {subTab==="gallery"&&<PhotoGallery />}
+  {subTab==="analytics"&&<JournalAnalytics />}
   </div>);
+}
+
+// ━━━ 분석 — 생육 측정 시계열 (P2-1) ━━━
+// farmJournal 의 measurements JSON 을 시간순으로 모아 그래프
+// 표준 4 필드 (초장/엽수/개화율/착과율) + 사용자 정의 metric 선택
+const MEASURE_LINE_COLORS = {
+  plantHeight: "#10b981",   // emerald
+  leafCount: "#3b82f6",     // blue
+  floweringRate: "#ec4899", // pink
+  fruitSetRate: "#f59e0b",  // amber
+};
+const MEASURE_LINE_LABELS = {
+  plantHeight: "초장(cm)",
+  leafCount: "엽수(장)",
+  floweringRate: "개화율(%)",
+  fruitSetRate: "착과율(%)",
+};
+function JournalAnalytics(){const FARM_ID=useContext(FarmIdCtx);
+  const df=useDateFilter();
+  const[entries,setEntries]=useState([]);const[loading,setLoading]=useState(true);
+  const[houses,setHouses]=useState([]);
+  const[filter,setFilter]=useState({houseId:"",metrics:["plantHeight","leafCount","floweringRate","fruitSetRate"]});
+
+  useEffect(()=>{api(`/config/farm/${FARM_ID}`).then(r=>setHouses(r.data||[])).catch(()=>{})},[FARM_ID]);
+  useEffect(()=>{
+    let url=`/journal/${FARM_ID}/entries?limit=500`;
+    if(df.dateRange.start)url+=`&startDate=${df.dateRange.start}`;
+    if(df.dateRange.end)url+=`&endDate=${df.dateRange.end}`;
+    setLoading(true);
+    api(url).then(r=>setEntries(r.data||[])).finally(()=>setLoading(false));
+  },[FARM_ID,df.dateRange]);
+
+  // measurements 있는 일지만 + 하우스 필터
+  const measurePoints=useMemo(()=>{
+    return entries
+      .filter(e=>{
+        if(filter.houseId&&e.houseId!==filter.houseId)return false;
+        const m=e.measurements;
+        if(!m||typeof m!=='object')return false;
+        return ['plantHeight','leafCount','floweringRate','fruitSetRate'].some(k=>m[k]!=null);
+      })
+      .map(e=>({
+        date:e.date?.split('T')[0],
+        dateLabel:toKR(e.date),
+        plantHeight:e.measurements?.plantHeight ?? null,
+        leafCount:e.measurements?.leafCount ?? null,
+        floweringRate:e.measurements?.floweringRate ?? null,
+        fruitSetRate:e.measurements?.fruitSetRate ?? null,
+        houseId:e.houseId,
+        custom:e.measurements?.custom||[],
+      }))
+      .sort((a,b)=>a.date.localeCompare(b.date));
+  },[entries,filter]);
+
+  // 사용자 정의 metric 이름 모음
+  const customNames=useMemo(()=>{
+    const set=new Set();
+    measurePoints.forEach(p=>(p.custom||[]).forEach(c=>{if(c.name)set.add(c.name);}));
+    return Array.from(set).sort();
+  },[measurePoints]);
+
+  const toggleMetric=(k)=>{
+    setFilter(p=>({...p,metrics:p.metrics.includes(k)?p.metrics.filter(x=>x!==k):[...p.metrics,k]}));
+  };
+
+  // 사용자 정의 metric 1 개 선택 시 데이터에 평탄화
+  const[selectedCustom,setSelectedCustom]=useState("");
+  const chartData=useMemo(()=>{
+    return measurePoints.map(p=>{
+      const row={...p};
+      if(selectedCustom){
+        const c=(p.custom||[]).find(x=>x.name===selectedCustom);
+        row[`__custom__`]=c?Number(c.value):null;
+      }
+      return row;
+    });
+  },[measurePoints,selectedCustom]);
+
+  // 통계 (기간 평균/최저/최고)
+  const stats=useMemo(()=>{
+    const out={};
+    ['plantHeight','leafCount','floweringRate','fruitSetRate'].forEach(k=>{
+      const vals=measurePoints.map(p=>p[k]).filter(v=>v!=null);
+      if(vals.length===0){out[k]=null;return;}
+      out[k]={
+        count:vals.length,
+        avg:Math.round(vals.reduce((a,b)=>a+b,0)/vals.length*10)/10,
+        min:Math.min(...vals),
+        max:Math.max(...vals),
+        latest:vals[vals.length-1],
+      };
+    });
+    return out;
+  },[measurePoints]);
+
+  return(
+    <div className="space-y-4">
+      <SearchFilterBar {...df}>
+        <div className="flex items-center gap-3 flex-wrap">
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-gray-600 font-medium">하우스</span>
+            <select value={filter.houseId} onChange={e=>setFilter(p=>({...p,houseId:e.target.value}))} style={LIGHT_INPUT} className="input-field jrn-select text-xs py-1 px-2 w-32"><option value="">전체</option>{houses.map(h=><option key={h.houseId} value={h.houseId}>{h.houseName||h.houseId}</option>)}</select>
+          </div>
+          <div className="flex items-center gap-1.5 flex-wrap">
+            <span className="text-xs text-gray-600 font-medium">표시 항목</span>
+            {['plantHeight','leafCount','floweringRate','fruitSetRate'].map(k=>(
+              <button key={k} type="button" onClick={()=>toggleMetric(k)}
+                className={`px-2 py-1 rounded-md text-[11px] font-semibold border transition-all ${filter.metrics.includes(k)?'!text-white':'!text-gray-600 bg-white border-gray-300 hover:bg-gray-50'}`}
+                style={filter.metrics.includes(k)?{backgroundColor:MEASURE_LINE_COLORS[k],borderColor:MEASURE_LINE_COLORS[k]}:undefined}>
+                {MEASURE_LINE_LABELS[k]}
+              </button>
+            ))}
+          </div>
+          {customNames.length>0&&(
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-gray-600 font-medium">사용자 측정</span>
+              <select value={selectedCustom} onChange={e=>setSelectedCustom(e.target.value)} style={LIGHT_INPUT} className="input-field jrn-select text-xs py-1 px-2 w-32"><option value="">없음</option>{customNames.map(n=><option key={n} value={n}>{n}</option>)}</select>
+            </div>
+          )}
+          <span className="text-xs text-gray-500 ml-auto">측정 {measurePoints.length}건</span>
+        </div>
+      </SearchFilterBar>
+
+      {/* 통계 카드 */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        {['plantHeight','leafCount','floweringRate','fruitSetRate'].map(k=>{
+          const s=stats[k];
+          const color=MEASURE_LINE_COLORS[k];
+          return(
+            <div key={k} className="glass-card p-3" style={{borderTop:`3px solid ${color}`}}>
+              <div className="text-[11px] !text-gray-600 font-medium mb-1">{MEASURE_LINE_LABELS[k]}</div>
+              {s?(<>
+                <div className="flex items-baseline gap-1">
+                  <span className="text-2xl font-bold !text-gray-900">{s.latest}</span>
+                  <span className="text-[10px] !text-gray-500">최근값</span>
+                </div>
+                <div className="text-[10px] !text-gray-500 mt-0.5">평균 {s.avg} · 최저 {s.min} · 최고 {s.max} · {s.count}회</div>
+              </>):(
+                <div className="text-xs !text-gray-400">측정 없음</div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+
+      {/* 차트 */}
+      <div className="glass-card p-4">
+        <h4 className="text-sm font-bold !text-gray-800 mb-3">생육 측정 시계열</h4>
+        {loading?(
+          <div className="text-center !text-gray-400 py-10 text-sm">불러오는 중...</div>
+        ):measurePoints.length===0?(
+          <div className="text-center py-10 text-sm">
+            <div className="!text-gray-400 mb-2">측정 기록이 없습니다</div>
+            <div className="!text-gray-500 text-xs">일지 작성 시 📈 생육 측정 영역에 초장/엽수 등을 입력하세요</div>
+          </div>
+        ):(
+          <ResponsiveContainer width="100%" height={300}>
+            <LineChart data={chartData} margin={{top:5,right:20,bottom:5,left:0}}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+              <XAxis dataKey="dateLabel" tick={{fontSize:11,fill:'#6b7280'}} />
+              <YAxis tick={{fontSize:11,fill:'#6b7280'}} />
+              <Tooltip contentStyle={{backgroundColor:'#fff',border:'1px solid #d1d5db',borderRadius:8,fontSize:12}} />
+              <Legend wrapperStyle={{fontSize:12}} />
+              {filter.metrics.includes('plantHeight')&&<Line type="monotone" dataKey="plantHeight" name="초장(cm)" stroke={MEASURE_LINE_COLORS.plantHeight} strokeWidth={2} dot={{r:3}} connectNulls />}
+              {filter.metrics.includes('leafCount')&&<Line type="monotone" dataKey="leafCount" name="엽수(장)" stroke={MEASURE_LINE_COLORS.leafCount} strokeWidth={2} dot={{r:3}} connectNulls />}
+              {filter.metrics.includes('floweringRate')&&<Line type="monotone" dataKey="floweringRate" name="개화율(%)" stroke={MEASURE_LINE_COLORS.floweringRate} strokeWidth={2} dot={{r:3}} connectNulls />}
+              {filter.metrics.includes('fruitSetRate')&&<Line type="monotone" dataKey="fruitSetRate" name="착과율(%)" stroke={MEASURE_LINE_COLORS.fruitSetRate} strokeWidth={2} dot={{r:3}} connectNulls />}
+              {selectedCustom&&<Line type="monotone" dataKey="__custom__" name={selectedCustom} stroke="#8b5cf6" strokeWidth={2} dot={{r:3}} connectNulls />}
+            </LineChart>
+          </ResponsiveContainer>
+        )}
+      </div>
+    </div>
+  );
 }
 
 // ━━━ 사진 갤러리 (P1-C) ━━━

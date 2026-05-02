@@ -522,9 +522,18 @@ const MEASURE_LINE_LABELS = {
   floweringRate: "개화율(%)",
   fruitSetRate: "착과율(%)",
 };
+// 날짜 → 작년 같은 month-day
+function shiftYear(dateStr, deltaYears) {
+  if (!dateStr) return null;
+  const d = new Date(dateStr);
+  d.setFullYear(d.getFullYear() + deltaYears);
+  return d.toISOString().split("T")[0];
+}
 function JournalAnalytics(){const FARM_ID=useContext(FarmIdCtx);
   const df=useDateFilter();
   const[entries,setEntries]=useState([]);const[loading,setLoading]=useState(true);
+  const[entriesYoY,setEntriesYoY]=useState([]);  // 작년 같은 시기
+  const[yoyEnabled,setYoyEnabled]=useState(false);
   const[houses,setHouses]=useState([]);
   const[filter,setFilter]=useState({houseId:"",metrics:["plantHeight","leafCount","floweringRate","fruitSetRate"]});
 
@@ -536,28 +545,36 @@ function JournalAnalytics(){const FARM_ID=useContext(FarmIdCtx);
     setLoading(true);
     api(url).then(r=>setEntries(r.data||[])).finally(()=>setLoading(false));
   },[FARM_ID,df.dateRange]);
+  // YoY 토글 시 작년 같은 시기 데이터 fetch
+  useEffect(()=>{
+    if(!yoyEnabled||!df.dateRange.start||!df.dateRange.end){setEntriesYoY([]);return;}
+    const ys=shiftYear(df.dateRange.start,-1);
+    const ye=shiftYear(df.dateRange.end,-1);
+    api(`/journal/${FARM_ID}/entries?limit=500&startDate=${ys}&endDate=${ye}`).then(r=>setEntriesYoY(r.data||[])).catch(()=>setEntriesYoY([]));
+  },[yoyEnabled,FARM_ID,df.dateRange]);
 
   // measurements 있는 일지만 + 하우스 필터
-  const measurePoints=useMemo(()=>{
-    return entries
-      .filter(e=>{
-        if(filter.houseId&&e.houseId!==filter.houseId)return false;
-        const m=e.measurements;
-        if(!m||typeof m!=='object')return false;
-        return ['plantHeight','leafCount','floweringRate','fruitSetRate'].some(k=>m[k]!=null);
-      })
-      .map(e=>({
-        date:e.date?.split('T')[0],
-        dateLabel:toKR(e.date),
-        plantHeight:e.measurements?.plantHeight ?? null,
-        leafCount:e.measurements?.leafCount ?? null,
-        floweringRate:e.measurements?.floweringRate ?? null,
-        fruitSetRate:e.measurements?.fruitSetRate ?? null,
-        houseId:e.houseId,
-        custom:e.measurements?.custom||[],
-      }))
-      .sort((a,b)=>a.date.localeCompare(b.date));
-  },[entries,filter]);
+  const buildPoints=(arr)=>arr
+    .filter(e=>{
+      if(filter.houseId&&e.houseId!==filter.houseId)return false;
+      const m=e.measurements;
+      if(!m||typeof m!=='object')return false;
+      return ['plantHeight','leafCount','floweringRate','fruitSetRate'].some(k=>m[k]!=null);
+    })
+    .map(e=>({
+      date:e.date?.split('T')[0],
+      dateLabel:toKR(e.date),
+      mmdd:(e.date?.split('T')[0]||'').slice(5), // 월-일 키 (YoY 매핑용)
+      plantHeight:e.measurements?.plantHeight ?? null,
+      leafCount:e.measurements?.leafCount ?? null,
+      floweringRate:e.measurements?.floweringRate ?? null,
+      fruitSetRate:e.measurements?.fruitSetRate ?? null,
+      houseId:e.houseId,
+      custom:e.measurements?.custom||[],
+    }))
+    .sort((a,b)=>a.date.localeCompare(b.date));
+  const measurePoints=useMemo(()=>buildPoints(entries),[entries,filter]);
+  const measurePointsYoY=useMemo(()=>buildPoints(entriesYoY),[entriesYoY,filter]);
 
   // 사용자 정의 metric 이름 모음
   const customNames=useMemo(()=>{
@@ -572,7 +589,24 @@ function JournalAnalytics(){const FARM_ID=useContext(FarmIdCtx);
 
   // 사용자 정의 metric 1 개 선택 시 데이터에 평탄화
   const[selectedCustom,setSelectedCustom]=useState("");
+  // YoY 모드: mmdd 키 기준 올해/작년 동시 매핑
   const chartData=useMemo(()=>{
+    if(yoyEnabled){
+      // mmdd 합집합 — 올해 또는 작년에 데이터 있는 모든 월-일
+      const map=new Map();
+      measurePoints.forEach(p=>{
+        const cur=map.get(p.mmdd)||{mmdd:p.mmdd,dateLabel:p.mmdd};
+        ['plantHeight','leafCount','floweringRate','fruitSetRate'].forEach(k=>{cur[k]=p[k];});
+        if(selectedCustom){const c=(p.custom||[]).find(x=>x.name===selectedCustom);cur.__custom__=c?Number(c.value):null;}
+        map.set(p.mmdd,cur);
+      });
+      measurePointsYoY.forEach(p=>{
+        const cur=map.get(p.mmdd)||{mmdd:p.mmdd,dateLabel:p.mmdd};
+        ['plantHeight','leafCount','floweringRate','fruitSetRate'].forEach(k=>{cur[`${k}_yoy`]=p[k];});
+        map.set(p.mmdd,cur);
+      });
+      return Array.from(map.values()).sort((a,b)=>a.mmdd.localeCompare(b.mmdd));
+    }
     return measurePoints.map(p=>{
       const row={...p};
       if(selectedCustom){
@@ -581,13 +615,13 @@ function JournalAnalytics(){const FARM_ID=useContext(FarmIdCtx);
       }
       return row;
     });
-  },[measurePoints,selectedCustom]);
+  },[measurePoints,measurePointsYoY,selectedCustom,yoyEnabled]);
 
-  // 통계 (기간 평균/최저/최고)
-  const stats=useMemo(()=>{
+  // 통계 (기간 평균/최저/최고) + YoY 비교
+  const calcStats=(pts)=>{
     const out={};
     ['plantHeight','leafCount','floweringRate','fruitSetRate'].forEach(k=>{
-      const vals=measurePoints.map(p=>p[k]).filter(v=>v!=null);
+      const vals=pts.map(p=>p[k]).filter(v=>v!=null);
       if(vals.length===0){out[k]=null;return;}
       out[k]={
         count:vals.length,
@@ -598,7 +632,9 @@ function JournalAnalytics(){const FARM_ID=useContext(FarmIdCtx);
       };
     });
     return out;
-  },[measurePoints]);
+  };
+  const stats=useMemo(()=>calcStats(measurePoints),[measurePoints]);
+  const statsYoY=useMemo(()=>calcStats(measurePointsYoY),[measurePointsYoY]);
 
   return(
     <div className="space-y-4">
@@ -624,7 +660,14 @@ function JournalAnalytics(){const FARM_ID=useContext(FarmIdCtx);
               <select value={selectedCustom} onChange={e=>setSelectedCustom(e.target.value)} style={LIGHT_INPUT} className="input-field jrn-select text-xs py-1 px-2 w-32"><option value="">없음</option>{customNames.map(n=><option key={n} value={n}>{n}</option>)}</select>
             </div>
           )}
-          <span className="text-xs text-gray-500 ml-auto">측정 {measurePoints.length}건</span>
+          <button type="button" onClick={()=>setYoyEnabled(!yoyEnabled)}
+            className={`px-2.5 py-1 rounded-md text-xs font-semibold border transition-colors ${yoyEnabled?'bg-amber-100 !text-amber-800 border-amber-400':'bg-white !text-gray-700 border-gray-300 hover:bg-gray-50'}`}>
+            📅 작년 비교 {yoyEnabled?'ON':'OFF'}
+          </button>
+          <span className="text-xs text-gray-500 ml-auto">
+            측정 {measurePoints.length}건
+            {yoyEnabled&&entriesYoY.length>0&&` · 작년 ${measurePointsYoY.length}건`}
+          </span>
         </div>
       </SearchFilterBar>
 
@@ -632,7 +675,11 @@ function JournalAnalytics(){const FARM_ID=useContext(FarmIdCtx);
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         {['plantHeight','leafCount','floweringRate','fruitSetRate'].map(k=>{
           const s=stats[k];
+          const sy=yoyEnabled?statsYoY[k]:null;
           const color=MEASURE_LINE_COLORS[k];
+          // YoY 평균 변화율
+          const yoyDiff=(s&&sy)?Math.round((s.avg-sy.avg)*10)/10:null;
+          const yoyPct=(s&&sy&&sy.avg!==0)?Math.round((s.avg-sy.avg)/sy.avg*100):null;
           return(
             <div key={k} className="glass-card p-3" style={{borderTop:`3px solid ${color}`}}>
               <div className="text-[11px] !text-gray-600 font-medium mb-1">{MEASURE_LINE_LABELS[k]}</div>
@@ -642,6 +689,14 @@ function JournalAnalytics(){const FARM_ID=useContext(FarmIdCtx);
                   <span className="text-[10px] !text-gray-500">최근값</span>
                 </div>
                 <div className="text-[10px] !text-gray-500 mt-0.5">평균 {s.avg} · 최저 {s.min} · 최고 {s.max} · {s.count}회</div>
+                {yoyEnabled&&sy&&(
+                  <div className={`text-[10px] mt-1 pt-1 border-t border-gray-200 font-medium ${yoyDiff>0?'!text-emerald-700':yoyDiff<0?'!text-rose-700':'!text-gray-500'}`}>
+                    작년 평균 {sy.avg} · {yoyDiff>0?'▲':yoyDiff<0?'▼':'='} {Math.abs(yoyDiff)}{yoyPct!=null&&` (${yoyPct>0?'+':''}${yoyPct}%)`}
+                  </div>
+                )}
+                {yoyEnabled&&!sy&&(
+                  <div className="text-[10px] mt-1 pt-1 border-t border-gray-200 !text-gray-400">작년 측정 없음</div>
+                )}
               </>):(
                 <div className="text-xs !text-gray-400">측정 없음</div>
               )}
@@ -673,6 +728,11 @@ function JournalAnalytics(){const FARM_ID=useContext(FarmIdCtx);
               {filter.metrics.includes('floweringRate')&&<Line type="monotone" dataKey="floweringRate" name="개화율(%)" stroke={MEASURE_LINE_COLORS.floweringRate} strokeWidth={2} dot={{r:3}} connectNulls />}
               {filter.metrics.includes('fruitSetRate')&&<Line type="monotone" dataKey="fruitSetRate" name="착과율(%)" stroke={MEASURE_LINE_COLORS.fruitSetRate} strokeWidth={2} dot={{r:3}} connectNulls />}
               {selectedCustom&&<Line type="monotone" dataKey="__custom__" name={selectedCustom} stroke="#8b5cf6" strokeWidth={2} dot={{r:3}} connectNulls />}
+              {/* 작년 비교 — 점선 + 연한 색 */}
+              {yoyEnabled&&filter.metrics.includes('plantHeight')&&<Line type="monotone" dataKey="plantHeight_yoy" name="초장(작년)" stroke={MEASURE_LINE_COLORS.plantHeight} strokeWidth={1.5} strokeDasharray="4 4" strokeOpacity={0.5} dot={{r:2}} connectNulls />}
+              {yoyEnabled&&filter.metrics.includes('leafCount')&&<Line type="monotone" dataKey="leafCount_yoy" name="엽수(작년)" stroke={MEASURE_LINE_COLORS.leafCount} strokeWidth={1.5} strokeDasharray="4 4" strokeOpacity={0.5} dot={{r:2}} connectNulls />}
+              {yoyEnabled&&filter.metrics.includes('floweringRate')&&<Line type="monotone" dataKey="floweringRate_yoy" name="개화율(작년)" stroke={MEASURE_LINE_COLORS.floweringRate} strokeWidth={1.5} strokeDasharray="4 4" strokeOpacity={0.5} dot={{r:2}} connectNulls />}
+              {yoyEnabled&&filter.metrics.includes('fruitSetRate')&&<Line type="monotone" dataKey="fruitSetRate_yoy" name="착과율(작년)" stroke={MEASURE_LINE_COLORS.fruitSetRate} strokeWidth={1.5} strokeDasharray="4 4" strokeOpacity={0.5} dot={{r:2}} connectNulls />}
             </LineChart>
           </ResponsiveContainer>
         )}

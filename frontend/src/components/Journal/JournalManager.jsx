@@ -430,10 +430,178 @@ function DetailRow({label,value,color}){if(!value&&value!==0)return null;return(
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 function JournalTab(){
   const[subTab,setSubTab]=useState("list");
-  return(<div className="space-y-4"><div className="flex gap-1.5">
-    <button onClick={()=>setSubTab("list")} className={`flex items-center gap-1.5 px-2 md:px-4 py-2 rounded-xl text-sm font-medium transition-all min-w-0 active:scale-[0.97] ${subTab==="list"?"bg-blue-600 text-white shadow-lg shadow-blue-600/20":"bg-white border border-gray-200 text-gray-600 hover:bg-gray-50 shadow-sm"}`}><span className="flex-shrink-0">📋</span><span className="truncate">일지 조회</span></button>
-    <button onClick={()=>setSubTab("write")} className={`flex items-center gap-1.5 px-2 md:px-4 py-2 rounded-xl text-sm font-medium transition-all min-w-0 active:scale-[0.97] ${subTab==="write"?"bg-blue-600 text-white shadow-lg shadow-blue-600/20":"bg-white border border-gray-200 text-gray-600 hover:bg-gray-50 shadow-sm"}`}><span className="flex-shrink-0">✏️</span><span className="truncate">일지 작성</span></button>
-  </div>{subTab==="list"&&<JournalSearch />}{subTab==="write"&&<JournalWrite />}</div>);
+  const tabBtn=(id,emoji,label)=>(
+    <button key={id} onClick={()=>setSubTab(id)} className={`flex items-center gap-1.5 px-2 md:px-4 py-2 rounded-xl text-sm font-medium transition-all min-w-0 active:scale-[0.97] ${subTab===id?"bg-blue-600 text-white shadow-lg shadow-blue-600/20":"bg-white border border-gray-200 text-gray-600 hover:bg-gray-50 shadow-sm"}`}><span className="flex-shrink-0">{emoji}</span><span className="truncate">{label}</span></button>
+  );
+  return(<div className="space-y-4"><div className="flex gap-1.5 flex-wrap">
+    {tabBtn("list","📋","일지 조회")}
+    {tabBtn("write","✏️","일지 작성")}
+    {tabBtn("gallery","📸","사진 갤러리")}
+  </div>
+  {subTab==="list"&&<JournalSearch />}
+  {subTab==="write"&&<JournalWrite />}
+  {subTab==="gallery"&&<PhotoGallery />}
+  </div>);
+}
+
+// ━━━ 사진 갤러리 (P1-C) ━━━
+// 모든 일지의 photos 를 평탄화 — 작목/하우스/작업/날짜별 필터 + lightbox
+function PhotoGallery(){const FARM_ID=useContext(FarmIdCtx);
+  const df=useDateFilter();
+  const[entries,setEntries]=useState([]);const[loading,setLoading]=useState(true);
+  const[houses,setHouses]=useState([]);
+  const[filter,setFilter]=useState({houseId:"",workType:"",tag:""});
+  const[groupBy,setGroupBy]=useState("date"); // date|house|workType
+  const[lightbox,setLightbox]=useState(null); // { url, entry, idx, total }
+
+  useEffect(()=>{api(`/config/farm/${FARM_ID}`).then(r=>setHouses(r.data||[])).catch(()=>{})},[FARM_ID]);
+  useEffect(()=>{
+    let url=`/journal/${FARM_ID}/entries?limit=500`;
+    if(df.dateRange.start)url+=`&startDate=${df.dateRange.start}`;
+    if(df.dateRange.end)url+=`&endDate=${df.dateRange.end}`;
+    setLoading(true);
+    api(url).then(r=>{
+      const all=(r.data||[]).filter(e=>Array.isArray(e.photos)&&e.photos.length>0);
+      setEntries(all);
+    }).finally(()=>setLoading(false));
+  },[FARM_ID,df.dateRange]);
+
+  // 평탄화 — 사진 1 장 = 1 row + 출처 일지 메타
+  const photos=useMemo(()=>{
+    const list=[];
+    for(const e of entries){
+      if(filter.houseId&&e.houseId!==filter.houseId)continue;
+      if(filter.workType&&e.workType!==filter.workType)continue;
+      if(filter.tag&&!(Array.isArray(e.tags)&&e.tags.includes(filter.tag)))continue;
+      (e.photos||[]).forEach((p,idx)=>{
+        list.push({
+          url:photoUrl(p),
+          date:e.date,
+          houseId:e.houseId,
+          houseName:houses.find(h=>h.houseId===e.houseId)?.houseName||e.houseId,
+          workType:e.workType,
+          growthStage:e.growthStage,
+          pest:e.pest,
+          content:e.content,
+          tags:e.tags||[],
+          entryId:e._id,
+          photoIdx:idx,
+          totalInEntry:e.photos.length,
+        });
+      });
+    }
+    return list;
+  },[entries,filter,houses]);
+
+  // 그룹핑
+  const groups=useMemo(()=>{
+    const map=new Map();
+    const keyFn=p=>{
+      if(groupBy==="house")return p.houseName||p.houseId||"(없음)";
+      if(groupBy==="workType")return p.workType||"(없음)";
+      // date — 일자
+      return toKR(p.date);
+    };
+    for(const p of photos){
+      const k=keyFn(p);
+      if(!map.has(k))map.set(k,[]);
+      map.get(k).push(p);
+    }
+    return Array.from(map.entries());
+  },[photos,groupBy]);
+
+  // 사용 가능한 태그 모음
+  const allTags=useMemo(()=>{
+    const set=new Set();
+    entries.forEach(e=>(e.tags||[]).forEach(t=>set.add(t)));
+    return Array.from(set).sort();
+  },[entries]);
+
+  return(
+    <div className="space-y-4">
+      <SearchFilterBar {...df}>
+        <div className="flex items-center gap-3 flex-wrap">
+          <div className="flex items-center gap-2"><span className="text-xs text-gray-600 font-medium">하우스</span>
+            <select value={filter.houseId} onChange={e=>setFilter(p=>({...p,houseId:e.target.value}))} style={LIGHT_INPUT} className="input-field jrn-select text-xs py-1 px-2 w-32"><option value="">전체</option>{houses.map(h=><option key={h.houseId} value={h.houseId}>{h.houseName||h.houseId}</option>)}</select>
+          </div>
+          <div className="flex items-center gap-2"><span className="text-xs text-gray-600 font-medium">작업</span>
+            <select value={filter.workType} onChange={e=>setFilter(p=>({...p,workType:e.target.value}))} style={LIGHT_INPUT} className="input-field jrn-select text-xs py-1 px-2 w-28"><option value="">전체</option>{WORK_TYPES.map(w=><option key={w} value={w}>{w}</option>)}</select>
+          </div>
+          {allTags.length>0&&(
+            <div className="flex items-center gap-2"><span className="text-xs text-gray-600 font-medium">태그</span>
+              <select value={filter.tag} onChange={e=>setFilter(p=>({...p,tag:e.target.value}))} style={LIGHT_INPUT} className="input-field jrn-select text-xs py-1 px-2 w-32"><option value="">전체</option>{allTags.map(t=><option key={t} value={t}>#{t}</option>)}</select>
+            </div>
+          )}
+          <div className="flex items-center gap-2"><span className="text-xs text-gray-600 font-medium">묶음</span>
+            <select value={groupBy} onChange={e=>setGroupBy(e.target.value)} style={LIGHT_INPUT} className="input-field jrn-select text-xs py-1 px-2 w-24">
+              <option value="date">날짜별</option>
+              <option value="house">하우스별</option>
+              <option value="workType">작업별</option>
+            </select>
+          </div>
+          <button onClick={()=>{setFilter({houseId:"",workType:"",tag:""});df.resetFilters();}} className="px-3 py-1 rounded-lg text-xs bg-white !text-gray-700 border border-gray-300 hover:bg-gray-50 font-medium">↺ 초기화</button>
+          <span className="text-xs text-gray-500 ml-auto">사진 {photos.length}장 / 일지 {entries.length}건</span>
+        </div>
+      </SearchFilterBar>
+
+      {loading?(
+        <div className="glass-card p-10 text-center text-gray-400">불러오는 중...</div>
+      ):photos.length===0?(
+        <div className="glass-card p-10 text-center text-gray-400">조건에 맞는 사진이 없습니다</div>
+      ):(
+        <div className="space-y-4">
+          {groups.map(([groupKey,items])=>(
+            <div key={groupKey} className="glass-card p-4">
+              <h4 className="text-sm font-bold !text-gray-800 mb-3 flex items-center gap-2">
+                <span className={`px-2 py-0.5 rounded-full text-xs ${groupBy==="house"?"bg-violet-100 !text-violet-800":groupBy==="workType"?"bg-emerald-100 !text-emerald-800":"bg-blue-100 !text-blue-800"}`}>{groupKey}</span>
+                <span className="text-xs !text-gray-500 font-normal">{items.length}장</span>
+              </h4>
+              <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 lg:grid-cols-8 gap-2">
+                {items.map((p,i)=>(
+                  <button key={`${p.entryId}-${p.photoIdx}`} type="button" onClick={()=>setLightbox(p)}
+                    className="aspect-square rounded-lg overflow-hidden border border-gray-200 hover:border-blue-400 transition-all relative group">
+                    <img src={p.url} alt="" loading="lazy" className="w-full h-full object-cover group-hover:scale-105 transition-transform" />
+                    {p.pest&&<span className="absolute top-1 left-1 px-1 py-0.5 rounded bg-rose-500/90 text-white text-[9px] font-bold">⚠</span>}
+                    <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/70 to-transparent p-1.5 opacity-0 group-hover:opacity-100 transition-opacity">
+                      <div className="text-[9px] text-white font-medium truncate">{toKR(p.date)}</div>
+                      <div className="text-[9px] text-white/80 truncate">{p.workType}{p.growthStage?` · ${p.growthStage}`:""}</div>
+                    </div>
+                  </button>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Lightbox */}
+      {lightbox&&(
+        <div className="lightbox-overlay fixed inset-0 z-50 flex items-center justify-center p-4" onClick={()=>setLightbox(null)}>
+          <div className="max-w-4xl w-full bg-white rounded-lg shadow-2xl overflow-hidden flex flex-col" onClick={e=>e.stopPropagation()}>
+            <div className="flex items-center justify-between px-5 py-3 border-b bg-gray-50">
+              <div>
+                <div className="text-sm font-bold !text-gray-800">{toKR(lightbox.date)} · {lightbox.workType}</div>
+                <div className="text-xs !text-gray-500">{lightbox.houseName||lightbox.houseId||""}{lightbox.growthStage?` · ${lightbox.growthStage}`:""}</div>
+              </div>
+              <button onClick={()=>setLightbox(null)} className="!text-gray-500 hover:!text-gray-900 text-2xl px-2">×</button>
+            </div>
+            <img src={lightbox.url} alt="" className="w-full max-h-[70vh] object-contain bg-black" />
+            <div className="px-5 py-3 space-y-2 text-sm">
+              {lightbox.content&&<div className="!text-gray-800">{lightbox.content}</div>}
+              {lightbox.pest&&<div className="!text-rose-700"><span className="font-semibold">⚠ 병해충:</span> {lightbox.pest}</div>}
+              {lightbox.tags?.length>0&&(
+                <div className="flex flex-wrap gap-1 pt-1">
+                  {lightbox.tags.map(t=>(
+                    <span key={t} className="px-2 py-0.5 bg-emerald-100 !text-emerald-800 border border-emerald-300 rounded-full text-xs font-semibold">#{t}</span>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
 }
 
 function JournalSearch(){const FARM_ID=useContext(FarmIdCtx);

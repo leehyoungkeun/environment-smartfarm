@@ -151,6 +151,15 @@ router.post("/", async (req, res) => {
     });
 
     logger.info("✅ 하우스 생성 성공:", config.houseId);
+
+    // RPi 즉시 알림
+    if (farmId) {
+      mqttService.publishConfigUpdate(farmId, {
+        type: "house_created",
+        houseId: config.houseId,
+      });
+    }
+
     res.status(201).json({ success: true, data: config });
   } catch (error) {
     logger.error("❌ 하우스 생성 실패:", error);
@@ -204,6 +213,16 @@ router.put("/:houseId", async (req, res) => {
     });
 
     logger.info("✅ 하우스 수정 성공:", config.houseId);
+
+    // RPi 즉시 알림 — sensor/device 추가/수정/삭제 시 RPi houseConfig refresh 트리거
+    if (farmId) {
+      mqttService.publishConfigUpdate(farmId, {
+        type: "house_changed",
+        houseId,
+        configVersion: updateData.configVersion,
+      });
+    }
+
     res.json({ success: true, data: config });
   } catch (error) {
     logger.error("❌ 하우스 수정 실패:", error);
@@ -235,6 +254,15 @@ router.delete("/:houseId", async (req, res) => {
     }
 
     logger.info("✅ 하우스 삭제 성공:", houseId);
+
+    // RPi 즉시 알림
+    if (farmId) {
+      mqttService.publishConfigUpdate(farmId, {
+        type: "house_deleted",
+        houseId,
+      });
+    }
+
     res.json({ success: true, message: "House deleted" });
   } catch (error) {
     logger.error("❌ 하우스 삭제 실패:", error);

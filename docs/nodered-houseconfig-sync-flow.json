@@ -1,0 +1,63 @@
+[
+    {
+        "id": "hcs_mqtt_in",
+        "type": "mqtt in",
+        "z": "tab_modules_sync",
+        "name": "config/update → houseConfig refresh",
+        "topic": "smartfarm/+/config/update",
+        "qos": "1",
+        "datatype": "auto",
+        "broker": "mqtt_broker_aws",
+        "nl": false,
+        "rap": true,
+        "rh": 0,
+        "inputs": 0,
+        "x": 140,
+        "y": 280,
+        "wires": [["hcs_filter"]]
+    },
+    {
+        "id": "hcs_filter",
+        "type": "function",
+        "z": "tab_modules_sync",
+        "name": "type=house_* 만 처리",
+        "func": "// backend publishConfigUpdate 의 type 으로 분기\n// modules_changed → 기존 modsync_trigger 가 처리 (system-settings)\n// house_created/house_changed/house_deleted → 이 flow 가 houseConfig refresh\n\nconst data = msg.payload || {};\nconst type = data.type || '';\n\n// houseConfig 영향 type 만 통과\nif (!type.startsWith('house_')) {\n    return null;  // modules_changed 등은 modsync_trigger 가 처리\n}\n\nconst farmId = global.get('farmId') || env.get('FARM_ID') || 'farm_0001';\nconst pcServer = global.get('pcServerUrl') || 'https://api.smartgreen.kr';\nconst apiKey = global.get('sensorApiKey') || 'smartfarm-sensor-key';\n\nmsg.method = 'GET';\nmsg.url = pcServer + '/api/config/farm/' + farmId + '?_t=' + Date.now();\nmsg.headers = {\n    'x-api-key': apiKey,\n    'Cache-Control': 'no-cache',\n    'Accept': 'application/json',\n};\nmsg.payload = null;\nmsg._farmId = farmId;\nmsg._eventType = type;\n\nnode.status({ fill: 'blue', shape: 'dot', text: type + ' ' + new Date().toLocaleTimeString() });\nreturn msg;\n",
+        "outputs": 1,
+        "noerr": 0,
+        "x": 380,
+        "y": 280,
+        "wires": [["hcs_http"]]
+    },
+    {
+        "id": "hcs_http",
+        "type": "http request",
+        "z": "tab_modules_sync",
+        "name": "GET /config/farm/{farmId}",
+        "method": "use",
+        "ret": "obj",
+        "paytoqs": "ignore",
+        "url": "",
+        "tls": "",
+        "persist": false,
+        "proxy": "",
+        "insecureHTTPParser": false,
+        "authType": "",
+        "senderr": false,
+        "headers": [],
+        "x": 640,
+        "y": 280,
+        "wires": [["hcs_handler"]]
+    },
+    {
+        "id": "hcs_handler",
+        "type": "function",
+        "z": "tab_modules_sync",
+        "name": "houseConfig 갱신",
+        "func": "// PC backend /config/farm/{farmId} 응답 → global.houseConfig 갱신\n\nlet payload = msg.payload;\nif (typeof payload === 'string') {\n    try { payload = JSON.parse(payload); } catch (e) {\n        node.error('houseConfig 응답 파싱 실패: ' + e.message);\n        return null;\n    }\n}\n\nif (msg.statusCode !== 200) {\n    node.error('❌ houseConfig 조회 실패 status=' + msg.statusCode);\n    node.status({ fill: 'red', shape: 'dot', text: 'API ' + msg.statusCode });\n    return null;\n}\n\nconst houses = (payload && payload.success && Array.isArray(payload.data)) ? payload.data : [];\nif (houses.length === 0) {\n    node.warn('houseConfig 빈 응답 — refresh 안 함');\n    return null;\n}\n\nconst farmId = msg._farmId || 'farm_0001';\nconst eventType = msg._eventType || '?';\n\n// 기존 houseConfig 와 비교\nconst prev = global.get('houseConfig') || {};\nconst prevHouses = prev.houses || [];\n\n// houseConfig 구조 (워치독/sensor 폴링이 사용하는 형식)\nconst newHouseConfig = {\n    farmId,\n    houses: houses.map(h => ({\n        id: h.houseId,\n        houseId: h.houseId,\n        name: h.houseName || h.name,\n        enabled: h.enabled !== false,\n        sensors: h.sensors || [],\n        devices: h.devices || [],\n        configVersion: h.configVersion || 0,\n    })),\n    configVersion: Math.max(0, ...houses.map(h => h.configVersion || 0)),\n};\n\nglobal.set('houseConfig', newHouseConfig);\nglobal.set('houseConfigUpdatedAt', new Date().toISOString());\n\n// 워치독 캐시 무효화 (modules 변경 시 워치독이 옛 sensor 폴링 안 하도록)\nglobal.set('_watchdogModules', null);\n\nconst sensorTotal = houses.reduce((sum, h) => sum + (h.sensors?.length || 0), 0);\nconst deviceTotal = houses.reduce((sum, h) => sum + (h.devices?.length || 0), 0);\n\nnode.status({\n    fill: 'green', shape: 'dot',\n    text: eventType + ' H:' + houses.length + ' S:' + sensorTotal + ' D:' + deviceTotal\n});\nnode.warn('🏠 houseConfig refresh (' + eventType + '): ' + houses.length + ' houses, ' + sensorTotal + ' sensors, ' + deviceTotal + ' devices');\n\nreturn null;\n",
+        "outputs": 1,
+        "noerr": 0,
+        "x": 900,
+        "y": 280,
+        "wires": [[]]
+    }
+]

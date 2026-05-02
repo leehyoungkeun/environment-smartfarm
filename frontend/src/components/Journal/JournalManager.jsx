@@ -18,6 +18,8 @@ const INPUT_TYPES = ["비료","농약","종자","기타"];
 const GRADES = ["특","상","보통","하"];
 const INPUT_UNITS = ["kg","g","L","ml","개","포","봉"];
 const SC = "input-field jrn-select text-sm w-full";
+// inline style — OS dark / 글로벌 CSS override 시 light 강제 보험
+const LIGHT_INPUT = { backgroundColor: '#ffffff', color: '#111827', colorScheme: 'light' };
 
 function getToken(){return localStorage.getItem("accessToken")}
 async function api(path,options={}){const token=getToken();const res=await fetch(`${API_BASE}${path}`,{...options,headers:{...(options.body instanceof FormData?{}:{"Content-Type":"application/json"}),Authorization:`Bearer ${token}`,...options.headers}});const data=await res.json();if(!data.success)throw new Error(data.error||"요청 실패");return data}
@@ -330,9 +332,9 @@ function ExportButtons({onPrint,onCSV,onPDF}){
   const handlePDF=async()=>{setPdfLoading(true);try{await onPDF()}finally{setPdfLoading(false)}};
   return(
     <div className="flex gap-2">
-      <button onClick={onPrint} className="px-3 py-1.5 rounded-lg text-xs bg-white/5 text-gray-400 hover:bg-white/10 hover:text-white transition-all flex items-center gap-1">🖨️ 인쇄</button>
-      <button onClick={onCSV} className="px-3 py-1.5 rounded-lg text-xs bg-white/5 text-gray-400 hover:bg-white/10 hover:text-white transition-all flex items-center gap-1">📥 CSV</button>
-      <button onClick={handlePDF} disabled={pdfLoading} className="px-3 py-1.5 rounded-lg text-xs bg-red-500/10 text-red-400 hover:bg-red-500/20 hover:text-red-300 transition-all flex items-center gap-1 disabled:opacity-50">{pdfLoading?"⏳ 생성중...":"📄 PDF"}</button>
+      <button onClick={onPrint} className="px-3 py-1.5 rounded-lg text-xs bg-white !text-gray-700 border border-gray-300 hover:bg-gray-50 transition-all flex items-center gap-1 font-medium">🖨️ 인쇄</button>
+      <button onClick={onCSV} className="px-3 py-1.5 rounded-lg text-xs bg-white !text-emerald-700 border border-emerald-300 hover:bg-emerald-50 transition-all flex items-center gap-1 font-medium">📥 CSV</button>
+      <button onClick={handlePDF} disabled={pdfLoading} className="px-3 py-1.5 rounded-lg text-xs bg-rose-50 !text-rose-700 border border-rose-300 hover:bg-rose-100 transition-all flex items-center gap-1 disabled:opacity-50 font-medium">{pdfLoading?"⏳ 생성중...":"📄 PDF"}</button>
     </div>
   );
 }
@@ -396,7 +398,7 @@ function SearchFilterBar({dateRange,setDateRange,periodLabel,setPeriod,selectedD
   return(
     <div className="glass-card p-4 space-y-3">
       <div className="flex items-center gap-2 flex-wrap">
-        <span className="text-xs text-gray-400 font-medium">조회기간</span>
+        <span className="text-xs text-gray-600 font-medium">조회기간</span>
         {[["1개월",1],["3개월",3],["6개월",6],["1년",12]].map(([label,m])=>(<button key={label} onClick={()=>setPeriod(label,m)} className={`px-3 py-1 rounded-lg text-xs font-medium transition-all ${periodLabel===label?"bg-blue-600 text-white":"bg-white/5 text-gray-400 hover:bg-white/10"}`}>{label}</button>))}
         <div className="flex items-center gap-1 ml-2">
           <input type="date" value={dateRange.start} onChange={e=>{setDateRange(p=>({...p,start:e.target.value}));setPeriod("",0);setSelectedDate(null)}} className="input-field text-xs py-1 px-2 w-32" />
@@ -504,33 +506,34 @@ function JournalSearch(){const FARM_ID=useContext(FarmIdCtx);
         <SearchFilterBar {...df}>
           <div className="flex items-center justify-between flex-wrap gap-3">
             <div className="flex items-center gap-3 flex-wrap">
-              <div className="flex items-center gap-2"><span className="text-xs text-gray-400 font-medium">작업유형</span><select value={filter.workType} onChange={e=>setFilter(p=>({...p,workType:e.target.value}))} className="input-field jrn-select text-xs py-1 px-2 w-28"><option value="">전체</option>{WORK_TYPES.map(w=><option key={w} value={w}>{w}</option>)}</select></div>
-              <div className="flex items-center gap-2"><span className="text-xs text-gray-400 font-medium">작업내용</span><input type="text" value={filter.keyword} onChange={e=>setFilter(p=>({...p,keyword:e.target.value}))} placeholder="검색어" className="input-field text-xs py-1 px-2 w-40" /></div>
+              <div className="flex items-center gap-2"><span className="text-xs text-gray-600 font-medium">작업유형</span><select style={LIGHT_INPUT} value={filter.workType} onChange={e=>setFilter(p=>({...p,workType:e.target.value}))} className="input-field jrn-select text-xs py-1 px-2 w-28"><option value="">전체</option>{WORK_TYPES.map(w=><option key={w} value={w}>{w}</option>)}</select></div>
+              <div className="flex items-center gap-2"><span className="text-xs text-gray-600 font-medium">작업내용</span><input style={LIGHT_INPUT} type="text" value={filter.keyword} onChange={e=>setFilter(p=>({...p,keyword:e.target.value}))} placeholder="검색어" className="input-field text-xs py-1 px-2 w-40" /></div>
               {/* 태그 필터 — chip 입력 + AND/ANY 토글 */}
               <div className="flex items-center gap-2">
-                <span className="text-xs text-gray-400 font-medium">태그</span>
-                <div className={`flex items-center gap-1 px-2 py-1 rounded-md border ${filter.tags.length>0?'border-emerald-500/40 bg-emerald-500/5':'border-white/10 bg-white/5'}`}>
+                <span className="text-xs text-gray-600 font-medium">태그</span>
+                <div className={`flex items-center gap-1 px-2 py-1 rounded-md border-2 ${filter.tags.length>0?'border-emerald-400 bg-emerald-50':'border-gray-300 bg-white'}`}>
                   {filter.tags.map(t=>(
-                    <span key={t} className="inline-flex items-center gap-1 px-1.5 py-0.5 bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 rounded-full text-[11px]">
+                    <span key={t} className="inline-flex items-center gap-1 px-1.5 py-0.5 bg-emerald-100 !text-emerald-800 border border-emerald-400 rounded-full text-[11px] font-semibold">
                       #{t}
-                      <button type="button" onClick={()=>removeFilterTag(t)} className="text-emerald-400/60 hover:text-rose-300">×</button>
+                      <button type="button" onClick={()=>removeFilterTag(t)} className="!text-emerald-700 hover:!text-rose-600 font-bold">×</button>
                     </span>
                   ))}
                   <input type="text" value={tagInput} onChange={e=>setTagInput(e.target.value)}
                     onKeyDown={e=>{if(['Enter',',',' '].includes(e.key)){e.preventDefault();addFilterTag(tagInput);}else if(e.key==='Backspace'&&!tagInput&&filter.tags.length>0){removeFilterTag(filter.tags[filter.tags.length-1]);}}}
                     onBlur={()=>{if(tagInput)addFilterTag(tagInput);}}
                     placeholder={filter.tags.length===0?'#방제 #수확':'추가'}
-                    className="bg-transparent text-xs text-white placeholder:text-gray-500 outline-none w-24" />
+                    style={LIGHT_INPUT}
+                    className="bg-transparent text-xs placeholder:!text-gray-400 outline-none w-24" />
                 </div>
                 {filter.tags.length>1&&(
                   <button type="button" onClick={()=>setFilter(p=>({...p,tagsMode:p.tagsMode==='any'?'all':'any'}))}
                     title="any: 일부만 일치 / all: 모두 포함"
-                    className={`px-2 py-1 rounded-md text-[10px] font-bold transition-colors ${filter.tagsMode==='all'?'bg-blue-500/20 text-blue-300 border border-blue-500/40':'bg-white/5 text-gray-400 border border-white/10'}`}>
+                    className={`px-2 py-1 rounded-md text-[10px] font-bold border transition-colors ${filter.tagsMode==='all'?'bg-blue-100 !text-blue-800 border-blue-400':'bg-white !text-gray-700 border-gray-300 hover:bg-gray-50'}`}>
                     {filter.tagsMode==='all'?'AND':'OR'}
                   </button>
                 )}
               </div>
-              <button onClick={()=>{setFilter({workType:"",keyword:"",tags:[],tagsMode:"any"});setTagInput("");df.resetFilters()}} className="px-3 py-1 rounded-lg text-xs bg-white/5 text-gray-400 hover:bg-white/10 hover:text-white">↺ 초기화</button>
+              <button onClick={()=>{setFilter({workType:"",keyword:"",tags:[],tagsMode:"any"});setTagInput("");df.resetFilters()}} className="px-3 py-1 rounded-lg text-xs bg-white !text-gray-700 border border-gray-300 hover:bg-gray-50 font-medium">↺ 초기화</button>
             </div>
             {entries.length>0&&<ExportButtons onPrint={handlePrint} onCSV={handleCSV} onPDF={handlePDF} />}
           </div>
@@ -554,7 +557,7 @@ function JournalSearch(){const FARM_ID=useContext(FarmIdCtx);
                   {entry.tags?.length>0&&entry.tags.slice(0,3).map(t=>(
                     <button key={t} type="button" onClick={e=>{e.stopPropagation();toggleFilterTagFromCard(t);}}
                       title={filter.tags.includes(t)?'필터에서 제거':'이 태그로 필터'}
-                      className={`px-1.5 py-0.5 rounded-full text-[10px] font-medium border transition-colors ${filter.tags.includes(t)?'bg-emerald-500 text-white border-emerald-600':'bg-emerald-500/15 text-emerald-300 border-emerald-500/30 hover:bg-emerald-500/25'}`}>
+                      className={`px-1.5 py-0.5 rounded-full text-[10px] font-medium border transition-colors ${filter.tags.includes(t)?'bg-emerald-500 text-white border-emerald-600':'bg-emerald-100 !text-emerald-800 border-emerald-400 hover:bg-emerald-200'}`}>
                       #{t}
                     </button>
                   ))}
@@ -579,7 +582,7 @@ function JournalSearch(){const FARM_ID=useContext(FarmIdCtx);
                             {entry.tags.map(t=>(
                               <button key={t} type="button" onClick={e=>{e.stopPropagation();toggleFilterTagFromCard(t);}}
                                 title={filter.tags.includes(t)?'필터에서 제거':'이 태그로 필터'}
-                                className={`px-2 py-0.5 rounded-full text-xs font-medium border transition-colors ${filter.tags.includes(t)?'bg-emerald-500 text-white border-emerald-600':'bg-emerald-500/15 text-emerald-300 border-emerald-500/30 hover:bg-emerald-500/25'}`}>
+                                className={`px-2 py-0.5 rounded-full text-xs font-medium border transition-colors ${filter.tags.includes(t)?'bg-emerald-500 text-white border-emerald-600':'bg-emerald-100 !text-emerald-800 border-emerald-400 hover:bg-emerald-200'}`}>
                                 #{t}
                               </button>
                             ))}
@@ -619,13 +622,13 @@ function TemplateSaveBox({onSave,onCancel}){
     <div className="bg-amber-500/15 border border-amber-500/40 rounded-lg p-3 flex items-end gap-2 flex-wrap">
       <div className="flex-1 min-w-[140px]">
         <label className="text-xs text-amber-700 dark:text-amber-200 font-semibold mb-1 block">템플릿 이름</label>
-        <input autoFocus type="text" value={name} onChange={e=>setName(e.target.value)}
+        <input style={LIGHT_INPUT} autoFocus type="text" value={name} onChange={e=>setName(e.target.value)}
           placeholder="예: 매일 양액 점검"
           className="input-field text-sm w-full" />
       </div>
       <div className="w-20">
         <label className="text-xs text-amber-700 dark:text-amber-200 font-semibold mb-1 block">이모지</label>
-        <input type="text" value={emoji} onChange={e=>setEmoji(e.target.value)}
+        <input style={LIGHT_INPUT} type="text" value={emoji} onChange={e=>setEmoji(e.target.value)}
           placeholder="⭐"
           className="input-field text-sm w-full text-center" />
       </div>
@@ -933,58 +936,60 @@ function JournalForm({entry,onSave,onCancel}){const FARM_ID=useContext(FarmIdCtx
         </div>
       )}
       <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
-        <div className="col-span-2 md:col-span-1"><label className="text-xs text-gray-400 mb-1 block">날짜 *</label><input type="date" value={form.date} onChange={e=>set("date",e.target.value)} className="input-field text-sm w-full" /></div>
-        <div><label className="text-xs text-gray-400 mb-1 flex items-center gap-1">하우스 *{aiFilled.has('houseId')&&<span className="text-violet-400" title="AI 채움">✨</span>}</label><select value={form.houseId} onChange={e=>set("houseId",e.target.value)} className={`${SC} ${aiFilled.has('houseId')?'ring-1 ring-violet-400/40':''}`}><option value="">전체(공통)</option>{houses.map(h=><option key={h.houseId} value={h.houseId}>{h.houseName||h.houseId}</option>)}</select></div>
-        <div><label className="text-xs text-gray-400 mb-1 flex items-center gap-1">작업유형 *{aiFilled.has('workType')&&<span className="text-violet-400" title="AI 채움">✨</span>}</label><select value={form.workType} onChange={e=>set("workType",e.target.value)} className={`${SC} ${aiFilled.has('workType')?'ring-1 ring-violet-400/40':''}`}>{WORK_TYPES.map(w=><option key={w} value={w}>{w}</option>)}</select></div>
-        <div><label className="text-xs text-gray-400 mb-1 flex items-center gap-1">날씨{aiFilled.has('weather')&&<span className="text-violet-400" title="AI 채움">✨</span>}</label><select value={form.weather} onChange={e=>set("weather",e.target.value)} className={`${SC} ${aiFilled.has('weather')?'ring-1 ring-violet-400/40':''}`}><option value="">선택</option>{WEATHER_OPTIONS.map(w=><option key={w} value={w}>{w}</option>)}</select></div>
-        <div><label className="text-xs text-gray-400 mb-1 flex items-center gap-1">생육단계{aiFilled.has('growthStage')&&<span className="text-violet-400" title="AI 채움">✨</span>}</label><select value={form.growthStage} onChange={e=>set("growthStage",e.target.value)} className={`${SC} ${aiFilled.has('growthStage')?'ring-1 ring-violet-400/40':''}`}><option value="">선택</option>{GROWTH_STAGES.map(g=><option key={g} value={g}>{g}</option>)}</select></div>
+        <div className="col-span-2 md:col-span-1"><label className="text-xs text-gray-600 mb-1 block">날짜 *</label><input style={LIGHT_INPUT} type="date" value={form.date} onChange={e=>set("date",e.target.value)} className="input-field text-sm w-full" /></div>
+        <div><label className="text-xs text-gray-600 mb-1 flex items-center gap-1">하우스 *{aiFilled.has('houseId')&&<span className="text-violet-400" title="AI 채움">✨</span>}</label><select style={LIGHT_INPUT} value={form.houseId} onChange={e=>set("houseId",e.target.value)} className={`${SC} ${aiFilled.has('houseId')?'ring-1 ring-violet-400/40':''}`}><option value="">전체(공통)</option>{houses.map(h=><option key={h.houseId} value={h.houseId}>{h.houseName||h.houseId}</option>)}</select></div>
+        <div><label className="text-xs text-gray-600 mb-1 flex items-center gap-1">작업유형 *{aiFilled.has('workType')&&<span className="text-violet-400" title="AI 채움">✨</span>}</label><select style={LIGHT_INPUT} value={form.workType} onChange={e=>set("workType",e.target.value)} className={`${SC} ${aiFilled.has('workType')?'ring-1 ring-violet-400/40':''}`}>{WORK_TYPES.map(w=><option key={w} value={w}>{w}</option>)}</select></div>
+        <div><label className="text-xs text-gray-600 mb-1 flex items-center gap-1">날씨{aiFilled.has('weather')&&<span className="text-violet-400" title="AI 채움">✨</span>}</label><select style={LIGHT_INPUT} value={form.weather} onChange={e=>set("weather",e.target.value)} className={`${SC} ${aiFilled.has('weather')?'ring-1 ring-violet-400/40':''}`}><option value="">선택</option>{WEATHER_OPTIONS.map(w=><option key={w} value={w}>{w}</option>)}</select></div>
+        <div><label className="text-xs text-gray-600 mb-1 flex items-center gap-1">생육단계{aiFilled.has('growthStage')&&<span className="text-violet-400" title="AI 채움">✨</span>}</label><select style={LIGHT_INPUT} value={form.growthStage} onChange={e=>set("growthStage",e.target.value)} className={`${SC} ${aiFilled.has('growthStage')?'ring-1 ring-violet-400/40':''}`}><option value="">선택</option>{GROWTH_STAGES.map(g=><option key={g} value={g}>{g}</option>)}</select></div>
       </div>
       <div className="grid grid-cols-3 gap-3">
-        <div><label className="text-xs text-gray-400 mb-1 flex items-center gap-1">최저 온도{aiFilled.has('tempMin')&&<span className="text-violet-400" title="AI 채움">✨</span>}</label><input type="number" step="0.1" value={form.tempMin} onChange={e=>set("tempMin",e.target.value)} placeholder="°C" className={`input-field text-sm w-full ${aiFilled.has('tempMin')?'ring-1 ring-violet-400/40':''}`} /></div>
-        <div><label className="text-xs text-gray-400 mb-1 flex items-center gap-1">최고 온도{aiFilled.has('tempMax')&&<span className="text-violet-400" title="AI 채움">✨</span>}</label><input type="number" step="0.1" value={form.tempMax} onChange={e=>set("tempMax",e.target.value)} placeholder="°C" className={`input-field text-sm w-full ${aiFilled.has('tempMax')?'ring-1 ring-violet-400/40':''}`} /></div>
-        <div><label className="text-xs text-gray-400 mb-1 flex items-center gap-1">습도{aiFilled.has('humidity')&&<span className="text-violet-400" title="AI 채움">✨</span>}</label><input type="number" step="0.1" value={form.humidity} onChange={e=>set("humidity",e.target.value)} placeholder="%" className={`input-field text-sm w-full ${aiFilled.has('humidity')?'ring-1 ring-violet-400/40':''}`} /></div>
+        <div><label className="text-xs text-gray-600 mb-1 flex items-center gap-1">최저 온도{aiFilled.has('tempMin')&&<span className="text-violet-400" title="AI 채움">✨</span>}</label><input style={LIGHT_INPUT} type="number" step="0.1" value={form.tempMin} onChange={e=>set("tempMin",e.target.value)} placeholder="°C" className={`input-field text-sm w-full ${aiFilled.has('tempMin')?'ring-1 ring-violet-400/40':''}`} /></div>
+        <div><label className="text-xs text-gray-600 mb-1 flex items-center gap-1">최고 온도{aiFilled.has('tempMax')&&<span className="text-violet-400" title="AI 채움">✨</span>}</label><input style={LIGHT_INPUT} type="number" step="0.1" value={form.tempMax} onChange={e=>set("tempMax",e.target.value)} placeholder="°C" className={`input-field text-sm w-full ${aiFilled.has('tempMax')?'ring-1 ring-violet-400/40':''}`} /></div>
+        <div><label className="text-xs text-gray-600 mb-1 flex items-center gap-1">습도{aiFilled.has('humidity')&&<span className="text-violet-400" title="AI 채움">✨</span>}</label><input style={LIGHT_INPUT} type="number" step="0.1" value={form.humidity} onChange={e=>set("humidity",e.target.value)} placeholder="%" className={`input-field text-sm w-full ${aiFilled.has('humidity')?'ring-1 ring-violet-400/40':''}`} /></div>
       </div>
       <div>
         <div className="flex items-center gap-2 mb-1 flex-wrap">
-          <label className="text-xs text-gray-400">작업 내용 *</label>
+          <label className="text-xs text-gray-600">작업 내용 *</label>
           {(window.SpeechRecognition||window.webkitSpeechRecognition)&&(
-            <button type="button" onClick={toggleSTT} className={`px-2 py-0.5 rounded-md text-xs font-medium transition-all ${listening?'bg-red-500/20 text-red-400 border border-red-500/30 animate-pulse':'bg-white/5 text-gray-400 border border-white/10 hover:bg-white/10'}`}>
+            <button type="button" onClick={toggleSTT}
+              className={`px-2.5 py-1 rounded-md text-xs font-semibold transition-all border ${listening?'bg-red-100 !text-red-700 border-red-400 animate-pulse':'bg-emerald-50 !text-emerald-700 border-emerald-300 hover:bg-emerald-100'}`}>
               🎙️ {listening?'듣는 중...':'음성입력'}
             </button>
           )}
           <button type="button" onClick={handleAiParse} disabled={parsing||!form.content?.trim()}
             title="작업 내용을 AI가 읽고 빈 필드들(하우스/작업유형/날씨/생육/온습도/병해충)을 자동으로 채웁니다"
-            className={`px-2 py-0.5 rounded-md text-xs font-medium transition-all border ${parsing?'bg-violet-500/20 text-violet-300 border-violet-500/30 animate-pulse':'bg-white/5 text-violet-300 border-violet-500/30 hover:bg-violet-500/10 disabled:opacity-40 disabled:cursor-not-allowed'}`}>
+            className={`px-2.5 py-1 rounded-md text-xs font-semibold transition-all border ${parsing?'bg-violet-200 !text-violet-800 border-violet-500 animate-pulse':'bg-violet-100 !text-violet-800 border-violet-400 hover:bg-violet-200 disabled:opacity-40 disabled:cursor-not-allowed'}`}>
             ✨ {parsing?'분석 중...':'AI 자동 채움'}
           </button>
           {aiFilled.size>0&&(
-            <span className="text-[10px] text-violet-400/80 ml-auto">✨ AI가 {aiFilled.size}개 필드를 채웠습니다 — 수정 가능</span>
+            <span className="text-[11px] !text-violet-700 font-medium ml-auto">✨ AI가 {aiFilled.size}개 필드를 채웠습니다 — 수정 가능</span>
           )}
         </div>
-        <textarea value={form.content} onChange={e=>set("content",e.target.value)} rows={4} placeholder="음성 또는 자유 문장으로 작성 후 ✨AI 자동 채움 버튼을 눌러보세요. 예: '오전 10시 1번 하우스 토마토 곁순 정리, 잎이 노랗게 변해서 사진 찍었어요'" className={`input-field text-sm w-full resize-none ${aiFilled.has('content')?'ring-1 ring-violet-400/40':''}`} />
+        <textarea style={LIGHT_INPUT} value={form.content} onChange={e=>set("content",e.target.value)} rows={4} placeholder="음성 또는 자유 문장으로 작성 후 ✨AI 자동 채움 버튼을 눌러보세요. 예: '오전 10시 1번 하우스 토마토 곁순 정리, 잎이 노랗게 변해서 사진 찍었어요'" className={`input-field text-sm w-full resize-none ${aiFilled.has('content')?'ring-1 ring-violet-400/40':''}`} />
       </div>
       <div className="grid grid-cols-2 gap-3">
-        <div><label className="text-xs text-gray-400 mb-1 flex items-center gap-1">병해충{aiFilled.has('pest')&&<span className="text-violet-400" title="AI 채움">✨</span>}</label><input type="text" value={form.pest} onChange={e=>set("pest",e.target.value)} placeholder="발견된 병해충" className={`input-field text-sm w-full ${aiFilled.has('pest')?'ring-1 ring-violet-400/40':''}`} /></div>
-        <div><label className="text-xs text-gray-400 mb-1 flex items-center gap-1">비고{aiFilled.has('notes')&&<span className="text-violet-400" title="AI 채움">✨</span>}</label><input type="text" value={form.notes} onChange={e=>set("notes",e.target.value)} className={`input-field text-sm w-full ${aiFilled.has('notes')?'ring-1 ring-violet-400/40':''}`} /></div>
+        <div><label className="text-xs text-gray-600 mb-1 flex items-center gap-1">병해충{aiFilled.has('pest')&&<span className="text-violet-400" title="AI 채움">✨</span>}</label><input style={LIGHT_INPUT} type="text" value={form.pest} onChange={e=>set("pest",e.target.value)} placeholder="발견된 병해충" className={`input-field text-sm w-full ${aiFilled.has('pest')?'ring-1 ring-violet-400/40':''}`} /></div>
+        <div><label className="text-xs text-gray-600 mb-1 flex items-center gap-1">비고{aiFilled.has('notes')&&<span className="text-violet-400" title="AI 채움">✨</span>}</label><input style={LIGHT_INPUT} type="text" value={form.notes} onChange={e=>set("notes",e.target.value)} className={`input-field text-sm w-full ${aiFilled.has('notes')?'ring-1 ring-violet-400/40':''}`} /></div>
       </div>
       {/* 태그 chip 입력 (P0-5) */}
       <div>
-        <label className="text-xs text-gray-400 mb-1 flex items-center gap-1">태그 {aiFilled.has('tags')&&<span className="text-violet-400" title="AI 채움">✨</span>}<span className="text-[10px] text-gray-500">— 검색·분류용 (#방제 #수확 등)</span></label>
-        <div className={`flex flex-wrap gap-1.5 items-center px-2 py-1.5 rounded-lg border ${aiFilled.has('tags')?'border-violet-400/40 bg-violet-500/5':'border-white/10 bg-white/5'}`}>
+        <label className="text-xs text-gray-600 mb-1 flex items-center gap-1">태그 {aiFilled.has('tags')&&<span className="!text-violet-700" title="AI 채움">✨</span>}<span className="text-[10px] text-gray-500">— 검색·분류용 (#방제 #수확 등)</span></label>
+        <div className={`flex flex-wrap gap-1.5 items-center px-2 py-1.5 rounded-lg border-2 ${aiFilled.has('tags')?'border-violet-400 bg-violet-50':'border-gray-300 bg-white'}`}>
           {form.tags.map((t,i)=>(
-            <span key={i} className="inline-flex items-center gap-1 px-2 py-0.5 bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 rounded-full text-xs">
+            <span key={i} className="inline-flex items-center gap-1 px-2 py-0.5 bg-emerald-100 !text-emerald-800 border border-emerald-400 rounded-full text-xs font-semibold">
               #{t}
-              <button type="button" onClick={()=>removeTag(t)} className="text-emerald-400/60 hover:text-rose-300 ml-0.5">×</button>
+              <button type="button" onClick={()=>removeTag(t)} className="!text-emerald-700 hover:!text-rose-600 font-bold ml-0.5">×</button>
             </span>
           ))}
           <input type="text" value={tagInput} onChange={e=>setTagInput(e.target.value)}
             onKeyDown={e=>{if(['Enter',',',' '].includes(e.key)){e.preventDefault();addTag(tagInput);}else if(e.key==='Backspace'&&!tagInput&&form.tags.length>0){removeTag(form.tags[form.tags.length-1]);}}}
             onBlur={()=>{if(tagInput)addTag(tagInput);}}
             placeholder={form.tags.length===0?'태그 입력 후 Enter 또는 쉼표':'추가...'}
-            className="flex-1 min-w-[80px] bg-transparent text-xs text-white placeholder:text-gray-500 outline-none" />
+            style={LIGHT_INPUT}
+            className="flex-1 min-w-[80px] bg-transparent text-xs placeholder:!text-gray-400 outline-none" />
         </div>
       </div>
-      <div><label className="text-xs text-gray-400 mb-1 flex items-center gap-2">사진
+      <div><label className="text-xs text-gray-600 mb-1 flex items-center gap-2">사진
         <span className="text-[10px] text-gray-500">— 최대 5장 · 자동 압축</span>
         <span className="text-[10px] text-gray-500">({form.photos.length}/5)</span>
         {uploading&&<span className="text-[10px] text-emerald-300 animate-pulse">압축·업로드 중…</span>}
@@ -992,8 +997,8 @@ function JournalForm({entry,onSave,onCancel}){const FARM_ID=useContext(FarmIdCtx
       </label><div className="flex gap-2 items-center flex-wrap">
         {form.photos.map((photo,i)=>(<div key={i} className="relative"><img src={photoUrl(photo)} alt="" className="w-20 h-20 object-cover rounded-lg border border-white/10" /><button onClick={()=>set("photos",form.photos.filter((_,j)=>j!==i))} className="absolute -top-1 -right-1 bg-red-500 text-white text-xs w-5 h-5 rounded-full flex items-center justify-center">×</button></div>))}
         {form.photos.length<5&&(<>
-          <label className="w-20 h-20 flex flex-col items-center justify-center border-2 border-dashed border-white/20 rounded-lg cursor-pointer hover:border-emerald-400/50 transition-colors"><input type="file" accept="image/*" multiple onChange={handlePhotoUpload} className="hidden" />{uploading?<span className="text-xs text-gray-400">...</span>:<><span className="text-2xl text-gray-500">+</span><span className="text-[10px] text-gray-500 mt-0.5">갤러리</span></>}</label>
-          <label className="w-20 h-20 flex flex-col items-center justify-center border-2 border-dashed border-white/20 rounded-lg cursor-pointer hover:border-blue-400/50 transition-colors"><input type="file" accept="image/*" capture="environment" onChange={handlePhotoUpload} className="hidden" />{uploading?<span className="text-xs text-gray-400">...</span>:<><span className="text-2xl">📷</span><span className="text-[10px] text-gray-500 mt-0.5">촬영</span></>}</label>
+          <label className="w-20 h-20 flex flex-col items-center justify-center border-2 border-dashed border-white/20 rounded-lg cursor-pointer hover:border-emerald-400/50 transition-colors"><input style={LIGHT_INPUT} type="file" accept="image/*" multiple onChange={handlePhotoUpload} className="hidden" />{uploading?<span className="text-xs text-gray-400">...</span>:<><span className="text-2xl text-gray-500">+</span><span className="text-[10px] text-gray-500 mt-0.5">갤러리</span></>}</label>
+          <label className="w-20 h-20 flex flex-col items-center justify-center border-2 border-dashed border-white/20 rounded-lg cursor-pointer hover:border-blue-400/50 transition-colors"><input style={LIGHT_INPUT} type="file" accept="image/*" capture="environment" onChange={handlePhotoUpload} className="hidden" />{uploading?<span className="text-xs text-gray-400">...</span>:<><span className="text-2xl">📷</span><span className="text-[10px] text-gray-500 mt-0.5">촬영</span></>}</label>
         </>)}
       </div></div>
       {photoAi&&(
@@ -1089,7 +1094,7 @@ function HarvestSearch(){const FARM_ID=useContext(FarmIdCtx);
         <SearchFilterBar {...df}>
           <div className="flex items-center justify-between flex-wrap gap-3">
             <div className="flex items-center gap-3 flex-wrap">
-              <div className="flex items-center gap-2"><span className="text-xs text-gray-400 font-medium">검색</span><input type="text" value={filter.keyword} onChange={e=>setFilter({keyword:e.target.value})} placeholder="작물명 / 출하처" className="input-field text-xs py-1 px-2 w-48" /></div>
+              <div className="flex items-center gap-2"><span className="text-xs text-gray-600 font-medium">검색</span><input style={LIGHT_INPUT} type="text" value={filter.keyword} onChange={e=>setFilter({keyword:e.target.value})} placeholder="작물명 / 출하처" className="input-field text-xs py-1 px-2 w-48" /></div>
               <button onClick={()=>{setFilter({keyword:""});df.resetFilters()}} className="px-3 py-1 rounded-lg text-xs bg-white/5 text-gray-400 hover:bg-white/10 hover:text-white">↺ 초기화</button>
             </div>
             {records.length>0&&<ExportButtons onPrint={handlePrint} onCSV={handleCSV} onPDF={handlePDF} />}
@@ -1154,17 +1159,17 @@ function HarvestForm({record,onSave,onCancel}){
     <div className="glass-card p-5 space-y-4">
       <h3 className="text-lg font-semibold text-white">{record?"수확 기록 수정":"새 수확 기록"}</h3>
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-        <div><label className="text-xs text-gray-400 mb-1 block">날짜 *</label><input type="date" value={form.date} onChange={e=>set("date",e.target.value)} className="input-field text-sm w-full" /></div>
-        <div><label className="text-xs text-gray-400 mb-1 block">작물명 *</label><input type="text" value={form.cropName} onChange={e=>set("cropName",e.target.value)} placeholder="예: 토마토" className="input-field text-sm w-full" /></div>
-        <div><label className="text-xs text-gray-400 mb-1 block">수확량 *</label><div className="flex gap-1"><input type="number" step="0.1" value={form.quantity} onChange={e=>set("quantity",e.target.value)} className="input-field text-sm flex-1" /><select value={form.unit} onChange={e=>set("unit",e.target.value)} className="input-field jrn-select text-sm w-16"><option value="kg">kg</option><option value="g">g</option><option value="개">개</option><option value="박스">박스</option></select></div></div>
-        <div><label className="text-xs text-gray-400 mb-1 block">등급</label><select value={form.grade} onChange={e=>set("grade",e.target.value)} className={SC}><option value="">선택</option>{GRADES.map(g=><option key={g} value={g}>{g}</option>)}</select></div>
+        <div><label className="text-xs text-gray-600 mb-1 block">날짜 *</label><input style={LIGHT_INPUT} type="date" value={form.date} onChange={e=>set("date",e.target.value)} className="input-field text-sm w-full" /></div>
+        <div><label className="text-xs text-gray-600 mb-1 block">작물명 *</label><input style={LIGHT_INPUT} type="text" value={form.cropName} onChange={e=>set("cropName",e.target.value)} placeholder="예: 토마토" className="input-field text-sm w-full" /></div>
+        <div><label className="text-xs text-gray-600 mb-1 block">수확량 *</label><div className="flex gap-1"><input style={LIGHT_INPUT} type="number" step="0.1" value={form.quantity} onChange={e=>set("quantity",e.target.value)} className="input-field text-sm flex-1" /><select style={LIGHT_INPUT} value={form.unit} onChange={e=>set("unit",e.target.value)} className="input-field jrn-select text-sm w-16"><option value="kg">kg</option><option value="g">g</option><option value="개">개</option><option value="박스">박스</option></select></div></div>
+        <div><label className="text-xs text-gray-600 mb-1 block">등급</label><select style={LIGHT_INPUT} value={form.grade} onChange={e=>set("grade",e.target.value)} className={SC}><option value="">선택</option>{GRADES.map(g=><option key={g} value={g}>{g}</option>)}</select></div>
       </div>
       <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-        <div><label className="text-xs text-gray-400 mb-1 block">출하처</label><input type="text" value={form.destination} onChange={e=>set("destination",e.target.value)} className="input-field text-sm w-full" /></div>
-        <div><label className="text-xs text-gray-400 mb-1 block">단가 (원/{form.unit})</label><input type="number" value={form.unitPrice} onChange={e=>set("unitPrice",e.target.value)} className="input-field text-sm w-full" /></div>
-        <div><label className="text-xs text-gray-400 mb-1 block">예상 매출</label><div className="input-field text-sm w-full bg-white/5 text-emerald-400 font-medium">{revenue?`${revenue}원`:"-"}</div></div>
+        <div><label className="text-xs text-gray-600 mb-1 block">출하처</label><input style={LIGHT_INPUT} type="text" value={form.destination} onChange={e=>set("destination",e.target.value)} className="input-field text-sm w-full" /></div>
+        <div><label className="text-xs text-gray-600 mb-1 block">단가 (원/{form.unit})</label><input style={LIGHT_INPUT} type="number" value={form.unitPrice} onChange={e=>set("unitPrice",e.target.value)} className="input-field text-sm w-full" /></div>
+        <div><label className="text-xs text-gray-600 mb-1 block">예상 매출</label><div className="input-field text-sm w-full bg-emerald-50 !text-emerald-800 border-emerald-300 font-semibold" style={LIGHT_INPUT}>{revenue?`${revenue}원`:"-"}</div></div>
       </div>
-      <div><label className="text-xs text-gray-400 mb-1 block">비고</label><input type="text" value={form.notes} onChange={e=>set("notes",e.target.value)} className="input-field text-sm w-full" /></div>
+      <div><label className="text-xs text-gray-600 mb-1 block">비고</label><input style={LIGHT_INPUT} type="text" value={form.notes} onChange={e=>set("notes",e.target.value)} className="input-field text-sm w-full" /></div>
       <div className="flex justify-end gap-2">{onCancel&&<button onClick={onCancel} className="btn-secondary">취소</button>}<button onClick={handleSubmit} className="btn-primary">{record?"수정":"저장"}</button></div>
     </div>
   );
@@ -1235,8 +1240,8 @@ function InputSearch(){const FARM_ID=useContext(FarmIdCtx);
         <SearchFilterBar {...df}>
           <div className="flex items-center justify-between flex-wrap gap-3">
             <div className="flex items-center gap-3 flex-wrap">
-              <div className="flex items-center gap-2"><span className="text-xs text-gray-400 font-medium">투입유형</span><select value={filter.inputType} onChange={e=>setFilter(p=>({...p,inputType:e.target.value}))} className="input-field jrn-select text-xs py-1 px-2 w-28"><option value="">전체</option>{INPUT_TYPES.map(t=><option key={t} value={t}>{t}</option>)}</select></div>
-              <div className="flex items-center gap-2"><span className="text-xs text-gray-400 font-medium">검색</span><input type="text" value={filter.keyword} onChange={e=>setFilter(p=>({...p,keyword:e.target.value}))} placeholder="제품명 / 제조사" className="input-field text-xs py-1 px-2 w-48" /></div>
+              <div className="flex items-center gap-2"><span className="text-xs text-gray-600 font-medium">투입유형</span><select style={LIGHT_INPUT} value={filter.inputType} onChange={e=>setFilter(p=>({...p,inputType:e.target.value}))} className="input-field jrn-select text-xs py-1 px-2 w-28"><option value="">전체</option>{INPUT_TYPES.map(t=><option key={t} value={t}>{t}</option>)}</select></div>
+              <div className="flex items-center gap-2"><span className="text-xs text-gray-600 font-medium">검색</span><input style={LIGHT_INPUT} type="text" value={filter.keyword} onChange={e=>setFilter(p=>({...p,keyword:e.target.value}))} placeholder="제품명 / 제조사" className="input-field text-xs py-1 px-2 w-48" /></div>
               <button onClick={()=>{setFilter({inputType:"",keyword:""});df.resetFilters()}} className="px-3 py-1 rounded-lg text-xs bg-white/5 text-gray-400 hover:bg-white/10 hover:text-white">↺ 초기화</button>
             </div>
             {records.length>0&&<ExportButtons onPrint={handlePrint} onCSV={handleCSV} onPDF={handlePDF} />}
@@ -1301,18 +1306,18 @@ function InputForm({record,onSave,onCancel}){
     <div className="glass-card p-5 space-y-4">
       <h3 className="text-lg font-semibold text-white">{record?"투입물 수정":"새 투입물 기록"}</h3>
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-        <div><label className="text-xs text-gray-400 mb-1 block">날짜 *</label><input type="date" value={form.date} onChange={e=>set("date",e.target.value)} className="input-field text-sm w-full" /></div>
-        <div><label className="text-xs text-gray-400 mb-1 block">투입유형 *</label><select value={form.inputType} onChange={e=>set("inputType",e.target.value)} className={SC}>{INPUT_TYPES.map(t=><option key={t} value={t}>{t}</option>)}</select></div>
-        <div><label className="text-xs text-gray-400 mb-1 block">제품명 *</label><input type="text" value={form.productName} onChange={e=>set("productName",e.target.value)} className="input-field text-sm w-full" /></div>
-        <div><label className="text-xs text-gray-400 mb-1 block">제조사</label><input type="text" value={form.manufacturer} onChange={e=>set("manufacturer",e.target.value)} className="input-field text-sm w-full" /></div>
+        <div><label className="text-xs text-gray-600 mb-1 block">날짜 *</label><input style={LIGHT_INPUT} type="date" value={form.date} onChange={e=>set("date",e.target.value)} className="input-field text-sm w-full" /></div>
+        <div><label className="text-xs text-gray-600 mb-1 block">투입유형 *</label><select style={LIGHT_INPUT} value={form.inputType} onChange={e=>set("inputType",e.target.value)} className={SC}>{INPUT_TYPES.map(t=><option key={t} value={t}>{t}</option>)}</select></div>
+        <div><label className="text-xs text-gray-600 mb-1 block">제품명 *</label><input style={LIGHT_INPUT} type="text" value={form.productName} onChange={e=>set("productName",e.target.value)} className="input-field text-sm w-full" /></div>
+        <div><label className="text-xs text-gray-600 mb-1 block">제조사</label><input style={LIGHT_INPUT} type="text" value={form.manufacturer} onChange={e=>set("manufacturer",e.target.value)} className="input-field text-sm w-full" /></div>
       </div>
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-        <div><label className="text-xs text-gray-400 mb-1 block">사용량 *</label><div className="flex gap-1"><input type="number" step="0.1" value={form.quantity} onChange={e=>set("quantity",e.target.value)} className="input-field text-sm flex-1" /><select value={form.unit} onChange={e=>set("unit",e.target.value)} className="input-field jrn-select text-sm w-16">{INPUT_UNITS.map(u=><option key={u} value={u}>{u}</option>)}</select></div></div>
-        <div><label className="text-xs text-gray-400 mb-1 block">비용 (원)</label><input type="number" value={form.cost} onChange={e=>set("cost",e.target.value)} className="input-field text-sm w-full" /></div>
-        <div><label className="text-xs text-gray-400 mb-1 block">투입 면적 (평)</label><input type="number" value={form.targetArea} onChange={e=>set("targetArea",e.target.value)} className="input-field text-sm w-full" /></div>
-        <div><label className="text-xs text-gray-400 mb-1 block">투입 방법</label><select value={form.method} onChange={e=>set("method",e.target.value)} className={SC}><option value="">선택</option><option value="관주">관주</option><option value="엽면살포">엽면살포</option><option value="토양시비">토양시비</option><option value="점적">점적</option><option value="직접투입">직접투입</option><option value="기타">기타</option></select></div>
+        <div><label className="text-xs text-gray-600 mb-1 block">사용량 *</label><div className="flex gap-1"><input style={LIGHT_INPUT} type="number" step="0.1" value={form.quantity} onChange={e=>set("quantity",e.target.value)} className="input-field text-sm flex-1" /><select style={LIGHT_INPUT} value={form.unit} onChange={e=>set("unit",e.target.value)} className="input-field jrn-select text-sm w-16">{INPUT_UNITS.map(u=><option key={u} value={u}>{u}</option>)}</select></div></div>
+        <div><label className="text-xs text-gray-600 mb-1 block">비용 (원)</label><input style={LIGHT_INPUT} type="number" value={form.cost} onChange={e=>set("cost",e.target.value)} className="input-field text-sm w-full" /></div>
+        <div><label className="text-xs text-gray-600 mb-1 block">투입 면적 (평)</label><input style={LIGHT_INPUT} type="number" value={form.targetArea} onChange={e=>set("targetArea",e.target.value)} className="input-field text-sm w-full" /></div>
+        <div><label className="text-xs text-gray-600 mb-1 block">투입 방법</label><select style={LIGHT_INPUT} value={form.method} onChange={e=>set("method",e.target.value)} className={SC}><option value="">선택</option><option value="관주">관주</option><option value="엽면살포">엽면살포</option><option value="토양시비">토양시비</option><option value="점적">점적</option><option value="직접투입">직접투입</option><option value="기타">기타</option></select></div>
       </div>
-      <div><label className="text-xs text-gray-400 mb-1 block">비고</label><input type="text" value={form.notes} onChange={e=>set("notes",e.target.value)} className="input-field text-sm w-full" /></div>
+      <div><label className="text-xs text-gray-600 mb-1 block">비고</label><input style={LIGHT_INPUT} type="text" value={form.notes} onChange={e=>set("notes",e.target.value)} className="input-field text-sm w-full" /></div>
       <div className="flex justify-end gap-2">{onCancel&&<button onClick={onCancel} className="btn-secondary">취소</button>}<button onClick={handleSubmit} className="btn-primary">{record?"수정":"저장"}</button></div>
     </div>
   );

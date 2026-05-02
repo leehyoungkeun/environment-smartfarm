@@ -315,12 +315,51 @@ body {
 [class*="from-blue-600\\/20"] { --tw-gradient-from: rgba(29,78,216,0.12); }
 [class*="from-purple-600\\/20"] { --tw-gradient-from: rgba(109,40,217,0.12); }
 
-/* --- Select dropdown --- */
-select option { background: #fff; color: #111827; }
+/* --- 폼 요소를 light 테마로 강제 (OS dark mode 영향 차단) --- */
+/* color-scheme: light 가 native widget 의 OS dark 테마 자동 적용을 막음 */
+:root, html, body, input, select, textarea, .input-field, .jrn-select {
+  color-scheme: light !important;
+}
 
-/* --- JournalManager select fix (override dark inline style) --- */
-select.jrn-select { background: #ffffff !important; color: #111827 !important; border: 2px solid #d1d5db !important; }
-select.jrn-select option { background: #ffffff !important; color: #111827 !important; }
+/* --- 모든 select / textarea / input 의 native dark 강제 차단 (element type 강제) --- */
+/* 다른 곳에 dark 적용된 select 도 light 로 통일 */
+select, input, textarea {
+  background-color: #ffffff;
+  color: #111827;
+}
+
+/* --- 클래스 기반 light 강제 (specificity 가장 높게 + !important) --- */
+select.input-field,
+select.jrn-select,
+input.input-field,
+textarea.input-field,
+.input-field {
+  background-color: #ffffff !important;
+  background-image: none !important;
+  color: #111827 !important;
+  border: 2px solid #d1d5db !important;
+}
+
+/* --- Select dropdown 옵션 --- */
+select option,
+select.jrn-select option,
+select.input-field option {
+  background: #ffffff !important;
+  color: #111827 !important;
+}
+
+/* --- Select 화살표 (native widget 무력화 + custom SVG arrow) --- */
+select.input-field,
+select.jrn-select {
+  -webkit-appearance: none !important;
+  -moz-appearance: none !important;
+  appearance: none !important;
+  background-image: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%236b7280' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E") !important;
+  background-repeat: no-repeat !important;
+  background-position: right 0.5rem center !important;
+  background-size: 1rem !important;
+  padding-right: 2rem !important;
+}
 
 /* --- JournalManager lightbox overlay --- */
 .lightbox-overlay { background: rgba(0,0,0,0.85) !important; }

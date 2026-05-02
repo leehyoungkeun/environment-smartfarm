@@ -59,7 +59,7 @@ const upload = multer({
 });
 
 // ━━━ AI 호출 공통 함수 ━━━
-async function callAI(prompt, options = {}) {
+export async function callAI(prompt, options = {}) {
   const { image, systemPrompt, model } = options;
 
   // 모델 이름으로 프로바이더 자동 감지

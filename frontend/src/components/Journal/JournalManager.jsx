@@ -522,6 +522,75 @@ const MEASURE_LINE_LABELS = {
   floweringRate: "개화율(%)",
   fruitSetRate: "착과율(%)",
 };
+// ━━━ AI 자동 요약 (P2-4) ━━━
+function AiSummaryCard({ farmId }) {
+  const [period, setPeriod] = useState("week");
+  const [loading, setLoading] = useState(false);
+  const [data, setData] = useState(null);
+  const [error, setError] = useState(null);
+  const run = async () => {
+    setLoading(true); setError(null);
+    try {
+      const r = await api(`/journal/${farmId}/ai-summary?period=${period}`);
+      if (r?.success) setData(r.data);
+    } catch (e) { setError(e?.message || "분석 실패"); }
+    finally { setLoading(false); }
+  };
+  return (
+    <div className="glass-card p-4">
+      <div className="flex items-center justify-between flex-wrap gap-2 mb-3">
+        <h4 className="text-sm font-bold !text-gray-800 flex items-center gap-2">✨ AI 자동 요약</h4>
+        <div className="flex items-center gap-2 flex-wrap">
+          <div className="flex bg-gray-100 rounded-lg p-0.5">
+            <button type="button" onClick={() => setPeriod("week")} className={`px-3 py-1 rounded-md text-xs font-semibold transition-colors ${period === "week" ? "bg-white !text-violet-800 shadow-sm" : "!text-gray-600"}`}>주간</button>
+            <button type="button" onClick={() => setPeriod("month")} className={`px-3 py-1 rounded-md text-xs font-semibold transition-colors ${period === "month" ? "bg-white !text-violet-800 shadow-sm" : "!text-gray-600"}`}>월간</button>
+          </div>
+          <button type="button" onClick={run} disabled={loading}
+            className="px-3 py-1 rounded-md text-xs font-semibold bg-violet-100 !text-violet-800 border border-violet-400 hover:bg-violet-200 disabled:opacity-50 disabled:cursor-not-allowed">
+            {loading ? "분석 중..." : "✨ 요약 생성"}
+          </button>
+        </div>
+      </div>
+      {error && <div className="text-xs !text-rose-700 bg-rose-50 border border-rose-300 rounded-md px-3 py-2">{error}</div>}
+      {!data && !loading && !error && (
+        <div className="text-xs !text-gray-500 text-center py-4">"✨ 요약 생성" 버튼을 누르면 최근 {period === "week" ? "1주일" : "1개월"} 일지를 AI 가 요약합니다.</div>
+      )}
+      {data && (
+        <div className="space-y-3 text-sm">
+          {data.summary && (
+            <div className="bg-violet-50 border border-violet-300 rounded-lg p-3">
+              <div className="text-[11px] !text-violet-700 font-semibold mb-1">요약</div>
+              <div className="!text-gray-800"><MarkdownText text={data.summary} /></div>
+            </div>
+          )}
+          {Array.isArray(data.highlights) && data.highlights.length > 0 && (
+            <div className="bg-amber-50 border border-amber-300 rounded-lg p-3">
+              <div className="text-[11px] !text-amber-700 font-semibold mb-1">하이라이트</div>
+              <ul className="list-disc pl-4 space-y-0.5 text-xs !text-gray-800">
+                {data.highlights.map((h, i) => <li key={i}>{h}</li>)}
+              </ul>
+            </div>
+          )}
+          {Array.isArray(data.suggestions) && data.suggestions.length > 0 && (
+            <div className="bg-emerald-50 border border-emerald-300 rounded-lg p-3">
+              <div className="text-[11px] !text-emerald-700 font-semibold mb-1">권장 작업</div>
+              <ul className="list-disc pl-4 space-y-0.5 text-xs !text-gray-800">
+                {data.suggestions.map((s, i) => <li key={i}>{s}</li>)}
+              </ul>
+            </div>
+          )}
+          {data.stats?.trendNotes && (
+            <div className="text-[11px] !text-gray-600 italic">📈 {data.stats.trendNotes}</div>
+          )}
+          <div className="text-[10px] !text-gray-500 pt-2 border-t border-gray-200">
+            대상 일지 {data.stats?.entryCount || 0}건 · {period === "week" ? "최근 7일" : "최근 30일"}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ━━━ 일지 타임라인 (P2-3) ━━━
 // 분석 탭 안: 같은 기간/하우스의 모든 일지를 시간순 compact 카드로
 function JournalTimeline({ entries, houses, houseId }) {
@@ -793,6 +862,9 @@ function JournalAnalytics(){const FARM_ID=useContext(FarmIdCtx);
           );
         })}
       </div>
+
+      {/* AI 자동 요약 (P2-4) */}
+      <AiSummaryCard farmId={FARM_ID} />
 
       {/* 일지 타임라인 (P2-3) — 같은 기간/하우스의 모든 일지를 시간순 카드로 */}
       <JournalTimeline entries={entries} houses={houses} houseId={filter.houseId} />

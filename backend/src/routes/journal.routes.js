@@ -1009,4 +1009,100 @@ router.get("/:farmId/auto-fill", authenticate, async (req, res) => {
   }
 });
 
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// AI 자동 요약 (P2-4) — 주간/월간 일지를 Gemini 가 요약
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+import { callAI as _callAI } from "./ai.routes.js";
+
+router.get("/:farmId/ai-summary", authenticate, async (req, res) => {
+  const { farmId } = req.params;
+  const { period = "week", endDate } = req.query;
+
+  // 기간 결정 (KST 기준)
+  const end = endDate ? new Date(endDate + "T23:59:59+09:00") : new Date();
+  const start = new Date(end);
+  if (period === "month") start.setDate(start.getDate() - 30);
+  else start.setDate(start.getDate() - 7);
+
+  try {
+    const entries = await prisma.farmJournal.findMany({
+      where: { farmId, date: { gte: start, lte: end } },
+      orderBy: { date: "asc" },
+      take: 200,
+    });
+
+    if (entries.length === 0) {
+      return res.json({
+        success: true,
+        data: {
+          summary: "이 기간에 작성된 일지가 없습니다.",
+          highlights: [],
+          suggestions: [],
+          stats: { entryCount: 0, period, start, end },
+        },
+      });
+    }
+
+    // 일지 내용 압축 (token 절약)
+    const text = entries.map((e) => {
+      const m = e.measurements || {};
+      const measure = ["plantHeight", "leafCount", "floweringRate", "fruitSetRate"]
+        .filter((k) => m[k] != null)
+        .map((k) => `${k}=${m[k]}`)
+        .join(",");
+      return `[${e.date?.toISOString?.().slice(0, 10) || e.date}] ${e.workType}${e.houseId ? `/${e.houseId}` : ""}${e.growthStage ? `/${e.growthStage}` : ""}: ${e.content}${e.pest ? ` | 병해충: ${e.pest}` : ""}${measure ? ` | ${measure}` : ""}${Array.isArray(e.tags) && e.tags.length ? ` | #${e.tags.join(" #")}` : ""}`;
+    }).join("\n");
+
+    const systemPrompt = `당신은 한국 농가 영농일지 분석 AI 입니다. ${period === "month" ? "한 달" : "한 주"} 동안의 영농일지 ${entries.length}건을 분석해 다음 JSON 으로 응답하세요.
+
+{
+  "summary": "전체 요약 1~3 문장 — 주요 작업, 작목 상태, 특이사항 통합",
+  "highlights": ["주목할 사건 1~5 개. 예: '5/2 황화 발견 후 5/3 약제 살포', '5/1~5/4 초장 22→25cm 증가'"],
+  "suggestions": ["다음 주(또는 달) 권장 작업 1~3 개. 데이터 기반 — 추측 금지"],
+  "stats": {
+    "workTypeBreakdown": {"방제": 2, "수확": 5, "...": 0},
+    "trendNotes": "측정값 추세 한 줄 (예: '초장 안정적 증가, 엽수 정체')"
+  }
+}
+
+규칙:
+- 사실 기반 — 일지 내용에서 직접 인용. 추측 표현 금지 ("~할 것 같다" X).
+- highlights 는 시간 흐름 연결 (이 날 X 후 다음 날 Y).
+- JSON 만 출력. 마크다운 코드블록 금지.`;
+
+    const raw = await _callAI(`다음은 ${entries.length}건의 영농일지입니다:\n\n${text}`, { systemPrompt, model: "gemini-2.5-flash" });
+
+    // JSON 파싱
+    let parsed = null;
+    try {
+      let s = String(raw).trim().replace(/^```(?:json)?\s*/i, "").replace(/```\s*$/i, "").trim();
+      const f = s.indexOf("{"), l = s.lastIndexOf("}");
+      if (f >= 0 && l > f) s = s.slice(f, l + 1);
+      parsed = JSON.parse(s);
+    } catch (e) { /* fallback below */ }
+
+    const data = parsed && typeof parsed === "object" ? {
+      summary: String(parsed.summary || "").trim(),
+      highlights: Array.isArray(parsed.highlights) ? parsed.highlights.map(String).slice(0, 8) : [],
+      suggestions: Array.isArray(parsed.suggestions) ? parsed.suggestions.map(String).slice(0, 5) : [],
+      stats: {
+        ...(parsed.stats || {}),
+        entryCount: entries.length,
+        period,
+        start: start.toISOString(),
+        end: end.toISOString(),
+      },
+    } : {
+      summary: String(raw).slice(0, 500),
+      highlights: [], suggestions: [],
+      stats: { entryCount: entries.length, period, start, end, parseFailed: true },
+    };
+
+    res.json({ success: true, data });
+  } catch (err) {
+    logger.error("AI 자동 요약 실패: " + err.message);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 export default router;

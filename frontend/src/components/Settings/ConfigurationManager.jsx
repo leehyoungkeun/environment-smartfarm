@@ -14,12 +14,20 @@ axios.interceptors.request.use((config) => {
 });
 
 // RPi → PC 설정 동기화 (백그라운드, fire & forget)
+// LAN 모드 (RPi 직접 접근 가능) 에서만 동작 — 외부 환경에서는 NOOP
+// (외부 환경에선 backend 가 RPi MQTT subscribe 로 sync 처리해야 — 별도)
 // x-api-key 헤더로 인증 → JWT 없는 팜로컬 모드에서도 동작
 const SYNC_API_KEY = import.meta.env.VITE_SENSOR_API_KEY;
 function syncConfigToPC(farmId) {
   const rpiUrl = getRpiApiBase();
   const pcUrl = getPcApiBase();
   if (rpiUrl === pcUrl) return;  // 동일 서버면 스킵
+  // 외부 환경 (cloud mode): RPi 직접 접근 불가 → NOOP
+  // PC 가 source of truth 이거나 backend 가 별도 sync 처리
+  if (typeof window !== 'undefined' && window.location.protocol === 'https:'
+      && rpiUrl.startsWith('http://')) {
+    return;
+  }
 
   axiosBase.get(`${rpiUrl}/config/farm/${farmId}`, { timeout: 5000 })
     .then(res => {

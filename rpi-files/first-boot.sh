@@ -80,16 +80,20 @@ rm -f "${SMARTFARM_HOME}/certs/certificate.pem.crt"
 rm -f "${SMARTFARM_HOME}/certs/private.pem.key"
 echo "  인증서 삭제 완료 (setup 시 서버에서 다운로드)"
 
-# ── 3. SQLite DB 초기화 ──
-# 이전 농장의 센서 데이터 삭제
-echo "[3/6] 로컬 DB 초기화"
+# ── 3. SQLite DB 완전 초기화 (트랩 14 — 1호 운영 데이터 누설 방지) ──
+# rpi-server/data/smartfarm.db 에 valve_config·irrigation_program·local_users·system_config
+# 같은 농장 고유 데이터가 박혀있으면 새 농장이 1호 데이터로 시작됨
+# → DB 파일 삭제 → server.js 시작 시 init.js 가 빈 테이블 새로 생성
+echo "[3/6] 로컬 DB 완전 초기화"
 
-SQLITE_DB="${SMARTFARM_HOME}/.node-red/smartfarm.db"
-if [ -f "$SQLITE_DB" ]; then
-  sudo -u "$SMARTFARM_USER" sqlite3 "$SQLITE_DB" "DELETE FROM sensor_data;" 2>/dev/null || true
-  sudo -u "$SMARTFARM_USER" sqlite3 "$SQLITE_DB" "VACUUM;" 2>/dev/null || true
-  echo "  smartfarm.db 센서 데이터 삭제"
-fi
+# (1) RPi 서버 SQLite DB 파일 삭제 (1호 운영 데이터 흔적 제거)
+rm -rf "${SMARTFARM_HOME}/smartfarm/rpi-server/data/" 2>/dev/null || true
+echo "  rpi-server/data/ 삭제 (server.js 가 init.js 호출해 빈 DB 재생성)"
+
+# (2) Node-RED context storage SQLite DB 삭제
+NR_DB="${SMARTFARM_HOME}/.node-red/smartfarm.db"
+rm -f "$NR_DB" "${NR_DB}-shm" "${NR_DB}-wal" 2>/dev/null || true
+echo "  .node-red/smartfarm.db 삭제"
 
 # ── 4. Node-RED credential/context 초기화 ──
 echo "[4/6] Node-RED context 초기화"

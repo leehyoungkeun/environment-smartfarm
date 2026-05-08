@@ -261,7 +261,7 @@
         "broker": "a2ybxz5mrpnfww-ats.iot.ap-northeast-2.amazonaws.com",
         "port": "8883",
         "tls": "tls_aws",
-        "clientid": "MyFarmPi_01_nodered",
+        "clientid": "MyFarmPi_${FARM_ID}_nodered",
         "autoConnect": true,
         "usetls": true,
         "protocolVersion": "4",
@@ -1988,6 +1988,64 @@
         "headers": {},
         "x": 660,
         "y": 1480,
+        "wires": []
+    },
+    {
+        "id": "mh_comment",
+        "type": "comment",
+        "z": "rest_api_flow",
+        "name": "Modbus 헬스체크 — /api/local/modbus/ping",
+        "info": "워치독 상태 + 마지막 성공 시각 반환.\n외부 cron(/usr/local/bin/smartfarm-modbus-healthcheck.sh)이 호출.\n3회 연속 실패 시 cron이 pm2 restart node-red 실행.",
+        "x": 290,
+        "y": 30,
+        "wires": []
+    },
+    {
+        "id": "mh_http_in",
+        "type": "http in",
+        "z": "rest_api_flow",
+        "name": "GET /api/local/modbus/ping",
+        "url": "/api/local/modbus/ping",
+        "method": "get",
+        "upload": false,
+        "swaggerDoc": "",
+        "x": 200,
+        "y": 80,
+        "wires": [
+            [
+                "mh_func"
+            ]
+        ]
+    },
+    {
+        "id": "mh_func",
+        "type": "function",
+        "z": "rest_api_flow",
+        "name": "헬스 응답",
+        "func": "// ─────────────────────────────────────────────\n// Modbus 헬스 응답\n// 워치독 상태 (global watchdogStatus) 기반\n// ─────────────────────────────────────────────\nvar status = global.get('watchdogStatus') || null;\nvar alert  = global.get('watchdogAlert')  || null;\n\nvar healthy = true;\nvar reasons = [];\n\nif (!status) {\n    healthy = false;\n    reasons.push('워치독 미초기화 (Node-RED 시작 직후 또는 모듈 없음)');\n} else if (alert) {\n    // 워치독 임계치 초과한 모듈 1개라도 있으면 unhealthy\n    healthy = false;\n    reasons.push('Modbus 모듈 장애: ' + Object.keys(alert).join(', '));\n}\n\nvar lastCheck = status && status.lastCheck ? new Date(status.lastCheck) : null;\nif (lastCheck) {\n    var ageSec = (Date.now() - lastCheck.getTime()) / 1000;\n    if (ageSec > 180) {\n        // 워치독이 3분 넘게 안 돈 경우 — Node-RED hang 가능성\n        healthy = false;\n        reasons.push('워치독 정지 ' + Math.floor(ageSec) + '초 (hang 의심)');\n    }\n}\n\nmsg.statusCode = healthy ? 200 : 503;\nmsg.headers = { 'Content-Type': 'application/json' };\nmsg.payload = {\n    healthy: healthy,\n    lastCheck: status ? status.lastCheck : null,\n    modules: status || {},\n    alert: alert,\n    reasons: reasons,\n    timestamp: new Date().toISOString()\n};\nreturn msg;",
+        "outputs": 1,
+        "timeout": "",
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 440,
+        "y": 80,
+        "wires": [
+            [
+                "mh_http_res"
+            ]
+        ]
+    },
+    {
+        "id": "mh_http_res",
+        "type": "http response",
+        "z": "rest_api_flow",
+        "name": "응답",
+        "statusCode": "",
+        "headers": {},
+        "x": 600,
+        "y": 80,
         "wires": []
     },
     {
@@ -6571,7 +6629,7 @@
         "type": "function",
         "z": "watchdog_flow",
         "name": "워치독 판정",
-        "func": "// ================================================================\n// 워치독 판정 — 실패 카운트 + 알림 + 복구\n// ================================================================\nvar info = msg._watchdog;\nif (!info) return null;\n\nvar moduleName = info.module;\nvar ok = msg._watchdogOk;\nvar THRESHOLD = 3;\n\nvar modules = global.get('_watchdogModules') || [];\nvar moduleConfig = null;\nfor (var i = 0; i < modules.length; i++) {\n    if (modules[i].moduleType + '_' + modules[i].unitId === moduleName) {\n        moduleConfig = modules[i];\n        break;\n    }\n}\n\nvar failures = context.get('failures') || {};\nvar alerts = context.get('alerts') || {};\nvar history = context.get('history') || [];\n\nhistory.push({ module: moduleName, ok: ok, time: new Date().toISOString() });\nif (history.length > 30) history = history.slice(-30);\ncontext.set('history', history);\n\nfunction updateGlobalStatus() {\n    var status = {};\n    modules.forEach(function(m) {\n        var key = m.moduleType + '_' + m.unitId;\n        status[key] = { ok: (failures[key] || 0) === 0, failCount: failures[key] || 0 };\n    });\n    status.lastCheck = new Date().toISOString();\n    global.set('watchdogStatus', status);\n}\n\nfunction statusText() {\n    return modules.map(function(m) {\n        var key = m.moduleType + '_' + m.unitId;\n        return m.moduleType.charAt(0).toUpperCase() + m.unitId + ':' + (failures[key] || 0);\n    }).join(' ') + ' ' + new Date().toLocaleTimeString();\n}\n\nif (ok) {\n    if ((failures[moduleName] || 0) > 0) {\n        node.warn('✅ ' + moduleName + ' 복구됨 (이전 ' + failures[moduleName] + '회 실패)');\n    }\n    failures[moduleName] = 0;\n    if (alerts[moduleName]) {\n        delete alerts[moduleName];\n        global.set('watchdogAlert', Object.keys(alerts).length > 0 ? alerts : null);\n    }\n    context.set('failures', failures);\n    context.set('alerts', alerts);\n    updateGlobalStatus();\n    node.status({ fill: 'green', shape: 'dot', text: statusText() });\n    return [{ payload: '✅ ' + moduleName + ' 정상' }, null, null];\n}\n\nfailures[moduleName] = (failures[moduleName] || 0) + 1;\nnode.warn('❌ ' + moduleName + ' 응답 없음 (' + failures[moduleName] + '회)');\n\ncontext.set('failures', failures);\nupdateGlobalStatus();\n\nif (failures[moduleName] < THRESHOLD) {\n    node.status({ fill: 'yellow', shape: 'dot', text: statusText() });\n    return [{ payload: '⚠️ ' + moduleName + ' 실패 ' + failures[moduleName] + '회' }, null, null];\n}\n\nvar alertInfo = {\n    module: moduleName,\n    unitId: info.unitId,\n    failCount: failures[moduleName],\n    since: alerts[moduleName] ? alerts[moduleName].since : new Date().toISOString(),\n    lastCheck: new Date().toISOString()\n};\nalerts[moduleName] = alertInfo;\ncontext.set('alerts', alerts);\nglobal.set('watchdogAlert', alerts);\n\nnode.warn('🚨 ' + moduleName + ' 장애! ' + failures[moduleName] + '회 — 복구 시도');\n\nvar recoveryMsg = null;\nif (moduleConfig) {\n    recoveryMsg = RED.util.cloneMessage(msg);\n    recoveryMsg.payload = {\n        value: moduleConfig.resetValue,\n        unitid: moduleConfig.unitId,\n        fc: moduleConfig.resetFc,\n        address: moduleConfig.resetAddr,\n        quantity: moduleConfig.resetQty\n    };\n}\n\nnode.status({ fill: 'red', shape: 'ring', text: '🚨 ' + statusText() });\n\nreturn [\n    { payload: '🚨 ' + moduleName + ' 장애 (' + failures[moduleName] + '회)' },\n    recoveryMsg,\n    { payload: alertInfo }\n];",
+        "func": "// ================================================================\n// 워치독 판정 — 실패 카운트 + 알림 + 복구\n// ================================================================\nvar info = msg._watchdog;\nif (!info) return null;\n\n// stale 카운터 자가청소 — 모듈 교체(unitId 변경/제거) 시 옛 카운터 자동 정리\n(function () {\n    var currentModules = global.get('_watchdogModules') || [];\n    var validKeys = {};\n    currentModules.forEach(function (m) { validKeys[m.moduleType + '_' + m.unitId] = true; });\n    var f = context.get('failures') || {};\n    var a = context.get('alerts') || {};\n    var n = context.get('lastNotified') || {};\n    var cleaned = false;\n    Object.keys(f).forEach(function (k) {\n        if (!validKeys[k]) { delete f[k]; cleaned = true; }\n    });\n    Object.keys(a).forEach(function (k) { if (!validKeys[k]) delete a[k]; });\n    Object.keys(n).forEach(function (k) { if (!validKeys[k]) delete n[k]; });\n    if (cleaned) {\n        context.set('failures', f);\n        context.set('alerts', a);\n        context.set('lastNotified', n);\n        global.set('watchdogAlert', Object.keys(a).length > 0 ? a : null);\n        node.warn('🧹 stale 카운터 정리됨');\n    }\n})();\n\nvar moduleName = info.module;\nvar ok = msg._watchdogOk;\nvar THRESHOLD = 3;\n\nvar modules = global.get('_watchdogModules') || [];\nvar moduleConfig = null;\nfor (var i = 0; i < modules.length; i++) {\n    if (modules[i].moduleType + '_' + modules[i].unitId === moduleName) {\n        moduleConfig = modules[i];\n        break;\n    }\n}\n\nvar failures = context.get('failures') || {};\nvar alerts = context.get('alerts') || {};\nvar history = context.get('history') || [];\n\nhistory.push({ module: moduleName, ok: ok, time: new Date().toISOString() });\nif (history.length > 30) history = history.slice(-30);\ncontext.set('history', history);\n\nfunction updateGlobalStatus() {\n    var status = {};\n    modules.forEach(function(m) {\n        var key = m.moduleType + '_' + m.unitId;\n        status[key] = { ok: (failures[key] || 0) === 0, failCount: failures[key] || 0 };\n    });\n    status.lastCheck = new Date().toISOString();\n    global.set('watchdogStatus', status);\n}\n\nfunction statusText() {\n    return modules.map(function(m) {\n        var key = m.moduleType + '_' + m.unitId;\n        return m.moduleType.charAt(0).toUpperCase() + m.unitId + ':' + (failures[key] || 0);\n    }).join(' ') + ' ' + new Date().toLocaleTimeString();\n}\n\nif (ok) {\n    if ((failures[moduleName] || 0) > 0) {\n        node.warn('✅ ' + moduleName + ' 복구됨 (이전 ' + failures[moduleName] + '회 실패)');\n    }\n    failures[moduleName] = 0;\n    if (alerts[moduleName]) {\n        delete alerts[moduleName];\n        global.set('watchdogAlert', Object.keys(alerts).length > 0 ? alerts : null);\n    }\n    context.set('failures', failures);\n    context.set('alerts', alerts);\n    updateGlobalStatus();\n    node.status({ fill: 'green', shape: 'dot', text: statusText() });\n    return [{ payload: '✅ ' + moduleName + ' 정상' }, null, null];\n}\n\nfailures[moduleName] = (failures[moduleName] || 0) + 1;\nnode.warn('❌ ' + moduleName + ' 응답 없음 (' + failures[moduleName] + '회)');\n\ncontext.set('failures', failures);\nupdateGlobalStatus();\n\nif (failures[moduleName] < THRESHOLD) {\n    node.status({ fill: 'yellow', shape: 'dot', text: statusText() });\n    return [{ payload: '⚠️ ' + moduleName + ' 실패 ' + failures[moduleName] + '회' }, null, null];\n}\n\nvar alertInfo = {\n    module: moduleName,\n    unitId: info.unitId,\n    failCount: failures[moduleName],\n    since: alerts[moduleName] ? alerts[moduleName].since : new Date().toISOString(),\n    lastCheck: new Date().toISOString()\n};\nalerts[moduleName] = alertInfo;\ncontext.set('alerts', alerts);\nglobal.set('watchdogAlert', alerts);\n\nnode.warn('🚨 ' + moduleName + ' 장애! ' + failures[moduleName] + '회 — 복구 시도');\n\nvar recoveryMsg = null;\nif (moduleConfig) {\n    recoveryMsg = RED.util.cloneMessage(msg);\n    recoveryMsg.payload = {\n        value: moduleConfig.resetValue,\n        unitid: moduleConfig.unitId,\n        fc: moduleConfig.resetFc,\n        address: moduleConfig.resetAddr,\n        quantity: moduleConfig.resetQty\n    };\n}\n\nnode.status({ fill: 'red', shape: 'ring', text: '🚨 ' + statusText() });\n\nreturn [\n    { payload: '🚨 ' + moduleName + ' 장애 (' + failures[moduleName] + '회)' },\n    recoveryMsg,\n    { payload: alertInfo }\n];",
         "outputs": 3,
         "timeout": "",
         "noerr": 0,
@@ -6994,6 +7052,8 @@
         "qos": "1",
         "datatype": "json",
         "broker": "mqtt_broker_aws",
+        "nl": false,
+        "rap": false,
         "inputs": 0,
         "x": 160,
         "y": 100,
@@ -7547,64 +7607,6 @@
         "expiry": "",
         "broker": "mqtt_broker_aws",
         "x": 1140,
-        "y": 80,
-        "wires": []
-    },
-    {
-        "id": "mh_comment",
-        "type": "comment",
-        "z": "rest_api_flow",
-        "name": "Modbus 헬스체크 — /api/local/modbus/ping",
-        "info": "워치독 상태 + 마지막 성공 시각 반환.\n외부 cron(/usr/local/bin/smartfarm-modbus-healthcheck.sh)이 호출.\n3회 연속 실패 시 cron이 pm2 restart node-red 실행.",
-        "x": 290,
-        "y": 30,
-        "wires": []
-    },
-    {
-        "id": "mh_http_in",
-        "type": "http in",
-        "z": "rest_api_flow",
-        "name": "GET /api/local/modbus/ping",
-        "url": "/api/local/modbus/ping",
-        "method": "get",
-        "upload": false,
-        "swaggerDoc": "",
-        "x": 200,
-        "y": 80,
-        "wires": [
-            [
-                "mh_func"
-            ]
-        ]
-    },
-    {
-        "id": "mh_func",
-        "type": "function",
-        "z": "rest_api_flow",
-        "name": "헬스 응답",
-        "func": "// ─────────────────────────────────────────────\n// Modbus 헬스 응답\n// 워치독 상태 (global watchdogStatus) 기반\n// ─────────────────────────────────────────────\nvar status = global.get('watchdogStatus') || null;\nvar alert  = global.get('watchdogAlert')  || null;\n\nvar healthy = true;\nvar reasons = [];\n\nif (!status) {\n    healthy = false;\n    reasons.push('워치독 미초기화 (Node-RED 시작 직후 또는 모듈 없음)');\n} else if (alert) {\n    // 워치독 임계치 초과한 모듈 1개라도 있으면 unhealthy\n    healthy = false;\n    reasons.push('Modbus 모듈 장애: ' + Object.keys(alert).join(', '));\n}\n\nvar lastCheck = status && status.lastCheck ? new Date(status.lastCheck) : null;\nif (lastCheck) {\n    var ageSec = (Date.now() - lastCheck.getTime()) / 1000;\n    if (ageSec > 180) {\n        // 워치독이 3분 넘게 안 돈 경우 — Node-RED hang 가능성\n        healthy = false;\n        reasons.push('워치독 정지 ' + Math.floor(ageSec) + '초 (hang 의심)');\n    }\n}\n\nmsg.statusCode = healthy ? 200 : 503;\nmsg.headers = { 'Content-Type': 'application/json' };\nmsg.payload = {\n    healthy: healthy,\n    lastCheck: status ? status.lastCheck : null,\n    modules: status || {},\n    alert: alert,\n    reasons: reasons,\n    timestamp: new Date().toISOString()\n};\nreturn msg;",
-        "outputs": 1,
-        "timeout": "",
-        "noerr": 0,
-        "initialize": "",
-        "finalize": "",
-        "libs": [],
-        "x": 440,
-        "y": 80,
-        "wires": [
-            [
-                "mh_http_res"
-            ]
-        ]
-    },
-    {
-        "id": "mh_http_res",
-        "type": "http response",
-        "z": "rest_api_flow",
-        "name": "응답",
-        "statusCode": "",
-        "headers": {},
-        "x": 600,
         "y": 80,
         "wires": []
     }

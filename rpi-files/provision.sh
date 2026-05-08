@@ -269,87 +269,20 @@ if [ -f "${SCRIPT_DIR}/system-api.js" ]; then
   log "system-api.js 복사 완료"
 fi
 
-# smartfarm-system 통합 서버 (setup + system-api)
-cat > "${SMARTFARM_HOME}/smartfarm/rpi-server/src/system-server.js" << 'SYSTEM_SERVER'
-/**
- * SmartFarm 시스템 서버 (포트 3100)
- * - /setup — 초기 설정 페이지 (장비 코드 입력)
- * - /api/system/* — PM2 프로세스 관리
- */
-const express = require('express');
-const app = express();
-const PORT = 3100;
+# smartfarm-pm2-start.service — 부팅 시 PM2 의 모든 앱 무조건 start
+# (PM2 dump.pm2 가 stopped 상태라도 강제 시작 보장 — setup 페이지 항상 동작)
+if [ -f "${SCRIPT_DIR}/smartfarm-pm2-start.service" ]; then
+  cp "${SCRIPT_DIR}/smartfarm-pm2-start.service" /etc/systemd/system/smartfarm-pm2-start.service
+  systemctl daemon-reload
+  systemctl enable smartfarm-pm2-start.service
+  log "smartfarm-pm2-start.service 등록 + enable 완료"
+else
+  warn "smartfarm-pm2-start.service 없음 — 부팅 시 PM2 자동 시작 보장 안 됨"
+fi
 
-app.use(express.json());
-
-// CORS
-app.use((req, res, next) => {
-  res.header('Access-Control-Allow-Origin', '*');
-  res.header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-  res.header('Access-Control-Allow-Headers', 'Content-Type');
-  if (req.method === 'OPTIONS') return res.sendStatus(204);
-  next();
-});
-
-// 초기 설정 라우트
-const setupRouter = require('./setup');
-app.use('/setup', setupRouter);
-
-// 시스템 관리 API
-const { exec } = require('child_process');
-
-function getPm2Status(name) {
-  return new Promise(resolve => {
-    exec('pm2 jlist', (err, stdout) => {
-      if (err) return resolve(null);
-      try {
-        const list = JSON.parse(stdout);
-        const proc = list.find(p => p.name === name);
-        if (proc) {
-          resolve({
-            name: proc.name,
-            status: proc.pm2_env.status,
-            uptime: proc.pm2_env.pm_uptime,
-            restarts: proc.pm2_env.restart_time,
-            memory: proc.monit ? proc.monit.memory : 0,
-            cpu: proc.monit ? proc.monit.cpu : 0
-          });
-        } else resolve(null);
-      } catch { resolve(null); }
-    });
-  });
-}
-
-function restartPm2(name) {
-  return new Promise(resolve => {
-    exec('pm2 restart ' + name, (err, stdout) => {
-      resolve(err ? { success: false, error: err.message } : { success: true, output: stdout.trim() });
-    });
-  });
-}
-
-app.get('/api/system/status', async (req, res) => {
-  const [nodeRed, rpiExpress] = await Promise.all([
-    getPm2Status('node-red'),
-    getPm2Status('smartfarm-rpi')
-  ]);
-  res.json({ nodeRed, rpiExpress, timestamp: new Date().toISOString() });
-});
-
-app.post('/api/system/restart-nodered', async (req, res) => {
-  const result = await restartPm2('node-red');
-  res.status(result.success ? 200 : 500).json(result);
-});
-
-app.post('/api/system/restart-express', async (req, res) => {
-  const result = await restartPm2('smartfarm-rpi');
-  res.status(result.success ? 200 : 500).json(result);
-});
-
-app.listen(PORT, '0.0.0.0', () => {
-  console.log(`[smartfarm-system] listening on port ${PORT}`);
-});
-SYSTEM_SERVER
+# 통합 시스템 서버 = rpi-files/system-api.js (Express + setup mount)
+# 위에서 system-api.js 를 rpi-server/src/ 로 이미 복사했으므로 별도 생성 불필요.
+# (옛 버전은 system-server.js 를 inline 으로 만들었으나 system-api.js 와 중복이라 제거됨, 2026-05-08)
 
 # rpi-server package.json (없으면 생성)
 if [ ! -f "${SMARTFARM_HOME}/smartfarm/rpi-server/package.json" ]; then

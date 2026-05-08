@@ -172,3 +172,44 @@ scp lhk@192.168.137.30:/home/lhk/smartfarm/node-red/settings.js rpi-files/master
    ```
 
 4. **Win32DiskImager 사용 금지**: Windows 11 LTSC 에서 크래시. HDD Raw Copy Tool v2.5 사용.
+
+5. **AWS IoT clientId 하드코딩 트랩** (해결됨, 2026-05-08): `MyFarmPi_01_nodered` 가 flows.json + ecosystem.config.js 두 곳에 박힌 채 SD 복제 → 다른 농장 RPi 와 같은 clientId 충돌 → AWS IoT 매 15초 끊김 무한 루프. 해결: 마스터에는 `MyFarmPi_UNSET_nodered` placeholder 박힘 + setup.js 가 새 농장 setup 시 `MyFarmPi_<deviceCode>` 로 자동 치환.
+
+6. **system-api.js 와 setup.js 분리 — /setup 404 트랩** (해결됨, 2026-05-08): system-api.js 가 plain http 라 /setup 라우트 없음 + setup.js 가 어디서도 require 안 됨 → /setup 404. 해결: system-api.js 를 Express 로 재작성 + `app.use('/setup', require('./setup'))` 마운트. provision.sh 의 옛 inline system-server.js 생성(80줄 heredoc) 도 중복이라 같이 제거.
+   ```bash
+   # 검증
+   ssh lhk@<RPi-IP> "curl -s -o /dev/null -w %{http_code} http://localhost/setup"   # 200
+   ```
+
+7. **PM2 dump.pm2 stopped 상태 박힘 — 부팅 후 서비스 안 뜸** (해결됨, 2026-05-08): sanitize 절차 끝에 `pm2 stop all && pm2 save` 가 dump.pm2 를 stopped 로 만듦 → 부팅 후 자동 시작 안 됨. 해결: `smartfarm-pm2-start.service` (systemd oneshot) 추가. dump 상태 무관하게 부팅 시 무조건 `pm2 start all`.
+   ```bash
+   # 검증
+   ssh lhk@<RPi-IP> "systemctl is-enabled smartfarm-pm2-start.service && pm2 list"
+   ```
+
+---
+
+## 마스터 이미지 v4 (정식, 2026-05-08, 9.76GB)
+
+**파일**: `D:\smartfarm_rpi_20260508_v4.img`
+
+**포함 수정**:
+- ✅ 트랩 1·1-1·2·3 (이전 버전부터 적용)
+- ✅ 트랩 5: clientid placeholder (MyFarmPi_UNSET_nodered)
+- ✅ 트랩 6: system-api.js Express + setup mount (rpi-server/src/ 정확한 위치)
+- ✅ 트랩 7: smartfarm-pm2-start.service 자동 시작
+- ✅ 워치독 자가청소 패치 (모듈 교체 시 옛 카운터 자동 정리)
+
+**검증 절차** (1호에서 reboot 후 확인됨):
+```bash
+ssh lhk@<RPi-IP> "
+  systemctl is-enabled smartfarm-pm2-start.service &&
+  pm2 list | grep -E 'online' &&
+  curl -s -o /dev/null -w 'setup:%{http_code}\n' http://localhost/setup &&
+  curl -s -o /dev/null -w 'info:%{http_code}\n' http://localhost/api/system/info &&
+  grep '\"clientid\":' /home/lhk/.node-red/flows.json
+"
+# 기대: enabled, 3개 online, setup:200, info:200, clientid: MyFarmPi_UNSET_nodered
+```
+
+새 농장 셋업 시 setup.js 가 placeholder 를 `MyFarmPi_<deviceCode>` 로 자동 치환.

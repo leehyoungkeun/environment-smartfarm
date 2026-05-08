@@ -1,0 +1,19 @@
+[Unit]
+Description=SmartFarm PM2 Start All (boot 시 모든 앱 무조건 start)
+Documentation=https://github.com/leehyoungkeun/environment-smartfarm
+After=pm2-lhk.service network-online.target
+Wants=network-online.target
+Requires=pm2-lhk.service
+
+[Service]
+Type=oneshot
+User=lhk
+Environment=PM2_HOME=/home/lhk/.pm2
+Environment=PATH=/usr/local/bin:/usr/bin:/bin
+ExecStart=/usr/bin/pm2 start all
+ExecStartPost=/usr/bin/pm2 save --force
+RemainAfterExit=yes
+TimeoutStartSec=120
+
+[Install]
+WantedBy=multi-user.target

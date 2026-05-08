@@ -305,6 +305,14 @@ if [ -f "${SCRIPT_DIR}/system-api.js" ]; then
   log "system-api.js 복사 완료"
 fi
 
+# lhk 가 sudo 없이 reboot/shutdown 실행 가능 — setup.js trap 17 fix 의존 (2026-05-09)
+# setup 직후 system-api.js 가 sudo reboot 호출 → systemd 가 reboot 처리 → 모든 env 새로 로드
+cat > /etc/sudoers.d/99-smartfarm-reboot << 'SUDOERS_REBOOT'
+lhk ALL=(ALL) NOPASSWD: /sbin/reboot, /sbin/shutdown, /usr/bin/systemctl reboot, /usr/sbin/reboot, /usr/sbin/shutdown
+SUDOERS_REBOOT
+chmod 440 /etc/sudoers.d/99-smartfarm-reboot
+log "sudoers.d/99-smartfarm-reboot 등록 (lhk reboot/shutdown NOPASSWD)"
+
 # smartfarm-pm2-start.service — 부팅 시 PM2 의 모든 앱 무조건 start
 # (PM2 dump.pm2 가 stopped 상태라도 강제 시작 보장 — setup 페이지 항상 동작)
 if [ -f "${SCRIPT_DIR}/smartfarm-pm2-start.service" ]; then

@@ -364,26 +364,21 @@ router.post('/apply', async (req, res) => {
       steps.push({ ok: true, text: 'Tailscale: 서버에서 authKey 미발급 (수동 sudo tailscale up 필요)' });
     }
 
-    // 6+8. PM2 3개 전체 재시작 — 트랩 15 fix (2026-05-09)
-    // 응답을 먼저 보내고 비동기로 재시작 — pm2 delete all 이 system-api.js 자기 자신 죽이면
-    // 클라이언트가 nginx 502 (HTML) 받아서 JSON.parse 실패 ("Unexpected token '<'")
-    const ecoPathForRestart = ECOSYSTEM_PATHS.find(p => fs.existsSync(p));
-    steps.push({ ok: true, text: 'PM2 전체 재시작 예약 (3초 후, ecosystem 단일 소스)' });
-    steps.push({ ok: true, text: '센서 수집 시작 (60초 주기)' });
+    // 6+8. 시스템 reboot — 트랩 15·17 fix (2026-05-09)
+    // PM2 재시작을 process 안에서 시도하면 자기 자신(system-api.js) 죽이면서 자살
+    // setTimeout/spawn detached 모두 PM2 cgroup 종속으로 child 도 같이 죽음
+    // → 가장 확실한 해결: reboot 으로 .env·ecosystem·dump.pm2 모두 새로 로드
+    steps.push({ ok: true, text: '시스템 재부팅 예약 (5초 후) — 모든 설정 새로 로드' });
+    steps.push({ ok: true, text: '센서 수집 시작 (재부팅 후 60초 주기)' });
 
-    // 응답 먼저 — 클라이언트가 success 받고 나서 자살
-    res.json({ success: true, steps, farmName });
+    // 응답 먼저 — 클라이언트가 success 받음
+    res.json({ success: true, steps, farmName, reboot: true });
 
-    // 트랩 17 fix (2026-05-09): spawn detached + unref — parent(system-api.js) 자살해도
-    // child 가 계속 실행되어 PM2 재시작 보장. setTimeout 은 같은 process 라 자살 시 콜백도 죽음
-    const restartCmd = ecoPathForRestart
-      ? `pm2 delete all 2>/dev/null; pm2 start ${ecoPathForRestart} && pm2 save --force`
-      : 'pm2 restart all --update-env';
-    const child = spawn('bash', ['-c', `sleep 3; ${restartCmd}`], {
+    // systemd 가 reboot 명령 실행 — system-api.js 자살해도 systemd 가 처리
+    spawn('bash', ['-c', 'sleep 5 && sudo reboot'], {
       detached: true,
       stdio: 'ignore',
-    });
-    child.unref();
+    }).unref();
     return;
   } catch (e) {
     steps.push({ ok: false, text: '오류: ' + e.message });

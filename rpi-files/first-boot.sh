@@ -107,11 +107,13 @@ systemd-machine-id-setup 2>/dev/null || dbus-uuidgen --ensure
 # ── 6. PM2 서비스 시작 ──
 echo "[6/6] PM2 서비스 시작"
 
-# Node-RED 시작
+# Node-RED + smartfarm-rpi(server.js) + smartfarm-system(system-api.js)
+# system-server.js 는 옛 잔재 — 실제 entry 는 server.js + system-api.js (트랩 13, 2026-05-08)
 sudo -u "$SMARTFARM_USER" bash -c "
   pm2 delete all 2>/dev/null || true
   pm2 start node-red -- -s ~/smartfarm/node-red/settings.js
-  pm2 start ~/smartfarm/rpi-server/src/system-server.js --name smartfarm-system
+  pm2 start ~/smartfarm/rpi-server/src/server.js --name smartfarm-rpi
+  pm2 start ~/smartfarm/rpi-server/src/system-api.js --name smartfarm-system
   pm2 save
 "
 

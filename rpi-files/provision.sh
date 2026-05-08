@@ -114,6 +114,17 @@ apt-get install -y -qq \
 
 log "시스템 패키지 설치 완료"
 
+# ── 1.5. Tailscale 설치 (등록은 setup 페이지에서) ──
+info "=== 1.5/8: Tailscale 설치 ==="
+
+if ! command -v tailscale &>/dev/null; then
+  curl -fsSL https://tailscale.com/install.sh | sh > /dev/null 2>&1
+  systemctl enable --now tailscaled.service > /dev/null 2>&1
+  log "Tailscale 설치 완료 (등록은 setup 페이지에서 'tailscale up')"
+else
+  log "Tailscale 이미 설치됨"
+fi
+
 # ── 2. Node.js 설치 ──
 info "=== 2/8: Node.js ${NODE_MAJOR}.x 설치 ==="
 
@@ -392,11 +403,14 @@ echo "  1. 프론트엔드 빌드 파일 복사 (~/smartfarm-frontend/)"
 echo "  2. .farm-id 파일 또는 setup 페이지로 FARM_ID 설정"
 echo "  3. PM2 서비스 등록 (아래 명령 실행)"
 echo ""
-echo "  # PM2로 서비스 시작:"
-echo "  sudo -u ${SMARTFARM_USER} pm2 start node-red -- -s ~/smartfarm/node-red/settings.js"
-echo "  sudo -u ${SMARTFARM_USER} pm2 start ~/smartfarm/rpi-server/src/system-server.js --name smartfarm-system"
+echo "  # PM2로 서비스 시작 (ecosystem.config.js 단일 소스):"
+echo "  sudo -u ${SMARTFARM_USER} pm2 delete all 2>/dev/null || true"
+echo "  sudo -u ${SMARTFARM_USER} pm2 start ~/smartfarm/ecosystem.config.js"
 echo "  sudo -u ${SMARTFARM_USER} pm2 save"
 echo "  sudo env PATH=\$PATH:/usr/bin pm2 startup systemd -u ${SMARTFARM_USER} --hp ${SMARTFARM_HOME}"
 echo ""
-echo "  4. (선택) SD카드 이미지 생성 — IMAGE_CHECKLIST.md 참조"
+echo "  4. Tailscale 등록 (선택, setup 페이지에서 자동 또는 수동):"
+echo "  sudo tailscale up --hostname=farm-XXXX --ssh"
+echo ""
+echo "  5. (선택) SD카드 이미지 생성 — IMAGE_CHECKLIST.md 참조"
 echo "=========================================="

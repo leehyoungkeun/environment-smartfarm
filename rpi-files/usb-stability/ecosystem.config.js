@@ -1,8 +1,11 @@
 // /home/lhk/smartfarm/ecosystem.config.js
-// PM2 자동 재시작 정책 강화 (Node-RED hang/메모리 누수 대응)
+// PM2 단일 진실 소스 (3개 entry — node-red, smartfarm-rpi, smartfarm-system)
 //
 // 적용:
 //   pm2 delete all && pm2 start /home/lhk/smartfarm/ecosystem.config.js && pm2 save
+//
+// FARM_ID 갱신은 setup.js 가 sed 로 처리 (process.env.FARM_ID || 'UNSET' 패턴)
+// AWS_IOT_CLIENT_ID 등 농장 고유 env 는 rpi-server/.env 에서 server.js 가 dotenv 로 로드
 
 module.exports = {
     apps: [
@@ -25,7 +28,7 @@ module.exports = {
         },
         {
             name: "smartfarm-rpi",
-            script: "/home/lhk/smartfarm/rpi-server/src/system-server.js",
+            script: "/home/lhk/smartfarm/rpi-server/src/server.js",
             interpreter: "/usr/bin/node",
             cwd: "/home/lhk/smartfarm/rpi-server",
             autorestart: true,
@@ -35,13 +38,14 @@ module.exports = {
             exp_backoff_restart_delay: 1000,
             env: {
                 NODE_ENV: "production",
+                FARM_ID: process.env.FARM_ID || 'UNSET',
             },
         },
         {
             name: "smartfarm-system",
-            script: "/home/lhk/smartfarm/system-server/server.js",
+            script: "/home/lhk/smartfarm/rpi-server/src/system-api.js",
             interpreter: "/usr/bin/node",
-            cwd: "/home/lhk/smartfarm/system-server",
+            cwd: "/home/lhk/smartfarm/rpi-server",
             autorestart: true,
             max_memory_restart: "200M",
             min_uptime: "30s",
@@ -49,6 +53,7 @@ module.exports = {
             exp_backoff_restart_delay: 1000,
             env: {
                 NODE_ENV: "production",
+                FARM_ID: process.env.FARM_ID || 'UNSET',
             },
         },
     ],

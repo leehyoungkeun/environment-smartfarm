@@ -344,21 +344,6 @@ router.post('/apply', async (req, res) => {
       }
     } catch (e) {}
 
-    // 6. PM2 3개 전체 재시작 (ecosystem.config.js 단일 소스)
-    // .env + ecosystem FARM_ID 새로 로드 — node-red·smartfarm-rpi·smartfarm-system 모두
-    const ecoPathForRestart = ECOSYSTEM_PATHS.find(p => fs.existsSync(p));
-    const restartCmd = ecoPathForRestart
-      ? `pm2 delete all 2>/dev/null; pm2 start ${ecoPathForRestart} && pm2 save --force`
-      : 'pm2 restart all --update-env';
-    try {
-      await new Promise((resolve, reject) => {
-        exec(restartCmd, { timeout: 60000, shell: '/bin/bash' }, (err) => err ? reject(err) : resolve());
-      });
-      steps.push({ ok: true, text: 'PM2 전체 재시작' + (ecoPathForRestart ? ' (ecosystem 단일 소스)' : '') });
-    } catch (e) {
-      steps.push({ ok: false, text: 'PM2 재시작 실패: ' + e.message });
-    }
-
     // 7. Tailscale 자동 등록 (setupData.tailscaleAuthKey 가 있을 때)
     // 서버 측 /api/devices/:code/setup 이 authKey 발급해야 자동 — 미발급 시 수동 안내
     if (setupData.data.tailscaleAuthKey) {
@@ -379,9 +364,24 @@ router.post('/apply', async (req, res) => {
       steps.push({ ok: true, text: 'Tailscale: 서버에서 authKey 미발급 (수동 sudo tailscale up 필요)' });
     }
 
+    // 6+8. PM2 3개 전체 재시작 — 트랩 15 fix (2026-05-09)
+    // 응답을 먼저 보내고 비동기로 재시작 — pm2 delete all 이 system-api.js 자기 자신 죽이면
+    // 클라이언트가 nginx 502 (HTML) 받아서 JSON.parse 실패 ("Unexpected token '<'")
+    const ecoPathForRestart = ECOSYSTEM_PATHS.find(p => fs.existsSync(p));
+    steps.push({ ok: true, text: 'PM2 전체 재시작 예약 (3초 후, ecosystem 단일 소스)' });
     steps.push({ ok: true, text: '센서 수집 시작 (60초 주기)' });
 
+    // 응답 먼저 — 클라이언트가 success 받고 나서 자살
     res.json({ success: true, steps, farmName });
+
+    // 비동기 PM2 재시작 (응답 후 3초)
+    setTimeout(() => {
+      const restartCmd = ecoPathForRestart
+        ? `pm2 delete all 2>/dev/null; pm2 start ${ecoPathForRestart} && pm2 save --force`
+        : 'pm2 restart all --update-env';
+      exec(restartCmd, { timeout: 60000, shell: '/bin/bash' }, () => {});
+    }, 3000);
+    return;
   } catch (e) {
     steps.push({ ok: false, text: '오류: ' + e.message });
     res.json({ success: false, steps, error: e.message });

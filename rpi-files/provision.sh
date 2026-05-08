@@ -352,15 +352,22 @@ if [ -f "${SCRIPT_DIR}/first-boot.sh" ]; then
   cat > /etc/systemd/system/smartfarm-firstboot.service << SYSTEMD_UNIT
 [Unit]
 Description=SmartFarm First Boot Setup
-After=network-online.target
+# 트랩 16 (2026-05-09): local-fs.target·sysinit.target 의존성 추가
+# PiShrink resize2fs 직후 시스템 부팅 시 fs 가 ready 안 된 상태에서
+# systemd 가 first-boot.sh 실행 시도하면 "No such file or directory" 실패
+After=local-fs.target sysinit.target network-online.target
 Wants=network-online.target
 ConditionPathExists=${SMARTFARM_HOME}/smartfarm/.first-boot-pending
 
 [Service]
 Type=oneshot
-ExecStart=${SMARTFARM_HOME}/smartfarm/first-boot.sh
+# bash 로 명시 호출 + 짧은 sleep — fs 마운트·mount unit 완료 보장
+ExecStart=/bin/bash -c 'sleep 5 && exec ${SMARTFARM_HOME}/smartfarm/first-boot.sh'
 User=root
 RemainAfterExit=yes
+# 첫 시도 실패 시 30s 후 재시도 (resize2fs 진행 중일 수 있음)
+Restart=on-failure
+RestartSec=30s
 
 [Install]
 WantedBy=multi-user.target

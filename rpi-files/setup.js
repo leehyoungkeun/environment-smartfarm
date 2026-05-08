@@ -5,7 +5,7 @@
  */
 const express = require('express');
 const router = express.Router();
-const { exec } = require('child_process');
+const { exec, spawn } = require('child_process');
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
@@ -374,13 +374,16 @@ router.post('/apply', async (req, res) => {
     // 응답 먼저 — 클라이언트가 success 받고 나서 자살
     res.json({ success: true, steps, farmName });
 
-    // 비동기 PM2 재시작 (응답 후 3초)
-    setTimeout(() => {
-      const restartCmd = ecoPathForRestart
-        ? `pm2 delete all 2>/dev/null; pm2 start ${ecoPathForRestart} && pm2 save --force`
-        : 'pm2 restart all --update-env';
-      exec(restartCmd, { timeout: 60000, shell: '/bin/bash' }, () => {});
-    }, 3000);
+    // 트랩 17 fix (2026-05-09): spawn detached + unref — parent(system-api.js) 자살해도
+    // child 가 계속 실행되어 PM2 재시작 보장. setTimeout 은 같은 process 라 자살 시 콜백도 죽음
+    const restartCmd = ecoPathForRestart
+      ? `pm2 delete all 2>/dev/null; pm2 start ${ecoPathForRestart} && pm2 save --force`
+      : 'pm2 restart all --update-env';
+    const child = spawn('bash', ['-c', `sleep 3; ${restartCmd}`], {
+      detached: true,
+      stdio: 'ignore',
+    });
+    child.unref();
     return;
   } catch (e) {
     steps.push({ ok: false, text: '오류: ' + e.message });

@@ -16,6 +16,8 @@ const ECOSYSTEM_PATHS = [
   '/home/lhk/smartfarm/ecosystem.config.js',
   '/home/lhk/smartfarm/scripts/ecosystem.config.js',
 ];
+const FARM_ID_PATH = '/home/lhk/smartfarm/.farm-id';
+const ENV_PATH = '/home/lhk/smartfarm/rpi-server/.env';
 const SERVER_URL = 'https://api.smartgreen.kr';
 
 function getSerial() {
@@ -249,6 +251,14 @@ router.post('/apply', async (req, res) => {
       steps.push({ ok: false, text: 'AWS IoT 인증서 미등록 (관리자에게 문의)' });
     }
 
+    // 2.5 .farm-id 파일 갱신 (system-api.js GET /api/system/info 가 동적 반환)
+    try {
+      fs.writeFileSync(FARM_ID_PATH, farmId);
+      steps.push({ ok: true, text: '.farm-id = ' + farmId });
+    } catch (e) {
+      steps.push({ ok: false, text: '.farm-id 수정 실패: ' + e.message });
+    }
+
     // 3. settings.js FARM_ID 변경
     try {
       let settings = fs.readFileSync(SETTINGS_PATH, 'utf8');
@@ -260,6 +270,23 @@ router.post('/apply', async (req, res) => {
       steps.push({ ok: true, text: 'settings.js FARM_ID = ' + farmId });
     } catch (e) {
       steps.push({ ok: false, text: 'settings.js 수정 실패: ' + e.message });
+    }
+
+    // 3.2 rpi-server/.env AWS_IOT_CLIENT_ID·MQTT_TOPIC_PREFIX 치환
+    // server.js 가 dotenv 로 로드 — placeholder 'MyFarmPi_UNSET' 을 농장별로 치환
+    const clientId = mqttClientId || ('MyFarmPi_' + deviceCode);
+    try {
+      if (fs.existsSync(ENV_PATH)) {
+        let env = fs.readFileSync(ENV_PATH, 'utf8');
+        env = env.replace(/^AWS_IOT_CLIENT_ID=.*/m, 'AWS_IOT_CLIENT_ID=' + clientId);
+        env = env.replace(/^MQTT_TOPIC_PREFIX=.*/m, 'MQTT_TOPIC_PREFIX=farm/' + clientId);
+        fs.writeFileSync(ENV_PATH, env);
+        steps.push({ ok: true, text: '.env AWS_IOT_CLIENT_ID = ' + clientId });
+      } else {
+        steps.push({ ok: false, text: '.env 없음 (provision 미완)' });
+      }
+    } catch (e) {
+      steps.push({ ok: false, text: '.env 수정 실패: ' + e.message });
     }
 
     // 3.5 PM2 ecosystem.config.js FARM_ID 변경
@@ -317,18 +344,39 @@ router.post('/apply', async (req, res) => {
       }
     } catch (e) {}
 
-    // Node-RED 재시작 — ecosystem.config.js 가 있으면 그걸로 (env 새로 로드)
+    // 6. PM2 3개 전체 재시작 (ecosystem.config.js 단일 소스)
+    // .env + ecosystem FARM_ID 새로 로드 — node-red·smartfarm-rpi·smartfarm-system 모두
     const ecoPathForRestart = ECOSYSTEM_PATHS.find(p => fs.existsSync(p));
     const restartCmd = ecoPathForRestart
-      ? `pm2 delete node-red 2>/dev/null; pm2 start ${ecoPathForRestart} --only node-red`
-      : 'pm2 restart node-red --update-env';
+      ? `pm2 delete all 2>/dev/null; pm2 start ${ecoPathForRestart} && pm2 save --force`
+      : 'pm2 restart all --update-env';
     try {
       await new Promise((resolve, reject) => {
-        exec(restartCmd, { timeout: 30000, shell: '/bin/bash' }, (err) => err ? reject(err) : resolve());
+        exec(restartCmd, { timeout: 60000, shell: '/bin/bash' }, (err) => err ? reject(err) : resolve());
       });
-      steps.push({ ok: true, text: 'Node-RED 재시작 완료' + (ecoPathForRestart ? ' (ecosystem 기반)' : '') });
+      steps.push({ ok: true, text: 'PM2 전체 재시작' + (ecoPathForRestart ? ' (ecosystem 단일 소스)' : '') });
     } catch (e) {
-      steps.push({ ok: false, text: 'Node-RED 재시작 실패: ' + e.message });
+      steps.push({ ok: false, text: 'PM2 재시작 실패: ' + e.message });
+    }
+
+    // 7. Tailscale 자동 등록 (setupData.tailscaleAuthKey 가 있을 때)
+    // 서버 측 /api/devices/:code/setup 이 authKey 발급해야 자동 — 미발급 시 수동 안내
+    if (setupData.data.tailscaleAuthKey) {
+      const tailscaleHostname = 'farm-' + (farmId.replace(/^farm_/, '') || deviceCode);
+      try {
+        await new Promise((resolve, reject) => {
+          exec(
+            `tailscale up --authkey=${setupData.data.tailscaleAuthKey} --hostname=${tailscaleHostname} --ssh --reset`,
+            { timeout: 60000 },
+            (err) => err ? reject(err) : resolve()
+          );
+        });
+        steps.push({ ok: true, text: 'Tailscale 등록 (' + tailscaleHostname + ')' });
+      } catch (e) {
+        steps.push({ ok: false, text: 'Tailscale 등록 실패: ' + e.message });
+      }
+    } else {
+      steps.push({ ok: true, text: 'Tailscale: 서버에서 authKey 미발급 (수동 sudo tailscale up 필요)' });
     }
 
     steps.push({ ok: true, text: '센서 수집 시작 (60초 주기)' });

@@ -308,7 +308,7 @@ fi
 # lhk 가 sudo 없이 reboot/shutdown 실행 가능 — setup.js trap 17 fix 의존 (2026-05-09)
 # setup 직후 system-api.js 가 sudo reboot 호출 → systemd 가 reboot 처리 → 모든 env 새로 로드
 cat > /etc/sudoers.d/99-smartfarm-reboot << 'SUDOERS_REBOOT'
-lhk ALL=(ALL) NOPASSWD: /sbin/reboot, /sbin/shutdown, /usr/bin/systemctl reboot, /usr/sbin/reboot, /usr/sbin/shutdown
+lhk ALL=(ALL) NOPASSWD: /sbin/reboot, /sbin/shutdown, /sbin/poweroff, /usr/sbin/reboot, /usr/sbin/shutdown, /usr/sbin/poweroff, /usr/bin/systemctl reboot, /usr/bin/systemctl poweroff
 SUDOERS_REBOOT
 chmod 440 /etc/sudoers.d/99-smartfarm-reboot
 log "sudoers.d/99-smartfarm-reboot 등록 (lhk reboot/shutdown NOPASSWD)"

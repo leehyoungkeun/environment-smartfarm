@@ -263,12 +263,37 @@ curl -s https://www.amazontrust.com/repository/AmazonRootCA1.pem -o "${SMARTFARM
 chown -R "${SMARTFARM_USER}:${SMARTFARM_USER}" "${SMARTFARM_HOME}/certs"
 log "AmazonRootCA1.pem 저장 완료"
 
+# ── 6.7. master/rpi-server·shared 복원 (1호 운영 환경 사본) ──
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+info "=== 6.7/8: 마스터 rpi-server·shared 복원 ==="
+
+if [ -d "${SCRIPT_DIR}/master/rpi-server" ]; then
+  sudo -u "$SMARTFARM_USER" cp -r "${SCRIPT_DIR}/master/rpi-server/." "${SMARTFARM_HOME}/smartfarm/rpi-server/"
+  log "master/rpi-server 복원 완료 (src/database/public/package.json/.env.example)"
+else
+  warn "master/rpi-server 없음 — 1호에서 사본 생성 필요"
+fi
+
+if [ -d "${SCRIPT_DIR}/master/shared" ]; then
+  sudo -u "$SMARTFARM_USER" cp -r "${SCRIPT_DIR}/master/shared/." "${SMARTFARM_HOME}/smartfarm/shared/"
+  log "master/shared 복원 완료 (mqttTopics.js, constants.js)"
+else
+  warn "master/shared 없음 — 1호에서 사본 생성 필요"
+fi
+
+# .env 가 없으면 .env.example placeholder 를 .env 로 복사 (setup.js 가 농장별 치환)
+sudo -u "$SMARTFARM_USER" bash -c "
+  if [ ! -f '${SMARTFARM_HOME}/smartfarm/rpi-server/.env' ] && [ -f '${SMARTFARM_HOME}/smartfarm/rpi-server/.env.example' ]; then
+    cp '${SMARTFARM_HOME}/smartfarm/rpi-server/.env.example' '${SMARTFARM_HOME}/smartfarm/rpi-server/.env'
+    echo '  .env.example → .env (placeholder, setup 시 치환)'
+  fi
+"
+
 # ── 7. system-api + setup 서버 통합 ──
 info "=== 7/8: SmartFarm 시스템 서비스 설정 ==="
 
 # rpi-server/src 에 설치 기사용 setup.js, system-api.js 복사
-# (이 파일들은 provision 전에 rpi-files/ 에서 복사해둬야 함)
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# (rpi-files/ 의 표준 버전이 master/ 사본을 덮어씀 — 단일 소스 보장)
 
 if [ -f "${SCRIPT_DIR}/setup.js" ]; then
   cp "${SCRIPT_DIR}/setup.js" "${SMARTFARM_HOME}/smartfarm/rpi-server/src/setup.js"

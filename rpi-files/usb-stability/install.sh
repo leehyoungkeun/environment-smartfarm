@@ -64,15 +64,16 @@ done
 echo "==> [5/6] PM2 ecosystem.config.js 설치"
 cp "$SRC_DIR/ecosystem.config.js" /home/lhk/smartfarm/ecosystem.config.js
 
-# 6) crontab 등록 (lhk 사용자)
-echo "==> [6/6] crontab 등록 (1분 헬스체크)"
+# 6) crontab 등록 (lhk 사용자 — root 컨텍스트에서 호출돼도 lhk crontab 으로)
+TARGET_USER="${SUDO_USER:-lhk}"
+echo "==> [6/6] crontab 등록 (1분 헬스체크, user=$TARGET_USER)"
 TMP_CRON=$(mktemp)
-crontab -l 2>/dev/null > "$TMP_CRON" || true
+sudo -u "$TARGET_USER" crontab -l 2>/dev/null > "$TMP_CRON" || true
 # 기존 항목 제거 후 다시 추가 (멱등)
 grep -v 'smartfarm-modbus-healthcheck.sh' "$TMP_CRON" > "${TMP_CRON}.new" || true
 mv "${TMP_CRON}.new" "$TMP_CRON"
 echo "* * * * * /usr/local/bin/smartfarm-modbus-healthcheck.sh" >> "$TMP_CRON"
-crontab "$TMP_CRON"
+sudo -u "$TARGET_USER" crontab "$TMP_CRON"
 rm "$TMP_CRON"
 
 # udev trigger 로 새 규칙을 현재 연결된 USB 에 적용 → /dev/smartfarm-485 즉시 생성

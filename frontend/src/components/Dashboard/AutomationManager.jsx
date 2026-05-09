@@ -23,8 +23,6 @@ const DEVICE_TYPE_OPTIONS = [
   { value: 'motor', label: '모터', icon: '⚙️', commands: ['on', 'off'] },
   { value: 'light', label: '조명', icon: '💡', commands: ['on', 'off'] },
   { value: 'fan', label: '순환팬', icon: '🌀', commands: ['on', 'off'] },
-  { value: 'nutrient', label: '양액공급', icon: '💧', commands: ['on', 'off'] },
-  { value: 'solution', label: '배양액', icon: '🧪', commands: ['on', 'off'] },
   { value: 'light_ctrl', label: '조명제어', icon: '🔆', commands: ['on', 'off'] },
   { value: 'sprayer', label: '무인방제기', icon: '🚿', commands: ['on', 'off'] },
   { value: 'heater', label: '온풍기', icon: '🔥', commands: ['on', 'off'] },

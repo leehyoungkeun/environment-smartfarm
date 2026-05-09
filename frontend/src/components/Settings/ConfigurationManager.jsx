@@ -931,7 +931,7 @@ const HouseDetailEditor = ({ house, farmId, onUpdate }) => {
                         });
                       }
                     }}
-                    className={`flex flex-col items-center gap-1 p-2.5 rounded-xl border-2 transition-all text-center
+                    className={`relative flex flex-col items-center justify-center gap-1 p-2.5 rounded-xl border-2 transition-all text-center h-[78px]
                       ${newSensor.sensorId.startsWith(preset.id) && preset.id !== 'etc'
                         ? 'border-blue-500 bg-blue-100 shadow-sm'
                         : alreadyAdded
@@ -941,7 +941,7 @@ const HouseDetailEditor = ({ house, farmId, onUpdate }) => {
                   >
                     <span className="text-lg">{preset.icon}</span>
                     <span className="text-xs font-bold text-gray-700 leading-tight">{preset.name}</span>
-                    {alreadyAdded && <span className="text-[10px] text-green-600 font-bold">추가됨</span>}
+                    {alreadyAdded && <span className="absolute top-1 right-1 text-[9px] text-green-600 font-bold leading-none">추가됨</span>}
                   </button>
                 );
               })}
@@ -1201,8 +1201,6 @@ const DEVICE_TYPES = [
   { value: 'motor', label: '모터', icon: '⚙️', commands: 'on/off', defaultControlType: 'single' },
   { value: 'light', label: '조명', icon: '💡', commands: 'on/off', defaultControlType: 'single' },
   { value: 'fan', label: '순환팬', icon: '🌀', commands: 'on/off', defaultControlType: 'single' },
-  { value: 'nutrient', label: '양액공급', icon: '💧', commands: 'on/off', defaultControlType: 'single' },
-  { value: 'solution', label: '배양액', icon: '🧪', commands: 'on/off', defaultControlType: 'single' },
   { value: 'light_ctrl', label: '조명제어', icon: '🔆', commands: 'on/off', defaultControlType: 'single' },
   { value: 'sprayer', label: '무인방제기', icon: '🚿', commands: 'on/off', defaultControlType: 'single' },
   { value: 'heater', label: '온풍기', icon: '🔥', commands: 'on/off', defaultControlType: 'single' },
@@ -1394,7 +1392,7 @@ const DeviceManager = ({ house, farmId, setEditedHouse, onUpdate, isDirty, savin
                 <button
                   key={dt.value}
                   onClick={() => setNewDevice({ ...newDevice, type: dt.value, name: '' })}
-                  className={`flex flex-col items-center gap-1 p-2.5 rounded-xl border-2 transition-all text-center
+                  className={`relative flex flex-col items-center justify-center gap-1 p-2.5 rounded-xl border-2 transition-all text-center h-[78px]
                     ${isSelected
                       ? 'border-violet-500 bg-violet-100 shadow-sm'
                       : alreadyAdded
@@ -1404,7 +1402,7 @@ const DeviceManager = ({ house, farmId, setEditedHouse, onUpdate, isDirty, savin
                 >
                   <span className="text-lg">{dt.icon}</span>
                   <span className="text-xs font-bold text-gray-700 leading-tight">{dt.label}</span>
-                  {alreadyAdded && <span className="text-[10px] text-green-600 font-bold">추가됨</span>}
+                  {alreadyAdded && <span className="absolute top-1 right-1 text-[9px] text-green-600 font-bold leading-none">추가됨</span>}
                 </button>
               );
             })}

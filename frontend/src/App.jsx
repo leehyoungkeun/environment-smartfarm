@@ -306,8 +306,9 @@ function AppContent() {
   };
 
   const farmLocal = isFarmLocalMode();
-  // 트랩 21 (2026-05-09): isTouchPanel 자동 메뉴 축소 폐기 — 키오스크도 cloud 모드면 일반 frontend 와 동일
-  // farmLocal 명시적 ON 일 때만 메뉴 축소 (1줄 레이아웃)
+  // 트랩 21 (2026-05-09): 자동 터치패널 감지 폐기 — 키오스크도 cloud 모드면 일반 frontend 와 동일
+  // farmLocal 명시적 ON 일 때만 1줄 레이아웃. isTouchPanel 은 false 로 고정 (DynamicDashboard·ControlPage 의 prop 호환)
+  const isTouchPanel = false;
 
   const allNavItems = farmLocal
     ? [

@@ -55,9 +55,12 @@ backend/scripts/
 # Claude Code
 .claude/
 
-# Screenshots
+# Screenshots (디버그용은 ignore, 매뉴얼용은 예외)
 *.PNG
 *.png
+!docs/screenshots/**/*.png
+!docs/screenshots/**/*.PNG
+!frontend/public/**/*.png
 
 # Root lock file (monorepo 아님)
 /package-lock.json

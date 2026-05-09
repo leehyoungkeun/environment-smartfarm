@@ -1291,6 +1291,9 @@ const ControlPanel = ({ farmId, houseId, houseConfig }) => {
                   const state = deviceStates[device.deviceId] || { status: 'idle' };
                   const statusDisplay = getStatusDisplay(state.status);
                   const isProcessing = ['opening', 'closing', 'stopping', 'turning_on', 'turning_off'].includes(state.status);
+                  // 자기 장치 modbus 잠금만 체크 — RS-485 시리얼 큐는 Node-RED modbus-flex-write 가 처리
+                  // anyModbusBusy 는 전역 잠금이라 다른 장치 verifying 중에 깜빡임(disable→enable) 발생
+                  const myModbusBusy = modbusStatus[device.deviceId] === 'verifying';
                   const mode = getDeviceMode(device.deviceId);
                   const isAuto = mode === 'auto';
 
@@ -1393,13 +1396,13 @@ const ControlPanel = ({ farmId, houseId, houseConfig }) => {
                       ) : isToggleType ? (
                         <div className="grid grid-cols-2 gap-3">
                           <button onClick={() => handleControlWithRetry(device.deviceId, 'on')}
-                            disabled={anyModbusBusy || isProcessing || state.status === 'on'}
-                            style={{...btnBase, ...(state.status === 'on' || state.status === 'turning_on' ? s.onActive : s.onInactive), ...(anyModbusBusy || isProcessing || state.status === 'on' ? {opacity:0.4,cursor:'not-allowed'} : {})}}>
+                            disabled={myModbusBusy || isProcessing || state.status === 'on'}
+                            style={{...btnBase, ...(state.status === 'on' || state.status === 'turning_on' ? s.onActive : s.onInactive), ...(myModbusBusy || isProcessing || state.status === 'on' ? {opacity:0.4,cursor:'not-allowed'} : {})}}>
                             {state.status === 'turning_on' ? '⏳ 전환중...' : state.status === 'on' ? '● ON' : '◉ ON'}
                           </button>
                           <button onClick={() => handleControlWithRetry(device.deviceId, 'off')}
-                            disabled={anyModbusBusy || isProcessing || state.status === 'off' || state.status === 'idle'}
-                            style={{...btnBase, ...(state.status === 'off' || state.status === 'idle' || state.status === 'turning_off' ? s.offActive : s.offInactive), ...(anyModbusBusy || isProcessing || state.status === 'off' || state.status === 'idle' ? {opacity:0.4,cursor:'not-allowed'} : {})}}>
+                            disabled={myModbusBusy || isProcessing || state.status === 'off' || state.status === 'idle'}
+                            style={{...btnBase, ...(state.status === 'off' || state.status === 'idle' || state.status === 'turning_off' ? s.offActive : s.offInactive), ...(myModbusBusy || isProcessing || state.status === 'off' || state.status === 'idle' ? {opacity:0.4,cursor:'not-allowed'} : {})}}>
                             {state.status === 'turning_off' ? '⏳ 전환중...' : '○ OFF'}
                           </button>
                         </div>
@@ -1424,20 +1427,20 @@ const ControlPanel = ({ farmId, houseId, houseConfig }) => {
                             return (
                               <>
                                 <button onClick={() => handleControlWithRetry(device.deviceId, 'open')}
-                                  disabled={anyModbusBusy || isProcessing || state.status === 'open' || !!prog}
-                                  style={{...btnBase, ...(state.status === 'open' || state.status === 'opening' || (prog && prog.direction === 'open') ? s.openActive : (anyModbusBusy || isProcessing || state.status === 'open' || (prog && prog.direction === 'close')) ? s.openDisabled : s.openInactive)}}>
+                                  disabled={myModbusBusy || isProcessing || state.status === 'open' || !!prog}
+                                  style={{...btnBase, ...(state.status === 'open' || state.status === 'opening' || (prog && prog.direction === 'open') ? s.openActive : (myModbusBusy || isProcessing || state.status === 'open' || (prog && prog.direction === 'close')) ? s.openDisabled : s.openInactive)}}>
                                   {openLabel}
                                 </button>
                                 <button onClick={() => handleControlWithRetry(device.deviceId, 'stop')}
-                                  disabled={anyModbusBusy || (!prog && state.status === 'idle' && (pos === undefined || pos === null)) || state.status === 'stopping'}
-                                  style={{...btnBase, ...(state.status === 'stopping' ? s.stopActive : (prog || state.status === 'opening' || state.status === 'closing') ? s.stopUrgent : (anyModbusBusy || state.status === 'idle') ? s.stopDisabled : s.stopInactive),
+                                  disabled={myModbusBusy || (!prog && state.status === 'idle' && (pos === undefined || pos === null)) || state.status === 'stopping'}
+                                  style={{...btnBase, ...(state.status === 'stopping' ? s.stopActive : (prog || state.status === 'opening' || state.status === 'closing') ? s.stopUrgent : (myModbusBusy || state.status === 'idle') ? s.stopDisabled : s.stopInactive),
                                     ...(prog || (pos !== undefined && pos !== null && pos > 0 && pos < 100) ? { fontSize: 15, fontWeight: 900, color: '#1e40af', background: '#dbeafe', border: '2px solid #93c5fd' } : (pos !== undefined && pos !== null) ? { fontSize: 14, fontWeight: 700, color: '#6b7280', background: '#f3f4f6', border: '1px solid #e5e7eb' } : {})
                                   }}>
                                   {stopLabel}
                                 </button>
                                 <button onClick={() => handleControlWithRetry(device.deviceId, 'close')}
-                                  disabled={anyModbusBusy || isProcessing || state.status === 'closed' || !!prog}
-                                  style={{...btnBase, ...(state.status === 'closed' || state.status === 'closing' || (prog && prog.direction === 'close') ? s.closeActive : (anyModbusBusy || isProcessing || state.status === 'closed' || (prog && prog.direction === 'open')) ? s.closeDisabled : s.closeInactive)}}>
+                                  disabled={myModbusBusy || isProcessing || state.status === 'closed' || !!prog}
+                                  style={{...btnBase, ...(state.status === 'closed' || state.status === 'closing' || (prog && prog.direction === 'close') ? s.closeActive : (myModbusBusy || isProcessing || state.status === 'closed' || (prog && prog.direction === 'open')) ? s.closeDisabled : s.closeInactive)}}>
                                   {closeLabel}
                                 </button>
                               </>

@@ -15,8 +15,8 @@
  *   const API_BASE_URL = getApiBase();
  */
 
-const PC_SERVER = import.meta.env.VITE_API_BASE_URL || 'http://192.168.137.1:3000/api';
-const RPI_SERVER = import.meta.env.VITE_RPI_API_URL || 'http://192.168.137.30:1880/api';
+const PC_SERVER = import.meta.env.VITE_API_BASE_URL || 'https://api.smartgreen.kr/api';
+const RPI_SERVER = import.meta.env.VITE_RPI_API_URL || 'http://farm-0001:1880/api';
 
 // 프로덕션 모드 판별: RPi 직접 접근이 불가능한 외부 네트워크 환경
 // VITE_RPI_API_URL이 비어있거나, HTTPS에서 로컬 HTTP RPi 호출 시 Mixed Content 차단됨

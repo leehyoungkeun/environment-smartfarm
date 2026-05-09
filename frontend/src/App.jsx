@@ -16,7 +16,7 @@ import FarmManager from './components/Settings/FarmManager';
 import FarmOverviewWidget from './components/Dashboard/FarmOverviewWidget';
 import ReportPage from './components/Dashboard/ReportPage';
 import CCTVPanel from './components/Dashboard/CCTVPanel';
-import { getApiBase, getRpiApiBase, isFarmLocalMode } from './services/apiSwitcher';
+import { getApiBase, getRpiApiBase, isFarmLocalMode, getSystemMode, onModeChange, setFarmLocalMode } from './services/apiSwitcher';
 import TouchKeyboard from './components/Common/TouchKeyboard';
 
 /**
@@ -190,6 +190,11 @@ function AppContent() {
     return hash || 'dashboard';
   };
   const [currentPage, setCurrentPageState] = useState(getPageFromHash);
+
+  // 트랩 21 fix (2026-05-09): cloud 끊김 알림 배너 — 농장주가 명시적 팜로컬 전환
+  const [sysMode, setSysMode] = useState(getSystemMode());
+  useEffect(() => onModeChange(setSysMode), []);
+  const showCloudDownBanner = !sysMode.serverOnline && !isFarmLocalMode() && sysMode.mode !== 'farm-local';
 
   const scrollPositions = useRef({});
   const setCurrentPage = (page) => {
@@ -576,6 +581,28 @@ function AppContent() {
           </div>
         </div>
       </header>
+
+      {/* 클라우드 연결 끊김 알림 배너 — 농장주가 직접 팜로컬 전환 결정 */}
+      {showCloudDownBanner && (
+        <div className="bg-red-500 text-white px-4 py-2.5 flex items-center justify-between gap-3 sticky top-[60px] z-40 shadow-md">
+          <div className="flex items-center gap-2 text-sm">
+            <span className="text-lg">⚠</span>
+            <span className="font-semibold">클라우드 서버 연결 끊김</span>
+            <span className="hidden sm:inline opacity-90">— 인터넷·서버 상태를 확인하세요</span>
+          </div>
+          <button
+            onClick={() => {
+              if (window.confirm('팜로컬 모드로 전환하시겠습니까?\n\n· 농장 RPi 가 직접 응답합니다 (제한 기능)\n· 영농일지·이력 등 클라우드 의존 기능은 사용 불가\n· 인터넷 복구 후 클라우드 모드로 다시 전환할 수 있습니다')) {
+                setFarmLocalMode(true);
+                window.location.reload();
+              }
+            }}
+            className="bg-white text-red-700 px-3 py-1 rounded-md text-sm font-bold hover:bg-red-50 whitespace-nowrap"
+          >
+            팜로컬 모드 전환
+          </button>
+        </div>
+      )}
 
       {/* 모바일 사이드바 */}
       {showMobileSidebar && (

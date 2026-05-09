@@ -119,9 +119,9 @@ export const AuthProvider = ({ children }) => {
 
   useEffect(() => {
     const initAuth = async () => {
-      // 팜로컬 모드: 자동 로그인 (JWT 서버 없음)
-      // farmId 는 RPi /api/system/info 동적 조회 우선 → 빌드 타임 환경변수 → 최종 fallback
-      // (1호 빌드 dist 가 새 농장 RPi 에 그대로 가도 .farm-id 기반으로 정확히 동작)
+      // 팜로컬 모드: 농장주가 명시적으로 setFarmLocalMode(true) 한 경우만
+      // 트랩 21 fix (2026-05-09): 옛 자동 진입 폐기 — 키오스크도 cloud 우선 (정상 frontend)
+      // cloud 끊김 시 헤더 배너에서 농장주가 직접 '팜로컬 전환' 버튼으로만 진입
       if (isFarmLocalMode()) {
         let farmId = null;
         try {

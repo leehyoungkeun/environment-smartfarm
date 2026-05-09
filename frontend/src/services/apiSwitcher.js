@@ -40,13 +40,10 @@ const CONFIG_CACHE_TTL_MS = 10 * 60 * 1000;
  *  · 미설정 시만 자동 감지 동작 (터치패널: localhost/127.0.0.1 + port 80/443/빈값)
  */
 export function isFarmLocalMode() {
-  const explicit = localStorage.getItem(FARM_LOCAL_KEY);
-  if (explicit === 'true') return true;
-  if (explicit === 'false') return false;
-  const host = window.location.hostname;
-  const port = window.location.port;
-  return ['localhost', '127.0.0.1'].includes(host)
-    && ['80', '443', ''].includes(port);
+  // 트랩 21 fix (2026-05-09): 자동 감지 폐기 — 농장주가 명시적으로 전환할 때만
+  // 옛 동작: localhost+80 자동 진입 → 키오스크에서 cloud 못 쓰게 막힘
+  // 새 동작: localStorage 'true' 일 때만 farm-local. 기본값 cloud 모드
+  return localStorage.getItem(FARM_LOCAL_KEY) === 'true';
 }
 
 /**
@@ -192,13 +189,16 @@ export function getPcApiBase() {
  * 현재 API 베이스 URL 반환
  */
 export function getApiBase() {
+  // 트랩 21 fix (2026-05-09): 자동 RPi fallback 제거
+  // farm-local 명시적 ON 시만 RPi, 그 외엔 항상 cloud (PC_SERVER)
+  // cloud 끊김 시 농장주가 배너 클릭으로 명시적 전환
   if (isFarmLocalMode()) {
     if (window.location.port === '1880' || window.location.origin.includes(':1880')) {
       return window.location.origin + '/api';
     }
     return RPI_SERVER;
   }
-  return S.currentApiBase;
+  return PC_SERVER;
 }
 
 /**

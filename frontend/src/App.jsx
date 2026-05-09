@@ -306,9 +306,10 @@ function AppContent() {
   };
 
   const farmLocal = isFarmLocalMode();
-  const isTouchPanel = ['localhost', '127.0.0.1'].includes(window.location.hostname) && ['80', '443', ''].includes(window.location.port);
+  // 트랩 21 (2026-05-09): isTouchPanel 자동 메뉴 축소 폐기 — 키오스크도 cloud 모드면 일반 frontend 와 동일
+  // farmLocal 명시적 ON 일 때만 메뉴 축소 (1줄 레이아웃)
 
-  const allNavItems = (farmLocal || isTouchPanel)
+  const allNavItems = farmLocal
     ? [
         { id: 'dashboard', label: '대시보드', icon: '📊', permission: 'dashboard' },
         { id: 'control', label: '제어', icon: '🎛️', permission: 'control' },
@@ -330,7 +331,7 @@ function AppContent() {
   // 역할별 2줄 네비 그리드 계산
   const isStaff = isSystemWide; // superadmin, manager
   const navGrid = (() => {
-    if (farmLocal || isTouchPanel) return null; // farmLocal/터치패널은 1줄 레이아웃
+    if (farmLocal) return null; // farmLocal 만 1줄 레이아웃 (트랩 21: cloud 키오스크는 정상 2줄)
     if (isStaff) {
       // 회사직원: 5열, row1=nav앞5개, row2=나머지nav+알림+관리자
       const row1 = navItems.slice(0, 5);

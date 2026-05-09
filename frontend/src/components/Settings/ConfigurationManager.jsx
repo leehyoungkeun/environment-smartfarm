@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, lazy, Suspense } from 'react';
 import axiosBase from 'axios';
-import { getApiBase, getPcApiBase, getRpiApiBase, isFarmLocalMode, setFarmLocalMode, isFarmLocalAutoDetected } from '../../services/apiSwitcher';
+import { getApiBase, getPcApiBase, getRpiApiBase, isFarmLocalMode, setFarmLocalMode } from '../../services/apiSwitcher';
 import wsService from '../../services/wsService';
 
 const AutomationManager = lazy(() => import('../Dashboard/AutomationManager'));
@@ -1715,7 +1715,6 @@ const INTERVAL_PRESETS = [
 
 const SystemSettings = ({ farmId }) => {
   const [farmLocal, setFarmLocal] = useState(isFarmLocalMode());
-  const autoDetected = isFarmLocalAutoDetected();
 
   const handleFarmLocalToggle = () => {
     const newValue = !farmLocal;
@@ -1961,9 +1960,7 @@ const SystemSettings = ({ farmId }) => {
             <div>
               <p className="text-sm font-bold text-gray-800">팜로컬 모드</p>
               <p className="text-xs text-gray-500">
-                {farmLocal
-                  ? (autoDetected ? '활성 - 터치패널 자동 감지' : '활성 - RPi 독립 운영 중')
-                  : '비활성 - 서버/클라우드 연동 모드'}
+                {farmLocal ? '활성 - RPi 독립 운영 중' : '비활성 - 서버/클라우드 연동 모드'}
               </p>
             </div>
           </div>
@@ -1974,21 +1971,6 @@ const SystemSettings = ({ farmId }) => {
             <span className={`absolute top-0.5 w-6 h-6 bg-white rounded-full shadow transition-all ${farmLocal ? 'left-7' : 'left-0.5'}`} />
           </button>
         </div>
-
-        {autoDetected && farmLocal && (
-          <div className="bg-blue-50 border border-blue-200 rounded-xl p-3.5 mt-3">
-            <div className="flex items-start gap-2">
-              <span className="text-lg mt-0.5">📱</span>
-              <div>
-                <p className="text-sm font-bold text-blue-700">현재 터치패널 환경</p>
-                <p className="text-xs text-blue-600 leading-relaxed">
-                  localhost(80) 접속 — 터치패널/RPi 직접 접속 환경에서는 팜로컬 모드가 자동 활성됩니다.
-                  토글을 끄면 명시적 OFF 상태로 보존되어 서버 연동 모드로 전환됩니다.
-                </p>
-              </div>
-            </div>
-          </div>
-        )}
 
         {farmLocal && (
           <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-3.5 mt-3">

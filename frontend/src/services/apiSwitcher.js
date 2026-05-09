@@ -319,23 +319,18 @@ async function checkServerHealth() {
       HEALTH_MAX_INTERVAL
     );
 
+    // 트랩 21 (2026-05-09): 자동 RPi 전환 폐기 — 헤더 배너에서 농장주가 명시 전환만
+    // RPi 헬스체크는 정보용으로만 유지 (UI 표시), S.currentApiBase 자동 변경 X
+    S.currentApiBase = PC_SERVER;
     if (IS_CLOUD_MODE) {
-      // 클라우드 모드: RPi fallback 없음 — 서버 복구 대기
       S.rpiOnline = false;
-      S.currentApiBase = PC_SERVER; // 서버 다운이어도 PC_SERVER 유지
       if (S.consecutiveFailures <= 1) {
         console.log('[API Switcher] 서버 일시 장애 — 재시도 중');
       }
     } else {
-      // 로컬 네트워크: RPi fallback 활성
       S.rpiOnline = await checkRpiHealth();
-      if (S.rpiOnline) {
-        S.currentApiBase = RPI_SERVER;
-        if (S.consecutiveFailures <= 1) {
-          console.log('[API Switcher] RPi 접근 가능 → RPi API로 전환');
-        }
-      } else if (S.consecutiveFailures <= 1) {
-        console.log('[API Switcher] RPi 접근 불가 → 연결 끊김');
+      if (S.consecutiveFailures <= 1) {
+        console.log(`[API Switcher] 서버 끊김 — RPi ${S.rpiOnline ? '접근 가능 (배너에서 명시 전환 가능)' : '접근 불가'}`);
       }
     }
   }

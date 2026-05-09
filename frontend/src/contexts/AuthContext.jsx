@@ -231,6 +231,7 @@ export const AuthProvider = ({ children }) => {
         }
 
         // 네트워크 오류 (서버 다운) → 캐시된 사용자로 오프라인 모드
+        // 트랩 21 (2026-05-09): localhost 자동 진입 폐기 — 헤더 배너에서 명시 전환만
         if (!error.response) {
           const { accessToken } = getTokens();
           const cachedUser = getCachedUser();
@@ -238,34 +239,8 @@ export const AuthProvider = ({ children }) => {
             console.log('[Auth] 서버 연결 불가 → 오프라인 모드 (캐시된 사용자 정보 사용)');
             setUser(cachedUser);
             setOfflineMode(true);
-          } else if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
-            // RPi 로컬 접속 + PC 서버 없음 + 캐시 없음 → 로컬 농장관리자로 자동 진입
-            console.log('[Auth] 로컬 접속 + 서버 없음 → 로컬 모드 자동 진입');
-            // farmId 동적 조회 (팜로컬 자동 로그인과 동일 흐름)
-            let farmId = null;
-            try {
-              const r = await fetch('/api/system/info', {
-                cache: 'no-store',
-                signal: AbortSignal.timeout(2000),
-              });
-              if (r.ok) {
-                const d = await r.json();
-                if (d?.success && d?.configured && d?.farmId) farmId = d.farmId;
-              }
-            } catch { /* fallback */ }
-            if (!farmId) farmId = import.meta.env.VITE_FARM_ID || 'farm_0001';
-
-            const localUser = {
-              id: 'local-user',
-              username: 'farmer',
-              name: '농장관리자',
-              role: 'owner',
-              farmId,
-            };
-            setUser(localUser);
-            cacheUser(localUser);
-            setOfflineMode(true);
           }
+          // 캐시 없음 + 서버 끊김: LoginPage 로 떨어짐 (배너에서 명시적 팜로컬 전환 가능)
         }
       } finally {
         setLoading(false);

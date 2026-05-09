@@ -884,6 +884,40 @@ const ControlPanel = ({ farmId, houseId, houseConfig }) => {
         setControlStage(prev => ({ ...prev, [deviceId]: 'executing' }));
         // ★ Modbus 완료 대기 — Node-RED가 실제 쓰기 완료를 확인 + UI 표시
         if (result.success && result.requestId) {
+          // bidir 진행률은 릴레이 ON 직후 (= 명령 전송 응답 후) 즉시 시작
+          // Modbus verification(4-5초) 동안 모터는 이미 동작 중이므로 % 카운트 누락 방지
+          if (modbusConfig?.controlType === 'bidir' && (command === 'open' || command === 'close')) {
+            const fullDur = command === 'open' ? modbusConfig.openDuration : modbusConfig.closeDuration;
+            if (fullDur && fullDur > 0) {
+              const curPos = bidirPositionRef.current[deviceId] || 0;
+              const remainRatio = command === 'open' ? (100 - curPos) / 100 : curPos / 100;
+              const autoDur = Math.max(1, Math.round(fullDur * remainRatio));
+              const stopTimerKey = `autoStop_${deviceId}`;
+              const progressKey = `progress_${deviceId}`;
+              if (timerRefs.current[stopTimerKey]) clearTimeout(timerRefs.current[stopTimerKey]);
+              if (timerRefs.current[progressKey]) clearInterval(timerRefs.current[progressKey]);
+              const startTime = Date.now();
+              setBidirProgress(prev => ({ ...prev, [deviceId]: { percent: 0, direction: command, totalSec: autoDur, remainSec: autoDur, startPos: curPos } }));
+              timerRefs.current[progressKey] = setInterval(() => {
+                const elapsed = (Date.now() - startTime) / 1000;
+                const progressPct = Math.min(100, Math.round((elapsed / autoDur) * 100));
+                const actualPos = command === 'open'
+                  ? Math.min(100, Math.round(curPos + (100 - curPos) * (elapsed / autoDur)))
+                  : Math.max(0, Math.round(curPos - curPos * (elapsed / autoDur)));
+                setBidirProgress(prev => ({ ...prev, [deviceId]: { percent: progressPct, direction: command, totalSec: autoDur, remainSec: Math.max(0, Math.round(autoDur - elapsed)), startPos: curPos, actualPos } }));
+                if (progressPct >= 100) clearInterval(timerRefs.current[progressKey]);
+              }, 500);
+              timerRefs.current[stopTimerKey] = setTimeout(() => {
+                handleControl(deviceId, 'stop');
+                timerRefs.current[stopTimerKey] = null;
+                clearInterval(timerRefs.current[progressKey]);
+                timerRefs.current[progressKey] = null;
+                setBidirProgress(prev => ({ ...prev, [deviceId]: null }));
+                setBidirPosition(prev => ({ ...prev, [deviceId]: command === 'open' ? 100 : 0 }));
+              }, autoDur * 1000);
+            }
+          }
+
           setModbusStatus(prev => ({ ...prev, [deviceId]: 'verifying' }));
           setControlStage(prev => ({ ...prev, [deviceId]: 'verifying' }));
           const ok = await waitForModbusDone(result.requestId);
@@ -894,44 +928,14 @@ const ControlPanel = ({ farmId, houseId, houseConfig }) => {
             const finalStatus = { open: 'open', close: 'closed', stop: 'idle', on: 'on', off: 'off' };
             if (timerRefs.current[deviceId]) { clearTimeout(timerRefs.current[deviceId]); timerRefs.current[deviceId] = null; }
             setDeviceStates(prev => ({ ...prev, [deviceId]: { ...prev[deviceId], status: finalStatus[command] || 'idle', commandLock: false } }));
-            // bidir 장치: openDuration/closeDuration 후 자동 정지 + 진행도 표시
-            if (modbusConfig?.controlType === 'bidir' && (command === 'open' || command === 'close')) {
-              const fullDur = command === 'open' ? modbusConfig.openDuration : modbusConfig.closeDuration;
-              if (fullDur && fullDur > 0) {
-                const curPos = bidirPositionRef.current[deviceId] || 0;
-                // 남은 비율만큼만 동작: 열기면 (100-curPos)%, 닫기면 curPos%
-                const remainRatio = command === 'open' ? (100 - curPos) / 100 : curPos / 100;
-                const autoDur = Math.max(1, Math.round(fullDur * remainRatio));
-                const stopTimerKey = `autoStop_${deviceId}`;
-                const progressKey = `progress_${deviceId}`;
-                if (timerRefs.current[stopTimerKey]) clearTimeout(timerRefs.current[stopTimerKey]);
-                if (timerRefs.current[progressKey]) clearInterval(timerRefs.current[progressKey]);
-                const startTime = Date.now();
-                setBidirProgress(prev => ({ ...prev, [deviceId]: { percent: 0, direction: command, totalSec: autoDur, remainSec: autoDur, startPos: curPos } }));
-                timerRefs.current[progressKey] = setInterval(() => {
-                  const elapsed = (Date.now() - startTime) / 1000;
-                  const progressPct = Math.min(100, Math.round((elapsed / autoDur) * 100));
-                  // 실제 열림 위치 계산
-                  const actualPos = command === 'open'
-                    ? Math.min(100, Math.round(curPos + (100 - curPos) * (elapsed / autoDur)))
-                    : Math.max(0, Math.round(curPos - curPos * (elapsed / autoDur)));
-                  setBidirProgress(prev => ({ ...prev, [deviceId]: { percent: progressPct, direction: command, totalSec: autoDur, remainSec: Math.max(0, Math.round(autoDur - elapsed)), startPos: curPos, actualPos } }));
-                  if (progressPct >= 100) clearInterval(timerRefs.current[progressKey]);
-                }, 500);
-                timerRefs.current[stopTimerKey] = setTimeout(() => {
-                  handleControl(deviceId, 'stop');
-                  timerRefs.current[stopTimerKey] = null;
-                  clearInterval(timerRefs.current[progressKey]);
-                  timerRefs.current[progressKey] = null;
-                  setBidirProgress(prev => ({ ...prev, [deviceId]: null }));
-                  // 100% 도달: 위치 업데이트
-                  setBidirPosition(prev => ({ ...prev, [deviceId]: command === 'open' ? 100 : 0 }));
-                }, autoDur * 1000);
-              }
-            }
           } else {
             // 타임아웃: 릴레이 상태 재확인으로 실제 동작 여부 검증
             setControlStage(prev => ({ ...prev, [deviceId]: 'hw_check' }));
+            const cancelProgress = () => {
+              if (timerRefs.current[`progress_${deviceId}`]) { clearInterval(timerRefs.current[`progress_${deviceId}`]); timerRefs.current[`progress_${deviceId}`] = null; }
+              if (timerRefs.current[`autoStop_${deviceId}`]) { clearTimeout(timerRefs.current[`autoStop_${deviceId}`]); timerRefs.current[`autoStop_${deviceId}`] = null; }
+              setBidirProgress(prev => ({ ...prev, [deviceId]: null }));
+            };
             try {
               await fetchRelayStatus();
               const m = targetDevice?.modbus;
@@ -946,21 +950,24 @@ const ControlPanel = ({ farmId, houseId, houseConfig }) => {
                   actualStatus = coils[m.address] ? 'on' : 'off';
                 }
                 if (actualStatus === expectedStatus) {
-                  // 실제로 동작했음 — 완료 처리
+                  // 실제로 동작했음 — 완료 처리 (진행률은 그대로 유지)
                   setModbusStatus(prev => ({ ...prev, [deviceId]: 'done' }));
                   setControlStage(prev => ({ ...prev, [deviceId]: 'done' }));
                   if (timerRefs.current[deviceId]) { clearTimeout(timerRefs.current[deviceId]); timerRefs.current[deviceId] = null; }
                   setDeviceStates(prev => ({ ...prev, [deviceId]: { ...prev[deviceId], status: expectedStatus, commandLock: false, relayVerified: true } }));
                 } else {
+                  cancelProgress();
                   setModbusStatus(prev => ({ ...prev, [deviceId]: 'timeout' }));
                   setControlStage(prev => ({ ...prev, [deviceId]: 'timeout' }));
                 }
               } else {
-                // Eletechsup 등 FC1 불가 장치 — 타임아웃 유지
+                // Eletechsup 등 FC1 불가 장치 — 타임아웃 유지 (진행률도 취소)
+                cancelProgress();
                 setModbusStatus(prev => ({ ...prev, [deviceId]: 'timeout' }));
                 setControlStage(prev => ({ ...prev, [deviceId]: 'timeout' }));
               }
             } catch {
+              cancelProgress();
               setModbusStatus(prev => ({ ...prev, [deviceId]: 'timeout' }));
               setControlStage(prev => ({ ...prev, [deviceId]: 'timeout' }));
             }

@@ -99,6 +99,24 @@ app.get('/api/system/status', async (req, res) => {
   res.json({ nodeRed, rpiExpress, timestamp: new Date().toISOString() });
 });
 
+// GET /api/system/ip — RPi LAN IP (apiSwitcher 가 RPi 헬스체크 용도)
+// 트랩 20 fix (2026-05-09): App.jsx 가 RPi LAN IP 조회 시 404 → "서버 연결 실패" 박스
+app.get('/api/system/ip', (req, res) => {
+  res.json({ success: true, ip: primaryIPv4(), hostname: os.hostname() });
+});
+
+// GET /api/system/mode — apiSwitcher 헬스체크 용도 (RPi 살아있음 시그널)
+// 트랩 20 fix (2026-05-09): apiSwitcher 가 mode 조회 → 404 → 헬스체크 실패 → 잘못된 모드 전환
+app.get('/api/system/mode', (req, res) => {
+  const farmId = readFarmId();
+  res.json({
+    success: true,
+    mode: farmId && farmId !== 'UNSET' ? 'farm-local' : 'setup',
+    farmId,
+    timestamp: new Date().toISOString(),
+  });
+});
+
 // POST /api/system/restart-nodered
 app.post('/api/system/restart-nodered', async (req, res) => {
   const result = await restartPm2('node-red');

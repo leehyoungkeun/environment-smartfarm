@@ -28,6 +28,29 @@ const DEVICE_TYPE_INFO = {
   etc_device:  { label: '기타', icon: '🔧', commands: ['on', 'off'] },
 };
 
+const TRANSIENT_STATUSES = new Set(['opening', 'closing', 'stopping', 'turning_on', 'turning_off']);
+const STATE_EXPIRY_MS = 5 * 60 * 1000;
+
+function sanitizeDeviceStates(states) {
+  if (!states || typeof states !== 'object') return {};
+  const now = Date.now();
+  let changed = false;
+  const out = {};
+  for (const [id, st] of Object.entries(states)) {
+    if (!st || typeof st !== 'object') { out[id] = st; continue; }
+    if (TRANSIENT_STATUSES.has(st.status)) {
+      const ts = st.lastCommandTime ? new Date(st.lastCommandTime).getTime() : 0;
+      if (!ts || now - ts > STATE_EXPIRY_MS) {
+        out[id] = { ...st, status: 'idle', commandLock: false };
+        changed = true;
+        continue;
+      }
+    }
+    out[id] = st;
+  }
+  return changed ? out : states;
+}
+
 const ControlPanel = ({ farmId, houseId, houseConfig }) => {
   const { user } = useAuth();
   const devices = houseConfig?.devices || [];
@@ -39,7 +62,7 @@ const ControlPanel = ({ farmId, houseId, houseConfig }) => {
 
   const statesKey = `deviceStates_${farmId}_${houseId}`;
   const [deviceStates, setDeviceStates] = useState(() => {
-    try { return JSON.parse(localStorage.getItem(statesKey)) || {}; }
+    try { return sanitizeDeviceStates(JSON.parse(localStorage.getItem(statesKey)) || {}); }
     catch { return {}; }
   });
   const [controlHistory, setControlHistory] = useState([]);
@@ -57,6 +80,13 @@ const ControlPanel = ({ farmId, houseId, houseConfig }) => {
   const bidirProgressRef = useRef(bidirProgress);
   bidirProgressRef.current = bidirProgress;
   const [conflictWarning, setConflictWarning] = useState(null); // { conflicts: [...] }
+  const [toast, setToast] = useState(null); // { message, kind: 'warn'|'info' }
+  const toastTimerRef = useRef(null);
+  const showToast = useCallback((message, kind = 'warn') => {
+    if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+    setToast({ message, kind });
+    toastTimerRef.current = setTimeout(() => setToast(null), 4500);
+  }, []);
 
   const timerRefs = React.useRef({});
 
@@ -351,6 +381,20 @@ const ControlPanel = ({ farmId, houseId, houseConfig }) => {
       try { localStorage.setItem(statesKey, JSON.stringify(deviceStates)); } catch {}
     }
   }, [deviceStates, statesKey]);
+
+  // 만료된 transient 상태(opening/closing/turning_on/turning_off/stopping) 5분 초과 시 idle 자동 복원
+  useEffect(() => {
+    const tick = () => {
+      setDeviceStates(prev => {
+        const next = sanitizeDeviceStates(prev);
+        return next === prev ? prev : next;
+      });
+    };
+    const interval = setInterval(tick, 30 * 1000);
+    const onVisible = () => { if (document.visibilityState === 'visible') tick(); };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => { clearInterval(interval); document.removeEventListener('visibilitychange', onVisible); };
+  }, []);
 
   // bidirPosition 변경 시 localStorage 저장
   useEffect(() => {
@@ -796,6 +840,15 @@ const ControlPanel = ({ farmId, houseId, houseConfig }) => {
 
       const targetDevice = devices.find(d => d.deviceId === deviceId);
       const modbusConfig = targetDevice?.modbus || null;
+
+      // bidir 장치 동작 시간 누락 체크 — 진행률 % 표시 + 자동 정지가 동작하지 않으므로 사용자 안내
+      if (modbusConfig?.controlType === 'bidir' && (command === 'open' || command === 'close')) {
+        const fullDur = command === 'open' ? modbusConfig.openDuration : modbusConfig.closeDuration;
+        if (!fullDur || fullDur <= 0) {
+          const label = command === 'open' ? '전체 열림 시간' : '전체 닫힘 시간';
+          showToast(`설정 → ${targetDevice?.name || deviceId} → Modbus 채널에서 "${label}(초)"을(를) 입력하세요. 진행률 %와 자동 정지가 동작하지 않습니다.`);
+        }
+      }
 
       const isLocalHost = ['localhost', '127.0.0.1'].includes(window.location.hostname);
       if (isLocalHost || mode.isFarmLocal || mode.mode === 'offline') {
@@ -1576,6 +1629,22 @@ const ControlPanel = ({ farmId, houseId, houseConfig }) => {
               </button>
             </div>
           </div>
+        </div>,
+        document.body
+      )}
+
+      {/* 토스트 알림 (bidir 동작 시간 누락 등) */}
+      {toast && createPortal(
+        <div style={{position:'fixed',bottom:24,right:24,zIndex:10001,maxWidth:420,minWidth:280,
+          background: toast.kind === 'warn' ? '#fef3c7' : '#dbeafe',
+          color: toast.kind === 'warn' ? '#92400e' : '#1e3a8a',
+          border: `1.5px solid ${toast.kind === 'warn' ? '#fbbf24' : '#60a5fa'}`,
+          borderRadius:12,padding:'14px 16px',boxShadow:'0 10px 30px rgba(0,0,0,0.2)',
+          display:'flex',alignItems:'flex-start',gap:10,fontSize:13,lineHeight:1.5,fontWeight:600,
+          animation:'slideInRight 0.2s ease-out'}}>
+          <span style={{fontSize:18,flexShrink:0}}>{toast.kind === 'warn' ? '⚠' : 'ℹ'}</span>
+          <span style={{flex:1}}>{toast.message}</span>
+          <button onClick={() => setToast(null)} style={{background:'transparent',border:'none',color:'inherit',cursor:'pointer',fontSize:16,padding:0,lineHeight:1,opacity:0.6}}>✕</button>
         </div>,
         document.body
       )}

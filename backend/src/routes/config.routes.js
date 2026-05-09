@@ -576,16 +576,27 @@ router.post("/:farmId/rpi-ack", async (req, res) => {
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // 동기화 상태/제어 프록시 (프론트 → 백엔드 → RPi)
+// 멀티팜 지원: farmId → Tailscale MagicDNS hostname 자동 매핑
+// farm_0001 → http://farm-0001:1880  (RPi 가 Tailscale 가입돼 있어야)
+// IP 변경·재부팅·이사 무관 (Tailscale 이 자동 추적)
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-const RPI_BASE = process.env.RPI_URL || "http://192.168.137.30:1880";
+function getRpiBase(farmId) {
+  // 환경변수 우선 (개발·테스트용 단일 RPi 강제 지정)
+  if (process.env.RPI_URL) return process.env.RPI_URL;
+  // farm_0001 → farm-0001 hostname (Tailscale MagicDNS)
+  const hostname = String(farmId || "").replace(/^farm_/, "farm-");
+  if (!hostname) throw new Error("farmId required");
+  return `http://${hostname}:1880`;
+}
 
 router.get("/sync-status/:farmId", async (req, res) => {
   try {
-    const response = await fetch(`${RPI_BASE}/api/sync/status`, { timeout: 5000 });
+    const rpiBase = getRpiBase(req.params.farmId);
+    const response = await fetch(`${rpiBase}/api/sync/status`, { timeout: 5000 });
     const data = await response.json();
     res.json(data);
   } catch (error) {
-    logger.warn("RPi sync-status 조회 실패:", error.message);
+    logger.warn(`RPi sync-status 조회 실패 (${req.params.farmId}):`, error.message);
     res.json({ success: false, error: "RPi 연결 실패" });
   }
 });
@@ -596,17 +607,18 @@ router.post("/sync-action/:farmId", async (req, res) => {
     if (!["start", "stop", "skip"].includes(action)) {
       return res.status(400).json({ success: false, error: "Invalid action" });
     }
+    const rpiBase = getRpiBase(req.params.farmId);
 
     let url, method;
-    if (action === "start") { url = `${RPI_BASE}/api/sync/start`; method = "POST"; }
-    else if (action === "stop") { url = `${RPI_BASE}/api/sync/stop`; method = "POST"; }
-    else { url = `${RPI_BASE}/api/sync/skip`; method = "POST"; }
+    if (action === "start") { url = `${rpiBase}/api/sync/start`; method = "POST"; }
+    else if (action === "stop") { url = `${rpiBase}/api/sync/stop`; method = "POST"; }
+    else { url = `${rpiBase}/api/sync/skip`; method = "POST"; }
 
     const response = await fetch(url, { method, headers: { "Content-Type": "application/json" }, timeout: 10000 });
     const data = await response.json();
     res.json(data);
   } catch (error) {
-    logger.warn("RPi sync-action 실패:", error.message);
+    logger.warn(`RPi sync-action 실패 (${req.params.farmId}):`, error.message);
     res.status(502).json({ success: false, error: "RPi 연결 실패" });
   }
 });

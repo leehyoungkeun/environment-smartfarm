@@ -293,11 +293,18 @@ const ControlPanel = ({ farmId, houseId, houseConfig }) => {
       const updated = { ...prev, [deviceId]: next };
       localStorage.setItem(modeKey, JSON.stringify(updated));
 
-      // 자동화 활성 중일 때 RPi에 자동 모드 장치 목록 동기화
+      // 자동화 활성 중일 때 backend·RPi 양쪽 autoDevices 갱신
+      // 이전: syncAutoDevicesToRpi 만 호출 — cloud 모드에선 무동작 → backend 옛 상태로 박혀 펌프 등 자동모드 누락
+      // 변경: backend PUT /active 호출하여 autoDevices 갱신 → backend MQTT 로 RPi 자동 sync
       if (automationActive) {
         const autoDeviceIds = devices
           .filter(d => (d.deviceId === deviceId ? next : (updated[d.deviceId] || 'manual')) === 'auto')
           .map(d => d.deviceId);
+        const pcUrl = getApiBase();
+        axios.put(`${pcUrl}/automation/${farmId}/active`, {
+          houseId, active: true, autoDevices: autoDeviceIds,
+        }, { timeout: 5000 }).catch(err => console.warn('[autoDevices] backend 동기화 실패:', err.message));
+        // 로컬 모드: RPi 직접 POST (cloud 모드는 backend MQTT 가 처리)
         const rpiUrl = getRpiApiBase();
         syncAutoDevicesToRpi(rpiUrl, autoDeviceIds);
       }

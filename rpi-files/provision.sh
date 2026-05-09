@@ -238,6 +238,15 @@ server {
         proxy_set_header Host $host;
     }
 
+    # Node-RED — 로컬 직접 제어 (트랩 22 fix, 2026-05-09)
+    # frontend farm-local 모드 RPi 직접 제어 (rest_api_flow 핸들러)
+    location /api/control/local {
+        proxy_pass http://localhost:1880/api/control/local;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+    }
+
     # WebSocket (server.js, port 3001) — 실시간 센서·제어
     location /ws {
         proxy_pass http://localhost:3001/ws;

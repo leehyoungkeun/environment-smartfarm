@@ -207,7 +207,6 @@ server {
     }
 
     # 시스템 API (system-api.js, port 3100)
-    # 더 긴 prefix /api/system/ 가 /api/ 보다 먼저 매칭됨
     # /api/system/info — 농장 ID 동적 조회 (터치패널 자동 로그인용)
     # /api/system/status — PM2 상태
     location /api/system/ {
@@ -225,14 +224,38 @@ server {
         proxy_set_header X-Real-IP $remote_addr;
     }
 
-    # Node-RED API 프록시 (위에서 매칭 안 된 /api/* 전부)
-    location /api/ {
-        proxy_pass http://localhost:1880/api/;
+    # Node-RED — healthcheck (/api/local/*) + config sync (/api/sync/*) 만
+    # 트랩 18 fix (2026-05-09): 옛 config 는 /api/* 전체를 Node-RED 로 보내서
+    # server.js 의 auth/sensors/control/programs/alarms 등 모두 404 → 키오스크 로그인 불가
+    location /api/local/ {
+        proxy_pass http://localhost:1880/api/local/;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+    }
+    location /api/sync/ {
+        proxy_pass http://localhost:1880/api/sync/;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+    }
+
+    # WebSocket (server.js, port 3001) — 실시간 센서·제어
+    location /ws {
+        proxy_pass http://localhost:3001/ws;
         proxy_http_version 1.1;
         proxy_set_header Upgrade $http_upgrade;
         proxy_set_header Connection "upgrade";
         proxy_set_header Host $host;
+        proxy_read_timeout 86400;
+    }
+
+    # smartfarm-rpi server.js (port 3001) — auth·sensors·control·programs·alarms·users·dailySummary 등
+    # 위에서 매칭 안 된 모든 /api/* 가 server.js 로 라우팅 (longest-prefix-match)
+    location /api/ {
+        proxy_pass http://localhost:3001/api/;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
     }
 
     # Node-RED 에디터 + WebSocket (관리용)

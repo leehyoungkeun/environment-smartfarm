@@ -154,6 +154,14 @@ class MqttService extends EventEmitter {
         [farmId, deviceId, position, command || 'stop']
       );
       logger.info(`📍 장치 위치 저장: ${farmId}/${deviceId} → ${position}%`);
+
+      // WebSocket broadcast → frontend ControlPanel 즉시 sync (자동화·외부 명령 결과)
+      try {
+        const { broadcastDevicePosition } = await import("./wsServer.js");
+        broadcastDevicePosition(farmId, {
+          deviceId, position, command: command || 'stop',
+        });
+      } catch (e) { /* WS 발송 실패 무시 */ }
     } catch (e) {
       logger.error("장치 위치 저장 실패:", e.message);
     }

@@ -529,6 +529,7 @@ const ControlPanel = ({ farmId, houseId, houseConfig }) => {
 
   // 센서 최신값 polling — 자동화 규칙의 SensorGauge 시각화용
   const [latestSensors, setLatestSensors] = useState({}); // { sensorId: value }
+  const [lastSensorTs, setLastSensorTs] = useState(null); // 마지막 센서 수집 시각 → ② 평가 ETA 계산
   useEffect(() => {
     const fetchSensors = async () => {
       try {
@@ -538,8 +539,6 @@ const ControlPanel = ({ farmId, houseId, houseConfig }) => {
           headers: token ? { Authorization: `Bearer ${token}` } : {},
           timeout: 5000,
         });
-        // 응답 형식: res.data.data.data = { temp_0001: 25.4, humidity_0001: 57.7 }
-        // 또는 배열 형태도 호환 (백엔드 버전 변동 대비)
         const inner = res.data?.data || {};
         if (Array.isArray(inner)) {
           const map = {};
@@ -551,6 +550,7 @@ const ControlPanel = ({ farmId, houseId, houseConfig }) => {
         } else if (inner && typeof inner === 'object') {
           const sensorValues = inner.data && typeof inner.data === 'object' ? inner.data : inner;
           setLatestSensors(sensorValues);
+          if (inner.timestamp) setLastSensorTs(new Date(inner.timestamp).getTime());
         }
       } catch {}
     };
@@ -1492,6 +1492,7 @@ const ControlPanel = ({ farmId, houseId, houseConfig }) => {
                             automationActive={automationActive}
                             scheduleMap={scheduleMap}
                             latestSensors={latestSensors}
+                            lastSensorTs={lastSensorTs}
                           />
                         </div>
                       ) : isToggleType ? (
@@ -1981,8 +1982,49 @@ const SensorGauge = ({ condition, value }) => {
   );
 };
 
+/** 자동화 발동 ETA 카운트다운 칩 (조건 충족 시 다음 평가까지 / 쿨다운 남은 시간) */
+const AutomationEtaChip = ({ rule, isMet, lastSensorTs }) => {
+  const [now, setNow] = React.useState(Date.now());
+  React.useEffect(() => {
+    const t = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(t);
+  }, []);
+  if (!isMet) return null;
+  const cooldownSec = rule.cooldownSeconds || rule.cooldown_seconds || 0;
+  const lastTrig = rule.lastTriggeredAt || rule.last_triggered_at;
+  const lastTrigTs = lastTrig ? new Date(lastTrig).getTime() : 0;
+  const cooldownUntil = lastTrigTs + cooldownSec * 1000;
+  const inCooldown = cooldownSec > 0 && now < cooldownUntil;
+  const cooldownRemain = inCooldown ? Math.ceil((cooldownUntil - now) / 1000) : 0;
+  // 다음 ② 평가 = 마지막 센서 수집 + 60초
+  const nextEvalAt = lastSensorTs ? lastSensorTs + 60 * 1000 : 0;
+  const evalRemain = nextEvalAt > now ? Math.ceil((nextEvalAt - now) / 1000) : 0;
+  // 쿨다운이 더 멀면 쿨다운 표시, 아니면 평가 ETA
+  const finalRemain = inCooldown ? Math.max(cooldownRemain, evalRemain) : evalRemain;
+  const isCooldown = inCooldown && cooldownRemain > evalRemain;
+  const fmt = (s) => {
+    if (s <= 0) return '곧';
+    if (s < 60) return `${s}초`;
+    const m = Math.floor(s / 60);
+    const r = s % 60;
+    return r > 0 ? `${m}분 ${r}초` : `${m}분`;
+  };
+  return (
+    <span style={{
+      fontSize:11,fontWeight:800,padding:'3px 8px',borderRadius:8,
+      background: isCooldown ? '#fef3c7' : '#dcfce7',
+      color: isCooldown ? '#b45309' : '#15803d',
+      border: `1px solid ${isCooldown ? '#fde68a' : '#86efac'}`,
+      whiteSpace:'nowrap',
+      animation: finalRemain <= 5 && finalRemain > 0 ? 'pulse 1s ease-in-out infinite' : 'none',
+    }}>
+      {isCooldown ? `⏳ 쿨다운 ${fmt(finalRemain)}` : finalRemain > 0 ? `⏱ ${fmt(finalRemain)} 후 발동` : '🚀 곧 발동'}
+    </span>
+  );
+};
+
 /** 장치 자동 모드 - 선택된 규칙 목록 표시 */
-const DeviceAutoRules = ({ deviceId, rules, expandedRuleId, onToggleExpand, onRemove, onOpenPicker, locked, automationActive, scheduleMap = {}, latestSensors = {} }) => {
+const DeviceAutoRules = ({ deviceId, rules, expandedRuleId, onToggleExpand, onRemove, onOpenPicker, locked, automationActive, scheduleMap = {}, latestSensors = {}, lastSensorTs = null }) => {
   return (
     <div style={{display:'flex',flexDirection:'column',gap:6}}>
       {rules.length === 0 && (
@@ -1994,6 +2036,21 @@ const DeviceAutoRules = ({ deviceId, rules, expandedRuleId, onToggleExpand, onRe
         const isExpanded = expandedRuleId === rule._id;
         const sensorConds = (rule.conditions || []).filter(c => c.type === 'sensor');
         const timeConds = (rule.conditions || []).filter(c => c.type === 'time');
+        // 모든 센서 조건 충족 여부 (ETA 칩 표시 조건)
+        const evalCond = (c) => {
+          const cur = parseFloat(latestSensors[c.sensorId]);
+          if (Number.isNaN(cur)) return false;
+          const th = parseFloat(c.value);
+          switch (c.operator) {
+            case '<': return cur < th;
+            case '<=': return cur <= th;
+            case '>': return cur > th;
+            case '>=': return cur >= th;
+            case '==': return Math.abs(cur - th) < 0.1;
+            default: return false;
+          }
+        };
+        const allSensorMet = sensorConds.length > 0 && sensorConds.every(evalCond);
 
         return (
           <div key={rule._id} style={{borderRadius:10,border:'1.5px solid #bbf7d0',background:'#fff',overflow:'hidden'}}>
@@ -2002,7 +2059,7 @@ const DeviceAutoRules = ({ deviceId, rules, expandedRuleId, onToggleExpand, onRe
               onClick={() => onToggleExpand(rule._id)}
               style={{display:'flex',alignItems:'center',justifyContent:'space-between',padding:'10px 12px',cursor:'pointer',background: isExpanded ? '#f0fdf4' : '#fff'}}
             >
-              <div style={{display:'flex',alignItems:'center',gap:8,flex:1,minWidth:0}}>
+              <div style={{display:'flex',alignItems:'center',gap:8,flex:1,minWidth:0,flexWrap:'wrap'}}>
                 <span style={{fontSize:14}}>🤖</span>
                 <span style={{fontSize:14,fontWeight:700,color:'#0f172a',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{rule.name}</span>
                 <span style={{fontSize:11,fontWeight:700,padding:'2px 8px',borderRadius:12,
@@ -2010,6 +2067,9 @@ const DeviceAutoRules = ({ deviceId, rules, expandedRuleId, onToggleExpand, onRe
                   color: rule.enabled ? '#15803d' : '#dc2626',
                 }}>{rule.enabled ? '활성' : '비활성'}</span>
                 {automationActive && rule.enabled && scheduleMap[rule._id] && <NextRunCountdown nextRunAt={scheduleMap[rule._id]} />}
+                {automationActive && rule.enabled && sensorConds.length > 0 && (
+                  <AutomationEtaChip rule={rule} isMet={allSensorMet} lastSensorTs={lastSensorTs} />
+                )}
               </div>
               <div style={{display:'flex',alignItems:'center',gap:4,flexShrink:0}}>
                 {!locked && (

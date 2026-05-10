@@ -747,12 +747,41 @@ const ControlPanel = ({ farmId, houseId, houseConfig }) => {
     const unsubDevicePos = wsService.subscribe('device-position:update', (msg) => {
       const d = msg?.data;
       if (!d || !d.deviceId) return;
-      // 진행 중 동작은 timer 그대로 유지 (재설정 위험 회피)
-      if (bidirProgressRef.current[d.deviceId]) return;
-      if (timerRefs.current[`progress_${d.deviceId}`]) return;
-      // 정지 상태(command='stop')만 position 즉시 sync
+      const devId = d.deviceId;
+      // 정지 상태(command='stop')는 position 즉시 sync + 진행 중 timer 정리
       if (d.command === 'stop' && d.position !== undefined && d.position !== null) {
-        setBidirPosition(prev => prev[d.deviceId] === d.position ? prev : { ...prev, [d.deviceId]: d.position });
+        if (timerRefs.current[`progress_${devId}`]) {
+          clearInterval(timerRefs.current[`progress_${devId}`]);
+          timerRefs.current[`progress_${devId}`] = null;
+        }
+        setBidirProgress(prev => prev[devId] ? { ...prev, [devId]: null } : prev);
+        setBidirPosition(prev => prev[devId] === d.position ? prev : { ...prev, [devId]: d.position });
+        return;
+      }
+      // 자동화·외부 명령으로 open/close 시작 — frontend 가 직접 시작한 게 아니면 진행률 자체 카운트
+      if ((d.command === 'open' || d.command === 'close') && d.startedAt && d.duration > 0) {
+        // 이미 frontend 가 시작한 progress 가 있으면 건드리지 않음 (자기 명령 echo 방지)
+        if (bidirProgressRef.current[devId]) return;
+        if (timerRefs.current[`progress_${devId}`]) return;
+        const startTime = new Date(d.startedAt).getTime();
+        const dur = d.duration;
+        const startPos = d.startPosition !== undefined ? d.startPosition : (d.command === 'open' ? 0 : 100);
+        const targetPos = d.targetPosition !== undefined ? d.targetPosition : (d.command === 'open' ? 100 : 0);
+        // syncPositions 와 동일한 패턴 — setInterval 로 진행률 카운트
+        timerRefs.current[`progress_${devId}`] = setInterval(() => {
+          const el = (Date.now() - startTime) / 1000;
+          if (el >= dur) {
+            clearInterval(timerRefs.current[`progress_${devId}`]);
+            timerRefs.current[`progress_${devId}`] = null;
+            setBidirProgress(prev => ({ ...prev, [devId]: null }));
+            setBidirPosition(prev => ({ ...prev, [devId]: targetPos }));
+            return;
+          }
+          const pct = Math.min(100, Math.round((el / dur) * 100));
+          const actualPos = Math.round(startPos + (targetPos - startPos) * Math.min(1, el / dur));
+          setBidirProgress(prev => ({ ...prev, [devId]: { percent: pct, direction: d.command, totalSec: dur, remainSec: Math.max(0, Math.round(dur - el)), startPos, actualPos } }));
+          setBidirPosition(prev => ({ ...prev, [devId]: actualPos }));
+        }, 500);
       }
     });
 

@@ -261,7 +261,7 @@
         "broker": "a2ybxz5mrpnfww-ats.iot.ap-northeast-2.amazonaws.com",
         "port": "8883",
         "tls": "tls_aws",
-        "clientid": "MyFarmPi_${FARM_ID}_nodered",
+        "clientid": "MyFarmPi_${FARM_ID}_${HOSTNAME}_nodered",
         "autoConnect": true,
         "usetls": true,
         "protocolVersion": "4",

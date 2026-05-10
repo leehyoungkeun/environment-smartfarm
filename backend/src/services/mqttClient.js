@@ -144,22 +144,36 @@ class MqttService extends EventEmitter {
   // 장치 위치 DB 저장
   async _saveDevicePosition(farmId, payload) {
     try {
-      const { deviceId, position, command } = payload;
+      const { deviceId, position, command, startPosition, targetPosition, duration, startedAt } = payload;
       if (!deviceId || position === undefined) return;
-      await pool.query(
-        `INSERT INTO device_positions (farm_id, device_id, position, command, updated_at)
-         VALUES ($1, $2, $3, $4, NOW())
-         ON CONFLICT (farm_id, device_id) DO UPDATE
-         SET position = $3, command = $4, updated_at = NOW()`,
-        [farmId, deviceId, position, command || 'stop']
-      );
-      logger.info(`📍 장치 위치 저장: ${farmId}/${deviceId} → ${position}%`);
+      // open/close 시작 신호는 DB 저장 (startedAt + duration 포함) — frontend 진행률 복원 가능
+      // stop 은 position 만 갱신 (기존)
+      if (command === 'open' || command === 'close') {
+        await pool.query(
+          `INSERT INTO device_positions (farm_id, device_id, position, command, start_position, target_position, duration, started_at, updated_at)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW())
+           ON CONFLICT (farm_id, device_id) DO UPDATE
+           SET position = $3, command = $4, start_position = $5, target_position = $6, duration = $7, started_at = $8, updated_at = NOW()`,
+          [farmId, deviceId, position, command, startPosition ?? position, targetPosition ?? (command === 'open' ? 100 : 0), duration ?? 0, startedAt || null]
+        );
+        logger.info(`📍 장치 동작 시작: ${farmId}/${deviceId} ${command} (duration=${duration}s)`);
+      } else {
+        await pool.query(
+          `INSERT INTO device_positions (farm_id, device_id, position, command, updated_at)
+           VALUES ($1, $2, $3, $4, NOW())
+           ON CONFLICT (farm_id, device_id) DO UPDATE
+           SET position = $3, command = $4, updated_at = NOW()`,
+          [farmId, deviceId, position, command || 'stop']
+        );
+        logger.info(`📍 장치 위치 저장: ${farmId}/${deviceId} → ${position}%`);
+      }
 
       // WebSocket broadcast → frontend ControlPanel 즉시 sync (자동화·외부 명령 결과)
       try {
         const { broadcastDevicePosition } = await import("./wsServer.js");
         broadcastDevicePosition(farmId, {
           deviceId, position, command: command || 'stop',
+          startPosition, targetPosition, duration, startedAt,
         });
       } catch (e) { /* WS 발송 실패 무시 */ }
     } catch (e) {

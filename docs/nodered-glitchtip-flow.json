@@ -4,7 +4,7 @@
         "type": "tab",
         "label": "GlitchTip 에러 추적",
         "disabled": false,
-        "info": "Node-RED 모든 에러 → GlitchTip (sentry.smartgreen.kr) 자동 전송\n\n★ 가져오기 후 설정:\n  1. catch All 노드 — 자동 작동 (전체 플로우 catch)\n  2. function 노드 'envelope 생성' 안의 SENTRY_KEY·FARM_ID 확인\n  3. http request 노드 URL 그대로 사용\n\n★ 에러 캐치 범위:\n  - 모든 노드 에러 (Modbus 타임아웃, MQTT 끊김, function 에러 등)\n  - msg.error 가 있으면 함께 전송\n\n★ Sentry/GlitchTip Project Key (DSN public part):\n  https://eb89cdc6d3fe4ddbbec47f5e17a486c0@sentry.smartgreen.kr/3"
+        "info": "Node-RED 모든 에러 → GlitchTip (sentry.smartgreen.kr) 자동 전송\n\n구조:\n  [catch All]    → 실제 에러 자동 캐치\n  [수동 테스트]   → 인공 에러 객체로 테스트\n           ↘   ↙\n        [envelope 생성]\n             ↓\n        [POST envelope]\n             ↓\n        [응답 (200=수신)]"
     },
     {
         "id": "gt_catch",
@@ -12,9 +12,26 @@
         "z": "glitchtip_flow",
         "name": "Catch All",
         "scope": null,
-        "uncaught": true,
+        "uncaught": false,
         "x": 110,
         "y": 100,
+        "wires": [["gt_envelope"]]
+    },
+    {
+        "id": "gt_test_inject",
+        "type": "inject",
+        "z": "glitchtip_flow",
+        "name": "수동 테스트",
+        "props": [
+            { "p": "payload", "v": "{}", "vt": "json" },
+            { "p": "_test_glitchtip", "v": "true", "vt": "bool" }
+        ],
+        "repeat": "",
+        "crontab": "",
+        "once": false,
+        "topic": "",
+        "x": 110,
+        "y": 180,
         "wires": [["gt_envelope"]]
     },
     {
@@ -22,14 +39,16 @@
         "type": "function",
         "z": "glitchtip_flow",
         "name": "envelope 생성",
-        "func": "// ───────────────────────────────────────────\n// GlitchTip Sentry Envelope (v7) 생성\n// ───────────────────────────────────────────\nconst SENTRY_KEY = 'eb89cdc6d3fe4ddbbec47f5e17a486c0';\nconst PROJECT_ID = '3';\nconst FARM_ID = (process.env.AWS_IOT_CLIENT_ID || '').replace('MyFarmPi_', '') || 'unknown';\n\nconst err = msg.error || {};\nconst src = err.source || {};\nconst timestamp = Date.now() / 1000;\nconst eventId = require('crypto').randomBytes(16).toString('hex');\n\nconst event = {\n  event_id: eventId,\n  timestamp: timestamp,\n  platform: 'node',\n  level: 'error',\n  logger: 'node-red',\n  server_name: require('os').hostname(),\n  release: 'node-red@1.0',\n  environment: 'production',\n  tags: {\n    service: 'node-red',\n    farm_id: FARM_ID,\n    node_type: src.type || 'unknown',\n    node_name: src.name || src.id || 'unnamed',\n    flow_id: src.z || 'unknown',\n  },\n  message: {\n    formatted: err.message || msg.payload || 'unknown error',\n  },\n  exception: {\n    values: [{\n      type: err.name || 'NodeRedError',\n      value: err.message || String(err),\n      stacktrace: err.stack ? {\n        frames: parseStack(err.stack)\n      } : undefined,\n    }],\n  },\n  extra: {\n    msg_topic: msg.topic,\n    msg_payload: typeof msg.payload === 'object' ? JSON.stringify(msg.payload).slice(0, 500) : String(msg.payload).slice(0, 500),\n    source_node: src,\n  },\n};\n\nfunction parseStack(stack) {\n  return stack.split('\\n').slice(1, 11).map(line => {\n    const m = line.match(/at\\s+(.+?)\\s+\\((.+?):(\\d+):(\\d+)\\)/) || line.match(/at\\s+(.+?):(\\d+):(\\d+)/);\n    if (!m) return { function: line.trim(), filename: '?', lineno: 0 };\n    return m.length === 5\n      ? { function: m[1], filename: m[2], lineno: parseInt(m[3]), colno: parseInt(m[4]) }\n      : { function: '<anonymous>', filename: m[1], lineno: parseInt(m[2]), colno: parseInt(m[3]) };\n  });\n}\n\n// 엔벨로프 포맷: 3줄 NDJSON\nconst envelopeHeader = JSON.stringify({\n  event_id: eventId,\n  sent_at: new Date().toISOString(),\n});\nconst itemHeader = JSON.stringify({ type: 'event', content_type: 'application/json' });\nconst itemPayload = JSON.stringify(event);\n\nmsg.payload = `${envelopeHeader}\\n${itemHeader}\\n${itemPayload}`;\nmsg.headers = {\n  'Content-Type': 'application/x-sentry-envelope',\n  'X-Sentry-Auth': `Sentry sentry_version=7, sentry_key=${SENTRY_KEY}, sentry_client=node-red/1.0`,\n};\nmsg.url = `https://sentry.smartgreen.kr/api/${PROJECT_ID}/envelope/`;\n\nreturn msg;\n",
+        "func": "// ───────────────────────────────────────────\n// GlitchTip Sentry Envelope (v7) 생성\n// ───────────────────────────────────────────\nconst SENTRY_KEY = 'eb89cdc6d3fe4ddbbec47f5e17a486c0';\nconst PROJECT_ID = '3';\nconst FARM_ID = env.get('FARM_ID') || os.hostname();\n\n// catch 가 잡은 실제 에러, 또는 inject 테스트용 인공 에러\nconst isTest = msg._test_glitchtip === true;\nconst err = msg.error || (isTest ? {\n    message: 'TEST: Node-RED → GlitchTip ' + new Date().toISOString(),\n    source: { type: 'inject', name: '수동 테스트', id: 'gt_test_inject', z: 'glitchtip_flow' },\n    stack: ''\n} : { message: String(msg.payload || 'unknown'), source: {} });\n\nconst src = err.source || {};\nconst timestamp = Date.now() / 1000;\n\n// 16바이트 랜덤 hex (crypto.randomBytes 대체)\nlet eventId = '';\nfor (let i = 0; i < 32; i++) eventId += Math.floor(Math.random() * 16).toString(16);\n\nfunction parseStack(stack) {\n    if (!stack) return [];\n    return stack.split('\\n').slice(1, 11).map(line => {\n        const m = line.match(/at\\s+(.+?)\\s+\\((.+?):(\\d+):(\\d+)\\)/) || line.match(/at\\s+(.+?):(\\d+):(\\d+)/);\n        if (!m) return { function: line.trim(), filename: '?', lineno: 0 };\n        return m.length === 5\n            ? { function: m[1], filename: m[2], lineno: parseInt(m[3]), colno: parseInt(m[4]) }\n            : { function: '<anonymous>', filename: m[1], lineno: parseInt(m[2]), colno: parseInt(m[3]) };\n    });\n}\n\nconst event = {\n    event_id: eventId,\n    timestamp: timestamp,\n    platform: 'node',\n    level: 'error',\n    logger: 'node-red',\n    server_name: os.hostname(),\n    environment: 'production',\n    tags: {\n        service: 'node-red',\n        farm_id: FARM_ID,\n        node_type: src.type || 'unknown',\n        node_name: src.name || src.id || 'unnamed',\n        flow_id: src.z || 'unknown',\n        test: isTest ? 'true' : 'false'\n    },\n    message: { formatted: err.message || 'unknown error' },\n    exception: {\n        values: [{\n            type: err.name || (isTest ? 'NodeRedTest' : 'NodeRedError'),\n            value: err.message || String(err),\n            stacktrace: { frames: parseStack(err.stack) }\n        }]\n    },\n    extra: {\n        msg_topic: msg.topic || null,\n        msg_payload: typeof msg.payload === 'object' ? JSON.stringify(msg.payload).slice(0, 500) : String(msg.payload || '').slice(0, 500),\n        source_node: src\n    }\n};\n\nconst envelopeHeader = JSON.stringify({ event_id: eventId, sent_at: new Date().toISOString() });\nconst itemHeader = JSON.stringify({ type: 'event', content_type: 'application/json' });\nconst itemPayload = JSON.stringify(event);\n\nmsg.payload = envelopeHeader + '\\n' + itemHeader + '\\n' + itemPayload;\nmsg.headers = {\n    'Content-Type': 'application/x-sentry-envelope',\n    'X-Sentry-Auth': 'Sentry sentry_version=7, sentry_key=' + SENTRY_KEY + ', sentry_client=node-red/1.0'\n};\nmsg.url = 'https://sentry.smartgreen.kr/api/' + PROJECT_ID + '/envelope/';\n\nnode.warn('envelope 생성 완료: ' + (isTest ? 'TEST' : 'caught'));\nnode.status({ fill: 'blue', shape: 'dot', text: 'sent (' + (isTest ? 'TEST' : 'caught') + ')' });\nreturn msg;\n",
         "outputs": 1,
         "noerr": 0,
         "initialize": "",
         "finalize": "",
-        "libs": [],
+        "libs": [
+            { "var": "os", "module": "os" }
+        ],
         "x": 290,
-        "y": 100,
+        "y": 140,
         "wires": [["gt_http"]]
     },
     {
@@ -49,64 +68,33 @@
         "senderr": false,
         "headers": [],
         "x": 490,
-        "y": 100,
+        "y": 140,
         "wires": [["gt_log"]]
     },
     {
         "id": "gt_log",
         "type": "debug",
         "z": "glitchtip_flow",
-        "name": "응답 (200=수신)",
-        "active": false,
+        "name": "응답",
+        "active": true,
         "tosidebar": true,
-        "console": false,
+        "console": true,
         "tostatus": true,
         "complete": "statusCode",
         "targetType": "msg",
         "statusVal": "statusCode",
         "statusType": "auto",
-        "x": 700,
-        "y": 100,
+        "x": 690,
+        "y": 140,
         "wires": []
-    },
-    {
-        "id": "gt_test_inject",
-        "type": "inject",
-        "z": "glitchtip_flow",
-        "name": "수동 테스트",
-        "props": [
-            { "p": "payload", "v": "Manual test from Node-RED", "vt": "str" }
-        ],
-        "repeat": "",
-        "crontab": "",
-        "once": false,
-        "topic": "",
-        "x": 110,
-        "y": 200,
-        "wires": [["gt_test_throw"]]
-    },
-    {
-        "id": "gt_test_throw",
-        "type": "function",
-        "z": "glitchtip_flow",
-        "name": "throw test error",
-        "func": "throw new Error('TEST: Node-RED → GlitchTip ' + new Date().toISOString());\n",
-        "outputs": 1,
-        "noerr": 0,
-        "initialize": "",
-        "finalize": "",
-        "libs": [],
-        "x": 300,
-        "y": 200,
-        "wires": [[]]
     },
     {
         "id": "gt_comment",
         "type": "comment",
         "z": "glitchtip_flow",
-        "name": "수동 테스트 → catch가 잡아 envelope 전송",
-        "info": "수동 테스트 inject 클릭하면\n→ throw test error 노드가 에러 발생\n→ catch All 이 잡아서 envelope 생성 → GlitchTip 전송\n\nGlitchTip 에서 'TEST: Node-RED → GlitchTip ...' 이슈 확인",
-        "x": 300,
+        "name": "수동 테스트 inject 클릭 → 응답 노드에 statusCode 200 표시 + GlitchTip Issues 에 새 이슈",
+        "info": "★ 변경사항 (v3):\n  - require('crypto'), require('os') 제거 (sandbox 차단)\n  - libs 에 'os' 모듈 명시 등록 (functionExternalModules 활용)\n  - process.env 제거 → env.get('FARM_ID') 사용 (Node-RED env)\n  - 랜덤 ID 는 Math.random() 으로 32자 hex 생성\n  - node.warn() 추가 → 동작 시 로그 + sidebar 출력",
+        "x": 470,
         "y": 240,
         "wires": []
     }

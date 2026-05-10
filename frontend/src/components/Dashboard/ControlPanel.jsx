@@ -1471,6 +1471,41 @@ const ControlPanel = ({ farmId, houseId, houseConfig }) => {
 
                       {isAuto ? (
                         <div>
+                          {/* bidir 장치 위치 진행 바 — 자동 모드에서도 측창 현재 상태 시각화 */}
+                          {device.modbus?.controlType === 'bidir' && (() => {
+                            const pos = bidirPosition[device.deviceId];
+                            const prog = bidirProgress[device.deviceId];
+                            const displayPos = prog?.actualPos !== undefined ? prog.actualPos : (pos !== undefined ? pos : 0);
+                            const isMoving = !!prog;
+                            const movingDir = prog?.direction;
+                            return (
+                              <div style={{padding:'8px 10px',marginBottom:8,borderRadius:8,background:'#f8fafc',border:'1px solid #e2e8f0'}}>
+                                <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:6}}>
+                                  <span style={{fontSize:11,fontWeight:700,color:'#475569'}}>
+                                    📊 측창 위치 {isMoving && <span style={{color: movingDir === 'open' ? '#15803d' : '#1d4ed8',marginLeft:4}}>({movingDir === 'open' ? '▲ 여는 중' : '▼ 닫는 중'})</span>}
+                                  </span>
+                                  <span style={{fontSize:13,fontWeight:800,color: displayPos >= 100 ? '#15803d' : displayPos <= 0 ? '#64748b' : '#1d4ed8'}}>
+                                    {displayPos}%
+                                  </span>
+                                </div>
+                                <div style={{height:10,background:'#e5e7eb',borderRadius:5,position:'relative',overflow:'hidden'}}>
+                                  <div style={{
+                                    height:'100%',
+                                    width:`${Math.max(0,Math.min(100,displayPos))}%`,
+                                    background: isMoving
+                                      ? `linear-gradient(90deg, ${movingDir === 'open' ? '#86efac, #16a34a' : '#bfdbfe, #1d4ed8'})`
+                                      : displayPos >= 100 ? '#16a34a' : displayPos <= 0 ? '#94a3b8' : '#3b82f6',
+                                    transition: 'width 0.5s ease',
+                                    animation: isMoving ? 'pulse 1.5s ease-in-out infinite' : 'none',
+                                  }}/>
+                                </div>
+                                <div style={{display:'flex',justifyContent:'space-between',marginTop:3,fontSize:9,color:'#94a3b8',fontWeight:600}}>
+                                  <span>닫힘</span>
+                                  <span>열림</span>
+                                </div>
+                              </div>
+                            );
+                          })()}
                           {!automationActive && getDeviceRules(device.deviceId).length > 0 && (
                             <div style={{
                               display:'flex',alignItems:'center',gap:6,

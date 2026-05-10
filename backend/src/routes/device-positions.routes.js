@@ -64,26 +64,10 @@ router.post("/:farmId", async (req, res) => {
       });
     } catch (e) { /* WS broadcast 실패는 무시 */ }
 
-    // MQTT publish → RPi 가 즉시 global.devicePositions 동기화
-    // 자동화 ② 평가의 isAlready 판정에 정확한 position 전달 (사용자 ■정지 중간 위치 포함)
-    try {
-      const mqttService = (await import("../services/mqttClient.js")).default;
-      if (mqttService.isConnected()) {
-        const topic = `smartfarm/${req.params.farmId}/device-positions`;
-        mqttService.client.publish(topic, JSON.stringify({
-          action: 'set_device_position',
-          farmId: req.params.farmId,
-          deviceId,
-          position: position ?? 0,
-          command: command || 'stop',
-          startPosition: startPosition ?? 0,
-          targetPosition: targetPosition ?? 0,
-          duration: duration ?? 0,
-          startedAt: startedAt || null,
-          timestamp: new Date().toISOString(),
-        }), { qos: 1 });
-      }
-    } catch (e) { /* MQTT 발행 실패는 무시 — 5분 fetch fallback */ }
+    // MQTT publish 임시 비활성화 — AWS IoT 정책에 'smartfarm/+/device-positions' (hyphen) 토픽 미허용 추정
+    // 새 토픽 publish 시도 시 AWS 가 connection 거부 → RPi MQTT 매 15초 끊김 회귀
+    // RPi 동기화는 5분 주기 backend fetch (automationActive 반영 함수) fallback
+    // TODO: AWS IoT 정책에 토픽 추가 후 재활성화
   } catch (error) {
     res.status(500).json({ success: false, error: error.message });
   }

@@ -538,14 +538,19 @@ const ControlPanel = ({ farmId, houseId, houseConfig }) => {
           headers: token ? { Authorization: `Bearer ${token}` } : {},
           timeout: 5000,
         });
-        const arr = res.data?.data || [];
-        if (Array.isArray(arr)) {
+        // 응답 형식: res.data.data.data = { temp_0001: 25.4, humidity_0001: 57.7 }
+        // 또는 배열 형태도 호환 (백엔드 버전 변동 대비)
+        const inner = res.data?.data || {};
+        if (Array.isArray(inner)) {
           const map = {};
-          arr.forEach(s => {
+          inner.forEach(s => {
             const id = s.sensor_id || s.sensorId;
             if (id !== undefined) map[id] = s.value;
           });
           setLatestSensors(map);
+        } else if (inner && typeof inner === 'object') {
+          const sensorValues = inner.data && typeof inner.data === 'object' ? inner.data : inner;
+          setLatestSensors(sensorValues);
         }
       } catch {}
     };

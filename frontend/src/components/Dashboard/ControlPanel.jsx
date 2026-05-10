@@ -763,16 +763,30 @@ const ControlPanel = ({ farmId, houseId, houseConfig }) => {
         // 이미 frontend 가 시작한 progress 가 있으면 건드리지 않음 (자기 명령 echo 방지)
         if (bidirProgressRef.current[devId]) return;
         if (timerRefs.current[`progress_${devId}`]) return;
-        const startTime = new Date(d.startedAt).getTime();
+        // 서버 startedAt 시계 차이 회피 — 메시지 받은 시점을 startTime 으로 사용
+        const startTime = Date.now();
         const dur = d.duration;
         const startPos = d.startPosition !== undefined ? d.startPosition : (d.command === 'open' ? 0 : 100);
         const targetPos = d.targetPosition !== undefined ? d.targetPosition : (d.command === 'open' ? 100 : 0);
-        // syncPositions 와 동일한 패턴 — setInterval 로 진행률 카운트
-        timerRefs.current[`progress_${devId}`] = setInterval(() => {
-          const el = (Date.now() - startTime) / 1000;
+        const cleanupKey = `progress_${devId}`;
+        const safetyKey = `progressSafety_${devId}`;
+        // 안전 timeout — duration + 3초 후 강제 cleanup (메시지 손실·정확도 오차 회피)
+        if (timerRefs.current[safetyKey]) clearTimeout(timerRefs.current[safetyKey]);
+        timerRefs.current[safetyKey] = setTimeout(() => {
+          if (timerRefs.current[cleanupKey]) {
+            clearInterval(timerRefs.current[cleanupKey]);
+            timerRefs.current[cleanupKey] = null;
+          }
+          setBidirProgress(prev => prev[devId] ? { ...prev, [devId]: null } : prev);
+          setBidirPosition(prev => ({ ...prev, [devId]: targetPos }));
+          timerRefs.current[safetyKey] = null;
+        }, (dur + 3) * 1000);
+        timerRefs.current[cleanupKey] = setInterval(() => {
+          const el = Math.max(0, (Date.now() - startTime) / 1000);
           if (el >= dur) {
-            clearInterval(timerRefs.current[`progress_${devId}`]);
-            timerRefs.current[`progress_${devId}`] = null;
+            clearInterval(timerRefs.current[cleanupKey]);
+            timerRefs.current[cleanupKey] = null;
+            if (timerRefs.current[safetyKey]) { clearTimeout(timerRefs.current[safetyKey]); timerRefs.current[safetyKey] = null; }
             setBidirProgress(prev => ({ ...prev, [devId]: null }));
             setBidirPosition(prev => ({ ...prev, [devId]: targetPos }));
             return;

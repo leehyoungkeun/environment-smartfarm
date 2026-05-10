@@ -1039,7 +1039,10 @@ const RuleForm = ({ farmId, houseId, houses = [], rule, existingRules = [], defa
           {form.actions.map((action, idx) => {
             const dt = DEVICE_TYPE_OPTIONS.find(d => d.value === action.deviceType);
             const commands = dt?.commands || ['on', 'off'];
-            const isTimed = action.duration > 0;
+            // bidir 장치(측창·차광·관수밸브 등): action.duration 무의미 — 한계까지 완전 동작
+            // commands 에 'open'·'close' 둘 다 있으면 bidir
+            const isBidir = commands.includes('open') && commands.includes('close');
+            const isTimed = !isBidir && action.duration > 0;
             const durationUnit = action.durationUnit || 'minutes';
             return (
               <div key={idx} className="bg-white rounded-xl border border-blue-100 overflow-hidden">
@@ -1112,29 +1115,36 @@ const RuleForm = ({ farmId, houseId, houses = [], rule, existingRules = [], defa
                 </div>
                 {/* 2행: 동작 지속시간 */}
                 <div style={{display:'flex',alignItems:'center',gap:8,padding:'8px 10px',background: isTimed ? '#eff6ff' : '#f8fafc',borderTop:'1px solid #e2e8f0',flexWrap:'wrap'}}>
-                  {/* 계속 / 동작시간 세그먼트 */}
-                  <div style={{display:'inline-flex',borderRadius:10,background:'#e2e8f0',padding:2,flexShrink:0}}>
-                    <button type="button"
-                      onClick={() => updateAction(idx, { duration: 0, durationUnit: 'seconds' })}
-                      style={{
-                        width:56,padding:'6px 0',fontSize:12,fontWeight:800,border:'none',cursor:'pointer',borderRadius:8,
-                        background: !isTimed ? '#fff' : 'transparent',
-                        color: !isTimed ? '#1e40af' : '#94a3b8',
-                        boxShadow: !isTimed ? '0 1px 4px rgba(0,0,0,0.12)' : 'none',
-                        transition:'all 0.2s',
-                      }}
-                    >계속</button>
-                    <button type="button"
-                      onClick={() => { if (!isTimed) updateAction(idx, { duration: 60, durationUnit: 'seconds' }); }}
-                      style={{
-                        width:64,padding:'6px 0',fontSize:12,fontWeight:800,border:'none',cursor:'pointer',borderRadius:8,
-                        background: isTimed ? '#fff' : 'transparent',
-                        color: isTimed ? '#1e40af' : '#94a3b8',
-                        boxShadow: isTimed ? '0 1px 4px rgba(0,0,0,0.12)' : 'none',
-                        transition:'all 0.2s',
-                      }}
-                    >동작시간</button>
-                  </div>
+                  {isBidir ? (
+                    // bidir 장치: 한계 도달까지 자동 동작 (closeDuration/openDuration 사용)
+                    <span style={{fontSize:12,fontWeight:700,color:'#1e40af',padding:'6px 12px',background:'#dbeafe',borderRadius:8,border:'1px solid #93c5fd'}}>
+                      📐 현상태 기준 — 한계까지 완전 {action.command === 'open' ? '열기' : action.command === 'close' ? '닫기' : '동작'}
+                    </span>
+                  ) : (
+                    /* 계속 / 동작시간 세그먼트 (single 장치만) */
+                    <div style={{display:'inline-flex',borderRadius:10,background:'#e2e8f0',padding:2,flexShrink:0}}>
+                      <button type="button"
+                        onClick={() => updateAction(idx, { duration: 0, durationUnit: 'seconds' })}
+                        style={{
+                          width:56,padding:'6px 0',fontSize:12,fontWeight:800,border:'none',cursor:'pointer',borderRadius:8,
+                          background: !isTimed ? '#fff' : 'transparent',
+                          color: !isTimed ? '#1e40af' : '#94a3b8',
+                          boxShadow: !isTimed ? '0 1px 4px rgba(0,0,0,0.12)' : 'none',
+                          transition:'all 0.2s',
+                        }}
+                      >계속</button>
+                      <button type="button"
+                        onClick={() => { if (!isTimed) updateAction(idx, { duration: 60, durationUnit: 'seconds' }); }}
+                        style={{
+                          width:64,padding:'6px 0',fontSize:12,fontWeight:800,border:'none',cursor:'pointer',borderRadius:8,
+                          background: isTimed ? '#fff' : 'transparent',
+                          color: isTimed ? '#1e40af' : '#94a3b8',
+                          boxShadow: isTimed ? '0 1px 4px rgba(0,0,0,0.12)' : 'none',
+                          transition:'all 0.2s',
+                        }}
+                      >동작시간</button>
+                    </div>
+                  )}
                   {isTimed && (() => {
                     // duration을 항상 초 단위로 변환하여 표시
                     let totalSec = action.duration || 60;

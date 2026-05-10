@@ -940,12 +940,23 @@ const ControlPanel = ({ farmId, houseId, houseConfig }) => {
             if (progressPct >= 100) clearInterval(timerRefs.current[progressKey]);
           }, 500);
           timerRefs.current[stopTimerKey] = setTimeout(() => {
-            handleControl(deviceId, 'stop');
+            // RPi scheduleAutoStop 이 모터 정지 + reportPosition(100/0) 자동 처리하므로
+            // frontend handleControl(stop) 중복 호출 X — handleControl 안의 setBidirPosition(prog.actualPos=98)
+            // 이 정확한 100/0 값을 덮어써서 화면 100→98 회귀 발생
+            // → autoStop 콜백은 UI 정리 + 100/0 명시 backend POST 만
             timerRefs.current[stopTimerKey] = null;
             clearInterval(timerRefs.current[progressKey]);
             timerRefs.current[progressKey] = null;
             setBidirProgress(prev => ({ ...prev, [deviceId]: null }));
-            setBidirPosition(prev => ({ ...prev, [deviceId]: command === 'open' ? 100 : 0 }));
+            const finalPos = command === 'open' ? 100 : 0;
+            setBidirPosition(prev => ({ ...prev, [deviceId]: finalPos }));
+            // backend 에 100/0 명시 POST → DB·다른 클라이언트 동기화 보장 (RPi reportPosition 과 중복이지만 같은 값)
+            const API = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3000/api';
+            axios.post(`${API}/device-positions/${farmId}`, {
+              deviceId, position: finalPos, command: 'stop',
+              startPosition: finalPos, targetPosition: finalPos,
+              duration: 0, startedAt: null,
+            }, { headers: { Authorization: `Bearer ${localStorage.getItem('accessToken')}` }, timeout: 3000 }).catch(() => {});
           }, autoDur * 1000);
           bidirStarted = true;
         }

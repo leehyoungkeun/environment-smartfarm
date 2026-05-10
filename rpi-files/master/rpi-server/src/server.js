@@ -2,6 +2,8 @@
  * RPi 서버 진입점
  * HTTP 서버 시작, WebSocket, MQTT, 하트비트, 일일동기화 초기화
  */
+require('./instrument'); // Sentry: 반드시 다른 require 보다 먼저
+const Sentry = require('@sentry/node');
 require('dotenv').config();
 const http = require('http');
 const app = require('./app');
@@ -41,12 +43,26 @@ async function start() {
       console.log(`🚀 RPi 서버 실행 중: http://localhost:${PORT}`);
     });
   } catch (error) {
+    Sentry.captureException(error, { tags: { phase: 'startup' } });
     console.error('❌ RPi 서버 시작 실패:', error);
     process.exit(1);
   }
 }
 
 start();
+
+process.on('uncaughtException', (err) => {
+  Sentry.captureException(err, { tags: { handler: 'uncaughtException' } });
+  console.error('UNCAUGHT EXCEPTION:', err);
+  Sentry.flush(2000).catch(() => {}).finally(() => process.exit(1));
+});
+
+process.on('unhandledRejection', (reason) => {
+  Sentry.captureException(reason instanceof Error ? reason : new Error(String(reason)), {
+    tags: { handler: 'unhandledRejection' },
+  });
+  console.error('UNHANDLED REJECTION:', reason);
+});
 
 /**
  * Graceful Shutdown

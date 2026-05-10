@@ -3,6 +3,7 @@
  * 터치패널 + 원격 API 서빙
  */
 require('dotenv').config();
+const Sentry = require('@sentry/node');
 const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet');
@@ -44,6 +45,9 @@ app.get('{*path}', (req, res) => {
 app.use((req, res) => {
   res.status(404).json({ success: false, message: '요청한 리소스를 찾을 수 없습니다.' });
 });
+
+// Sentry 자동 캡처 (커스텀 에러 핸들러 전)
+Sentry.setupExpressErrorHandler(app);
 
 // 전역 에러 핸들러
 app.use((err, req, res, next) => {

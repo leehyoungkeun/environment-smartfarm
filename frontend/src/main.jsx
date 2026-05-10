@@ -1,7 +1,25 @@
 import React from 'react'
 import ReactDOM from 'react-dom/client'
+import * as Sentry from '@sentry/react'
 import App from './App.jsx'
 import './index.css'
+
+if (import.meta.env.VITE_GLITCHTIP_DSN) {
+  Sentry.init({
+    dsn: import.meta.env.VITE_GLITCHTIP_DSN,
+    environment: import.meta.env.MODE,
+    release: `smartfarm-frontend@${import.meta.env.VITE_APP_VERSION || 'dev'}`,
+    tracesSampleRate: 0.1,
+    sendDefaultPii: false,
+    initialScope: {
+      tags: { farm_id: import.meta.env.VITE_FARM_ID || 'unknown' },
+    },
+    beforeSend(event) {
+      if (event.exception?.values?.[0]?.value?.includes('ResizeObserver')) return null
+      return event
+    },
+  })
+}
 
 ReactDOM.createRoot(document.getElementById('root')).render(
   <React.StrictMode>

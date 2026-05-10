@@ -2,6 +2,8 @@
 // Express 메인 애플리케이션 - PostgreSQL + TimescaleDB 버전
 // 변경: mongoose 제거 → Prisma + pg pool
 
+import "./instrument.js"; // Sentry: 반드시 다른 import 보다 먼저
+import * as Sentry from "@sentry/node";
 import "dotenv/config";
 import express from "express";
 import cors from "cors";
@@ -251,6 +253,9 @@ app.use("*", (req, res) => {
 // 에러 핸들러
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
+// Sentry 자동 캡처 (커스텀 에러 핸들러 전에 위치해야 함)
+Sentry.setupExpressErrorHandler(app);
+
 app.use((err, req, res, next) => {
   logger.error("Error:", {
     message: err.message,
@@ -438,17 +443,25 @@ startServer();
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 process.on("uncaughtException", (err) => {
+  Sentry.captureException(err, { tags: { handler: "uncaughtException" } });
   logger.error("UNCAUGHT EXCEPTION — 프로세스 종료 예정:", {
     message: err.message,
     stack: err.stack,
   });
-  // DB 연결 정리 후 종료 (PM2가 자동 재시작)
-  disconnectDB()
+  // Sentry flush 후 DB 정리 + 종료 (PM2가 자동 재시작)
+  Sentry.flush(2000)
     .catch(() => {})
-    .finally(() => process.exit(1));
+    .finally(() =>
+      disconnectDB()
+        .catch(() => {})
+        .finally(() => process.exit(1))
+    );
 });
 
 process.on("unhandledRejection", (reason, promise) => {
+  Sentry.captureException(reason instanceof Error ? reason : new Error(String(reason)), {
+    tags: { handler: "unhandledRejection" },
+  });
   logger.error("UNHANDLED REJECTION:", {
     reason: reason instanceof Error ? reason.message : String(reason),
     stack: reason instanceof Error ? reason.stack : undefined,

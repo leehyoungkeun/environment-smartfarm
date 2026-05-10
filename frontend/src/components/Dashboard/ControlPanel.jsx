@@ -499,6 +499,33 @@ const ControlPanel = ({ farmId, houseId, houseConfig }) => {
     syncPositions();
   }, [farmId, houseId]);
 
+  // 가벼운 position 동기화 polling (15초) — 자동화·외부 명령으로 backend·RPi 가 변경한 결과 frontend 반영
+  // 진행 중 동작(progress timer)은 건드리지 않음 → frontend 진행률 표시 유지
+  useEffect(() => {
+    const lightSync = async () => {
+      try {
+        const API = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3000/api';
+        const token = localStorage.getItem('accessToken');
+        const res = await axios.get(`${API}/device-positions/${farmId}`, {
+          headers: { Authorization: `Bearer ${token}` },
+          timeout: 3000,
+        });
+        if (!res.data?.success || !res.data.data) return;
+        Object.entries(res.data.data).forEach(([devId, info]) => {
+          // 진행 중인 동작은 timer 그대로 유지 (재설정 위험 회피)
+          if (bidirProgressRef.current[devId]) return;
+          if (timerRefs.current[`progress_${devId}`]) return;
+          // 정지 상태(command='stop')만 position 동기화
+          if (info.command === 'stop' && info.position !== undefined && info.position !== null) {
+            setBidirPosition(prev => prev[devId] === info.position ? prev : { ...prev, [devId]: info.position });
+          }
+        });
+      } catch {}
+    };
+    const interval = setInterval(lightSync, 15 * 1000);
+    return () => clearInterval(interval);
+  }, [farmId, houseId]);
+
   // 릴레이 실제 상태 폴링
   const relayCoilsRef = React.useRef({});
   const [relayOnline, setRelayOnline] = useState(null);

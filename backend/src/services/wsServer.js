@@ -316,6 +316,11 @@ export function broadcastFarmStatus(farmId, timestamp) {
   });
 }
 
+// 장치 위치 변경 broadcast — frontend ControlPanel 의 bidirPosition 즉시 sync
+export function broadcastDevicePosition(farmId, data) {
+  broadcast(farmId, { type: "device-position:update", farmId, data });
+}
+
 export function getWss() {
   return wss;
 }

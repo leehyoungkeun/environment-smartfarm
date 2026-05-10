@@ -522,7 +522,8 @@ const ControlPanel = ({ farmId, houseId, houseConfig }) => {
         });
       } catch {}
     };
-    const interval = setInterval(lightSync, 15 * 1000);
+    // WebSocket 'device-position:update' 가 즉시 sync — polling 은 fallback (60초)
+    const interval = setInterval(lightSync, 60 * 1000);
     return () => clearInterval(interval);
   }, [farmId, houseId]);
 
@@ -710,11 +711,25 @@ const ControlPanel = ({ farmId, houseId, houseConfig }) => {
       }
     });
 
+    // 장치 위치 변경 즉시 sync (backend WebSocket push) — 자동화·외부 명령으로 변경되면 <100ms 반영
+    const unsubDevicePos = wsService.subscribe('device-position:update', (msg) => {
+      const d = msg?.data;
+      if (!d || !d.deviceId) return;
+      // 진행 중 동작은 timer 그대로 유지 (재설정 위험 회피)
+      if (bidirProgressRef.current[d.deviceId]) return;
+      if (timerRefs.current[`progress_${d.deviceId}`]) return;
+      // 정지 상태(command='stop')만 position 즉시 sync
+      if (d.command === 'stop' && d.position !== undefined && d.position !== null) {
+        setBidirPosition(prev => prev[d.deviceId] === d.position ? prev : { ...prev, [d.deviceId]: d.position });
+      }
+    });
+
     return () => {
       stopRelayPolling();
       unsubRelay();
       unsubRelayRes();
       unsubControl();
+      unsubDevicePos();
     };
   }, [fetchRelayStatus, startRelayPolling, stopRelayPolling, farmId]);
 

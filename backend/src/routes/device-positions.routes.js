@@ -3,6 +3,7 @@
 
 import { Router } from "express";
 import { pool } from "../db.js";
+import { broadcastDevicePosition } from "../services/wsServer.js";
 
 const router = Router();
 
@@ -49,6 +50,19 @@ router.post("/:farmId", async (req, res) => {
     );
 
     res.json({ success: true });
+
+    // WebSocket broadcast → frontend ControlPanel 즉시 sync (다른 키오스크·PC 인스턴스 포함)
+    try {
+      broadcastDevicePosition(req.params.farmId, {
+        deviceId,
+        position: position ?? 0,
+        command: command || 'stop',
+        startPosition: startPosition ?? 0,
+        targetPosition: targetPosition ?? 0,
+        duration: duration ?? 0,
+        startedAt: startedAt || null,
+      });
+    } catch (e) { /* WS broadcast 실패는 무시 */ }
 
     // MQTT publish → RPi 가 즉시 global.devicePositions 동기화
     // 자동화 ② 평가의 isAlready 판정에 정확한 position 전달 (사용자 ■정지 중간 위치 포함)

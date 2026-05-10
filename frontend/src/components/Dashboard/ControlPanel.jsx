@@ -136,16 +136,18 @@ const ControlPanel = ({ farmId, houseId, houseConfig }) => {
     const conflicts = [];
     const OPPOSITE = { open: 'close', close: 'open', on: 'off', off: 'on' };
 
-    // auto 모드 장치별로 선택된 규칙 수집
+    // auto 모드 장치별로 활성 규칙 수집 — action.deviceId 매칭 + rule.enabled
     const deviceRulesMap = {}; // { deviceId: [{ rule, action, timeConds }] }
     devices.forEach(d => {
       if (getDeviceMode(d.deviceId) !== 'auto') return;
-      const selectedIds = selectedRuleMap[d.deviceId] || [];
-      if (selectedIds.length === 0) return;
+      const matchedRules = autoRules.filter(r => {
+        if (r.enabled === false) return false;
+        const acts = typeof r.actions === 'string' ? (() => { try { return JSON.parse(r.actions); } catch { return []; } })() : (r.actions || []);
+        return acts.some(a => a.deviceId === d.deviceId);
+      });
+      if (matchedRules.length === 0) return;
 
-      selectedIds.forEach(ruleId => {
-        const rule = autoRules.find(r => (r._id || r.id) === ruleId);
-        if (!rule) return;
+      matchedRules.forEach(rule => {
         const actions = typeof rule.actions === 'string' ? JSON.parse(rule.actions) : (rule.actions || []);
         const conditions = typeof rule.conditions === 'string' ? JSON.parse(rule.conditions) : (rule.conditions || []);
         const timeConds = conditions.filter(c => c.type === 'time');
@@ -335,7 +337,7 @@ const ControlPanel = ({ farmId, houseId, houseConfig }) => {
   // 자동화 규칙 로드 (RPi 우선 → PC 폴백)
   const [autoRules, setAutoRules] = useState([]);
   const [expandedRuleId, setExpandedRuleId] = useState(null);
-  const [rulePickerDevice, setRulePickerDevice] = useState(null); // 규칙 선택 팝업 대상 장치
+  // rulePickerDevice 폐기 — '규칙 선택' 개념 제거 (자동화 관리 화면의 enabled 토글이 단일 진실 원천)
 
   const loadAutoRules = useCallback(async () => {
     try {
@@ -818,46 +820,23 @@ const ControlPanel = ({ farmId, houseId, houseConfig }) => {
     };
   }, []);
 
-  // 장치별 선택된 규칙 ID 목록 (localStorage 기반)
-  const rulesKey = `deviceRules_${farmId}_${houseId}`;
-  const [selectedRuleMap, setSelectedRuleMap] = useState(() => {
-    try {
-      const saved = JSON.parse(localStorage.getItem(rulesKey));
-      return saved || {};
-    } catch { return {}; }
-  });
+  // 자동화 규칙은 자동화 관리 화면의 활성/비활성 토글이 단일 진실 원천
+  // device 카드에는 자기 deviceId 에 매칭되는 활성 규칙 자동 표시 (별도 '선택' 개념 폐기)
+  // 옛 selectedRuleMap localStorage 는 무시 (마이그레이션 — 기존 데이터 자동 소멸)
 
-  // houseId 변경 시 설정 재로드 (서버 상태는 위 useEffect에서 처리)
+  // houseId 변경 시 deviceModes 재로드
   useEffect(() => {
     try { setDeviceModes(JSON.parse(localStorage.getItem(`deviceModes_${farmId}_${houseId}`)) || {}); }
     catch { setDeviceModes({}); }
-    try { setSelectedRuleMap(JSON.parse(localStorage.getItem(`deviceRules_${farmId}_${houseId}`)) || {}); }
-    catch { setSelectedRuleMap({}); }
   }, [farmId, houseId]);
 
   const getDeviceRules = (deviceId) => {
-    const selectedIds = selectedRuleMap[deviceId] || [];
-    return autoRules.filter(r => selectedIds.includes(r._id));
-  };
-
-  const toggleRuleSelection = (deviceId, ruleId) => {
-    setSelectedRuleMap(prev => {
-      const current = prev[deviceId] || [];
-      const updated = current.includes(ruleId)
-        ? current.filter(id => id !== ruleId)
-        : [...current, ruleId];
-      const next = { ...prev, [deviceId]: updated };
-      localStorage.setItem(rulesKey, JSON.stringify(next));
-      return next;
-    });
-  };
-
-  const removeRuleFromDevice = (deviceId, ruleId) => {
-    setSelectedRuleMap(prev => {
-      const current = prev[deviceId] || [];
-      const next = { ...prev, [deviceId]: current.filter(id => id !== ruleId) };
-      localStorage.setItem(rulesKey, JSON.stringify(next));
-      return next;
+    return autoRules.filter(r => {
+      if (r.enabled === false) return false;
+      let actions = r.actions;
+      if (typeof actions === 'string') { try { actions = JSON.parse(actions); } catch { actions = []; } }
+      actions = actions || [];
+      return actions.some(a => a.deviceId === deviceId);
     });
   };
 
@@ -1564,9 +1543,6 @@ const ControlPanel = ({ farmId, houseId, houseConfig }) => {
                             rules={getDeviceRules(device.deviceId)}
                             expandedRuleId={expandedRuleId}
                             onToggleExpand={(id) => setExpandedRuleId(prev => prev === id ? null : id)}
-                            onRemove={(ruleId) => removeRuleFromDevice(device.deviceId, ruleId)}
-                            onOpenPicker={() => setRulePickerDevice(device.deviceId)}
-                            locked={automationActive}
                             automationActive={automationActive}
                             scheduleMap={scheduleMap}
                             latestSensors={latestSensors}
@@ -1756,19 +1732,8 @@ const ControlPanel = ({ farmId, houseId, houseConfig }) => {
         document.body
       )}
 
-      {/* 자동화 규칙 선택 팝업 — 해당 장치 대상 규칙만 표시 */}
-      {rulePickerDevice && (
-        <RulePickerModal
-          allRules={autoRules.filter(rule => {
-            const actions = typeof rule.actions === 'string' ? JSON.parse(rule.actions) : (rule.actions || []);
-            return actions.some(a => a.deviceId === rulePickerDevice);
-          })}
-          selectedIds={selectedRuleMap[rulePickerDevice] || []}
-          onToggle={(ruleId) => toggleRuleSelection(rulePickerDevice, ruleId)}
-          onClose={() => setRulePickerDevice(null)}
-          deviceId={rulePickerDevice}
-        />
-      )}
+      {/* 규칙 선택 팝업 폐기 — 자동화 관리 화면의 활성/비활성 토글이 단일 진실 원천 */}
+
 
       {/* 확인 대화상자 */}
       {confirmAction && createPortal(
@@ -2119,13 +2084,14 @@ const AutomationEtaChip = ({ rule, isMet, lastSensorTs, bidirPosition = {} }) =>
   );
 };
 
-/** 장치 자동 모드 - 선택된 규칙 목록 표시 */
-const DeviceAutoRules = ({ deviceId, rules, expandedRuleId, onToggleExpand, onRemove, onOpenPicker, locked, automationActive, scheduleMap = {}, latestSensors = {}, lastSensorTs = null, bidirPosition = {} }) => {
+/** 장치 자동 모드 - 적용된 활성 규칙 목록 (action.deviceId 매칭 + rule.enabled) */
+const DeviceAutoRules = ({ deviceId, rules, expandedRuleId, onToggleExpand, automationActive, scheduleMap = {}, latestSensors = {}, lastSensorTs = null, bidirPosition = {} }) => {
   return (
     <div style={{display:'flex',flexDirection:'column',gap:6}}>
       {rules.length === 0 && (
-        <div style={{textAlign:'center',color:'#9ca3af',fontSize:13,padding:'4px 0'}}>
-          선택된 규칙이 없습니다
+        <div style={{textAlign:'center',color:'#9ca3af',fontSize:12,padding:'8px 0',lineHeight:1.5}}>
+          이 장치에 적용된 자동화 규칙이 없습니다<br/>
+          <span style={{fontSize:11}}>자동화 관리 화면에서 규칙을 추가하세요</span>
         </div>
       )}
       {rules.map(rule => {
@@ -2168,11 +2134,6 @@ const DeviceAutoRules = ({ deviceId, rules, expandedRuleId, onToggleExpand, onRe
                 )}
               </div>
               <div style={{display:'flex',alignItems:'center',gap:4,flexShrink:0}}>
-                {!locked && (
-                  <button onClick={(e) => { e.stopPropagation(); onRemove(rule._id); }}
-                    style={{padding:'4px 6px',border:'none',background:'transparent',cursor:'pointer',fontSize:12,borderRadius:6,color:'#9ca3af'}}
-                    title="해제">✕</button>
-                )}
                 <span style={{fontSize:12,color:'#9ca3af'}}>{isExpanded ? '▲' : '▼'}</span>
               </div>
             </div>
@@ -2270,12 +2231,6 @@ const DeviceAutoRules = ({ deviceId, rules, expandedRuleId, onToggleExpand, onRe
           </div>
         );
       })}
-      {!locked && (
-        <button onClick={onOpenPicker}
-          style={{width:'100%',padding:'8px',borderRadius:8,border:'1.5px dashed #86efac',background:'transparent',color:'#22c55e',fontSize:13,fontWeight:700,cursor:'pointer'}}>
-          + 규칙 선택
-        </button>
-      )}
     </div>
   );
 };

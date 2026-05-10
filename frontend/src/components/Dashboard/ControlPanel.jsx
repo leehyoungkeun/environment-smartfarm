@@ -527,6 +527,33 @@ const ControlPanel = ({ farmId, houseId, houseConfig }) => {
     return () => clearInterval(interval);
   }, [farmId, houseId]);
 
+  // 센서 최신값 polling — 자동화 규칙의 SensorGauge 시각화용
+  const [latestSensors, setLatestSensors] = useState({}); // { sensorId: value }
+  useEffect(() => {
+    const fetchSensors = async () => {
+      try {
+        const API = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3000/api';
+        const token = localStorage.getItem('accessToken');
+        const res = await axios.get(`${API}/sensors/latest/${farmId}/${houseId}`, {
+          headers: token ? { Authorization: `Bearer ${token}` } : {},
+          timeout: 5000,
+        });
+        const arr = res.data?.data || [];
+        if (Array.isArray(arr)) {
+          const map = {};
+          arr.forEach(s => {
+            const id = s.sensor_id || s.sensorId;
+            if (id !== undefined) map[id] = s.value;
+          });
+          setLatestSensors(map);
+        }
+      } catch {}
+    };
+    fetchSensors();
+    const interval = setInterval(fetchSensors, 30 * 1000);
+    return () => clearInterval(interval);
+  }, [farmId, houseId]);
+
   // 릴레이 실제 상태 폴링
   const relayCoilsRef = React.useRef({});
   const [relayOnline, setRelayOnline] = useState(null);
@@ -1459,6 +1486,7 @@ const ControlPanel = ({ farmId, houseId, houseConfig }) => {
                             locked={automationActive}
                             automationActive={automationActive}
                             scheduleMap={scheduleMap}
+                            latestSensors={latestSensors}
                           />
                         </div>
                       ) : isToggleType ? (
@@ -1893,8 +1921,63 @@ const NextRunCountdown = ({ nextRunAt }) => {
   );
 };
 
+/** 센서 조건 게이지 — 현재값·임계값·충족 영역 시각 표시 */
+const SensorGauge = ({ condition, value }) => {
+  const op = condition.operator;
+  const threshold = parseFloat(condition.value);
+  const cur = value !== undefined && value !== null ? parseFloat(value) : null;
+  // 센서 종류에 따라 range 추정
+  const sid = (condition.sensorId || '').toLowerCase();
+  let range = [0, 100];
+  if (sid.includes('temp')) range = [-10, 50];
+  else if (sid.includes('humid')) range = [0, 100];
+  else if (sid.includes('co2')) range = [0, 3000];
+  else if (sid.includes('lux') || sid.includes('light')) range = [0, 100000];
+  const [min, max] = range;
+  const span = max - min;
+  const thresholdPct = Math.max(0, Math.min(100, ((threshold - min) / span) * 100));
+  const currentPct = cur !== null ? Math.max(0, Math.min(100, ((cur - min) / span) * 100)) : null;
+  const isMet = cur !== null && (
+    (op === '<' && cur < threshold) ||
+    (op === '<=' && cur <= threshold) ||
+    (op === '>' && cur > threshold) ||
+    (op === '>=' && cur >= threshold) ||
+    (op === '==' && Math.abs(cur - threshold) < 0.1)
+  );
+  const fillLeft = ['<', '<='].includes(op);
+  return (
+    <div style={{display:'flex',alignItems:'center',gap:6,marginTop:6}}>
+      <div style={{flex:1,height:8,background:'#f3f4f6',borderRadius:4,position:'relative',minWidth:120}}>
+        {/* 충족 영역 */}
+        <div style={{
+          position:'absolute',top:0,bottom:0,
+          left: fillLeft ? 0 : `${thresholdPct}%`,
+          right: fillLeft ? `${100 - thresholdPct}%` : 0,
+          background: '#dcfce7', borderRadius: 4,
+        }}/>
+        {/* 임계 마커 */}
+        <div style={{position:'absolute',left:`${thresholdPct}%`,top:-3,bottom:-3,width:2,background:'#7c3aed',transform:'translateX(-1px)'}}/>
+        {/* 현재값 도트 */}
+        {currentPct !== null && (
+          <div style={{position:'absolute',left:`${currentPct}%`,top:-3,width:14,height:14,
+            background: isMet ? '#16a34a' : '#ef4444',borderRadius:'50%',border:'2px solid #fff',
+            boxShadow:'0 1px 2px rgba(0,0,0,0.3)',transform:'translateX(-7px)'}}/>
+        )}
+      </div>
+      <span style={{fontSize:11,fontWeight:700,color:isMet ? '#16a34a' : '#7c3aed',whiteSpace:'nowrap'}}>
+        {cur !== null ? cur.toFixed(1) : '--'} / {threshold}
+      </span>
+      <span style={{fontSize:10,fontWeight:800,padding:'2px 6px',borderRadius:6,
+        background: isMet ? '#dcfce7' : '#f3f4f6',
+        color: isMet ? '#15803d' : '#6b7280'}}>
+        {isMet ? '✓ 충족' : '대기'}
+      </span>
+    </div>
+  );
+};
+
 /** 장치 자동 모드 - 선택된 규칙 목록 표시 */
-const DeviceAutoRules = ({ deviceId, rules, expandedRuleId, onToggleExpand, onRemove, onOpenPicker, locked, automationActive, scheduleMap = {} }) => {
+const DeviceAutoRules = ({ deviceId, rules, expandedRuleId, onToggleExpand, onRemove, onOpenPicker, locked, automationActive, scheduleMap = {}, latestSensors = {} }) => {
   return (
     <div style={{display:'flex',flexDirection:'column',gap:6}}>
       {rules.length === 0 && (
@@ -1939,14 +2022,17 @@ const DeviceAutoRules = ({ deviceId, rules, expandedRuleId, onToggleExpand, onRe
                 {sensorConds.length > 0 && (
                   <div style={{marginTop:8}}>
                     <div style={{fontSize:11,fontWeight:700,color:'#7c3aed',marginBottom:4}}>센서 조건</div>
-                    <div style={{display:'flex',flexWrap:'wrap',gap:4}}>
+                    <div style={{display:'flex',flexDirection:'column',gap:6}}>
                       {sensorConds.map((c, i) => (
-                        <React.Fragment key={i}>
-                          {i > 0 && <span style={{fontSize:11,fontWeight:800,color:'#6b7280',alignSelf:'center'}}>{c.logic || 'AND'}</span>}
-                          <span style={{fontSize:12,fontWeight:600,padding:'3px 8px',borderRadius:8,background:'#f5f3ff',color:'#6d28d9',border:'1px solid #ddd6fe'}}>
-                            {c.sensorName || c.sensorId} {OPERATOR_LABELS[c.operator] || c.operator} {c.value}
-                          </span>
-                        </React.Fragment>
+                        <div key={i} style={{padding:'6px 8px',borderRadius:8,background:'#f5f3ff',border:'1px solid #ddd6fe'}}>
+                          <div style={{display:'flex',alignItems:'center',gap:6,flexWrap:'wrap'}}>
+                            {i > 0 && <span style={{fontSize:11,fontWeight:800,color:'#6b7280'}}>{c.logic || 'AND'}</span>}
+                            <span style={{fontSize:12,fontWeight:700,color:'#6d28d9'}}>
+                              {c.sensorName || c.sensorId} {OPERATOR_LABELS[c.operator] || c.operator} {c.value}
+                            </span>
+                          </div>
+                          <SensorGauge condition={c} value={latestSensors[c.sensorId]} />
+                        </div>
                       ))}
                     </div>
                   </div>

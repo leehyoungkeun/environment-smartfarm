@@ -1493,6 +1493,7 @@ const ControlPanel = ({ farmId, houseId, houseConfig }) => {
                             scheduleMap={scheduleMap}
                             latestSensors={latestSensors}
                             lastSensorTs={lastSensorTs}
+                            bidirPosition={bidirPosition}
                           />
                         </div>
                       ) : isToggleType ? (
@@ -1983,23 +1984,40 @@ const SensorGauge = ({ condition, value }) => {
 };
 
 /** 자동화 발동 ETA 카운트다운 칩 (조건 충족 시 다음 평가까지 / 쿨다운 남은 시간) */
-const AutomationEtaChip = ({ rule, isMet, lastSensorTs }) => {
+const AutomationEtaChip = ({ rule, isMet, lastSensorTs, bidirPosition = {} }) => {
   const [now, setNow] = React.useState(Date.now());
   React.useEffect(() => {
     const t = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(t);
   }, []);
   if (!isMet) return null;
+  // 측창·차광 등 bidir 액션이 이미 한계 도달이면 ② cross-check skip → ETA 의미 없음
+  // 모든 bidir 액션이 already 상태면 '✓ 동작 완료' 표시
+  let actions = rule.actions;
+  if (typeof actions === 'string') { try { actions = JSON.parse(actions); } catch { actions = []; } }
+  actions = actions || [];
+  const bidirActions = actions.filter(a => a.command === 'open' || a.command === 'close');
+  const allAlready = bidirActions.length > 0 && bidirActions.every(a => {
+    const pos = bidirPosition[a.deviceId];
+    if (pos === undefined) return false;
+    return (a.command === 'open' && pos === 100) || (a.command === 'close' && pos === 0);
+  });
+  if (allAlready) {
+    return (
+      <span style={{fontSize:11,fontWeight:800,padding:'3px 8px',borderRadius:8,
+        background:'#f1f5f9',color:'#64748b',border:'1px solid #cbd5e1',whiteSpace:'nowrap'}}>
+        ✓ 동작 완료
+      </span>
+    );
+  }
   const cooldownSec = rule.cooldownSeconds || rule.cooldown_seconds || 0;
   const lastTrig = rule.lastTriggeredAt || rule.last_triggered_at;
   const lastTrigTs = lastTrig ? new Date(lastTrig).getTime() : 0;
   const cooldownUntil = lastTrigTs + cooldownSec * 1000;
   const inCooldown = cooldownSec > 0 && now < cooldownUntil;
   const cooldownRemain = inCooldown ? Math.ceil((cooldownUntil - now) / 1000) : 0;
-  // 다음 ② 평가 = 마지막 센서 수집 + 60초
   const nextEvalAt = lastSensorTs ? lastSensorTs + 60 * 1000 : 0;
   const evalRemain = nextEvalAt > now ? Math.ceil((nextEvalAt - now) / 1000) : 0;
-  // 쿨다운이 더 멀면 쿨다운 표시, 아니면 평가 ETA
   const finalRemain = inCooldown ? Math.max(cooldownRemain, evalRemain) : evalRemain;
   const isCooldown = inCooldown && cooldownRemain > evalRemain;
   const fmt = (s) => {
@@ -2024,7 +2042,7 @@ const AutomationEtaChip = ({ rule, isMet, lastSensorTs }) => {
 };
 
 /** 장치 자동 모드 - 선택된 규칙 목록 표시 */
-const DeviceAutoRules = ({ deviceId, rules, expandedRuleId, onToggleExpand, onRemove, onOpenPicker, locked, automationActive, scheduleMap = {}, latestSensors = {}, lastSensorTs = null }) => {
+const DeviceAutoRules = ({ deviceId, rules, expandedRuleId, onToggleExpand, onRemove, onOpenPicker, locked, automationActive, scheduleMap = {}, latestSensors = {}, lastSensorTs = null, bidirPosition = {} }) => {
   return (
     <div style={{display:'flex',flexDirection:'column',gap:6}}>
       {rules.length === 0 && (
@@ -2068,7 +2086,7 @@ const DeviceAutoRules = ({ deviceId, rules, expandedRuleId, onToggleExpand, onRe
                 }}>{rule.enabled ? '활성' : '비활성'}</span>
                 {automationActive && rule.enabled && scheduleMap[rule._id] && <NextRunCountdown nextRunAt={scheduleMap[rule._id]} />}
                 {automationActive && rule.enabled && sensorConds.length > 0 && (
-                  <AutomationEtaChip rule={rule} isMet={allSensorMet} lastSensorTs={lastSensorTs} />
+                  <AutomationEtaChip rule={rule} isMet={allSensorMet} lastSensorTs={lastSensorTs} bidirPosition={bidirPosition} />
                 )}
               </div>
               <div style={{display:'flex',alignItems:'center',gap:4,flexShrink:0}}>

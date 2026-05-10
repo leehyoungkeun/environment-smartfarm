@@ -828,11 +828,19 @@ const ControlPanel = ({ farmId, houseId, houseConfig }) => {
       if (timerRefs.current[`progress_${deviceId}`]) { clearInterval(timerRefs.current[`progress_${deviceId}`]); timerRefs.current[`progress_${deviceId}`] = null; }
       // 정지 시 현재 열림 위치 저장
       const prog = bidirProgressRef.current[deviceId];
+      const stoppedAt = (prog && prog.actualPos !== undefined) ? prog.actualPos : (bidirPositionRef.current[deviceId] ?? 0);
       if (prog && prog.actualPos !== undefined) {
         setBidirPosition(prev => ({ ...prev, [deviceId]: prog.actualPos }));
       }
       setBidirProgress(prev => ({ ...prev, [deviceId]: null }));
       setDeviceStates(prev => ({ ...prev, [deviceId]: { ...prev[deviceId], status: 'idle', lastCommand: 'stop', lastCommandTime: new Date().toISOString() } }));
+      // backend device-positions 에 stop 상태 저장 → 다음 컴포넌트 mount 시 syncPositions 가 진행률 재시작 안 함
+      const API = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3000/api';
+      axios.post(`${API}/device-positions/${farmId}`, {
+        deviceId, position: stoppedAt, command: 'stop',
+        startPosition: stoppedAt, targetPosition: stoppedAt,
+        duration: 0, startedAt: null,
+      }, { headers: { Authorization: `Bearer ${localStorage.getItem('accessToken')}` }, timeout: 3000 }).catch(() => {});
     }
     setLoading(prev => ({ ...prev, [loadingKey]: true }));
     setControlStage(prev => ({ ...prev, [deviceId]: 'sending' }));

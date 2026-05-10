@@ -49,6 +49,27 @@ router.post("/:farmId", async (req, res) => {
     );
 
     res.json({ success: true });
+
+    // MQTT publish → RPi 가 즉시 global.devicePositions 동기화
+    // 자동화 ② 평가의 isAlready 판정에 정확한 position 전달 (사용자 ■정지 중간 위치 포함)
+    try {
+      const mqttService = (await import("../services/mqttClient.js")).default;
+      if (mqttService.isConnected()) {
+        const topic = `smartfarm/${req.params.farmId}/device-positions`;
+        mqttService.client.publish(topic, JSON.stringify({
+          action: 'set_device_position',
+          farmId: req.params.farmId,
+          deviceId,
+          position: position ?? 0,
+          command: command || 'stop',
+          startPosition: startPosition ?? 0,
+          targetPosition: targetPosition ?? 0,
+          duration: duration ?? 0,
+          startedAt: startedAt || null,
+          timestamp: new Date().toISOString(),
+        }), { qos: 1 });
+      }
+    } catch (e) { /* MQTT 발행 실패는 무시 — 5분 fetch fallback */ }
   } catch (error) {
     res.status(500).json({ success: false, error: error.message });
   }

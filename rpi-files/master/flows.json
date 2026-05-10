@@ -7609,5 +7609,41 @@
         "x": 1140,
         "y": 80,
         "wires": []
+    },
+    {
+        "id": "506cde3ccc8d64a2",
+        "type": "mqtt in",
+        "z": "dc65c22bb240477e",
+        "name": "device-positions 수신",
+        "topic": "smartfarm/+/device-positions",
+        "qos": "1",
+        "datatype": "auto",
+        "broker": "mqtt_broker_aws",
+        "nl": false,
+        "rap": true,
+        "rh": 0,
+        "inputs": 0,
+        "x": 160,
+        "y": 480,
+        "wires": [
+            [
+                "79db080cab76cebd"
+            ]
+        ]
+    },
+    {
+        "id": "79db080cab76cebd",
+        "type": "function",
+        "z": "dc65c22bb240477e",
+        "name": "device-positions 설정",
+        "func": "// MQTT로 수신한 device-positions를 global context에 즉시 동기화\nconst data = msg.payload;\nif (data && data.action === 'set_device_position' && data.deviceId) {\n    const positions = global.get('devicePositions') || {};\n    const before = positions[data.deviceId];\n    positions[data.deviceId] = data.position;\n    global.set('devicePositions', positions);\n    node.warn('📍 device-position 갱신 (MQTT): ' + data.deviceId + ' ' + before + ' → ' + data.position + ' (cmd=' + data.command + ')');\n}\nreturn null;\n",
+        "outputs": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 360,
+        "y": 480,
+        "wires": []
     }
 ]

@@ -15,7 +15,14 @@ if (import.meta.env.VITE_GLITCHTIP_DSN) {
       tags: { farm_id: import.meta.env.VITE_FARM_ID || 'unknown' },
     },
     beforeSend(event) {
-      if (event.exception?.values?.[0]?.value?.includes('ResizeObserver')) return null
+      const msg = event.exception?.values?.[0]?.value || ''
+      if (msg.includes('ResizeObserver')) return null
+      // 검색 크롤러 트래픽 무시 (사용자 아님)
+      const ua = event.request?.headers?.['User-Agent'] || navigator.userAgent || ''
+      if (/bot|crawl|spider|googlebot|bingbot|slurp/i.test(ua)) return null
+      // Service Worker Rejected 노이즈 (Vite PWA 자동 등록 실패, 영향 없음)
+      const stack = event.exception?.values?.[0]?.stacktrace?.frames || []
+      if (stack.some(f => f.filename?.includes('registerSW.js'))) return null
       return event
     },
   })

@@ -1,6 +1,6 @@
 {
-  "name": "SmartFarm 모니터링 시스템",
-  "short_name": "SmartFarm",
+  "name": "케이그린텍 모니터링 시스템",
+  "short_name": "케이그린텍",
   "description": "실시간 축사 환경 모니터링 및 제어 시스템",
   "start_url": "/",
   "display": "standalone",

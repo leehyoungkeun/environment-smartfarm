@@ -110,7 +110,7 @@ const LoginPage = () => {
                             flex items-center justify-center text-2xl shadow-lg shadow-emerald-500/20 mx-auto mb-3">
                 <span style={{color:'#fff'}}>🌱</span>
               </div>
-              <h1 className="text-xl font-bold text-gray-900">SmartFarm</h1>
+              <h1 className="text-xl font-bold text-gray-900">케이그린텍</h1>
               <p className="text-gray-500 text-xs mt-1">
                 {showSetup ? '초기 관리자 계정 설정' : '스마트팜 모니터링 시스템'}
               </p>

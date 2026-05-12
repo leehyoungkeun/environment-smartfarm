@@ -197,7 +197,7 @@ tr:nth-child(even) td{background:#f8faf8}
 </style></head><body>
 <div class="header">
   <h1>🌱 ${title}</h1>
-  <div class="sub">SmartFarm 영농관리 시스템</div>
+  <div class="sub">케이그린텍 영농관리 시스템</div>
 </div>
 <div class="meta"><span>출력일: ${now}</span><span>총 ${rows.length}건</span></div>
 <table><thead><tr>${headers.map(h=>`<th>${h}</th>`).join("")}</tr></thead><tbody>${
@@ -216,7 +216,7 @@ tr:nth-child(even) td{background:#f8faf8}
   </div>`).join("")}
 </div>`:""
 }
-<div class="footer">SmartFarm 영농일지 시스템 | ${now} 출력</div>
+<div class="footer">케이그린텍 영농일지 시스템 | ${now} 출력</div>
 </body></html>`;
 }
 

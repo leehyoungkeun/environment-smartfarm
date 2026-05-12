@@ -369,7 +369,7 @@ function AppContent() {
           <div className={`${isMobile ? 'w-5 h-5 text-xs' : 'w-7 h-7 text-sm'} bg-gradient-to-br from-emerald-400 to-blue-500 rounded-lg flex items-center justify-center shadow-lg shadow-emerald-500/20`}>
             🌱
           </div>
-          <span className={`${isMobile ? 'text-xs' : 'text-sm'} font-bold text-gray-800`}>SmartFarm</span>
+          <span className={`${isMobile ? 'text-xs' : 'text-sm'} font-bold text-gray-800`}>케이그린텍</span>
         </div>
       );
     }
@@ -438,7 +438,7 @@ function AppContent() {
             <div className="flex items-center gap-3">
               <span className="text-2xl">🌱</span>
               <div>
-                <p className="text-white font-semibold text-base">SmartFarm 앱 설치</p>
+                <p className="text-white font-semibold text-base">케이그린텍 앱 설치</p>
                 <p className="text-blue-100 text-sm">홈 화면에 추가하여 앱처럼 사용하세요</p>
               </div>
             </div>
@@ -471,7 +471,7 @@ function AppContent() {
               {isStaff && (
                 <div className="flex items-center gap-2 pb-1.5 mb-1 border-b border-gray-100">
                   <div className="w-7 h-7 bg-gradient-to-br from-emerald-400 to-blue-500 rounded-lg flex items-center justify-center text-sm shadow-lg shadow-emerald-500/20">🌱</div>
-                  <span className="text-base font-bold text-gray-800">SmartFarm</span>
+                  <span className="text-base font-bold text-gray-800">케이그린텍</span>
                   {farms.length > 1 && (
                     <FarmSelector farms={farms} selectedFarmId={selectedFarmId} onSelect={selectFarm} />
                   )}
@@ -490,7 +490,7 @@ function AppContent() {
             <div className="flex items-center justify-between h-14">
               <div className="flex items-center gap-3">
                 <div className="w-8 h-8 bg-gradient-to-br from-emerald-400 to-blue-500 rounded-xl flex items-center justify-center text-base shadow-lg shadow-emerald-500/20">🌱</div>
-                <span className="text-lg font-bold text-gray-800">SmartFarm</span>
+                <span className="text-lg font-bold text-gray-800">케이그린텍</span>
                 {rpiIp && <span className="text-xs text-gray-400 font-mono ml-2">{rpiIp}</span>}
                 <span className="text-xs text-gray-400 ml-1">{clockTime.toLocaleTimeString('ko-KR', { hour:'2-digit', minute:'2-digit' })}</span>
                 <span className="text-xs text-gray-400">{clockTime.toLocaleDateString('ko-KR', { month:'long', day:'numeric', weekday:'short' })}</span>
@@ -617,7 +617,7 @@ function AppContent() {
             <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
               <div className="flex items-center gap-2">
                 <div className="w-8 h-8 bg-gradient-to-br from-emerald-400 to-blue-500 rounded-lg flex items-center justify-center text-sm shadow-md">🌱</div>
-                <span className="text-base font-bold text-gray-800">SmartFarm</span>
+                <span className="text-base font-bold text-gray-800">케이그린텍</span>
               </div>
               <button onClick={() => setShowMobileSidebar(false)} className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-gray-100 text-gray-400 text-lg">✕</button>
             </div>

@@ -1853,7 +1853,7 @@ export default function FarmManager({ onNavigateFarm }) {
                                   @media print{body{padding:0}.label{border:2px solid #333}}
                                 </style></head><body>
                                   <div class="label">
-                                    <div style="font-size:18px;font-weight:bold">🌱 SmartFarm</div>
+                                    <div style="font-size:18px;font-weight:bold">🌱 케이그린텍</div>
                                     <img src="${qrDataUrl}" width="160" height="160">
                                     <div class="code">${dev.deviceCode}</div>
                                     <div class="farm">${farm.name || ''}</div>

@@ -13,7 +13,7 @@ const reqId = msg._requestId || null;
 node.warn('📦 수신 duration=' + duration + ' command=' + command + ' deviceId=' + deviceId);
 
 // === 장치 상태 기록 함수 ===
-function saveDeviceState(devId, cmd, cType) {
+function saveDeviceState(devId, cmd, cType, msgDuration) {
     var states = global.get('deviceStates') || {};
     if (cType === 'bidir') {
         var positions = global.get('devicePositions') || {};
@@ -29,11 +29,25 @@ function saveDeviceState(devId, cmd, cType) {
             };
             global.set('movements', moves);
             // backend·frontend 진행률 카운트 시작 신호 — startedAt + duration 같이 publish
+            // 부분 동작 (msgDuration < fullDur) 시 실제 step target 으로 보고 → progress bar 정확
             var modbusCfgStart = global.get('modbus_cfg_' + devId);
             var fullDurStart = modbusCfgStart ? (cmd === 'open' ? modbusCfgStart.openDuration : modbusCfgStart.closeDuration) : 0;
-            var remainRatioStart = cmd === 'open' ? (100 - startPosNow) / 100 : startPosNow / 100;
-            var actualDurStart = fullDurStart > 0 ? Math.max(1, Math.round(fullDurStart * remainRatioStart)) : 0;
-            var targetPosStart = cmd === 'open' ? 100 : 0;
+            var actualDurStart, targetPosStart;
+            if (msgDuration && msgDuration > 0 && fullDurStart > 0 && msgDuration < fullDurStart) {
+                // 부분 동작 (stepped/position 모드 또는 manual short duration)
+                actualDurStart = msgDuration;
+                var deltaPctStart = Math.round(100 * msgDuration / fullDurStart);
+                targetPosStart = cmd === 'open'
+                    ? Math.min(100, startPosNow + deltaPctStart)
+                    : Math.max(0, startPosNow - deltaPctStart);
+                if (targetPosStart >= 95) targetPosStart = 100;
+                if (targetPosStart <= 5) targetPosStart = 0;
+            } else {
+                // 한계까지 동작 (full mode)
+                var remainRatioStart = cmd === 'open' ? (100 - startPosNow) / 100 : startPosNow / 100;
+                actualDurStart = fullDurStart > 0 ? Math.max(1, Math.round(fullDurStart * remainRatioStart)) : 0;
+                targetPosStart = cmd === 'open' ? 100 : 0;
+            }
             var fidStart = global.get('FARM_ID') || env.get('FARM_ID') || 'farm_0001';
             node.send([null, {
                 topic: 'smartfarm/' + fidStart + '/device/position',
@@ -212,7 +226,7 @@ if (moduleType === 'eletechsup') {
                 node.send([msg2, null]);
             }, 300);
             node.status({ fill: 'green', shape: 'dot', text: 'FC06 열기: uid' + unitId + ' reg' + address });
-            saveDeviceState(deviceId, command, controlType);
+            saveDeviceState(deviceId, command, controlType, duration);
             scheduleAutoStop(deviceId, unitId, address, address2, moduleType, duration, command);
             return [msg, null];
         } else if (command === 'close') {
@@ -225,7 +239,7 @@ if (moduleType === 'eletechsup') {
                 node.send([msg2, null]);
             }, 300);
             node.status({ fill: 'green', shape: 'dot', text: 'FC06 닫기: uid' + unitId + ' reg' + address2 });
-            saveDeviceState(deviceId, command, controlType);
+            saveDeviceState(deviceId, command, controlType, duration);
             scheduleAutoStop(deviceId, unitId, address, address2, moduleType, duration, command);
             return [msg, null];
         } else {
@@ -238,7 +252,7 @@ if (moduleType === 'eletechsup') {
                 node.send([msg2, null]);
             }, 300);
             node.status({ fill: 'grey', shape: 'dot', text: 'FC06 정지: uid' + unitId + ' ALL OFF' });
-            saveDeviceState(deviceId, command, controlType);
+            saveDeviceState(deviceId, command, controlType, duration);
             return [msg, null];
         }
     } else {
@@ -246,7 +260,7 @@ if (moduleType === 'eletechsup') {
         msg.payload = { fc: 6, unitid: unitId, address: address, quantity: 1, value: value };
         global.set('_pendingModbus', { requestId: reqId, isLastWrite: true });
         node.status({ fill: 'green', shape: 'dot', text: 'FC06 uid' + unitId + ' reg' + address });
-        saveDeviceState(deviceId, command, controlType);
+        saveDeviceState(deviceId, command, controlType, duration);
         return [msg, null];
     }
 } else {
@@ -267,7 +281,7 @@ if (moduleType === 'eletechsup') {
         node.status({ fill: 'green', shape: 'dot', text: 'FC15 uid' + unitId + ' ch' + address + '=' + (on ? 'ON' : 'OFF') });
     }
     global.set('_pendingModbus', { requestId: reqId, isLastWrite: true });
-    saveDeviceState(deviceId, command, controlType);
+    saveDeviceState(deviceId, command, controlType, duration);
     if (controlType === 'bidir' && (command === 'open' || command === 'close')) {
         scheduleAutoStop(deviceId, unitId, address, address2, moduleType, duration, command);
     }

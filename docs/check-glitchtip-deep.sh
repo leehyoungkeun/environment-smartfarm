@@ -1,0 +1,12 @@
+#!/bin/bash
+echo "=== projects 테이블 ==="
+docker exec glitchtip-postgres psql -U postgres -d glitchtip -c "SELECT id, name, slug FROM projects_project ORDER BY id;"
+echo ""
+echo "=== 이벤트 raw (issue_events_issue 전체) ==="
+docker exec glitchtip-postgres psql -U postgres -d glitchtip -c "SELECT id, project_id, title, last_seen FROM issue_events_issue ORDER BY last_seen DESC NULLS LAST LIMIT 10;"
+echo ""
+echo "=== 이벤트 raw count ==="
+docker exec glitchtip-postgres psql -U postgres -d glitchtip -c "SELECT 'issue_events_issue' AS tbl, COUNT(*) FROM issue_events_issue UNION ALL SELECT 'projects_project', COUNT(*) FROM projects_project UNION ALL SELECT 'issue_events_comment', COUNT(*) FROM issue_events_comment;"
+echo ""
+echo "=== DSN 별 received_at 통계 ==="
+docker exec glitchtip-postgres psql -U postgres -d glitchtip -c "SELECT id, project_id, public_key, date_added FROM projects_projectkey ORDER BY id;"

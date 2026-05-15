@@ -674,8 +674,18 @@ const RuleForm = ({ farmId, houseId, houses = [], rule, existingRules = [], defa
   };
 
   const addAction = () => {
-    // 하우스에 장치가 있으면 첫 번째 장치를, 없으면 기본값
-    const firstDevice = houseDevices[0];
+    // 한 규칙 = 한 deviceType 원칙 (옵션 A):
+    //   - 기존 action 의 deviceType 가 있으면 같은 type 의 다른 device 만 추가 가능
+    //   - 같은 type 의 다른 device 가 없으면 alert 후 차단
+    const firstActionType = form.actions[0]?.deviceType;
+    const candidates = firstActionType
+      ? houseDevices.filter(d => d.type === firstActionType && !form.actions.some(a => a.deviceId === d.deviceId))
+      : houseDevices;
+    if (firstActionType && candidates.length === 0) {
+      alert(`같은 종류(${firstActionType})의 다른 장치가 없습니다.\n다른 종류의 장치를 동작시키려면 별도 규칙을 만드세요.`);
+      return;
+    }
+    const firstDevice = candidates[0];
     const newAction = firstDevice
       ? { deviceId: firstDevice.deviceId, deviceType: firstDevice.type, deviceName: firstDevice.name, command: firstDevice.type === 'fan' || firstDevice.type === 'heater' ? 'on' : 'open', duration: 0 }
       : { deviceId: '', deviceType: '', deviceName: '', command: 'on', duration: 0 };
@@ -693,6 +703,11 @@ const RuleForm = ({ farmId, houseId, houses = [], rule, existingRules = [], defa
       r.name.trim() === form.name.trim() && r._id !== rule?._id
     );
     if (duplicate) return alert(`"${form.name}" 이름의 규칙이 이미 존재합니다.`);
+    // 한 규칙 = 한 deviceType 검증 (옵션 A)
+    const types = new Set(form.actions.map(a => a.deviceType).filter(Boolean));
+    if (types.size > 1) {
+      return alert(`한 규칙에는 같은 종류의 장치만 추가할 수 있습니다 (현재: ${[...types].join(', ')}).\n다른 종류는 별도 규칙을 만드세요.`);
+    }
     if (savingRef.current) return; // 더블클릭 방지
     savingRef.current = true;
     setSaving(true);
@@ -1051,11 +1066,19 @@ const RuleForm = ({ farmId, houseId, houses = [], rule, existingRules = [], defa
                   <span style={{fontSize:12,fontWeight:800,color:'#2563eb',minWidth:36}}>
                     {idx === 0 ? 'THEN' : `+${idx + 1}`}
                   </span>
-                  {houseDevices.length > 0 ? (
+                  {houseDevices.length > 0 ? (() => {
+                    // 한 규칙 = 한 deviceType (옵션 A):
+                    //   첫 action 이 아니면 첫 action 의 deviceType 만 선택 가능
+                    const firstActionType = form.actions[0]?.deviceType;
+                    const lockedType = idx > 0 ? firstActionType : null;
+                    const visibleDevices = lockedType
+                      ? houseDevices.filter(d => d.type === lockedType)
+                      : houseDevices;
+                    return (
                     <select
-                      value={houseDevices.some(d => d.deviceId === action.deviceId) ? action.deviceId : ''}
+                      value={visibleDevices.some(d => d.deviceId === action.deviceId) ? action.deviceId : ''}
                       onChange={(e) => {
-                        const dev = houseDevices.find(d => d.deviceId === e.target.value);
+                        const dev = visibleDevices.find(d => d.deviceId === e.target.value);
                         if (dev) {
                           const devDt = DEVICE_TYPE_OPTIONS.find(d => d.value === dev.type);
                           updateAction(idx, {
@@ -1067,18 +1090,19 @@ const RuleForm = ({ farmId, houseId, houses = [], rule, existingRules = [], defa
                         }
                       }}
                       className="input-field flex-1 min-w-0 text-xs md:text-sm"
-                      style={!houseDevices.some(d => d.deviceId === action.deviceId) ? {borderColor: '#f59e0b', background: '#fffbeb'} : {}}
+                      style={!visibleDevices.some(d => d.deviceId === action.deviceId) ? {borderColor: '#f59e0b', background: '#fffbeb'} : {}}
                     >
-                      {!houseDevices.some(d => d.deviceId === action.deviceId) && (
+                      {!visibleDevices.some(d => d.deviceId === action.deviceId) && (
                         <option value="" className="bg-slate-800">장치 선택</option>
                       )}
-                      {houseDevices.map(d => (
+                      {visibleDevices.map(d => (
                         <option key={d.deviceId} value={d.deviceId} className="bg-slate-800">
                           {d.name}
                         </option>
                       ))}
                     </select>
-                  ) : (
+                    );
+                  })() : (
                     <>
                       <select
                         value={action.deviceType}
@@ -1176,6 +1200,12 @@ const RuleForm = ({ farmId, houseId, houses = [], rule, existingRules = [], defa
               </div>
             );
           })}
+          {form.actions.length > 0 && form.actions[0]?.deviceType && (
+            <div className="text-xs text-gray-500 px-1 pt-1">
+              ℹ️ 같은 종류 ({form.actions[0].deviceName?.replace(/\d+$/, '') || form.actions[0].deviceType})의 다른 장치만 추가 가능합니다.
+              다른 종류는 별도 규칙으로 만드세요.
+            </div>
+          )}
           <button
             onClick={addAction}
             className="w-full flex items-center justify-center gap-1.5 py-2.5 rounded-lg

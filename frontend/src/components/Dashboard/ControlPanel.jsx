@@ -1505,11 +1505,12 @@ const ControlPanel = ({ farmId, houseId, houseConfig }) => {
                             const movingDir = prog?.direction;
                             return (
                               <div style={{padding:'8px 10px',marginBottom:8,borderRadius:8,background:'#f8fafc',border:'1px solid #e2e8f0'}}>
+                                {/* 1행: 측창 절대 위치 (초록) — 항상 표시 */}
                                 <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:6}}>
                                   <span style={{fontSize:11,fontWeight:700,color:'#475569'}}>
                                     📊 측창 위치 {isMoving && <span style={{color: movingDir === 'open' ? '#15803d' : '#1d4ed8',marginLeft:4}}>({movingDir === 'open' ? '▲ 여는 중' : '▼ 닫는 중'})</span>}
                                   </span>
-                                  <span style={{fontSize:13,fontWeight:800,color: displayPos >= 100 ? '#15803d' : displayPos <= 0 ? '#64748b' : '#1d4ed8'}}>
+                                  <span style={{fontSize:13,fontWeight:800,color: displayPos >= 100 ? '#15803d' : displayPos <= 0 ? '#64748b' : '#16a34a'}}>
                                     {displayPos}%
                                   </span>
                                 </div>
@@ -1517,13 +1518,32 @@ const ControlPanel = ({ farmId, houseId, houseConfig }) => {
                                   <div style={{
                                     height:'100%',
                                     width:`${Math.max(0,Math.min(100,displayPos))}%`,
-                                    background: isMoving
-                                      ? `linear-gradient(90deg, ${movingDir === 'open' ? '#86efac, #16a34a' : '#bfdbfe, #1d4ed8'})`
-                                      : displayPos >= 100 ? '#16a34a' : displayPos <= 0 ? '#94a3b8' : '#3b82f6',
+                                    background: displayPos >= 100 ? '#16a34a' : displayPos <= 0 ? '#94a3b8' : 'linear-gradient(90deg, #86efac, #22c55e)',
                                     transition: 'width 0.5s ease',
-                                    animation: isMoving ? 'pulse 1.5s ease-in-out infinite' : 'none',
                                   }}/>
                                 </div>
+                                {/* 2행: 현재 동작 진행률 (파랑) — isMoving 일 때만 */}
+                                {isMoving && prog?.percent !== undefined && (
+                                  <>
+                                    <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginTop:8,marginBottom:4}}>
+                                      <span style={{fontSize:10,fontWeight:700,color:'#475569'}}>
+                                        ⏱️ 현재 동작 진행 {prog.remainSec !== undefined && <span style={{color:'#1d4ed8',marginLeft:4}}>(남은 {prog.remainSec}초)</span>}
+                                      </span>
+                                      <span style={{fontSize:11,fontWeight:800,color:'#1d4ed8'}}>
+                                        {prog.percent}%
+                                      </span>
+                                    </div>
+                                    <div style={{height:6,background:'#e5e7eb',borderRadius:3,overflow:'hidden'}}>
+                                      <div style={{
+                                        height:'100%',
+                                        width:`${Math.max(0,Math.min(100,prog.percent))}%`,
+                                        background: 'linear-gradient(90deg, #bfdbfe, #1d4ed8)',
+                                        transition: 'width 0.3s linear',
+                                        animation: 'pulse 1.5s ease-in-out infinite',
+                                      }}/>
+                                    </div>
+                                  </>
+                                )}
                                 <div style={{display:'flex',justifyContent:'space-between',marginTop:3,fontSize:9,color:'#94a3b8',fontWeight:600}}>
                                   <span>닫힘</span>
                                   <span>열림</span>

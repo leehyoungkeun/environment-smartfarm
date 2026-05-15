@@ -33,8 +33,9 @@ function saveDeviceState(devId, cmd, cType, msgDuration) {
             var modbusCfgStart = global.get('modbus_cfg_' + devId);
             var fullDurStart = modbusCfgStart ? (cmd === 'open' ? modbusCfgStart.openDuration : modbusCfgStart.closeDuration) : 0;
             var actualDurStart, targetPosStart;
+            // 모터는 elapsed × speed 비례 (startPos 무관) → 단순 % 식
             if (msgDuration && msgDuration > 0 && fullDurStart > 0 && msgDuration < fullDurStart) {
-                // 부분 동작 (stepped/position 모드 또는 manual short duration)
+                // 부분 동작 (stepped/position 모드)
                 actualDurStart = msgDuration;
                 var deltaPctStart = Math.round(100 * msgDuration / fullDurStart);
                 targetPosStart = cmd === 'open'
@@ -43,7 +44,7 @@ function saveDeviceState(devId, cmd, cType, msgDuration) {
                 if (targetPosStart >= 95) targetPosStart = 100;
                 if (targetPosStart <= 5) targetPosStart = 0;
             } else {
-                // 한계까지 동작 (full mode)
+                // 한계까지 동작 (full mode) — 남은 거리/속도 = 남은 시간
                 var remainRatioStart = cmd === 'open' ? (100 - startPosNow) / 100 : startPosNow / 100;
                 actualDurStart = fullDurStart > 0 ? Math.max(1, Math.round(fullDurStart * remainRatioStart)) : 0;
                 targetPosStart = cmd === 'open' ? 100 : 0;
@@ -70,16 +71,16 @@ function saveDeviceState(devId, cmd, cType, msgDuration) {
                 var elapsed = (Date.now() - move.startedAt) / 1000;
                 var fullDur = move.command === 'open' ? modbusCfg.openDuration : modbusCfg.closeDuration;
                 if (fullDur > 0) {
-                    var ratio = Math.min(1, elapsed / fullDur);
+                    // 모터는 elapsed × speed 비례. delta% = 100 × elapsed/fullDur
+                    var deltaPctStop = Math.round(100 * Math.min(elapsed, fullDur) / fullDur);
                     if (move.command === 'open') {
-                        newPos = Math.min(100, Math.round(move.startPos + (100 - move.startPos) * ratio));
+                        newPos = Math.min(100, move.startPos + deltaPctStop);
                     } else {
-                        newPos = Math.max(0, Math.round(move.startPos - move.startPos * ratio));
+                        newPos = Math.max(0, move.startPos - deltaPctStop);
                     }
-                    // 한계 위치 snap — 누적 동작으로 0/100 근처 도달 시 정확히 한계값
-                    // 측창은 한계 스위치 또는 모터 stall 로 실제 0/100 정지함
-                    if (move.command === 'close' && newPos <= 5) newPos = 0;
-                    if (move.command === 'open' && newPos >= 95) newPos = 100;
+                    // 한계 snap (누적 round 오차 흡수)
+                    if (newPos <= 5) newPos = 0;
+                    if (newPos >= 95) newPos = 100;
                     positions[devId] = newPos;
                     global.set('devicePositions', positions);
                     node.warn('📍 Duration 위치 계산: ' + devId + ' ' + move.startPos + '% → ' + newPos + '% (' + elapsed.toFixed(1) + 's / ' + fullDur + 's)');
@@ -148,11 +149,11 @@ function scheduleAutoStop(devId, uId, addr, addr2, modType, dur, cmd) {
         if (modbusForCalc && (cmd === 'open' || cmd === 'close')) {
             var fullDurCalc = cmd === 'open' ? (modbusForCalc.openDuration || 0) : (modbusForCalc.closeDuration || 0);
             if (fullDurCalc > 0 && dur > 0 && dur < fullDurCalc) {
-                // 부분 동작 — elapsed 기반 위치 (stepped/position 모드)
+                // 부분 동작 — 단순 비례 (모터는 startPos 무관 elapsed × speed)
                 var startPosCalc = (move && typeof move.startPos === 'number') ? move.startPos : (cmd === 'open' ? 0 : 100);
-                var ratioCalc = dur / fullDurCalc;
-                if (cmd === 'open') newPos = Math.min(100, Math.round(startPosCalc + (100 - startPosCalc) * ratioCalc));
-                else newPos = Math.max(0, Math.round(startPosCalc - startPosCalc * ratioCalc));
+                var deltaPctCalc = Math.round(100 * dur / fullDurCalc);
+                if (cmd === 'open') newPos = Math.min(100, startPosCalc + deltaPctCalc);
+                else newPos = Math.max(0, startPosCalc - deltaPctCalc);
                 if (newPos >= 95) newPos = 100;
                 if (newPos <= 5) newPos = 0;
             } else {

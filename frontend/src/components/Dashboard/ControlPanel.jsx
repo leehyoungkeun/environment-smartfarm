@@ -1497,7 +1497,10 @@ const ControlPanel = ({ farmId, houseId, houseConfig }) => {
                           {device.modbus?.controlType === 'bidir' && (() => {
                             const pos = bidirPosition[device.deviceId];
                             const prog = bidirProgress[device.deviceId];
-                            const displayPos = prog?.actualPos !== undefined ? prog.actualPos : (pos !== undefined ? pos : 0);
+                            // 위치 표시는 backend 의 정확한 값(bidirPosition)만 신뢰.
+                            // 옛: prog?.actualPos 가 timer 계산(추정)값이라 backend stop 메시지와 충돌 → 흔들림.
+                            // 진행 중 시각화는 isMoving + 색상으로만 표현.
+                            const displayPos = pos !== undefined ? pos : 0;
                             const isMoving = !!prog;
                             const movingDir = prog?.direction;
                             return (

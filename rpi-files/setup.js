@@ -274,7 +274,14 @@ router.post('/apply', async (req, res) => {
 
     // 3.2 rpi-server/.env AWS_IOT_CLIENT_ID·MQTT_TOPIC_PREFIX 치환
     // server.js 가 dotenv 로 로드 — placeholder 'MyFarmPi_UNSET' 을 농장별로 치환
-    const clientId = mqttClientId || ('MyFarmPi_' + deviceCode);
+    //
+    // ★ 표준 형식 (rpi_master_image_traps.md #6-B):
+    //   Express: MyFarmPi_${farmId}            (단순)
+    //   Node-RED: MyFarmPi_${farmId}_${hostname}_nodered (정책 패턴 매칭)
+    // AWS IoT 정책은 표준 형식만 허용 — 비표준이면 15-17초 주기로 disconnect
+    const hostname = require('os').hostname();
+    const clientId = mqttClientId || ('MyFarmPi_' + farmId);
+    const nodeRedClientId = 'MyFarmPi_' + farmId + '_' + hostname + '_nodered';
     try {
       if (fs.existsSync(ENV_PATH)) {
         let env = fs.readFileSync(ENV_PATH, 'utf8');
@@ -322,14 +329,14 @@ router.post('/apply', async (req, res) => {
             if (e.name === 'SERVER_URL') e.value = serverUrl || SERVER_URL;
           });
         }
-        // MQTT 브로커 clientid 업데이트
+        // MQTT 브로커 clientid 업데이트 — 표준 형식 (정책 매칭 필수)
         if (n.type === 'mqtt-broker' && n.id === 'mqtt_broker_aws') {
-          n.clientid = mqttClientId || ('MyFarmPi_' + deviceCode);
+          n.clientid = nodeRedClientId;
         }
       });
       fs.writeFileSync(FLOWS_PATH, JSON.stringify(flows));
       steps.push({ ok: true, text: 'Node-RED 탭 환경변수 ' + tabCount + '개 업데이트' });
-      steps.push({ ok: true, text: 'MQTT ClientID = ' + (mqttClientId || 'MyFarmPi_' + deviceCode) });
+      steps.push({ ok: true, text: 'Node-RED MQTT ClientID = ' + nodeRedClientId });
     } catch (e) {
       steps.push({ ok: false, text: 'flows.json 수정 실패: ' + e.message });
     }

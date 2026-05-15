@@ -131,8 +131,117 @@ actions.forEach(function(action) {
         node.warn('🔍 ' + action.deviceId + ' Modbus 상태 확인 불가 — 그대로 실행');
     }
 
+    // ★ bidir actionMode 분기: 'full' (기본) | 'position' | 'stepped'
+    var actionMode = action.actionMode || 'full';
+    var isBidirAdvanced = modbus.controlType === 'bidir' &&
+                          (action.command === 'open' || action.command === 'close') &&
+                          (actionMode === 'position' || actionMode === 'stepped');
+
+    if (isBidirAdvanced) {
+        var posMap2 = global.get('devicePositions') || {};
+        var curPos2 = posMap2[action.deviceId];
+        if (typeof curPos2 !== 'number') curPos2 = (action.command === 'open') ? 0 : 100;
+        var fullDur2 = action.command === 'open' ? (modbus.openDuration || 0) : (modbus.closeDuration || 0);
+
+        if (fullDur2 <= 0) {
+            node.warn('⚠️ ' + action.deviceId + ': openDuration/closeDuration 미설정 — full 모드로 폴백');
+            // 폴백 — 아래 full 흐름으로 계속
+        } else {
+            var target = (typeof action.targetPosition === 'number') ? action.targetPosition :
+                         (action.command === 'open' ? 100 : 0);
+            var alreadyAtTarget = action.command === 'open' ? (curPos2 >= target) : (curPos2 <= target);
+            if (alreadyAtTarget) {
+                node.warn('⏭️ ' + action.deviceId + ': 이미 목표 도달 (cur=' + curPos2 + ', target=' + target + ') → 스킵');
+                logParts.push(action.deviceId + ' (목표스킵)');
+                return;
+            }
+
+            // ─── 모드 ② position: 한 번에 목표까지 ───
+            if (actionMode === 'position') {
+                var deltaPct = action.command === 'open' ? (target - curPos2) : (curPos2 - target);
+                var posDur = Math.max(1, Math.round(fullDur2 * deltaPct / 100));
+                var posMsg = RED.util.cloneMessage(msg);
+                posMsg.payload = {
+                    deviceId: action.deviceId,
+                    command: action.command,
+                    modbus: modbus,
+                    duration: posDur,
+                    source: 'automation_scheduler_position'
+                };
+                controlMsgs.push(posMsg);
+                updateDeviceState(action.deviceId, action.command);
+                logParts.push(action.deviceId + ' → ' + target + '% (' + posDur + '초)');
+                sendControlLog(action, action.command);
+                sendSqliteLog(action.deviceId, action.command, 'automation_scheduler_position');
+                node.warn('🎯 position: ' + action.deviceId + ' ' + curPos2 + '% → ' + target + '% (' + posDur + '초)');
+                return;
+            }
+
+            // ─── 모드 ③ stepped: 단계적 이동 (작물 보호) ───
+            if (actionMode === 'stepped') {
+                var stepPct = action.stepPercent || 10;
+                var pauseMs = (action.stepPauseSeconds || 60) * 1000;
+                var stepDur = Math.max(1, Math.round(fullDur2 * stepPct / 100));
+                var direction = action.command;
+
+                // 진행 중 세션 등록 (같은 device 의 옛 세션 자동 무효화)
+                var sessions = global.get('steppedSessions') || {};
+                var sessionId = action.deviceId + '_' + Date.now();
+                sessions[action.deviceId] = sessionId;
+                global.set('steppedSessions', sessions);
+
+                node.warn('🌱 stepped 시작: ' + action.deviceId + ' ' + curPos2 + '% → ' + target + '% (' + stepPct + '%씩, ' + (pauseMs / 1000) + '초 정지)');
+                logParts.push(action.deviceId + ' 단계적 → ' + target + '%');
+                sendControlLog(action, action.command);
+
+                (function stepLoop() {
+                    // 세션 유효성
+                    var curSessions = global.get('steppedSessions') || {};
+                    if (curSessions[action.deviceId] !== sessionId) {
+                        node.warn('⏹️ stepped 중단: ' + action.deviceId + ' (옛 세션)');
+                        return;
+                    }
+                    // 수동 모드 전환 시 중단
+                    var autoDevs = global.get('autoDevices') || [];
+                    if (autoDevs.indexOf(action.deviceId) === -1) {
+                        node.warn('⏹️ stepped 중단: ' + action.deviceId + ' 수동 모드');
+                        delete curSessions[action.deviceId];
+                        global.set('steppedSessions', curSessions);
+                        return;
+                    }
+                    // 목표 도달 확인
+                    var nowPos = (global.get('devicePositions') || {})[action.deviceId];
+                    if (typeof nowPos !== 'number') nowPos = curPos2;
+                    var reached = direction === 'open' ? (nowPos >= target) : (nowPos <= target);
+                    if (reached) {
+                        node.warn('✅ stepped 완료: ' + action.deviceId + ' → ' + nowPos + '% (목표 ' + target + '%)');
+                        delete curSessions[action.deviceId];
+                        global.set('steppedSessions', curSessions);
+                        return;
+                    }
+                    // step 동작
+                    var stepMsg = RED.util.cloneMessage(msg);
+                    stepMsg.payload = {
+                        deviceId: action.deviceId,
+                        command: direction,
+                        modbus: modbus,
+                        duration: stepDur,
+                        source: 'automation_stepped'
+                    };
+                    node.send([stepMsg, null, null, null, null]);
+                    sendSqliteLog(action.deviceId, direction, 'automation_stepped');
+                    node.warn('🪜 stepped: ' + action.deviceId + ' ' + nowPos + '% (+' + stepPct + '%, ' + stepDur + '초)');
+                    // 다음 step: 동작 + pause 후
+                    setTimeout(stepLoop, (stepDur * 1000) + pauseMs);
+                })();
+
+                return;
+            }
+        }
+    }
+
     var controlMsg = RED.util.cloneMessage(msg);
-    // bidir 장치: 현재 위치 기반 필요한 시간만
+    // bidir 장치: 현재 위치 기반 필요한 시간만 (full mode)
     var autoDur = 0;
     if (modbus.controlType === 'bidir' && (action.command === 'open' || action.command === 'close')) {
         var positions5 = global.get('devicePositions') || {};

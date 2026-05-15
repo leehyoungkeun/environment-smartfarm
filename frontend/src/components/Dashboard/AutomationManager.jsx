@@ -1140,10 +1140,93 @@ const RuleForm = ({ farmId, houseId, houses = [], rule, existingRules = [], defa
                 {/* 2행: 동작 지속시간 */}
                 <div style={{display:'flex',alignItems:'center',gap:8,padding:'8px 10px',background: isTimed ? '#eff6ff' : '#f8fafc',borderTop:'1px solid #e2e8f0',flexWrap:'wrap'}}>
                   {isBidir ? (
-                    // bidir 장치: 한계 도달까지 자동 동작 (closeDuration/openDuration 사용)
-                    <span style={{fontSize:12,fontWeight:700,color:'#1e40af',padding:'6px 12px',background:'#dbeafe',borderRadius:8,border:'1px solid #93c5fd'}}>
-                      📐 현상태 기준 — 한계까지 완전 {action.command === 'open' ? '열기' : action.command === 'close' ? '닫기' : '동작'}
-                    </span>
+                    // bidir 장치: 3가지 동작 모드 선택 (full / position / stepped)
+                    (() => {
+                      const mode = action.actionMode || 'full';
+                      return (
+                        <div style={{display:'flex',flexDirection:'column',gap:6,width:'100%'}}>
+                          <select
+                            value={mode}
+                            onChange={(e) => {
+                              const newMode = e.target.value;
+                              const updates = { actionMode: newMode };
+                              // 기본값 세팅
+                              if (newMode === 'position' && action.targetPosition == null) updates.targetPosition = 50;
+                              if (newMode === 'stepped') {
+                                if (action.stepPercent == null) updates.stepPercent = 10;
+                                if (action.stepPauseSeconds == null) updates.stepPauseSeconds = 60;
+                                if (action.targetPosition == null) updates.targetPosition = 100;
+                              }
+                              updateAction(idx, updates);
+                            }}
+                            className="input-field text-xs md:text-sm"
+                            style={{maxWidth:280}}
+                          >
+                            <option value="full">① 한계까지 ({action.command === 'open' ? '완전 열기' : '완전 닫기'})</option>
+                            <option value="position">② 지정 위치까지 (한 번에)</option>
+                            <option value="stepped">③ 단계적 이동 (작물 보호)</option>
+                          </select>
+
+                          {mode === 'position' && (
+                            <div style={{display:'flex',alignItems:'center',gap:8,padding:'4px 0',flexWrap:'wrap'}}>
+                              <span style={{fontSize:12,color:'#475569',fontWeight:600}}>목표 위치:</span>
+                              <div style={{display:'flex',alignItems:'center',gap:4,background:'#fff',borderRadius:8,padding:'2px 8px',border:'1.5px solid #bfdbfe'}}>
+                                <input type="number" min={0} max={100} value={action.targetPosition ?? 50}
+                                  onChange={(e) => updateAction(idx, { targetPosition: Math.max(0, Math.min(100, parseInt(e.target.value) || 0)) })}
+                                  style={{width:48,fontSize:14,fontWeight:800,textAlign:'center',border:'none',outline:'none',color:'#1e40af',background:'transparent'}}
+                                />
+                                <span style={{fontSize:12,fontWeight:700,color:'#64748b'}}>%</span>
+                              </div>
+                              <span style={{fontSize:11,color:'#94a3b8'}}>현재 위치에서 한 번에 이동</span>
+                            </div>
+                          )}
+
+                          {mode === 'stepped' && (
+                            <div style={{display:'flex',flexDirection:'column',gap:6,padding:'6px 8px',background:'#fef9c3',borderRadius:8,border:'1px solid #fde047'}}>
+                              <div style={{fontSize:11,color:'#854d0e',fontWeight:700,marginBottom:2}}>
+                                🌱 작물 보호 모드 — 단계적으로 환기하여 온도 급변 방지
+                              </div>
+                              <div style={{display:'flex',alignItems:'center',gap:8,flexWrap:'wrap'}}>
+                                <span style={{fontSize:12,color:'#475569',fontWeight:600,minWidth:64}}>매 단계:</span>
+                                <input type="number" min={1} max={50} value={action.stepPercent ?? 10}
+                                  onChange={(e) => updateAction(idx, { stepPercent: Math.max(1, Math.min(50, parseInt(e.target.value) || 1)) })}
+                                  style={{width:48,fontSize:14,fontWeight:800,textAlign:'center',border:'1.5px solid #fde047',borderRadius:6,padding:'2px 4px',outline:'none'}}
+                                />
+                                <span style={{fontSize:12,color:'#64748b'}}>%</span>
+                              </div>
+                              <div style={{display:'flex',alignItems:'center',gap:8,flexWrap:'wrap'}}>
+                                <span style={{fontSize:12,color:'#475569',fontWeight:600,minWidth:64}}>단계 사이:</span>
+                                <input type="number" min={10} max={3600} value={action.stepPauseSeconds ?? 60}
+                                  onChange={(e) => updateAction(idx, { stepPauseSeconds: Math.max(10, Math.min(3600, parseInt(e.target.value) || 10)) })}
+                                  style={{width:64,fontSize:14,fontWeight:800,textAlign:'center',border:'1.5px solid #fde047',borderRadius:6,padding:'2px 4px',outline:'none'}}
+                                />
+                                <span style={{fontSize:12,color:'#64748b'}}>초 정지</span>
+                              </div>
+                              <div style={{display:'flex',alignItems:'center',gap:8,flexWrap:'wrap'}}>
+                                <span style={{fontSize:12,color:'#475569',fontWeight:600,minWidth:64}}>최종 목표:</span>
+                                <input type="number" min={0} max={100} value={action.targetPosition ?? 100}
+                                  onChange={(e) => updateAction(idx, { targetPosition: Math.max(0, Math.min(100, parseInt(e.target.value) || 0)) })}
+                                  style={{width:48,fontSize:14,fontWeight:800,textAlign:'center',border:'1.5px solid #fde047',borderRadius:6,padding:'2px 4px',outline:'none'}}
+                                />
+                                <span style={{fontSize:12,color:'#64748b'}}>%</span>
+                              </div>
+                              {(() => {
+                                const step = action.stepPercent || 10;
+                                const target = action.targetPosition ?? 100;
+                                const pause = action.stepPauseSeconds || 60;
+                                const numSteps = Math.ceil(target / step);
+                                const totalSec = numSteps * pause;
+                                return (
+                                  <div style={{fontSize:11,color:'#a16207',fontStyle:'italic'}}>
+                                    예상: {numSteps}단계 × {pause}초 = 약 {Math.floor(totalSec/60)}분 {totalSec%60}초 소요
+                                  </div>
+                                );
+                              })()}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })()
                   ) : (
                     /* 계속 / 동작시간 세그먼트 (single 장치만) */
                     <div style={{display:'inline-flex',borderRadius:10,background:'#e2e8f0',padding:2,flexShrink:0}}>

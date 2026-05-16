@@ -163,8 +163,14 @@ export default function NutrientRealtime({ farmId, mode, onModeChange }) {
         </div>
       )}
 
-      {/* 동적 SVG 흐름도 */}
-      <FlowDiagram data={data.flow} />
+      {/* 동적 SVG 흐름도 — PC 전용 */}
+      <div className="hidden md:block">
+        <FlowDiagram data={data.flow} />
+      </div>
+      {/* 폰 전용 컴팩트 카드 */}
+      <div className="md:hidden">
+        <CompactFlow data={data.flow} />
+      </div>
 
       {/* 제어 버튼 */}
       <div className="grid grid-cols-2 gap-2">
@@ -333,6 +339,85 @@ const BigGauge = ({ label, unit, color, current, target, history, max }) => {
 // ─────────────────────────────────────────
 // 시스템 흐름도 — 최신 스타일 (liquid + flow particles + glassmorphism)
 // ─────────────────────────────────────────
+// 폰 전용 컴팩트 흐름도 — 가로 스크롤 없이 핵심 정보만
+// ─────────────────────────────────────────
+const CompactFlow = ({ data }) => {
+  const activeDosingCount = data.tanks.filter(t => t.dosing).length;
+  const anyActive = activeDosingCount > 0 || data.irrigationPump || data.rawPump || data.mixerAgitator;
+
+  const Row = ({ icon, label, value, active }) => (
+    <div style={{
+      display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+      padding: '10px 12px', borderRadius: 10,
+      background: active ? '#dcfce7' : '#fff',
+      border: `1px solid ${active ? '#86efac' : '#e2e8f0'}`,
+    }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        <span style={{ fontSize: 20 }}>{icon}</span>
+        <span style={{ fontSize: 14, fontWeight: 700, color: active ? '#15803d' : '#475569' }}>{label}</span>
+      </div>
+      <span style={{ fontSize: 14, fontWeight: 800, color: active ? '#16a34a' : '#94a3b8' }}>
+        {active && '● '}{value}
+      </span>
+    </div>
+  );
+
+  return (
+    <div style={{
+      background: 'linear-gradient(135deg, #f0f9ff 0%, #ecfeff 50%, #f0fdfa 100%)',
+      borderRadius: 16, padding: 14, border: '1px solid #cffafe',
+      boxShadow: '0 4px 24px -8px rgba(8, 145, 178, 0.15)',
+    }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+        <div style={{ fontSize: 15, fontWeight: 800, color: '#0f172a' }}>🔄 시스템 흐름도</div>
+        <span style={{
+          padding: '3px 10px', borderRadius: 12, fontSize: 12, fontWeight: 800,
+          background: anyActive ? '#dcfce7' : '#f1f5f9',
+          color: anyActive ? '#15803d' : '#94a3b8',
+        }}>{anyActive ? '● RUNNING' : '○ IDLE'}</span>
+      </div>
+
+      {/* 혼합 탱크 — 가장 중요한 정보, 큰 카드 */}
+      <div style={{
+        padding: 14, borderRadius: 12, marginBottom: 8,
+        background: 'linear-gradient(135deg, #ffffff, #f0fdfa)',
+        border: '2px solid #14b8a6',
+        boxShadow: '0 4px 16px -4px rgba(20, 184, 166, 0.3)',
+      }}>
+        <div style={{ fontSize: 12, fontWeight: 800, color: '#0f766e', textAlign: 'center', marginBottom: 6 }}>
+          💧 혼합 탱크 (잔량 {data.mixer.level}%)
+        </div>
+        <div style={{ display: 'flex', justifyContent: 'space-around', gap: 8 }}>
+          <div style={{ textAlign: 'center' }}>
+            <div style={{ fontSize: 11, color: '#64748b', fontWeight: 700 }}>EC</div>
+            <div style={{ fontSize: 24, fontWeight: 900, color: '#0891b2', fontFamily: 'monospace', lineHeight: 1 }}>{data.mixer.ec}</div>
+            <div style={{ fontSize: 10, color: '#94a3b8' }}>mS/cm</div>
+          </div>
+          <div style={{ width: 1, background: '#cbd5e1' }} />
+          <div style={{ textAlign: 'center' }}>
+            <div style={{ fontSize: 11, color: '#64748b', fontWeight: 700 }}>pH</div>
+            <div style={{ fontSize: 24, fontWeight: 900, color: '#7c3aed', fontFamily: 'monospace', lineHeight: 1 }}>{data.mixer.ph}</div>
+            <div style={{ fontSize: 10, color: '#94a3b8' }}>&nbsp;</div>
+          </div>
+        </div>
+      </div>
+
+      {/* 6개 항목 세로 스택 */}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+        <Row icon="💧" label="원수 탱크" value={`${data.rawTank.level}% · ${data.rawTank.temp}°C`} active={data.rawPump} />
+        <Row icon="🧪" label="도싱 펌프" value={`${activeDosingCount}/${data.tanks.length} 활성`} active={activeDosingCount > 0} />
+        <Row icon="🌀" label="교반기" value={data.mixerAgitator ? '동작' : '정지'} active={data.mixerAgitator} />
+        <Row icon="🔵" label="원수 펌프" value={data.rawPump ? 'ON' : 'OFF'} active={data.rawPump} />
+        <Row icon="🔷" label="관수 펌프" value={data.irrigationPump ? 'ON' : 'OFF'} active={data.irrigationPump} />
+        <Row icon="🚿" label="관수 밸브"
+             value={data.activeValve ? `V${data.activeValve} 관수 중` : `${data.totalValves}개 대기`}
+             active={!!data.activeValve} />
+      </div>
+    </div>
+  );
+};
+
+// ─────────────────────────────────────────
 const FlowDiagram = ({ data }) => {
   const anyDosing = data.tanks.some(t => t.dosing);
   return (
@@ -424,10 +509,6 @@ const FlowDiagram = ({ data }) => {
         <ValveGrid count={data.totalValves} active={data.activeValve} />
       </div>
       </div>
-      {/* 폰에서 가로 스크롤 힌트 — 좁은 화면에서만 표시 */}
-      <div className="md:hidden" style={{
-        textAlign: 'center', fontSize: 11, color: '#94a3b8', marginTop: 6,
-      }}>👈 좌우로 스와이프하여 전체 흐름 보기</div>
     </div>
   );
 };

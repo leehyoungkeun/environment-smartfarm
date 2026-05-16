@@ -7,11 +7,10 @@
 //   global.activeScenario  (active=true 인 시나리오)
 //   global.state           (mode + currentCycle 등)
 
-const farmConfig = global.get('farmConfig') || {};
-const farmId = farmConfig.farmId || 'farm_0001';
-const apiKey = farmConfig.apiKey || '';
+// 기존 NR 패턴 — sensorApiKey + FARM_ID 환경변수 fallback
+const farmId = global.get('FARM_ID') || 'farm_0001';
+const apiKey = global.get('sensorApiKey') || 'smartfarm-sensor-key';
 
-// RPi → backend 내부용 라우트 (authenticateApiKey, farmId 는 x-api-key 로 자동 식별)
 const baseUrl = `https://api.smartgreen.kr/internal/nutrient`;
 const headers = {
     'Content-Type': 'application/json',

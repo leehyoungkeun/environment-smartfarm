@@ -6,8 +6,9 @@
 // Phase: 도싱 → 교반 → 안정화 → 관수 (구역 순차) → 정리
 // 비동기 단계라서 setTimeout 으로 처리. 각 단계마다 currentCycle 갱신.
 
-const farmConfig = global.get('farmConfig') || {};
-const farmId = farmConfig.farmId || 'farm_0001';
+// 기존 NR 패턴 — sensorApiKey + FARM_ID 환경변수 fallback
+const farmId = global.get('FARM_ID') || 'farm_0001';
+const apiKey = global.get('sensorApiKey') || 'smartfarm-sensor-key';
 const config = global.get('nutrientConfig') || {};
 
 if (global.get('cycleInProgress')) {
@@ -175,7 +176,7 @@ function sendBackend(method, path, body) {
         method,
         headers: {
             'Content-Type': 'application/json',
-            'x-api-key': farmConfig.apiKey || '',
+            'x-api-key': apiKey,
         },
         payload: body,
     }]);

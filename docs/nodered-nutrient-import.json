@@ -11,30 +11,8 @@
         "type": "comment",
         "z": "nutrient_flow_tab",
         "name": "━━━ 양액 자동제어 Phase 3.1 (골격) ━━━",
-        "info": "**활성화 절차**\n1. inject `사이트 키 설정` 한 번 실행 → global.farmConfig 등록\n2. inject `시뮬레이터 ON` 한 번 실행 (하드웨어 없을 때)\n3. 5초 주기 inject 자동 시작\n\n**하드웨어 도착 후**\n- inject `시뮬레이터 OFF`\n- Modbus Read (EC) / Serial (pH) 노드 와이어 연결\n- safety-interlock 출력 2 → Modbus Flex Write (Unit-Id 3) 연결",
+        "info": "**활성화 절차**\n1. inject `시뮬레이터 ON` 한 번 실행 (하드웨어 없을 때)\n2. 5초 주기 inject 자동 시작\n\n인증: 기존 NR 패턴 — global.sensorApiKey + FARM_ID 사용 (settings.js functionGlobalContext)\n\n**하드웨어 도착 후**\n- inject `시뮬레이터 OFF`\n- Modbus Read (EC) / Serial (pH) 노드 와이어 연결\n- safety-interlock 출력 2 → Modbus Flex Write (Unit-Id 3) 연결",
         "x": 280, "y": 40, "wires": []
-    },
-
-    {
-        "id": "inject_setup",
-        "type": "inject",
-        "z": "nutrient_flow_tab",
-        "name": "🔧 사이트 키 설정 (1회)",
-        "props": [{"p": "payload"}],
-        "repeat": "", "crontab": "", "once": false,
-        "topic": "",
-        "payload": "{\"farmId\":\"farm_0001\",\"apiKey\":\"REPLACE_WITH_FARM_API_KEY\"}",
-        "payloadType": "json",
-        "x": 180, "y": 100, "wires": [["fn_setup"]]
-    },
-    {
-        "id": "fn_setup",
-        "type": "function",
-        "z": "nutrient_flow_tab",
-        "name": "farmConfig 저장",
-        "func": "global.set('farmConfig', msg.payload);\nnode.warn('farmConfig 등록: ' + msg.payload.farmId);\nreturn null;",
-        "outputs": 0,
-        "x": 380, "y": 100, "wires": []
     },
 
     {

@@ -8,13 +8,9 @@
 const r = msg.payload;
 if (!r || typeof r !== 'object') return null;
 
-const farmConfig = global.get('farmConfig') || {};
-const farmId = farmConfig.farmId || 'farm_0001';
-const apiKey = farmConfig.apiKey;
-
-if (!apiKey) {
-    node.warn('farmConfig.apiKey 미설정 — backend 인증 실패 예상');
-}
+// 기존 NR 패턴 — sensorApiKey + FARM_ID 환경변수 fallback
+const farmId = global.get('FARM_ID') || 'farm_0001';
+const apiKey = global.get('sensorApiKey') || 'smartfarm-sensor-key';
 
 // 일사량 적산 (solar 기반 시나리오용) — 별도 inject 또는 weather 노드에서 set
 const solarAccumulated = global.get('solarAccumulated') || 0;
@@ -35,7 +31,7 @@ msg.url = `https://api.smartgreen.kr/internal/nutrient/state/telemetry`;
 msg.method = 'PUT';
 msg.headers = {
     'Content-Type': 'application/json',
-    'x-api-key': apiKey || '',
+    'x-api-key': apiKey,
 };
 msg.payload = body;
 

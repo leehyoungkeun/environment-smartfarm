@@ -9,8 +9,7 @@
 //   timer    → 마지막 사이클로부터 timerInterval 경과
 //   schedule → 현재 시각이 scheduleSlots 중 하나와 매칭 (HH:MM, ±1분)
 
-const farmConfig = global.get('farmConfig') || {};
-const farmId = farmConfig.farmId || 'farm_0001';
+const farmId = global.get('FARM_ID') || 'farm_0001';
 
 // 안전 정지 상태면 트리거 안 함
 if (global.get('safetyStop')) {

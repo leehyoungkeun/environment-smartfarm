@@ -8,7 +8,9 @@
 const r = msg.payload;
 if (!r) return null;
 
-const farmConfig = global.get('farmConfig') || {};
+// 기존 NR 패턴 — sensorApiKey + FARM_ID 환경변수 fallback
+const farmId = global.get('FARM_ID') || 'farm_0001';
+const apiKey = global.get('sensorApiKey') || 'smartfarm-sensor-key';
 const config = global.get('nutrientConfig') || {};
 const alerts = config.alerts || { ecUpper: 4.0, ecCritical: 0.1, phUpper: 8.0, phCritical: 6.5 };
 
@@ -70,15 +72,17 @@ if (r.ph != null && (r.ph > alerts.phUpper || r.ph < alerts.phLower)) {
     });
 }
 
-// 6. 센서 통신 오류 (30초 이상 telemetry 없음)
-const lastTel = global.get('lastTelemetry');
-if (lastTel && (Date.now() - lastTel.at) > 30000) {
-    triggered.push({
-        type: 'sensor_timeout',
-        severity: 'critical',
-        message: '센서 통신 30초 이상 끊김',
-        action: '모드 paused · 센서 점검',
-    });
+// 6. 센서 통신 오류 (30초 이상 telemetry 없음) — simulator 모드에선 스킵
+if (!global.get('nutrientSimulator')) {
+    const lastTel = global.get('lastTelemetry');
+    if (lastTel && (Date.now() - lastTel.at) > 30000) {
+        triggered.push({
+            type: 'sensor_timeout',
+            severity: 'critical',
+            message: '센서 통신 30초 이상 끊김',
+            action: '모드 paused · 센서 점검',
+        });
+    }
 }
 
 // === 우선순위 처리 ===
@@ -108,7 +112,7 @@ if (criticalHit) {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json',
-            'x-api-key': farmConfig.apiKey || '',
+            'x-api-key': apiKey,
         },
         payload: criticalHit,
     };
@@ -123,7 +127,7 @@ if (triggered.length > 0) {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json',
-            'x-api-key': farmConfig.apiKey || '',
+            'x-api-key': apiKey,
         },
         payload: t,
     }));

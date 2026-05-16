@@ -12,6 +12,7 @@ import compression from "compression";
 import rateLimit from "express-rate-limit";
 import promClient from "prom-client";
 import journalRoutes from "./routes/journal.routes.js";
+import nutrientRoutes from "./routes/nutrient.routes.js";
 import aiRoutes from "./routes/ai.routes.js";
 import farmsRoutes from "./routes/farms.routes.js";
 import reportRoutes from "./routes/report.routes.js";
@@ -236,6 +237,7 @@ app.use("/api/reports", authenticate, enforceTenant, reportRoutes);
 
 app.use("/api/journal", authenticate, enforceTenant, journalRoutes);
 app.use("/api/ai", authenticate, enforceTenant, aiRoutes);
+app.use("/api/nutrient", authenticate, enforceTenant, nutrientRoutes);
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // 404 처리

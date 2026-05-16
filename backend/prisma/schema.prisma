@@ -46,22 +46,22 @@ model auditLog {
 }
 
 model automationRule {
-  id               String    @id
-  farmId           String    @map("farm_id")
-  houseId          String?   @map("house_id")
-  name             String
-  description      String    @default("")
-  enabled          Boolean   @default(true)
-  conditionLogic   String    @default("AND") @map("condition_logic")
-  conditions       Json
-  actions          Json
-  cooldownSeconds  Int       @default(300) @map("cooldown_seconds")
-  lastTriggeredAt  DateTime? @map("last_triggered_at")
-  triggerCount     Int       @default(0) @map("trigger_count")
-  priority         Int       @default(10)
-  createdAt        DateTime  @default(now()) @map("created_at")
-  updatedAt        DateTime  @updatedAt @map("updated_at")
-  groupLogic       String    @default("AND") @map("group_logic")
+  id              String    @id
+  farmId          String    @map("farm_id")
+  houseId         String?   @map("house_id")
+  name            String
+  description     String    @default("")
+  enabled         Boolean   @default(true)
+  conditionLogic  String    @default("AND") @map("condition_logic")
+  conditions      Json
+  actions         Json
+  cooldownSeconds Int       @default(300) @map("cooldown_seconds")
+  lastTriggeredAt DateTime? @map("last_triggered_at")
+  triggerCount    Int       @default(0) @map("trigger_count")
+  priority        Int       @default(10)
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+  groupLogic      String    @default("AND") @map("group_logic")
 
   @@index([farmId, houseId, enabled])
   @@map("automation_rules")
@@ -129,35 +129,35 @@ model farmDocument {
 }
 
 model farmJournal {
-  id          String   @id @default(dbgenerated("(gen_random_uuid())::text"))
-  farmId      String   @map("farm_id")
-  houseId     String?  @map("house_id")
-  date        DateTime @db.Date
-  weather     String?
-  tempMin     Float?   @map("temp_min")
-  tempMax     Float?   @map("temp_max")
-  humidity    Float?
-  workType    String   @map("work_type")
-  growthStage String?  @map("growth_stage")
+  id           String   @id @default(dbgenerated("(gen_random_uuid())::text"))
+  farmId       String   @map("farm_id")
+  houseId      String?  @map("house_id")
+  date         DateTime @db.Date
+  weather      String?
+  tempMin      Float?   @map("temp_min")
+  tempMax      Float?   @map("temp_max")
+  humidity     Float?
+  workType     String   @map("work_type")
+  growthStage  String?  @map("growth_stage")
   // 작목·품종·작기 (시설별 현재 작물 추적, 인증/규제 + 일관성)
-  cropName    String?  @map("crop_name")              // 활성 작기에서 자동 채움 (작성 시 snapshot)
-  variety     String?                                  // 품종
-  cropCycleId String?  @map("crop_cycle_id")          // FK to cropCycle (선택, 자동 매핑)
-  content     String
-  pest        String?
-  notes       String?
-  tags        String[] @default([])
+  cropName     String?  @map("crop_name") // 활성 작기에서 자동 채움 (작성 시 snapshot)
+  variety      String? // 품종
+  cropCycleId  String?  @map("crop_cycle_id") // FK to cropCycle (선택, 자동 매핑)
+  content      String
+  pest         String?
+  notes        String?
+  tags         String[] @default([])
   // 생육 측정 (P1-A) — 선택 입력. 매주 1회 정도 농민이 측정한 수치.
   // { plantHeight, leafCount, floweringRate, fruitSetRate, custom: [{name, value, unit}] }
-  measurements Json?   @default("{}")
+  measurements Json?    @default("{}")
   // GPS 위치 (P3-B) — 모바일에서 자동 캡처
-  gpsLat       Float?  @map("gps_lat")
-  gpsLng       Float?  @map("gps_lng")
-  gpsAccuracy  Float?  @map("gps_accuracy")
-  photos      Json     @default("[]")
-  createdBy   String   @map("created_by")
-  createdAt   DateTime @default(now()) @map("created_at")
-  updatedAt   DateTime @updatedAt @map("updated_at")
+  gpsLat       Float?   @map("gps_lat")
+  gpsLng       Float?   @map("gps_lng")
+  gpsAccuracy  Float?   @map("gps_accuracy")
+  photos       Json     @default("[]")
+  createdBy    String   @map("created_by")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
 
   @@index([farmId, date])
   @@index([farmId, houseId, date])
@@ -225,41 +225,41 @@ model farmSchedule {
 }
 
 model farm {
-  id                  String            @id @default(dbgenerated("(gen_random_uuid())::text"))
-  farmId              String            @unique @map("farm_id")
-  name                String
-  location            String?
-  ownerName           String?           @map("owner_name")
-  ownerPhone          String?           @map("owner_phone")
-  apiKey              String            @unique @map("api_key")
-  status              String?           @default("active")
-  lastSeenAt          DateTime?         @map("last_seen_at") @db.Timestamptz(6)
-  memo                String?
-  createdAt           DateTime          @default(now()) @map("created_at")
-  updatedAt           DateTime          @default(now()) @map("updated_at")
-  managers            Json?             @default("[]")
-  registeredAt        DateTime?         @default(dbgenerated("CURRENT_DATE")) @map("registered_at") @db.Date
-  maintenanceMonths   Int?              @default(12) @map("maintenance_months")
-  maintenanceStartAt  DateTime?         @default(dbgenerated("CURRENT_DATE")) @map("maintenance_start_at") @db.Date
-  systemType          String?           @map("system_type")
-  farmType            String?           @map("farm_type")
-  farmArea            String?           @map("farm_area")
-  tags                String[]          @default([])
-  deletedAt           DateTime?         @map("deleted_at") @db.Timestamptz(6)
-  businessProjectId   String?           @map("business_project_id")
-  totalCost           BigInt?           @map("total_cost")
-  subsidyAmount       BigInt?           @map("subsidy_amount")
-  selfFunding         BigInt?           @map("self_funding")
-  businessType        String?           @map("business_type")
-  farmDocuments       farmDocument[]
-  farmNotes           farmNote[]
-  farmSchedules       farmSchedule[]
-  businessProject     businessProject?  @relation(fields: [businessProjectId], references: [id], onUpdate: NoAction)
-  maintenanceLogs     maintenanceLog[]
-  userFarms           userFarm[]
+  id                 String           @id @default(dbgenerated("(gen_random_uuid())::text"))
+  farmId             String           @unique @map("farm_id")
+  name               String
+  location           String?
+  ownerName          String?          @map("owner_name")
+  ownerPhone         String?          @map("owner_phone")
+  apiKey             String           @unique @map("api_key")
+  status             String?          @default("active")
+  lastSeenAt         DateTime?        @map("last_seen_at") @db.Timestamptz(6)
+  memo               String?
+  createdAt          DateTime         @default(now()) @map("created_at")
+  updatedAt          DateTime         @default(now()) @map("updated_at")
+  managers           Json?            @default("[]")
+  registeredAt       DateTime?        @default(dbgenerated("CURRENT_DATE")) @map("registered_at") @db.Date
+  maintenanceMonths  Int?             @default(12) @map("maintenance_months")
+  maintenanceStartAt DateTime?        @default(dbgenerated("CURRENT_DATE")) @map("maintenance_start_at") @db.Date
+  systemType         String?          @map("system_type")
+  farmType           String?          @map("farm_type")
+  farmArea           String?          @map("farm_area")
+  tags               String[]         @default([])
+  deletedAt          DateTime?        @map("deleted_at") @db.Timestamptz(6)
+  businessProjectId  String?          @map("business_project_id")
+  totalCost          BigInt?          @map("total_cost")
+  subsidyAmount      BigInt?          @map("subsidy_amount")
+  selfFunding        BigInt?          @map("self_funding")
+  businessType       String?          @map("business_type")
+  farmDocuments      farmDocument[]
+  farmNotes          farmNote[]
+  farmSchedules      farmSchedule[]
+  businessProject    businessProject? @relation(fields: [businessProjectId], references: [id], onUpdate: NoAction)
+  maintenanceLogs    maintenanceLog[]
+  userFarms          userFarm[]
+  devices            device[]
 
   @@map("farms")
-  devices         device[]
 }
 
 model device {
@@ -293,33 +293,33 @@ model device {
 }
 
 model harvestRecord {
-  id           String   @id
-  farmId       String   @map("farm_id")
-  houseId      String?  @map("house_id")
-  date         DateTime @db.Date
-  cropName     String   @map("crop_name")
-  variety      String?                                  // 품종
-  cropCycleId  String?  @map("crop_cycle_id")           // 활성 작기 매핑
-  tags         String[] @default([])                    // 분류·검색용 태그
-  quantity     Float
-  unit         String   @default("kg")
-  grade        String?
-  destination  String?
-  unitPrice    Float?   @map("unit_price")
-  totalRevenue Float?   @map("total_revenue")
-  notes        String?
+  id             String   @id
+  farmId         String   @map("farm_id")
+  houseId        String?  @map("house_id")
+  date           DateTime @db.Date
+  cropName       String   @map("crop_name")
+  variety        String? // 품종
+  cropCycleId    String?  @map("crop_cycle_id") // 활성 작기 매핑
+  tags           String[] @default([]) // 분류·검색용 태그
+  quantity       Float
+  unit           String   @default("kg")
+  grade          String?
+  destination    String?
+  unitPrice      Float?   @map("unit_price")
+  totalRevenue   Float?   @map("total_revenue")
+  notes          String?
   // 출하 이력 (농산물이력제 의무, 단계 3)
-  lotNumber       String?  @map("lot_number")        // 로트번호 (자율 부여, 일자 + 작목 + 일련번호 권장)
-  traceabilityNo  String?  @map("traceability_no")   // 농산물이력추적관리 등록번호 (12 자리)
-  buyer           String?                              // 거래처/구매자 (출하 추적)
-  invoiceNo       String?  @map("invoice_no")          // 거래명세서 번호
-  loss            Float?                               // 폐기/등외품 수량
-  lossReason      String?  @map("loss_reason")
-  qualityMetrics  Json?    @default("{}") @map("quality_metrics")  // {brix, acidity, size, color}
-  photos       Json     @default("[]")
-  createdBy    String   @map("created_by")
-  createdAt    DateTime @default(now()) @map("created_at")
-  updatedAt    DateTime @updatedAt @map("updated_at")
+  lotNumber      String?  @map("lot_number") // 로트번호 (자율 부여, 일자 + 작목 + 일련번호 권장)
+  traceabilityNo String?  @map("traceability_no") // 농산물이력추적관리 등록번호 (12 자리)
+  buyer          String? // 거래처/구매자 (출하 추적)
+  invoiceNo      String?  @map("invoice_no") // 거래명세서 번호
+  loss           Float? // 폐기/등외품 수량
+  lossReason     String?  @map("loss_reason")
+  qualityMetrics Json?    @default("{}") @map("quality_metrics") // {brix, acidity, size, color}
+  photos         Json     @default("[]")
+  createdBy      String   @map("created_by")
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
 
   @@index([farmId, date])
   @@index([lotNumber])
@@ -350,21 +350,21 @@ model houseConfig {
 
 // 작기 (Crop Cycle) — 정식~수확 단위 추적 (GAP/친환경 의무: 작기별 기록)
 model cropCycle {
-  id                  String   @id @default(dbgenerated("(gen_random_uuid())::text"))
-  farmId              String   @map("farm_id")
-  houseId             String?  @map("house_id")
-  cropName            String   @map("crop_name")
-  variety             String?                              // 품종
-  plantingDate        DateTime @db.Date @map("planting_date")
-  expectedHarvestDate DateTime? @db.Date @map("expected_harvest_date")
-  actualEndDate       DateTime? @db.Date @map("actual_end_date")
-  areaM2              Float?   @map("area_m2")
-  plantCount          Int?     @map("plant_count")
-  status              String   @default("active")           // active / done / failed
+  id                  String    @id @default(dbgenerated("(gen_random_uuid())::text"))
+  farmId              String    @map("farm_id")
+  houseId             String?   @map("house_id")
+  cropName            String    @map("crop_name")
+  variety             String? // 품종
+  plantingDate        DateTime  @map("planting_date") @db.Date
+  expectedHarvestDate DateTime? @map("expected_harvest_date") @db.Date
+  actualEndDate       DateTime? @map("actual_end_date") @db.Date
+  areaM2              Float?    @map("area_m2")
+  plantCount          Int?      @map("plant_count")
+  status              String    @default("active") // active / done / failed
   notes               String?
-  createdBy           String   @map("created_by")
-  createdAt           DateTime @default(now()) @map("created_at")
-  updatedAt           DateTime @updatedAt @map("updated_at")
+  createdBy           String    @map("created_by")
+  createdAt           DateTime  @default(now()) @map("created_at")
+  updatedAt           DateTime  @updatedAt @map("updated_at")
 
   @@index([farmId, status])
   @@index([farmId, houseId, plantingDate])
@@ -373,19 +373,19 @@ model cropCycle {
 
 // 토양 관리 (친환경 인증 의무: 토양 검정 + 개량 + 윤작)
 model soilManagement {
-  id          String   @id @default(dbgenerated("(gen_random_uuid())::text"))
-  farmId      String   @map("farm_id")
-  houseId     String?  @map("house_id")
-  date        DateTime @db.Date
-  type        String                                       // test(검정) / amendment(개량) / rotation(윤작) / cover(피복)
-  result      Json     @default("{}")                       // 검정 결과: {ph, ec, om, n, p, k, ca, mg}
-  amendments  Json     @default("[]")                       // 개량 자재: [{name, qty, unit}]
-  rotationCrop String? @map("rotation_crop")                // 윤작 작목
-  notes       String?
-  receiptPhoto String? @map("receipt_photo")                // 검정증명서/영수증 사진
-  createdBy   String   @map("created_by")
-  createdAt   DateTime @default(now()) @map("created_at")
-  updatedAt   DateTime @updatedAt @map("updated_at")
+  id           String   @id @default(dbgenerated("(gen_random_uuid())::text"))
+  farmId       String   @map("farm_id")
+  houseId      String?  @map("house_id")
+  date         DateTime @db.Date
+  type         String // test(검정) / amendment(개량) / rotation(윤작) / cover(피복)
+  result       Json     @default("{}") // 검정 결과: {ph, ec, om, n, p, k, ca, mg}
+  amendments   Json     @default("[]") // 개량 자재: [{name, qty, unit}]
+  rotationCrop String?  @map("rotation_crop") // 윤작 작목
+  notes        String?
+  receiptPhoto String?  @map("receipt_photo") // 검정증명서/영수증 사진
+  createdBy    String   @map("created_by")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
 
   @@index([farmId, date])
   @@index([farmId, type])
@@ -396,22 +396,22 @@ model soilManagement {
 // 친환경 인증: "농약·비료·종자 등 자재의 구매·사용·보관 사항" 기록 의무
 // currentStock 은 application 측에서 sum(IN) - sum(OUT) - sum(DISPOSAL) 로 자동 계산
 model inputInventory {
-  id            String   @id @default(dbgenerated("(gen_random_uuid())::text"))
-  farmId        String   @map("farm_id")
-  date          DateTime @db.Date
-  type          String                                    // 비료 / 농약 / 종자 / 기타
-  productName   String   @map("product_name")
-  manufacturer  String?
-  action        String                                    // IN(입고) / OUT(사용) / DISPOSAL(폐기)
-  quantity      Float
-  unit          String
-  supplier      String?                                   // 공급처/판매처
-  cost          Float?                                    // IN 일 때만 의미
-  receiptPhoto  String?  @map("receipt_photo")            // 영수증 사진 path
-  notes         String?
-  createdBy     String   @map("created_by")
-  createdAt     DateTime @default(now()) @map("created_at")
-  updatedAt     DateTime @updatedAt @map("updated_at")
+  id           String   @id @default(dbgenerated("(gen_random_uuid())::text"))
+  farmId       String   @map("farm_id")
+  date         DateTime @db.Date
+  type         String // 비료 / 농약 / 종자 / 기타
+  productName  String   @map("product_name")
+  manufacturer String?
+  action       String // IN(입고) / OUT(사용) / DISPOSAL(폐기)
+  quantity     Float
+  unit         String
+  supplier     String? // 공급처/판매처
+  cost         Float? // IN 일 때만 의미
+  receiptPhoto String?  @map("receipt_photo") // 영수증 사진 path
+  notes        String?
+  createdBy    String   @map("created_by")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
 
   @@index([farmId, date])
   @@index([farmId, productName])
@@ -419,33 +419,33 @@ model inputInventory {
 }
 
 model inputRecord {
-  id           String   @id
-  farmId       String   @map("farm_id")
-  houseId      String?  @map("house_id")
-  date         DateTime @db.Date
-  inputType    String   @map("input_type")
+  id               String    @id
+  farmId           String    @map("farm_id")
+  houseId          String?   @map("house_id")
+  date             DateTime  @db.Date
+  inputType        String    @map("input_type")
   // 작목 매핑 (PLS 작목별 사용횟수 제한 추적용)
-  cropName     String?  @map("crop_name")
-  cropCycleId  String?  @map("crop_cycle_id")
-  productName  String   @map("product_name")
-  manufacturer String?
-  quantity     Float
-  unit         String
-  cost         Float?
-  targetArea   Float?   @map("target_area")
-  method       String?
-  notes        String?
-  tags         String[] @default([])                    // 분류·검색용 태그
+  cropName         String?   @map("crop_name")
+  cropCycleId      String?   @map("crop_cycle_id")
+  productName      String    @map("product_name")
+  manufacturer     String?
+  quantity         Float
+  unit             String
+  cost             Float?
+  targetArea       Float?    @map("target_area")
+  method           String?
+  notes            String?
+  tags             String[]  @default([]) // 분류·검색용 태그
   // PLS / GAP 농약 정밀 기록 (인증/규제 의무) — inputType="농약" 일 때만 의미
-  pesticideRegNo    String?  @map("pesticide_reg_no")     // 농약 등록번호 (PSIS 시스템 검색용)
-  dilutionRatio     String?  @map("dilution_ratio")        // "1000배" 같은 희석 배수
-  applicationCount  Int?     @map("application_count")     // 사용 횟수 (PLS: 작물별 제한 횟수 추적)
-  safeUseInterval   Int?     @map("safe_use_interval")     // 수확 전 사용 가능 일수 (n일 전까지 사용 가능)
-  preHarvestDate    DateTime? @db.Date @map("pre_harvest_date") // = date + safeUseInterval (자동 계산)
-  applicator        String?                                 // 살포자 (재진입 안전관리)
-  createdBy    String   @map("created_by")
-  createdAt    DateTime @default(now()) @map("created_at")
-  updatedAt    DateTime @updatedAt @map("updated_at")
+  pesticideRegNo   String?   @map("pesticide_reg_no") // 농약 등록번호 (PSIS 시스템 검색용)
+  dilutionRatio    String?   @map("dilution_ratio") // "1000배" 같은 희석 배수
+  applicationCount Int?      @map("application_count") // 사용 횟수 (PLS: 작물별 제한 횟수 추적)
+  safeUseInterval  Int?      @map("safe_use_interval") // 수확 전 사용 가능 일수 (n일 전까지 사용 가능)
+  preHarvestDate   DateTime? @map("pre_harvest_date") @db.Date // = date + safeUseInterval (자동 계산)
+  applicator       String? // 살포자 (재진입 안전관리)
+  createdBy        String    @map("created_by")
+  createdAt        DateTime  @default(now()) @map("created_at")
+  updatedAt        DateTime  @updatedAt @map("updated_at")
 
   @@index([farmId, date])
   @@map("input_records")
@@ -537,4 +537,117 @@ model user {
   userFarms     userFarm[]
 
   @@map("users")
+}
+
+// ─────────────────────────────────────────────────────────────────
+// 양액 관리 (Nutrient Management) — Phase 2
+// ─────────────────────────────────────────────────────────────────
+
+// 시나리오 (생장기/개화기 등) — UI 카드 1장 = 1 row
+// dosingRatio, scheduleSlots, valves 같은 가변 길이 데이터는 JSONB 보관
+model nutrientScenario {
+  id             String   @id @default(dbgenerated("(gen_random_uuid())::text"))
+  farmId         String   @map("farm_id")
+  name           String
+  active         Boolean  @default(false) // 현재 적용 중 (농장당 1개만 true 권장)
+  enabled        Boolean  @default(true) // 사용 가능 여부 (스위치)
+  ecTarget       Float    @default(2.0) @map("ec_target") // mS/cm
+  phTarget       Float    @default(6.0) @map("ph_target")
+  dosingRatio    Json     @default("{}") @map("dosing_ratio") // {A:25, B:25, C:20, D:20, acid:5, F:5}
+  irrigationMode String   @default("timer") @map("irrigation_mode") // 'solar' | 'timer' | 'schedule'
+  solarThreshold Float?   @map("solar_threshold") // W/m² 누적 목표
+  timerInterval  String?  @map("timer_interval") // "HH:MM"
+  timerStart     String?  @map("timer_start") // "HH:MM"
+  timerEnd       String?  @map("timer_end") // "HH:MM"
+  scheduleSlots  Json     @default("[]") @map("schedule_slots") // ["08:00","09:30",...]
+  days           Int[]    @default([]) // 요일 (0=일, 6=토)
+  valves         Json     @default("[]") // [{duration:600, volume:150}, ...]
+  sortOrder      Int      @default(0) @map("sort_order")
+  createdBy      String?  @map("created_by")
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  @@index([farmId, active])
+  @@index([farmId, sortOrder])
+  @@map("nutrient_scenarios")
+}
+
+// 도싱 탱크 / 관수 밸브 / 하드웨어 설정 / 경보 한계 — 농장 1개당 1 row (JSONB)
+// 양액 시스템 자체가 농장 단위라 별 row 분리하지 않고 단일 row 로 관리
+model nutrientConfig {
+  farmId     String   @id @map("farm_id")
+  tanks      Json     @default("[]") // [{id, label, level, capacity, modbusReg}, ...]
+  valveCount Int      @default(0) @map("valve_count")
+  alerts     Json     @default("{}") // {ecUpper, ecLower, ecCritical, phUpper, phLower, phCritical}
+  hardware   Json     @default("{}") // {modbusUnit, ecSensorAddr, phSensorAddr, flowSensorAddr, pumpResponse, dosingPulseUnit}
+  updatedAt  DateTime @default(now()) @map("updated_at")
+
+  @@map("nutrient_configs")
+}
+
+// 경보 이력 — append-only, 시간순 조회
+model nutrientAlert {
+  id         String    @id @default(dbgenerated("(gen_random_uuid())::text"))
+  farmId     String    @map("farm_id")
+  occurredAt DateTime  @default(now()) @map("occurred_at") @db.Timestamptz(6)
+  alertType  String    @map("alert_type") // 'ec_upper' | 'ec_lower' | 'ph_upper' | 'tank_low' | 'sensor_error' | 'flow_anomaly' | ...
+  severity   String    @default("warning") // 'warning' | 'critical' | 'info'
+  value      Float?
+  threshold  Float?
+  message    String
+  action     String? // 자동/수동 조치 내용
+  resolved   Boolean   @default(false)
+  resolvedAt DateTime? @map("resolved_at") @db.Timestamptz(6)
+  resolvedBy String?   @map("resolved_by")
+
+  @@index([farmId, occurredAt(sort: Desc)])
+  @@index([farmId, resolved, occurredAt(sort: Desc)])
+  @@map("nutrient_alerts")
+}
+
+// 센서 보정 이력 — EC 1-pt, pH 3-pt
+model nutrientCalibration {
+  id            String   @id @default(dbgenerated("(gen_random_uuid())::text"))
+  farmId        String   @map("farm_id")
+  sensorType    String   @map("sensor_type") // 'ec' | 'ph'
+  calibratedAt  DateTime @default(now()) @map("calibrated_at") @db.Timestamptz(6)
+  standardValue Float?   @map("standard_value") // EC: 1.413
+  measuredValue Float?   @map("measured_value")
+  offset        Float? // 측정-표준
+  slope         Float? // pH: % 슬로프
+  points        Json     @default("[]") // pH 3-pt: [{buffer, measured, offset}, ...]
+  performedBy   String?  @map("performed_by")
+
+  @@index([farmId, sensorType, calibratedAt(sort: Desc)])
+  @@map("nutrient_calibrations")
+}
+
+// 누적 카운터 — 농장 1개당 1 row
+// 도싱·관수 누적값은 RPi 가 주기적으로 누적 update, 초기화 시 lastReset 갱신
+model nutrientCounter {
+  farmId           String    @id @map("farm_id")
+  totalDoseL       Float     @default(0) @map("total_dose_l")
+  totalIrrigationL Float     @default(0) @map("total_irrigation_l")
+  totalCycles      Int       @default(0) @map("total_cycles")
+  pumpRuntimeMin   Int       @default(0) @map("pump_runtime_min")
+  filterChangeAt   DateTime? @map("filter_change_at") @db.Date
+  lastResetAt      DateTime? @map("last_reset_at") @db.Timestamptz(6)
+  updatedAt        DateTime  @default(now()) @map("updated_at")
+
+  @@map("nutrient_counters")
+}
+
+// 운영 상태 (mode + 현재 1회 사이클 정보) — 농장 1개당 1 row
+// RPi 가 polling 으로 갱신, 웹은 short-poll 또는 SSE 로 구독
+model nutrientState {
+  farmId           String   @id @map("farm_id")
+  mode             String   @default("paused") // 'auto' | 'manual' | 'paused' | 'emergency'
+  activeScenarioId String?  @map("active_scenario_id")
+  currentCycle     Json     @default("{}") @map("current_cycle") // {startedAt, expectedEndAt, suppliedL, ecAvg, phAvg, valveIdx}
+  ecCurrent        Float?   @map("ec_current")
+  phCurrent        Float?   @map("ph_current")
+  solarAccumulated Float    @default(0) @map("solar_accumulated")
+  updatedAt        DateTime @default(now()) @map("updated_at")
+
+  @@map("nutrient_states")
 }

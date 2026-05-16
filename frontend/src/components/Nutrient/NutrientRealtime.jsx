@@ -181,12 +181,12 @@ export default function NutrientRealtime({ farmId, mode, onModeChange }) {
         <button
           onClick={() => setDetailsOpen(o => !o)}
           style={{
-            width: '100%', padding: '12px 16px', border: 'none', cursor: 'pointer',
+            width: '100%', padding: '14px 18px', border: 'none', cursor: 'pointer',
             background: '#fff', display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-            fontSize: 15, fontWeight: 700, color: '#475569',
+            fontSize: 17, fontWeight: 800, color: '#0f172a',
           }}>
           <span>📋 상세 정보 (운전 상태 · 관수 실적 · 가동시간 · 일일 집계)</span>
-          <span style={{ transition: 'transform 0.2s', transform: detailsOpen ? 'rotate(180deg)' : '' }}>▾</span>
+          <span style={{ fontSize: 16, color: '#94a3b8', transition: 'transform 0.2s', transform: detailsOpen ? 'rotate(180deg)' : '' }}>▾</span>
         </button>
         {detailsOpen && (
           <div className="p-4 border-t space-y-4" style={{ borderColor: '#e2e8f0' }}>
@@ -244,21 +244,21 @@ const Daily7dChart = ({ data }) => {
   const days = ['6일전', '5일전', '4일전', '3일전', '2일전', '어제', '오늘'];
   return (
     <div>
-      <div style={{ fontSize: 14, fontWeight: 800, color: '#475569', marginBottom: 8 }}>
+      <div style={{ fontSize: 16, fontWeight: 800, color: '#475569', marginBottom: 10 }}>
         📊 최근 7일 관수량 추이
       </div>
-      <div style={{ display: 'flex', alignItems: 'flex-end', gap: 8, height: 80, padding: '0 4px' }}>
+      <div style={{ display: 'flex', alignItems: 'flex-end', gap: 8, height: 90, padding: '0 4px' }}>
         {data.map((v, i) => {
-          const h = (v / max) * 70;
+          const h = (v / max) * 75;
           return (
             <div key={i} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4 }}>
-              <span style={{ fontSize: 11, fontWeight: 700, color: '#0891b2' }}>{v}L</span>
+              <span style={{ fontSize: 13, fontWeight: 800, color: '#0891b2' }}>{v}L</span>
               <div style={{
                 width: '100%', height: h, borderRadius: '4px 4px 0 0',
                 background: i === data.length - 1 ? 'linear-gradient(180deg, #06b6d4, #0891b2)' : 'linear-gradient(180deg, #a5f3fc, #67e8f9)',
                 transition: 'height 0.3s',
               }} />
-              <span style={{ fontSize: 11, color: '#94a3b8', fontWeight: 600 }}>{days[i]}</span>
+              <span style={{ fontSize: 12, color: '#94a3b8', fontWeight: 700 }}>{days[i]}</span>
             </div>
           );
         })}
@@ -672,10 +672,10 @@ const ValveGrid = ({ count, active }) => {
 
 const DetailGrid = ({ title, items }) => (
   <div>
-    <div style={{ fontSize: 13, fontWeight: 800, color: '#475569', marginBottom: 6 }}>{title}</div>
+    <div style={{ fontSize: 15, fontWeight: 800, color: '#475569', marginBottom: 8 }}>{title}</div>
     <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
       {items.map((it, i) => (
-        <div key={i} style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 8px', background: '#f8fafc', borderRadius: 6, fontSize: 13 }}>
+        <div key={i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '6px 10px', background: '#f8fafc', borderRadius: 6, fontSize: 14 }}>
           <span style={{ color: '#64748b' }}>{it.label}</span>
           <span style={{ color: '#0f172a', fontWeight: 700 }}>{it.value}</span>
         </div>
@@ -685,7 +685,7 @@ const DetailGrid = ({ title, items }) => (
 );
 
 const OnOff = ({ on }) => (
-  <span style={{ padding: '1px 6px', borderRadius: 8, fontSize: 11, fontWeight: 800,
+  <span style={{ padding: '2px 8px', borderRadius: 8, fontSize: 13, fontWeight: 800,
     background: on ? '#dcfce7' : '#f1f5f9', color: on ? '#16a34a' : '#94a3b8' }}>
     ● {on ? 'ON' : 'OFF'}
   </span>

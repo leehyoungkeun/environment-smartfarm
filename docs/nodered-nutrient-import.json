@@ -1,0 +1,245 @@
+[
+    {
+        "id": "nutrient_flow_tab",
+        "type": "tab",
+        "label": "양액 자동제어",
+        "disabled": false,
+        "info": "Phase 3.1 골격 — 시뮬레이터 모드로 검증 후 하드웨어 도착 시 Modbus·Serial 노드 활성화\n\n구조:\n  ① 센서 수집 (5초): inject → simulator/Modbus → safety → telemetry POST\n  ② 시나리오 트리거 (1분): inject → trigger-evaluator → cycle-runner\n  ③ 설정 동기화 (5분): inject → config-fetcher → response-handler → global\n  ④ 사이클 실행 시: cycle-runner → Modbus 릴레이 + backend POST\n\nfunction 노드 5개의 코드는 docs/nodered-nutrient-*.js 에서 복사:\n  - nodered-nutrient-simulator.js\n  - nodered-nutrient-telemetry-publisher.js\n  - nodered-nutrient-safety-interlock.js\n  - nodered-nutrient-trigger-evaluator.js\n  - nodered-nutrient-cycle-runner.js\n  - nodered-nutrient-config-fetcher.js"
+    },
+    {
+        "id": "comment_overview",
+        "type": "comment",
+        "z": "nutrient_flow_tab",
+        "name": "━━━ 양액 자동제어 Phase 3.1 (골격) ━━━",
+        "info": "**활성화 절차**\n1. inject `사이트 키 설정` 한 번 실행 → global.farmConfig 등록\n2. inject `시뮬레이터 ON` 한 번 실행 (하드웨어 없을 때)\n3. 5초 주기 inject 자동 시작\n\n**하드웨어 도착 후**\n- inject `시뮬레이터 OFF`\n- Modbus Read (EC) / Serial (pH) 노드 와이어 연결\n- safety-interlock 출력 2 → Modbus Flex Write (Unit-Id 3) 연결",
+        "x": 280, "y": 40, "wires": []
+    },
+
+    {
+        "id": "inject_setup",
+        "type": "inject",
+        "z": "nutrient_flow_tab",
+        "name": "🔧 사이트 키 설정 (1회)",
+        "props": [{"p": "payload"}],
+        "repeat": "", "crontab": "", "once": false,
+        "topic": "",
+        "payload": "{\"farmId\":\"farm_0001\",\"apiKey\":\"REPLACE_WITH_FARM_API_KEY\"}",
+        "payloadType": "json",
+        "x": 180, "y": 100, "wires": [["fn_setup"]]
+    },
+    {
+        "id": "fn_setup",
+        "type": "function",
+        "z": "nutrient_flow_tab",
+        "name": "farmConfig 저장",
+        "func": "global.set('farmConfig', msg.payload);\nnode.warn('farmConfig 등록: ' + msg.payload.farmId);\nreturn null;",
+        "outputs": 0,
+        "x": 380, "y": 100, "wires": []
+    },
+
+    {
+        "id": "inject_sim_on",
+        "type": "inject",
+        "z": "nutrient_flow_tab",
+        "name": "🧪 시뮬레이터 ON",
+        "props": [{"p": "payload"}],
+        "payload": "true", "payloadType": "bool",
+        "x": 180, "y": 160, "wires": [["fn_sim_toggle"]]
+    },
+    {
+        "id": "inject_sim_off",
+        "type": "inject",
+        "z": "nutrient_flow_tab",
+        "name": "⏹ 시뮬레이터 OFF",
+        "props": [{"p": "payload"}],
+        "payload": "false", "payloadType": "bool",
+        "x": 180, "y": 200, "wires": [["fn_sim_toggle"]]
+    },
+    {
+        "id": "fn_sim_toggle",
+        "type": "function",
+        "z": "nutrient_flow_tab",
+        "name": "시뮬레이터 토글",
+        "func": "global.set('nutrientSimulator', msg.payload);\nnode.warn('simulator = ' + msg.payload);\nreturn null;",
+        "outputs": 0,
+        "x": 400, "y": 180, "wires": []
+    },
+
+    {
+        "id": "comment_telemetry",
+        "type": "comment",
+        "z": "nutrient_flow_tab",
+        "name": "━ ① 센서 수집 (5초 주기) ━",
+        "x": 200, "y": 260, "wires": []
+    },
+    {
+        "id": "inject_5s",
+        "type": "inject",
+        "z": "nutrient_flow_tab",
+        "name": "5초",
+        "props": [{"p": "payload"}],
+        "repeat": "5", "crontab": "", "once": true, "onceDelay": "10",
+        "topic": "", "payload": "", "payloadType": "date",
+        "x": 130, "y": 320, "wires": [["fn_simulator"]]
+    },
+    {
+        "id": "fn_simulator",
+        "type": "function",
+        "z": "nutrient_flow_tab",
+        "name": "양액 시뮬레이터",
+        "func": "// docs/nodered-nutrient-simulator.js 내용을 여기에 복사",
+        "outputs": 1,
+        "x": 320, "y": 320, "wires": [["fn_safety"]]
+    },
+    {
+        "id": "fn_safety",
+        "type": "function",
+        "z": "nutrient_flow_tab",
+        "name": "안전 인터락",
+        "func": "// docs/nodered-nutrient-safety-interlock.js 내용을 여기에 복사",
+        "outputs": 2,
+        "outputLabels": ["정상 통과", "비상 (릴레이OFF + 경보)"],
+        "x": 520, "y": 320, "wires": [["fn_telemetry"], ["modbus_emergency_off", "http_alerts"]]
+    },
+    {
+        "id": "fn_telemetry",
+        "type": "function",
+        "z": "nutrient_flow_tab",
+        "name": "telemetry publisher",
+        "func": "// docs/nodered-nutrient-telemetry-publisher.js 내용을 여기에 복사",
+        "outputs": 1,
+        "x": 760, "y": 320, "wires": [["http_request"]]
+    },
+
+    {
+        "id": "comment_trigger",
+        "type": "comment",
+        "z": "nutrient_flow_tab",
+        "name": "━ ② 시나리오 트리거 (1분 주기) ━",
+        "x": 200, "y": 400, "wires": []
+    },
+    {
+        "id": "inject_1min",
+        "type": "inject",
+        "z": "nutrient_flow_tab",
+        "name": "1분",
+        "props": [{"p": "payload"}],
+        "repeat": "60", "crontab": "", "once": false,
+        "topic": "", "payload": "", "payloadType": "date",
+        "x": 130, "y": 460, "wires": [["fn_trigger"]]
+    },
+    {
+        "id": "fn_trigger",
+        "type": "function",
+        "z": "nutrient_flow_tab",
+        "name": "트리거 평가",
+        "func": "// docs/nodered-nutrient-trigger-evaluator.js 내용을 여기에 복사",
+        "outputs": 2,
+        "outputLabels": ["트리거 → 사이클", "대기"],
+        "x": 320, "y": 460, "wires": [["fn_cycle"], []]
+    },
+    {
+        "id": "fn_cycle",
+        "type": "function",
+        "z": "nutrient_flow_tab",
+        "name": "1회 관수 사이클",
+        "func": "// docs/nodered-nutrient-cycle-runner.js 내용을 여기에 복사",
+        "outputs": 2,
+        "outputLabels": ["Modbus 릴레이 명령", "backend POST"],
+        "x": 540, "y": 460, "wires": [["modbus_relay_24ch"], ["http_request"]]
+    },
+
+    {
+        "id": "comment_config",
+        "type": "comment",
+        "z": "nutrient_flow_tab",
+        "name": "━ ③ 설정 동기화 (5분 주기) ━",
+        "x": 200, "y": 540, "wires": []
+    },
+    {
+        "id": "inject_5min",
+        "type": "inject",
+        "z": "nutrient_flow_tab",
+        "name": "5분",
+        "props": [{"p": "payload"}],
+        "repeat": "300", "crontab": "", "once": true, "onceDelay": "3",
+        "topic": "", "payload": "", "payloadType": "date",
+        "x": 130, "y": 600, "wires": [["fn_config_fetcher"]]
+    },
+    {
+        "id": "fn_config_fetcher",
+        "type": "function",
+        "z": "nutrient_flow_tab",
+        "name": "config fetcher",
+        "func": "// docs/nodered-nutrient-config-fetcher.js 내용을 여기에 복사",
+        "outputs": 1,
+        "x": 340, "y": 600, "wires": [["http_request"]]
+    },
+    {
+        "id": "fn_config_response",
+        "type": "function",
+        "z": "nutrient_flow_tab",
+        "name": "config 응답 처리",
+        "func": "const key = msg._key;\nconst body = msg.payload;\nif (body && body.success) {\n    if (key === 'nutrientConfig') {\n        global.set('nutrientConfig', body.data);\n    } else if (key === 'scenarios') {\n        const active = (body.data || []).find(s => s.active);\n        global.set('activeScenario', active || null);\n    } else if (key === 'state') {\n        global.set('state', body.data);\n    }\n}\nnode.status({ fill: 'green', shape: 'dot', text: '✓ ' + key });\nreturn null;",
+        "outputs": 0,
+        "x": 760, "y": 600, "wires": []
+    },
+
+    {
+        "id": "http_request",
+        "type": "http request",
+        "z": "nutrient_flow_tab",
+        "name": "HTTP backend",
+        "method": "use",
+        "ret": "obj",
+        "paytoqs": "ignore",
+        "url": "",
+        "tls": "",
+        "persist": false,
+        "proxy": "",
+        "x": 940, "y": 460,
+        "wires": [["fn_config_response"]]
+    },
+    {
+        "id": "http_alerts",
+        "type": "http request",
+        "z": "nutrient_flow_tab",
+        "name": "HTTP alerts POST",
+        "method": "use",
+        "ret": "obj",
+        "url": "",
+        "x": 760, "y": 380,
+        "wires": [[]]
+    },
+
+    {
+        "id": "modbus_relay_24ch",
+        "type": "modbus-flex-write",
+        "z": "nutrient_flow_tab",
+        "name": "24CH 릴레이 (Unit-Id 3)",
+        "showStatusActivities": true,
+        "showErrors": true,
+        "server": "REPLACE_WITH_MODBUS_CLIENT_ID",
+        "emptyMsgOnFail": false,
+        "keepMsgProperties": false,
+        "delayOnStart": false,
+        "startDelayTime": "",
+        "x": 760, "y": 460,
+        "wires": [[]]
+    },
+    {
+        "id": "modbus_emergency_off",
+        "type": "modbus-flex-write",
+        "z": "nutrient_flow_tab",
+        "name": "비상 OFF (전체)",
+        "showStatusActivities": true,
+        "showErrors": true,
+        "server": "REPLACE_WITH_MODBUS_CLIENT_ID",
+        "emptyMsgOnFail": false,
+        "keepMsgProperties": false,
+        "delayOnStart": false,
+        "startDelayTime": "",
+        "x": 760, "y": 340,
+        "wires": [[]]
+    }
+]

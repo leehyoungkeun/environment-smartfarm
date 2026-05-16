@@ -179,87 +179,274 @@ const BigGauge = ({ label, unit, color, current, target, history, max }) => {
 };
 
 // ─────────────────────────────────────────
-// 동적 SVG 흐름도
+// 시스템 흐름도 — 최신 스타일 (liquid + flow particles + glassmorphism)
 // ─────────────────────────────────────────
 const FlowDiagram = ({ data }) => {
+  const anyDosing = data.tanks.some(t => t.dosing);
   return (
-    <div style={{ background: '#fff', borderRadius: 12, padding: 16, border: '1px solid #e2e8f0' }}>
-      <div style={{ fontSize: 13, fontWeight: 800, color: '#0f172a', marginBottom: 12 }}>
-        🔄 시스템 흐름도
-      </div>
-      <svg viewBox="0 0 1000 240" width="100%" style={{ display: 'block' }}>
-        {/* 도싱 탱크 6개 */}
-        {data.tanks.map((t, i) => {
-          const col = i % 3;
-          const row = Math.floor(i / 3);
-          const x = 20 + col * 80;
-          const y = 30 + row * 90;
-          const tankColor = t.dosing ? '#0891b2' : '#cbd5e1';
-          return (
-            <g key={t.id}>
-              <rect x={x} y={y} width="64" height="60" rx="6" fill="#fff" stroke={tankColor} strokeWidth={t.dosing ? 2 : 1} />
-              <rect x={x} y={y + 60 - (60 * t.level / 100)} width="64" height={60 * t.level / 100} rx="6" fill={tankColor + '40'} />
-              <text x={x + 32} y={y + 28} textAnchor="middle" fontSize="14" fontWeight="800" fill="#0f172a">{t.id}</text>
-              <text x={x + 32} y={y + 46} textAnchor="middle" fontSize="9" fill="#64748b">{t.level}%</text>
-            </g>
-          );
-        })}
-        {/* 화살표 1: 탱크 → 혼합 */}
-        <line x1="265" y1="120" x2="335" y2="120" stroke="#94a3b8" strokeWidth="2"
-              markerEnd="url(#arrow)" strokeDasharray={data.tanks.some(t => t.dosing) ? '5 5' : ''}
-              style={data.tanks.some(t => t.dosing) ? { animation: 'flow-dash 1s linear infinite' } : {}} />
-        {/* 혼합 탱크 */}
-        <rect x="340" y="60" width="120" height="120" rx="8" fill="#f0fdfa" stroke="#14b8a6" strokeWidth="2" />
-        <text x="400" y="85" textAnchor="middle" fontSize="11" fontWeight="700" fill="#0f766e">혼합 탱크</text>
-        <text x="400" y="115" textAnchor="middle" fontSize="14" fontWeight="800" fill="#0f172a">EC {data.mixer.ec}</text>
-        <text x="400" y="135" textAnchor="middle" fontSize="14" fontWeight="800" fill="#0f172a">pH {data.mixer.ph}</text>
-        <text x="400" y="160" textAnchor="middle" fontSize="10" fill="#64748b">잔량 {data.mixer.level}%</text>
-        {/* 화살표 2: 혼합 → 펌프 */}
-        <line x1="465" y1="120" x2="535" y2="120" stroke="#94a3b8" strokeWidth="2"
-              markerEnd="url(#arrow)" strokeDasharray={data.irrigationPump ? '5 5' : ''}
-              style={data.irrigationPump ? { animation: 'flow-dash 1s linear infinite' } : {}} />
-        {/* 펌프 2개 */}
-        <PumpIcon x={540} y={70} label="원수" on={data.rawPump} />
-        <PumpIcon x={540} y={140} label="관수" on={data.irrigationPump} />
-        {/* 화살표 3: 펌프 → 밸브 */}
-        <line x1="620" y1="120" x2="690" y2="120" stroke="#94a3b8" strokeWidth="2"
-              markerEnd="url(#arrow)" strokeDasharray={data.activeValve ? '5 5' : ''}
-              style={data.activeValve ? { animation: 'flow-dash 1s linear infinite' } : {}} />
-        {/* 밸브 14개 그리드 */}
-        <g transform="translate(700, 50)">
-          {Array.from({ length: data.totalValves }).map((_, i) => {
-            const col = i % 7;
-            const row = Math.floor(i / 7);
-            const valveNo = i + 1;
-            const active = data.activeValve === valveNo;
-            return (
-              <g key={i}>
-                <rect x={col * 38} y={row * 38} width="32" height="32" rx="4"
-                      fill={active ? '#16a34a' : '#f1f5f9'} stroke={active ? '#15803d' : '#cbd5e1'} strokeWidth="1" />
-                <text x={col * 38 + 16} y={row * 38 + 21} textAnchor="middle"
-                      fontSize="11" fontWeight="700" fill={active ? '#fff' : '#475569'}>{valveNo}</text>
-              </g>
-            );
-          })}
-        </g>
+    <div style={{
+      background: 'linear-gradient(135deg, #f0f9ff 0%, #ecfeff 50%, #f0fdfa 100%)',
+      borderRadius: 16, padding: '16px 20px',
+      border: '1px solid #cffafe',
+      boxShadow: '0 4px 24px -8px rgba(8, 145, 178, 0.15)',
+      position: 'relative', overflow: 'hidden',
+    }}>
+      {/* 배경 grid pattern */}
+      <svg width="100%" height="100%" style={{ position: 'absolute', top: 0, left: 0, opacity: 0.4, pointerEvents: 'none' }}>
         <defs>
-          <marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto">
-            <polygon points="0 0, 10 3, 0 6" fill="#94a3b8" />
-          </marker>
+          <pattern id="dotGrid" width="20" height="20" patternUnits="userSpaceOnUse">
+            <circle cx="2" cy="2" r="0.6" fill="#06b6d4" opacity="0.3" />
+          </pattern>
         </defs>
+        <rect width="100%" height="100%" fill="url(#dotGrid)" />
       </svg>
+
+      <div style={{ position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+        <div style={{ fontSize: 13, fontWeight: 800, color: '#0f172a', display: 'flex', alignItems: 'center', gap: 6 }}>
+          <span style={{
+            width: 26, height: 26, borderRadius: 8, background: 'linear-gradient(135deg, #06b6d4, #0891b2)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14, color: '#fff',
+            boxShadow: '0 2px 8px rgba(6, 182, 212, 0.4)',
+          }}>🔄</span>
+          시스템 흐름도
+        </div>
+        <span style={{
+          padding: '4px 10px', borderRadius: 10, fontSize: 10, fontWeight: 800,
+          background: anyDosing || data.irrigationPump || data.rawPump ? '#dcfce7' : '#f1f5f9',
+          color: anyDosing || data.irrigationPump || data.rawPump ? '#15803d' : '#94a3b8',
+          display: 'flex', alignItems: 'center', gap: 4,
+        }}>
+          <span style={{ width: 6, height: 6, borderRadius: '50%',
+            background: anyDosing || data.irrigationPump || data.rawPump ? '#22c55e' : '#cbd5e1',
+            animation: anyDosing || data.irrigationPump || data.rawPump ? 'pulse 1.5s infinite' : 'none',
+          }} />
+          {anyDosing || data.irrigationPump || data.rawPump ? 'RUNNING' : 'IDLE'}
+        </span>
+      </div>
+
+      {/* 그리드 레이아웃 — 데스크탑 4단, 모바일 세로 */}
+      <div style={{ position: 'relative', display: 'grid',
+        gridTemplateColumns: 'minmax(0, 1fr) 36px minmax(0, 1.1fr) 36px minmax(0, 0.5fr) 36px minmax(0, 1.4fr)',
+        alignItems: 'center', gap: 4,
+      }}>
+        {/* 1. 도싱 탱크 6개 */}
+        <div style={{
+          display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 6,
+          padding: 8, background: 'rgba(255,255,255,0.6)', borderRadius: 12,
+          backdropFilter: 'blur(8px)', border: '1px solid rgba(186, 230, 253, 0.5)',
+        }}>
+          {data.tanks.map(t => <TankCard key={t.id} tank={t} />)}
+        </div>
+
+        {/* 화살표 1: 탱크 → 혼합 */}
+        <FlowArrow active={anyDosing} />
+
+        {/* 2. 혼합 탱크 — 중앙 강조 */}
+        <MixerNode mixer={data.mixer} />
+
+        {/* 화살표 2: 혼합 → 펌프 */}
+        <FlowArrow active={data.irrigationPump || data.rawPump} />
+
+        {/* 3. 펌프 2개 */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          <PumpNode label="원수" on={data.rawPump} color="#3b82f6" />
+          <PumpNode label="관수" on={data.irrigationPump} color="#0891b2" />
+        </div>
+
+        {/* 화살표 3: 펌프 → 밸브 */}
+        <FlowArrow active={!!data.activeValve} />
+
+        {/* 4. 밸브 그리드 */}
+        <ValveGrid count={data.totalValves} active={data.activeValve} />
+      </div>
     </div>
   );
 };
 
-const PumpIcon = ({ x, y, label, on }) => (
-  <g>
-    <circle cx={x + 40} cy={y + 25} r="22" fill="#fff" stroke={on ? '#0891b2' : '#cbd5e1'} strokeWidth="2" />
-    <text x={x + 40} y={y + 22} textAnchor="middle" fontSize="9" fontWeight="700" fill="#0f172a">{label}</text>
-    <text x={x + 40} y={y + 36} textAnchor="middle" fontSize="9" fontWeight="800"
-          fill={on ? '#0891b2' : '#94a3b8'}>{on ? 'ON' : 'OFF'}</text>
-  </g>
+// 도싱 탱크 카드 — liquid fill animation
+const TankCard = ({ tank }) => {
+  const active = tank.dosing;
+  const fillH = Math.max(0, Math.min(100, tank.level));
+  return (
+    <div style={{
+      position: 'relative', padding: 8, borderRadius: 10,
+      background: active
+        ? 'linear-gradient(180deg, rgba(6, 182, 212, 0.1), rgba(6, 182, 212, 0.25))'
+        : 'rgba(255,255,255,0.85)',
+      border: `1.5px solid ${active ? '#06b6d4' : '#e2e8f0'}`,
+      boxShadow: active ? '0 0 16px rgba(6, 182, 212, 0.5), inset 0 0 8px rgba(6, 182, 212, 0.1)' : '0 1px 3px rgba(0,0,0,0.04)',
+      overflow: 'hidden',
+      transition: 'all 0.3s',
+    }}>
+      {/* 액체 fill — 곡선 wave */}
+      <svg width="100%" height="100%" style={{ position: 'absolute', top: 0, left: 0, pointerEvents: 'none' }} preserveAspectRatio="none" viewBox="0 0 100 100">
+        <defs>
+          <linearGradient id={`liquid-${tank.id}`} x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor={active ? '#22d3ee' : '#cbd5e1'} stopOpacity="0.6" />
+            <stop offset="100%" stopColor={active ? '#0891b2' : '#94a3b8'} stopOpacity="0.4" />
+          </linearGradient>
+        </defs>
+        <path
+          d={`M0 ${100 - fillH} Q25 ${100 - fillH - 3} 50 ${100 - fillH} T100 ${100 - fillH} L100 100 L0 100 Z`}
+          fill={`url(#liquid-${tank.id})`}
+          style={{ animation: active ? 'wave 2s ease-in-out infinite' : 'none' }}
+        />
+      </svg>
+      <div style={{ position: 'relative', textAlign: 'center' }}>
+        <div style={{ fontSize: 16, fontWeight: 900, color: active ? '#0e7490' : '#0f172a', lineHeight: 1 }}>
+          {tank.id}
+        </div>
+        <div style={{ fontSize: 10, fontWeight: 800, color: active ? '#06b6d4' : '#64748b', marginTop: 2 }}>
+          {tank.level}%
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// 흐름 화살표 — 점들이 흐르는 효과
+const FlowArrow = ({ active }) => (
+  <svg viewBox="0 0 36 8" width="36" height="20" preserveAspectRatio="none" style={{ overflow: 'visible' }}>
+    <line x1="0" y1="4" x2="36" y2="4" stroke={active ? '#06b6d4' : '#cbd5e1'} strokeWidth="1.5" />
+    <polygon points="30,1 36,4 30,7" fill={active ? '#06b6d4' : '#cbd5e1'} />
+    {active && (
+      <>
+        <circle cx="0" cy="4" r="1.8" fill="#06b6d4">
+          <animateMotion path="M 0 0 L 30 0" dur="1.2s" repeatCount="indefinite" />
+          <animate attributeName="opacity" values="0;1;1;0" dur="1.2s" repeatCount="indefinite" />
+        </circle>
+        <circle cx="0" cy="4" r="1.8" fill="#06b6d4">
+          <animateMotion path="M 0 0 L 30 0" dur="1.2s" begin="0.4s" repeatCount="indefinite" />
+          <animate attributeName="opacity" values="0;1;1;0" dur="1.2s" begin="0.4s" repeatCount="indefinite" />
+        </circle>
+        <circle cx="0" cy="4" r="1.8" fill="#06b6d4">
+          <animateMotion path="M 0 0 L 30 0" dur="1.2s" begin="0.8s" repeatCount="indefinite" />
+          <animate attributeName="opacity" values="0;1;1;0" dur="1.2s" begin="0.8s" repeatCount="indefinite" />
+        </circle>
+      </>
+    )}
+  </svg>
 );
+
+// 혼합 탱크 노드 — 큰 원형 카드 + 디지털 디스플레이
+const MixerNode = ({ mixer }) => (
+  <div style={{
+    position: 'relative', padding: '16px 14px', borderRadius: 16,
+    background: 'linear-gradient(135deg, #ffffff, #f0fdfa)',
+    border: '2px solid #14b8a6',
+    boxShadow: '0 8px 32px -8px rgba(20, 184, 166, 0.4), inset 0 1px 0 rgba(255,255,255,0.8)',
+    textAlign: 'center',
+  }}>
+    {/* level liquid bg */}
+    <div style={{
+      position: 'absolute', bottom: 0, left: 0, right: 0,
+      height: `${mixer.level}%`,
+      background: 'linear-gradient(180deg, rgba(20, 184, 166, 0.1), rgba(20, 184, 166, 0.2))',
+      borderRadius: '0 0 14px 14px',
+      transition: 'height 0.5s',
+    }} />
+    <div style={{ position: 'relative' }}>
+      <div style={{
+        fontSize: 10, fontWeight: 800, color: '#0f766e',
+        background: '#ccfbf1', padding: '2px 8px', borderRadius: 8,
+        display: 'inline-block', marginBottom: 8,
+      }}>혼합 탱크</div>
+      <div style={{ display: 'flex', justifyContent: 'space-around', gap: 8 }}>
+        <div>
+          <div style={{ fontSize: 9, color: '#64748b', fontWeight: 700 }}>EC</div>
+          <div style={{ fontSize: 18, fontWeight: 900, color: '#0891b2', lineHeight: 1, fontFamily: 'monospace' }}>{mixer.ec}</div>
+        </div>
+        <div style={{ width: 1, background: '#cbd5e1' }} />
+        <div>
+          <div style={{ fontSize: 9, color: '#64748b', fontWeight: 700 }}>pH</div>
+          <div style={{ fontSize: 18, fontWeight: 900, color: '#7c3aed', lineHeight: 1, fontFamily: 'monospace' }}>{mixer.ph}</div>
+        </div>
+      </div>
+      <div style={{ marginTop: 8, fontSize: 9, color: '#64748b' }}>
+        <span style={{ fontWeight: 700 }}>잔량</span> {mixer.level}%
+      </div>
+    </div>
+  </div>
+);
+
+// 펌프 노드 — 회전 모터 애니메이션
+const PumpNode = ({ label, on, color }) => (
+  <div style={{
+    padding: '8px 4px', borderRadius: 12,
+    background: on ? `linear-gradient(135deg, ${color}15, ${color}25)` : '#fff',
+    border: `1.5px solid ${on ? color : '#e2e8f0'}`,
+    boxShadow: on ? `0 0 20px ${color}40` : '0 1px 3px rgba(0,0,0,0.04)',
+    display: 'flex', alignItems: 'center', gap: 8,
+    transition: 'all 0.3s',
+  }}>
+    <div style={{
+      width: 32, height: 32, borderRadius: '50%',
+      background: on ? `linear-gradient(135deg, ${color}, ${color}cc)` : '#f1f5f9',
+      display: 'flex', alignItems: 'center', justifyContent: 'center',
+      animation: on ? 'spin 1.5s linear infinite' : 'none',
+      flexShrink: 0,
+    }}>
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
+        <circle cx="12" cy="12" r="3" fill={on ? '#fff' : '#94a3b8'} />
+        <path d="M12 2 L12 7 M12 17 L12 22 M2 12 L7 12 M17 12 L22 12" stroke={on ? '#fff' : '#94a3b8'} strokeWidth="2" strokeLinecap="round" />
+      </svg>
+    </div>
+    <div style={{ flex: 1, minWidth: 0 }}>
+      <div style={{ fontSize: 10, fontWeight: 800, color: '#0f172a' }}>{label}</div>
+      <div style={{ fontSize: 9, fontWeight: 800, color: on ? color : '#94a3b8', marginTop: 2 }}>
+        {on ? '● ON' : '○ OFF'}
+      </div>
+    </div>
+  </div>
+);
+
+// 밸브 그리드 — 활성 valve 는 droplet animation
+const ValveGrid = ({ count, active }) => {
+  const cols = count <= 12 ? 7 : 8;
+  return (
+    <div style={{
+      padding: 8, borderRadius: 12,
+      background: 'rgba(255,255,255,0.6)',
+      backdropFilter: 'blur(8px)',
+      border: '1px solid rgba(186, 230, 253, 0.5)',
+    }}>
+      <div style={{
+        display: 'grid', gridTemplateColumns: `repeat(${cols}, 1fr)`, gap: 4,
+      }}>
+        {Array.from({ length: count }).map((_, i) => {
+          const no = i + 1;
+          const isActive = active === no;
+          return (
+            <div key={i} style={{
+              position: 'relative',
+              padding: '6px 0', borderRadius: 8,
+              background: isActive
+                ? 'linear-gradient(135deg, #22c55e, #15803d)'
+                : 'rgba(255,255,255,0.85)',
+              border: `1px solid ${isActive ? '#15803d' : '#e2e8f0'}`,
+              boxShadow: isActive ? '0 0 16px rgba(34, 197, 94, 0.5)' : 'none',
+              textAlign: 'center',
+              fontSize: 11, fontWeight: 800,
+              color: isActive ? '#fff' : '#475569',
+              transition: 'all 0.3s',
+              overflow: 'hidden',
+            }}>
+              {no}
+              {isActive && (
+                <svg width="100%" height="6" style={{ position: 'absolute', bottom: -1, left: 0 }} preserveAspectRatio="none">
+                  <circle cx="50%" cy="3" r="1.5" fill="#fff">
+                    <animate attributeName="cy" values="-2;8" dur="1s" repeatCount="indefinite" />
+                    <animate attributeName="opacity" values="1;0" dur="1s" repeatCount="indefinite" />
+                  </circle>
+                </svg>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+};
 
 const DetailGrid = ({ title, items }) => (
   <div>

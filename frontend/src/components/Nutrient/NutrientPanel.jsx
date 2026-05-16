@@ -85,6 +85,8 @@ export default function NutrientPanel({ farmId }) {
       <style>{`
         @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
         @keyframes flow-dash { to { stroke-dashoffset: -20; } }
+        @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+        @keyframes wave { 0%, 100% { transform: translateX(0); } 50% { transform: translateX(-3px); } }
       `}</style>
     </div>
   );

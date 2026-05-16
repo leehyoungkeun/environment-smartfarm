@@ -8,6 +8,7 @@ const MOCK = {
   ecHistory: [1.5, 1.7, 1.8, 1.9, 1.8, 1.7, 1.8, 1.9, 2.0, 1.9, 1.8, 1.8],
   phHistory: [5.8, 5.9, 6.0, 5.9, 5.8, 5.9, 6.0, 6.1, 6.0, 5.9, 5.9, 5.9],
   flow: {
+    rawTank: { level: 75, temp: 18.2 }, // 원수 탱크
     tanks: [
       { id: 'A', label: '질소·칼슘', level: 80, dosing: false },
       { id: 'B', label: '인·칼륨·마그', level: 75, dosing: false },
@@ -17,52 +18,76 @@ const MOCK = {
       { id: 'F', label: '알칼리', level: 85, dosing: false },
     ],
     mixer: { ec: 1.8, ph: 5.9, level: 65 },
+    mixerAgitator: false, // 양액 교반기
     rawPump: false, irrigationPump: false,
     activeValve: null,
     totalValves: 14,
   },
+  currentCycle: { time: 6, volume: 0 }, // 1회 관수시간·유량
   todayStats: { irrigationL: 0, drainL: 0, drainRate: 0, count: 0,
                 feedFlow: 0, drainFlow: 0, waterTemp: 20.5, do: 7.2 },
   pumpHours: { rawWater: 0, irrigation: 0, A: 0, B: 0, C: 0, D: 0, acid: 0, F: 0 },
+  daily7d: [12, 15, 14, 16, 13, 18, 17], // 최근 7일 관수량 (L)
 };
 
 export default function NutrientRealtime({ farmId, mode, onModeChange }) {
   const [data, setData] = useState(MOCK);
   const [detailsOpen, setDetailsOpen] = useState(false);
+  const [ecPhCompact, setEcPhCompact] = useState(false);
 
   useEffect(() => { setData(MOCK); }, [farmId]);
 
   return (
     <div className="space-y-3">
-      {/* 시나리오 정보 */}
-      <div style={{
-        background: '#f0fdfa', border: '1px solid #99f6e4', borderRadius: 10,
-        padding: '8px 14px', display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-      }}>
-        <span style={{ fontSize: 13, color: '#0f766e', fontWeight: 700 }}>
-          현재 시나리오: <strong>{data.scenarioNo}번 - {data.scenarioName}</strong>
-        </span>
-        {data.flow.activeValve && (
-          <span style={{
-            padding: '3px 10px', borderRadius: 12, fontSize: 11, fontWeight: 800,
-            background: '#16a34a', color: '#fff',
-          }}>● V{data.flow.activeValve} 관수 중</span>
-        )}
+      {/* 시나리오 정보 + 1회 관수 정보 */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+        <div style={{
+          background: '#f0fdfa', border: '1px solid #99f6e4', borderRadius: 10,
+          padding: '8px 14px', display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+        }}>
+          <span style={{ fontSize: 15, color: '#0f766e', fontWeight: 700 }}>
+            🎯 시나리오 <strong>{data.scenarioNo}번 - {data.scenarioName}</strong>
+          </span>
+          {data.flow.activeValve && (
+            <span style={{
+              padding: '3px 10px', borderRadius: 12, fontSize: 13, fontWeight: 800,
+              background: '#16a34a', color: '#fff',
+            }}>● V{data.flow.activeValve} 관수 중</span>
+          )}
+        </div>
+        <div style={{
+          background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 10,
+          padding: '8px 14px', display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+          fontSize: 14, color: '#92400e', fontWeight: 700,
+        }}>
+          <span>💧 1회 관수: <strong>{data.currentCycle.time}초</strong></span>
+          <span>유량: <strong>{data.currentCycle.volume} L</strong></span>
+        </div>
       </div>
 
-      {/* EC + pH 큰 게이지 + sparkline */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-        <BigGauge
-          label="EC (전기전도도)" unit="mS/cm" color="#0891b2"
-          current={data.liveSensors.feedEC} target={data.targets.ec}
-          history={data.ecHistory} max={4}
-        />
-        <BigGauge
-          label="pH (산도)" unit="" color="#7c3aed"
-          current={data.liveSensors.feedPH} target={data.targets.ph}
-          history={data.phHistory} max={10}
-        />
+      {/* EC + pH 게이지 (큰 / 컴팩트 토글) */}
+      <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: -4 }}>
+        <button onClick={() => setEcPhCompact(c => !c)} style={{
+          background: 'transparent', border: '1px solid #cbd5e1', borderRadius: 6,
+          padding: '2px 8px', fontSize: 12, fontWeight: 700, color: '#64748b', cursor: 'pointer',
+        }}>{ecPhCompact ? '큰 게이지' : '컴팩트 보기'}</button>
       </div>
+      {ecPhCompact ? (
+        <CompactGauges sensors={data.liveSensors} targets={data.targets} />
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+          <BigGauge
+            label="EC (전기전도도)" unit="mS/cm" color="#0891b2"
+            current={data.liveSensors.feedEC} target={data.targets.ec}
+            history={data.ecHistory} max={4}
+          />
+          <BigGauge
+            label="pH (산도)" unit="" color="#7c3aed"
+            current={data.liveSensors.feedPH} target={data.targets.ph}
+            history={data.phHistory} max={10}
+          />
+        </div>
+      )}
 
       {/* 동적 SVG 흐름도 */}
       <FlowDiagram data={data.flow} />
@@ -84,30 +109,34 @@ export default function NutrientRealtime({ farmId, mode, onModeChange }) {
           style={{
             width: '100%', padding: '12px 16px', border: 'none', cursor: 'pointer',
             background: '#fff', display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-            fontSize: 13, fontWeight: 700, color: '#475569',
+            fontSize: 15, fontWeight: 700, color: '#475569',
           }}>
-          <span>📋 상세 정보 (운전 상태 · 관수 실적 · 가동시간)</span>
+          <span>📋 상세 정보 (운전 상태 · 관수 실적 · 가동시간 · 일일 집계)</span>
           <span style={{ transition: 'transform 0.2s', transform: detailsOpen ? 'rotate(180deg)' : '' }}>▾</span>
         </button>
         {detailsOpen && (
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 p-4 border-t" style={{ borderColor: '#e2e8f0' }}>
-            <DetailGrid title="🎛️ 운전 상태" items={[
-              { label: '원수펌프', value: <OnOff on={data.flow.rawPump} /> },
-              { label: '관수펌프', value: <OnOff on={data.flow.irrigationPump} /> },
-              { label: '교반기', value: <OnOff on={false} /> },
-              { label: '도징', value: <OnOff on={false} /> },
-            ]} />
-            <DetailGrid title="💧 관수 실적 (오늘)" items={[
-              { label: '1일 관수', value: `${data.todayStats.irrigationL} L` },
-              { label: '1일 배액', value: `${data.todayStats.drainL} L` },
-              { label: '배액률', value: `${data.todayStats.drainRate} %` },
-              { label: '횟수', value: `${data.todayStats.count} 회` },
-              { label: '수온', value: `${data.todayStats.waterTemp} °C` },
-              { label: 'DO', value: `${data.todayStats.do} mg/L` },
-            ]} />
-            <DetailGrid title="⏱️ 가동시간 (오늘)" items={Object.entries(data.pumpHours).map(([k, v]) => ({
-              label: labelMap[k] || k, value: `${v} h`,
-            }))} />
+          <div className="p-4 border-t space-y-4" style={{ borderColor: '#e2e8f0' }}>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <DetailGrid title="🎛️ 운전 상태" items={[
+                { label: '원수펌프', value: <OnOff on={data.flow.rawPump} /> },
+                { label: '관수펌프', value: <OnOff on={data.flow.irrigationPump} /> },
+                { label: '교반기', value: <OnOff on={data.flow.mixerAgitator} /> },
+                { label: '도징', value: <OnOff on={data.flow.tanks.some(t => t.dosing)} /> },
+              ]} />
+              <DetailGrid title="💧 관수 실적 (오늘)" items={[
+                { label: '1일 관수', value: `${data.todayStats.irrigationL} L` },
+                { label: '1일 배액', value: `${data.todayStats.drainL} L` },
+                { label: '배액률', value: `${data.todayStats.drainRate} %` },
+                { label: '횟수', value: `${data.todayStats.count} 회` },
+                { label: '수온', value: `${data.todayStats.waterTemp} °C` },
+                { label: 'DO', value: `${data.todayStats.do} mg/L` },
+              ]} />
+              <DetailGrid title="⏱️ 가동시간 (오늘)" items={Object.entries(data.pumpHours).map(([k, v]) => ({
+                label: labelMap[k] || k, value: `${v} h`,
+              }))} />
+            </div>
+            {/* 일일 집계 미니 차트 — 최근 7일 */}
+            <Daily7dChart data={data.daily7d} />
           </div>
         )}
       </div>
@@ -115,11 +144,60 @@ export default function NutrientRealtime({ farmId, mode, onModeChange }) {
   );
 }
 
+// EC/pH 컴팩트 — 한 줄 (현재 / 목표)
+const CompactGauges = ({ sensors, targets }) => (
+  <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+    <CompactCard label="급액 EC" value={sensors.feedEC} target={targets.ec} unit="mS/cm" color="#0891b2" />
+    <CompactCard label="급액 pH" value={sensors.feedPH} target={targets.ph} unit="" color="#7c3aed" />
+    <CompactCard label="배액 EC" value={sensors.drainEC} target={null} unit="mS/cm" color="#06b6d4" />
+    <CompactCard label="배액 pH" value={sensors.drainPH} target={null} unit="" color="#a855f7" />
+  </div>
+);
+
+const CompactCard = ({ label, value, target, unit, color }) => (
+  <div style={{ background: '#fff', borderRadius: 10, padding: '10px 14px', border: '1px solid #e2e8f0' }}>
+    <div style={{ fontSize: 12, color: '#64748b', fontWeight: 700, marginBottom: 4 }}>{label}</div>
+    <div style={{ fontSize: 20, fontWeight: 900, color, lineHeight: 1, fontFamily: 'monospace' }}>
+      {value.toFixed(1)}{target !== null && <span style={{ color: '#94a3b8' }}> / {target.toFixed(1)}</span>}
+    </div>
+    <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 2 }}>{unit}</div>
+  </div>
+);
+
+// 일일 집계 미니 차트
+const Daily7dChart = ({ data }) => {
+  const max = Math.max(...data, 1);
+  const days = ['6일전', '5일전', '4일전', '3일전', '2일전', '어제', '오늘'];
+  return (
+    <div>
+      <div style={{ fontSize: 14, fontWeight: 800, color: '#475569', marginBottom: 8 }}>
+        📊 최근 7일 관수량 추이
+      </div>
+      <div style={{ display: 'flex', alignItems: 'flex-end', gap: 8, height: 80, padding: '0 4px' }}>
+        {data.map((v, i) => {
+          const h = (v / max) * 70;
+          return (
+            <div key={i} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4 }}>
+              <span style={{ fontSize: 11, fontWeight: 700, color: '#0891b2' }}>{v}L</span>
+              <div style={{
+                width: '100%', height: h, borderRadius: '4px 4px 0 0',
+                background: i === data.length - 1 ? 'linear-gradient(180deg, #06b6d4, #0891b2)' : 'linear-gradient(180deg, #a5f3fc, #67e8f9)',
+                transition: 'height 0.3s',
+              }} />
+              <span style={{ fontSize: 11, color: '#94a3b8', fontWeight: 600 }}>{days[i]}</span>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+};
+
 const labelMap = { rawWater: '원수', irrigation: '관수', acid: '산' };
 
 const btnStyle = (bg, color, border) => ({
   padding: '12px 16px', borderRadius: 10, border: `1.5px solid ${border}`,
-  background: bg, color, fontSize: 14, fontWeight: 800, cursor: 'pointer',
+  background: bg, color, fontSize: 16, fontWeight: 800, cursor: 'pointer',
   display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
 });
 
@@ -147,17 +225,17 @@ const BigGauge = ({ label, unit, color, current, target, history, max }) => {
       background: '#fff', borderRadius: 12, padding: 16, border: '1px solid #e2e8f0',
     }}>
       <div className="flex justify-between items-center mb-2">
-        <span style={{ fontSize: 12, fontWeight: 700, color: '#475569' }}>{label}</span>
-        <span style={{ fontSize: 10, color: '#94a3b8' }}>목표 {target} {unit}</span>
+        <span style={{ fontSize: 14, fontWeight: 700, color: '#475569' }}>{label}</span>
+        <span style={{ fontSize: 12, color: '#94a3b8' }}>목표 {target} {unit}</span>
       </div>
       <div className="flex items-end gap-3">
         <div style={{ fontSize: 36, fontWeight: 900, color, lineHeight: 1 }}>
           {current.toFixed(1)}
-          <span style={{ fontSize: 14, color: '#64748b', fontWeight: 600, marginLeft: 4 }}>{unit}</span>
+          <span style={{ fontSize: 16, color: '#64748b', fontWeight: 600, marginLeft: 4 }}>{unit}</span>
         </div>
         <div style={{
           padding: '3px 8px', borderRadius: 10, background: diffColor + '20',
-          fontSize: 11, fontWeight: 800, color: diffColor, marginBottom: 4,
+          fontSize: 13, fontWeight: 800, color: diffColor, marginBottom: 4,
         }}>
           {diff >= 0 ? '+' : ''}{diff.toFixed(2)}
         </div>
@@ -173,7 +251,7 @@ const BigGauge = ({ label, unit, color, current, target, history, max }) => {
         <line x1="0" y1={H - ((target - minH) / range) * H} x2={W} y2={H - ((target - minH) / range) * H}
               stroke="#94a3b8" strokeWidth="0.5" strokeDasharray="2 2" />
       </svg>
-      <div style={{ fontSize: 9, color: '#94a3b8', textAlign: 'right' }}>최근 1시간</div>
+      <div style={{ fontSize: 11, color: '#94a3b8', textAlign: 'right' }}>최근 1시간</div>
     </div>
   );
 };
@@ -202,16 +280,16 @@ const FlowDiagram = ({ data }) => {
       </svg>
 
       <div style={{ position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
-        <div style={{ fontSize: 13, fontWeight: 800, color: '#0f172a', display: 'flex', alignItems: 'center', gap: 6 }}>
+        <div style={{ fontSize: 15, fontWeight: 800, color: '#0f172a', display: 'flex', alignItems: 'center', gap: 6 }}>
           <span style={{
             width: 26, height: 26, borderRadius: 8, background: 'linear-gradient(135deg, #06b6d4, #0891b2)',
-            display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14, color: '#fff',
+            display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 16, color: '#fff',
             boxShadow: '0 2px 8px rgba(6, 182, 212, 0.4)',
           }}>🔄</span>
           시스템 흐름도
         </div>
         <span style={{
-          padding: '4px 10px', borderRadius: 10, fontSize: 10, fontWeight: 800,
+          padding: '4px 10px', borderRadius: 10, fontSize: 12, fontWeight: 800,
           background: anyDosing || data.irrigationPump || data.rawPump ? '#dcfce7' : '#f1f5f9',
           color: anyDosing || data.irrigationPump || data.rawPump ? '#15803d' : '#94a3b8',
           display: 'flex', alignItems: 'center', gap: 4,
@@ -224,11 +302,17 @@ const FlowDiagram = ({ data }) => {
         </span>
       </div>
 
-      {/* 그리드 레이아웃 — 데스크탑 4단, 모바일 세로 */}
+      {/* 그리드 레이아웃 — 5단 (원수탱크 / 도싱탱크 / 혼합+교반 / 펌프 / 밸브) */}
       <div style={{ position: 'relative', display: 'grid',
-        gridTemplateColumns: 'minmax(0, 1fr) 36px minmax(0, 1.1fr) 36px minmax(0, 0.5fr) 36px minmax(0, 1.4fr)',
+        gridTemplateColumns: 'minmax(0, 0.5fr) 28px minmax(0, 1fr) 28px minmax(0, 1.1fr) 28px minmax(0, 0.5fr) 28px minmax(0, 1.4fr)',
         alignItems: 'center', gap: 4,
       }}>
+        {/* 0. 원수 탱크 */}
+        <RawTankNode tank={data.rawTank} active={data.rawPump} />
+
+        {/* 화살표 0→1: 원수 → 혼합 (원수펌프 통해서) */}
+        <FlowArrow active={data.rawPump} />
+
         {/* 1. 도싱 탱크 6개 */}
         <div style={{
           display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 6,
@@ -241,8 +325,11 @@ const FlowDiagram = ({ data }) => {
         {/* 화살표 1: 탱크 → 혼합 */}
         <FlowArrow active={anyDosing} />
 
-        {/* 2. 혼합 탱크 — 중앙 강조 */}
-        <MixerNode mixer={data.mixer} />
+        {/* 2. 혼합 탱크 + 양액교반기 */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+          <AgitatorNode on={data.mixerAgitator} />
+          <MixerNode mixer={data.mixer} />
+        </div>
 
         {/* 화살표 2: 혼합 → 펌프 */}
         <FlowArrow active={data.irrigationPump || data.rawPump} />
@@ -262,6 +349,67 @@ const FlowDiagram = ({ data }) => {
     </div>
   );
 };
+
+// 원수 탱크 노드
+const RawTankNode = ({ tank, active }) => (
+  <div style={{
+    position: 'relative', padding: 10, borderRadius: 12,
+    background: active
+      ? 'linear-gradient(135deg, rgba(59, 130, 246, 0.1), rgba(59, 130, 246, 0.2))'
+      : 'rgba(255,255,255,0.85)',
+    border: `1.5px solid ${active ? '#3b82f6' : '#cbd5e1'}`,
+    boxShadow: active ? '0 0 16px rgba(59, 130, 246, 0.4)' : '0 1px 3px rgba(0,0,0,0.04)',
+    overflow: 'hidden',
+    minHeight: 80,
+  }}>
+    {/* liquid fill */}
+    <svg width="100%" height="100%" style={{ position: 'absolute', top: 0, left: 0, pointerEvents: 'none' }} preserveAspectRatio="none" viewBox="0 0 100 100">
+      <defs>
+        <linearGradient id="rawLiquid" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor="#60a5fa" stopOpacity="0.5" />
+          <stop offset="100%" stopColor="#2563eb" stopOpacity="0.4" />
+        </linearGradient>
+      </defs>
+      <path
+        d={`M0 ${100 - tank.level} Q25 ${100 - tank.level - 3} 50 ${100 - tank.level} T100 ${100 - tank.level} L100 100 L0 100 Z`}
+        fill="url(#rawLiquid)"
+        style={{ animation: active ? 'wave 2s ease-in-out infinite' : 'none' }}
+      />
+    </svg>
+    <div style={{ position: 'relative', textAlign: 'center' }}>
+      <div style={{ fontSize: 12, fontWeight: 800, color: '#1e40af', marginBottom: 2 }}>💧 원수</div>
+      <div style={{ fontSize: 16, fontWeight: 900, color: '#0f172a', lineHeight: 1 }}>{tank.level}%</div>
+      <div style={{ fontSize: 11, color: '#64748b', marginTop: 4 }}>{tank.temp}°C</div>
+    </div>
+  </div>
+);
+
+// 양액 교반기 노드
+const AgitatorNode = ({ on }) => (
+  <div style={{
+    padding: '6px 8px', borderRadius: 10,
+    background: on ? 'linear-gradient(135deg, #fef3c7, #fde68a)' : '#fff',
+    border: `1.5px solid ${on ? '#d97706' : '#e2e8f0'}`,
+    boxShadow: on ? '0 0 12px rgba(217, 119, 6, 0.4)' : 'none',
+    display: 'flex', alignItems: 'center', gap: 6,
+  }}>
+    <div style={{
+      width: 22, height: 22, borderRadius: '50%',
+      background: on ? 'linear-gradient(135deg, #fbbf24, #d97706)' : '#f1f5f9',
+      display: 'flex', alignItems: 'center', justifyContent: 'center',
+      animation: on ? 'spin 0.8s linear infinite' : 'none',
+      flexShrink: 0,
+    }}>
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
+        <path d="M12 2 L12 12 M2 8 L22 16" stroke={on ? '#fff' : '#94a3b8'} strokeWidth="2.5" strokeLinecap="round" />
+      </svg>
+    </div>
+    <div style={{ flex: 1, minWidth: 0 }}>
+      <div style={{ fontSize: 11, fontWeight: 800, color: '#0f172a' }}>교반기</div>
+      <div style={{ fontSize: 10, fontWeight: 800, color: on ? '#d97706' : '#94a3b8' }}>{on ? '● 동작' : '○ 정지'}</div>
+    </div>
+  </div>
+);
 
 // 도싱 탱크 카드 — liquid fill animation
 const TankCard = ({ tank }) => {
@@ -293,10 +441,10 @@ const TankCard = ({ tank }) => {
         />
       </svg>
       <div style={{ position: 'relative', textAlign: 'center' }}>
-        <div style={{ fontSize: 16, fontWeight: 900, color: active ? '#0e7490' : '#0f172a', lineHeight: 1 }}>
+        <div style={{ fontSize: 18, fontWeight: 900, color: active ? '#0e7490' : '#0f172a', lineHeight: 1 }}>
           {tank.id}
         </div>
-        <div style={{ fontSize: 10, fontWeight: 800, color: active ? '#06b6d4' : '#64748b', marginTop: 2 }}>
+        <div style={{ fontSize: 12, fontWeight: 800, color: active ? '#06b6d4' : '#64748b', marginTop: 2 }}>
           {tank.level}%
         </div>
       </div>
@@ -347,22 +495,22 @@ const MixerNode = ({ mixer }) => (
     }} />
     <div style={{ position: 'relative' }}>
       <div style={{
-        fontSize: 10, fontWeight: 800, color: '#0f766e',
+        fontSize: 12, fontWeight: 800, color: '#0f766e',
         background: '#ccfbf1', padding: '2px 8px', borderRadius: 8,
         display: 'inline-block', marginBottom: 8,
       }}>혼합 탱크</div>
       <div style={{ display: 'flex', justifyContent: 'space-around', gap: 8 }}>
         <div>
-          <div style={{ fontSize: 9, color: '#64748b', fontWeight: 700 }}>EC</div>
-          <div style={{ fontSize: 18, fontWeight: 900, color: '#0891b2', lineHeight: 1, fontFamily: 'monospace' }}>{mixer.ec}</div>
+          <div style={{ fontSize: 11, color: '#64748b', fontWeight: 700 }}>EC</div>
+          <div style={{ fontSize: 20, fontWeight: 900, color: '#0891b2', lineHeight: 1, fontFamily: 'monospace' }}>{mixer.ec}</div>
         </div>
         <div style={{ width: 1, background: '#cbd5e1' }} />
         <div>
-          <div style={{ fontSize: 9, color: '#64748b', fontWeight: 700 }}>pH</div>
-          <div style={{ fontSize: 18, fontWeight: 900, color: '#7c3aed', lineHeight: 1, fontFamily: 'monospace' }}>{mixer.ph}</div>
+          <div style={{ fontSize: 11, color: '#64748b', fontWeight: 700 }}>pH</div>
+          <div style={{ fontSize: 20, fontWeight: 900, color: '#7c3aed', lineHeight: 1, fontFamily: 'monospace' }}>{mixer.ph}</div>
         </div>
       </div>
-      <div style={{ marginTop: 8, fontSize: 9, color: '#64748b' }}>
+      <div style={{ marginTop: 8, fontSize: 11, color: '#64748b' }}>
         <span style={{ fontWeight: 700 }}>잔량</span> {mixer.level}%
       </div>
     </div>
@@ -392,8 +540,8 @@ const PumpNode = ({ label, on, color }) => (
       </svg>
     </div>
     <div style={{ flex: 1, minWidth: 0 }}>
-      <div style={{ fontSize: 10, fontWeight: 800, color: '#0f172a' }}>{label}</div>
-      <div style={{ fontSize: 9, fontWeight: 800, color: on ? color : '#94a3b8', marginTop: 2 }}>
+      <div style={{ fontSize: 12, fontWeight: 800, color: '#0f172a' }}>{label}</div>
+      <div style={{ fontSize: 11, fontWeight: 800, color: on ? color : '#94a3b8', marginTop: 2 }}>
         {on ? '● ON' : '○ OFF'}
       </div>
     </div>
@@ -426,7 +574,7 @@ const ValveGrid = ({ count, active }) => {
               border: `1px solid ${isActive ? '#15803d' : '#e2e8f0'}`,
               boxShadow: isActive ? '0 0 16px rgba(34, 197, 94, 0.5)' : 'none',
               textAlign: 'center',
-              fontSize: 11, fontWeight: 800,
+              fontSize: 13, fontWeight: 800,
               color: isActive ? '#fff' : '#475569',
               transition: 'all 0.3s',
               overflow: 'hidden',
@@ -450,10 +598,10 @@ const ValveGrid = ({ count, active }) => {
 
 const DetailGrid = ({ title, items }) => (
   <div>
-    <div style={{ fontSize: 11, fontWeight: 800, color: '#475569', marginBottom: 6 }}>{title}</div>
+    <div style={{ fontSize: 13, fontWeight: 800, color: '#475569', marginBottom: 6 }}>{title}</div>
     <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
       {items.map((it, i) => (
-        <div key={i} style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 8px', background: '#f8fafc', borderRadius: 6, fontSize: 11 }}>
+        <div key={i} style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 8px', background: '#f8fafc', borderRadius: 6, fontSize: 13 }}>
           <span style={{ color: '#64748b' }}>{it.label}</span>
           <span style={{ color: '#0f172a', fontWeight: 700 }}>{it.value}</span>
         </div>
@@ -463,7 +611,7 @@ const DetailGrid = ({ title, items }) => (
 );
 
 const OnOff = ({ on }) => (
-  <span style={{ padding: '1px 6px', borderRadius: 8, fontSize: 9, fontWeight: 800,
+  <span style={{ padding: '1px 6px', borderRadius: 8, fontSize: 11, fontWeight: 800,
     background: on ? '#dcfce7' : '#f1f5f9', color: on ? '#16a34a' : '#94a3b8' }}>
     ● {on ? 'ON' : 'OFF'}
   </span>

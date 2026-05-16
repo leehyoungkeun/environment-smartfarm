@@ -16,12 +16,23 @@ const MODES = {
   emergency: { label: '비상정지', color: '#dc2626', bg: '#fee2e2', icon: '●' },
 };
 
+// Phase 2 에서 SmartFarm 센서 API 연동 — mock
+const MOCK_ENV = {
+  outTemp: 20.8, outHumid: 82.5, inTemp: 22.3, inHumid: 65.0,
+  rainfall: 0.0, windSpeed: 0.0, solar: 0, illuminance: 0,
+};
+
 export default function NutrientPanel({ farmId }) {
   const [activeTab, setActiveTab] = useState('realtime');
   const [mode, setMode] = useState('paused'); // Phase 2 에서 API 연동
   const [alerts] = useState([]); // sticky 경보 배너 (Phase 2)
+  const [env] = useState(MOCK_ENV);
 
   const modeInfo = MODES[mode];
+  const tempDiff = env.outTemp - env.inTemp;
+  const tempDiffWarn = Math.abs(tempDiff) > 5;
+  const rainWarn = env.rainfall > 0;
+  const windWarn = env.windSpeed > 5;
 
   return (
     <div className="max-w-7xl mx-auto px-4 md:px-6 py-4 md:py-6">
@@ -31,25 +42,44 @@ export default function NutrientPanel({ farmId }) {
           background: '#fee2e2', border: '1px solid #fca5a5', borderRadius: 10,
           padding: '10px 14px', marginBottom: 12, display: 'flex', alignItems: 'center', gap: 10,
         }}>
-          <span style={{ fontSize: 16 }}>⚠️</span>
-          <span style={{ fontSize: 13, fontWeight: 700, color: '#991b1b' }}>{alerts[0].message}</span>
+          <span style={{ fontSize: 18 }}>⚠️</span>
+          <span style={{ fontSize: 15, fontWeight: 700, color: '#991b1b' }}>{alerts[0].message}</span>
         </div>
       )}
 
       {/* 헤더 — 브랜드 + 모드 셀렉터 */}
       <div style={{
         background: 'linear-gradient(135deg, #0891b2 0%, #06b6d4 100%)',
-        borderRadius: 16, padding: '14px 20px', marginBottom: 12,
+        borderRadius: 16, padding: '14px 20px', marginBottom: 8,
         display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12,
       }}>
         <div className="flex items-center gap-3">
           <span style={{ fontSize: 24 }}>💧</span>
           <div>
-            <h2 style={{ color: '#fff', fontSize: 18, fontWeight: 800, margin: 0 }}>HydroControl</h2>
-            <p style={{ color: '#cffafe', fontSize: 11, margin: '2px 0 0' }}>양액 자동 공급 시스템</p>
+            <h2 style={{ color: '#fff', fontSize: 20, fontWeight: 800, margin: 0 }}>HydroControl</h2>
+            <p style={{ color: '#cffafe', fontSize: 13, margin: '2px 0 0' }}>양액 자동 공급 시스템</p>
           </div>
         </div>
         <ModeSelector mode={mode} onChange={setMode} info={modeInfo} />
+      </div>
+
+      {/* 외부 환경 row — 양액 자동화의 핵심 트리거 데이터 */}
+      <div style={{
+        background: '#fff', borderRadius: 12, padding: '8px 12px',
+        marginBottom: 12, border: '1px solid #e2e8f0',
+        display: 'flex', alignItems: 'center', gap: 8, overflowX: 'auto',
+      }}>
+        <EnvChip icon="🌡️" label="외부" value={env.outTemp} unit="°C" color="#dc2626" />
+        <EnvChip icon="💧" label="외습" value={env.outHumid} unit="%" color="#0891b2" />
+        <Divider />
+        <EnvChip icon="🏠" label="내부" value={env.inTemp} unit="°C" color="#16a34a" />
+        <EnvChip icon="💧" label="내습" value={env.inHumid} unit="%" color="#0891b2" />
+        <Divider />
+        <EnvChip icon="↕️" label="온도차" value={tempDiff.toFixed(1)} unit="°C" color={tempDiffWarn ? '#dc2626' : '#64748b'} warn={tempDiffWarn} />
+        <Divider />
+        <EnvChip icon="☂️" label="강우" value={env.rainfall} unit="mm" color={rainWarn ? '#dc2626' : '#64748b'} warn={rainWarn} />
+        <EnvChip icon="🌬️" label="풍속" value={env.windSpeed} unit="m/s" color={windWarn ? '#dc2626' : '#64748b'} warn={windWarn} />
+        <EnvChip icon="☀️" label="일사량" value={env.solar} unit="W/m²" color="#d97706" />
       </div>
 
       {/* 탭 네비게이션 */}
@@ -64,14 +94,14 @@ export default function NutrientPanel({ farmId }) {
             onClick={() => setActiveTab(tab.id)}
             style={{
               flex: 1, padding: '10px 8px', borderRadius: 8, border: 'none',
-              fontSize: 13, fontWeight: 700, cursor: 'pointer',
+              fontSize: 15, fontWeight: 700, cursor: 'pointer',
               background: activeTab === tab.id ? '#0891b2' : 'transparent',
               color: activeTab === tab.id ? '#fff' : '#475569',
               transition: 'all 0.2s',
               display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2,
             }}
           >
-            <span style={{ fontSize: 16 }}>{tab.icon}</span>
+            <span style={{ fontSize: 18 }}>{tab.icon}</span>
             <span>{tab.label}</span>
           </button>
         ))}
@@ -92,6 +122,20 @@ export default function NutrientPanel({ farmId }) {
   );
 }
 
+const EnvChip = ({ icon, label, value, unit, color, warn }) => (
+  <div style={{
+    display: 'flex', alignItems: 'center', gap: 4, padding: '4px 8px', borderRadius: 8,
+    background: warn ? '#fef2f2' : 'transparent',
+    border: warn ? '1px solid #fca5a5' : 'none',
+    flexShrink: 0,
+  }}>
+    <span style={{ fontSize: 15 }}>{icon}</span>
+    <span style={{ fontSize: 12, color: '#64748b', fontWeight: 600 }}>{label}</span>
+    <span style={{ fontSize: 15, color, fontWeight: 800 }}>{value}<span style={{ fontSize: 11, marginLeft: 2 }}>{unit}</span></span>
+  </div>
+);
+const Divider = () => <div style={{ width: 1, height: 16, background: '#e2e8f0', flexShrink: 0 }} />;
+
 const ModeSelector = ({ mode, onChange, info }) => {
   const [open, setOpen] = useState(false);
   return (
@@ -100,7 +144,7 @@ const ModeSelector = ({ mode, onChange, info }) => {
         onClick={() => setOpen(o => !o)}
         style={{
           background: info.bg, color: info.color, border: 'none',
-          padding: '8px 16px', borderRadius: 24, fontSize: 13, fontWeight: 800, cursor: 'pointer',
+          padding: '8px 16px', borderRadius: 24, fontSize: 15, fontWeight: 800, cursor: 'pointer',
           display: 'flex', alignItems: 'center', gap: 8,
           boxShadow: '0 2px 6px rgba(0,0,0,0.1)',
         }}>
@@ -120,7 +164,7 @@ const ModeSelector = ({ mode, onChange, info }) => {
               style={{
                 width: '100%', padding: '10px 12px', borderRadius: 6, border: 'none',
                 background: key === mode ? '#f1f5f9' : 'transparent',
-                fontSize: 13, fontWeight: 700, color: m.color, cursor: 'pointer',
+                fontSize: 15, fontWeight: 700, color: m.color, cursor: 'pointer',
                 display: 'flex', alignItems: 'center', gap: 8, textAlign: 'left',
               }}>
               <span>{m.icon}</span>{m.label}

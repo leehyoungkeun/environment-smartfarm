@@ -7,7 +7,7 @@ const MOCK_SCENARIOS = [
     ecTarget: 1.8, phTarget: 6.0,
     dosingRatio: { A: 25, B: 25, C: 20, D: 20, acid: 5, F: 5 },
     irrigationMode: 'solar', // 'solar' | 'timer' | 'schedule'
-    solarThreshold: 100,
+    solarThreshold: 100, solarAccumulated: 72, // 일사량 적산 (목표 대비 %)
     timerInterval: '00:30',
     timerStart: '07:00', timerEnd: '22:00',
     scheduleSlots: ['08:00', '09:30', '11:00', '12:30', '14:00', '15:30', '17:00'],
@@ -20,6 +20,7 @@ const MOCK_SCENARIOS = [
     dosingRatio: { A: 30, B: 30, C: 15, D: 15, acid: 5, F: 5 },
     irrigationMode: 'timer',
     timerInterval: '00:45', timerStart: '07:00', timerEnd: '22:00',
+    solarAccumulated: 0,
     days: [1, 2, 3, 4, 5, 6, 0],
     valves: Array(14).fill({ duration: 720, volume: 180 }),
   },
@@ -65,14 +66,14 @@ export default function NutrientScenarios({ farmId }) {
         background: '#fff', borderRadius: 12, padding: '10px 14px', border: '1px solid #e2e8f0',
         display: 'flex', justifyContent: 'space-between', alignItems: 'center',
       }}>
-        <span style={{ fontSize: 13, fontWeight: 700, color: '#475569' }}>
+        <span style={{ fontSize: 15, fontWeight: 700, color: '#475569' }}>
           시나리오 <strong style={{ color: '#0891b2' }}>{scenarios.length}</strong> / 최대 12
         </span>
         <button onClick={addScenario} disabled={scenarios.length >= 12}
           style={{
             background: scenarios.length >= 12 ? '#cbd5e1' : '#0891b2',
             color: '#fff', border: 'none', padding: '6px 14px', borderRadius: 8,
-            fontSize: 12, fontWeight: 800, cursor: scenarios.length >= 12 ? 'not-allowed' : 'pointer',
+            fontSize: 14, fontWeight: 800, cursor: scenarios.length >= 12 ? 'not-allowed' : 'pointer',
           }}>+ 시나리오 추가</button>
       </div>
 
@@ -107,14 +108,14 @@ const ScenarioCard = ({ scenario, isEditing, onEdit, onChange, onDelete, onActiv
       {/* 카드 헤더 */}
       <div style={{ padding: '12px 14px', display: 'flex', alignItems: 'center', gap: 12 }}>
         <span style={{
-          padding: '4px 10px', borderRadius: 12, fontSize: 11, fontWeight: 800,
+          padding: '4px 10px', borderRadius: 12, fontSize: 13, fontWeight: 800,
           background: s.active ? '#dcfce7' : '#f1f5f9', color: s.active ? '#15803d' : '#64748b',
         }}>{s.id}번</span>
         <input
           value={s.name}
           onChange={(e) => onChange({ name: e.target.value })}
           style={{
-            flex: 1, fontSize: 15, fontWeight: 800, color: '#0f172a',
+            flex: 1, fontSize: 17, fontWeight: 800, color: '#0f172a',
             border: 'none', background: 'transparent', outline: 'none',
           }}
         />
@@ -126,12 +127,12 @@ const ScenarioCard = ({ scenario, isEditing, onEdit, onChange, onDelete, onActiv
         {!s.active && s.enabled && (
           <button onClick={onActivate} style={{
             background: '#0891b2', color: '#fff', border: 'none', padding: '6px 12px',
-            borderRadius: 8, fontSize: 11, fontWeight: 800, cursor: 'pointer',
+            borderRadius: 8, fontSize: 13, fontWeight: 800, cursor: 'pointer',
           }}>활성화</button>
         )}
         {s.active && (
           <span style={{
-            padding: '4px 10px', borderRadius: 12, fontSize: 11, fontWeight: 800,
+            padding: '4px 10px', borderRadius: 12, fontSize: 13, fontWeight: 800,
             background: '#16a34a', color: '#fff',
           }}>● 사용 중</span>
         )}
@@ -139,11 +140,14 @@ const ScenarioCard = ({ scenario, isEditing, onEdit, onChange, onDelete, onActiv
       </div>
 
       {/* 요약 정보 */}
-      <div style={{ padding: '0 14px 12px', display: 'flex', gap: 12, fontSize: 12, color: '#64748b', flexWrap: 'wrap' }}>
+      <div style={{ padding: '0 14px 12px', display: 'flex', gap: 12, fontSize: 14, color: '#64748b', flexWrap: 'wrap' }}>
         <SummaryChip icon="💧" label="EC" value={s.ecTarget} unit="mS" />
         <SummaryChip icon="🧪" label="pH" value={s.phTarget} unit="" />
         <SummaryChip icon="⏰" label="관수" value={modeLabel[s.irrigationMode]} unit="" />
         <SummaryChip icon="🚿" label="밸브" value={`${s.valves.length}개`} unit="" />
+        {s.irrigationMode === 'solar' && (
+          <SolarChip current={s.solarAccumulated || 0} target={s.solarThreshold || 100} />
+        )}
       </div>
 
       {/* 인라인 편집 펼침 */}
@@ -158,7 +162,7 @@ const ScenarioCard = ({ scenario, isEditing, onEdit, onChange, onDelete, onActiv
 
 const iconBtn = {
   width: 28, height: 28, borderRadius: 8, border: '1px solid #e2e8f0',
-  background: '#fff', cursor: 'pointer', fontSize: 14, color: '#475569', fontWeight: 800,
+  background: '#fff', cursor: 'pointer', fontSize: 16, color: '#475569', fontWeight: 800,
 };
 
 const SummaryChip = ({ icon, label, value, unit }) => (
@@ -168,6 +172,30 @@ const SummaryChip = ({ icon, label, value, unit }) => (
     <strong style={{ color: '#0f172a' }}>{value}{unit && ` ${unit}`}</strong>
   </span>
 );
+
+// 일사량 적산 칩 — 누적 / 목표 진행률
+const SolarChip = ({ current, target }) => {
+  const pct = Math.min(100, (current / target) * 100);
+  const reached = pct >= 100;
+  return (
+    <span style={{
+      display: 'inline-flex', alignItems: 'center', gap: 4,
+      padding: '2px 8px', borderRadius: 10,
+      background: reached ? '#dcfce7' : '#fef3c7',
+      border: `1px solid ${reached ? '#86efac' : '#fde68a'}`,
+    }}>
+      <span>☀️</span>
+      <span style={{ fontWeight: 600, color: '#92400e' }}>적산</span>
+      <strong style={{ color: reached ? '#15803d' : '#92400e' }}>{current}</strong>
+      <span style={{ color: '#94a3b8' }}> / {target} W/m²</span>
+      <span style={{
+        width: 32, height: 4, background: '#fef3c7', borderRadius: 2, marginLeft: 4, overflow: 'hidden',
+      }}>
+        <span style={{ display: 'block', width: `${pct}%`, height: '100%', background: reached ? '#16a34a' : '#d97706' }} />
+      </span>
+    </span>
+  );
+};
 
 const ToggleSwitch = ({ on, onChange, color = '#0891b2' }) => (
   <button onClick={() => onChange(!on)} style={{
@@ -198,7 +226,7 @@ const EditForm = ({ scenario, onChange, onDelete }) => {
       <div style={{ display: 'flex', gap: 4, marginBottom: 12 }}>
         {SECTIONS.map(sec => (
           <button key={sec.id} onClick={() => setSection(sec.id)} style={{
-            padding: '6px 12px', borderRadius: 6, border: 'none', fontSize: 11, fontWeight: 700,
+            padding: '6px 12px', borderRadius: 6, fontSize: 13, fontWeight: 700,
             background: section === sec.id ? '#0891b2' : '#fff',
             color: section === sec.id ? '#fff' : '#475569',
             border: section === sec.id ? 'none' : '1px solid #e2e8f0',
@@ -215,7 +243,7 @@ const EditForm = ({ scenario, onChange, onDelete }) => {
       <div style={{ marginTop: 16, display: 'flex', justifyContent: 'flex-end' }}>
         <button onClick={onDelete} style={{
           background: '#fee2e2', color: '#dc2626', border: '1px solid #fca5a5',
-          padding: '6px 12px', borderRadius: 8, fontSize: 11, fontWeight: 800, cursor: 'pointer',
+          padding: '6px 12px', borderRadius: 8, fontSize: 13, fontWeight: 800, cursor: 'pointer',
         }}>🗑️ 삭제</button>
       </div>
     </div>
@@ -236,17 +264,17 @@ const DosingSection = ({ s, onChange }) => {
   const total = Object.values(s.dosingRatio).reduce((a, b) => a + b, 0);
   return (
     <div className="space-y-2">
-      <div style={{ fontSize: 11, color: '#64748b' }}>
+      <div style={{ fontSize: 13, color: '#64748b' }}>
         총 비율: <strong style={{ color: total === 100 ? '#16a34a' : '#dc2626' }}>{total}%</strong>
         {total !== 100 && <span style={{ marginLeft: 6 }}>(100% 가 되도록 조정)</span>}
       </div>
       {Object.entries(s.dosingRatio).map(([key, val]) => (
         <div key={key} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          <span style={{ width: 32, fontSize: 12, fontWeight: 800, color: '#475569' }}>{key}</span>
+          <span style={{ width: 32, fontSize: 14, fontWeight: 800, color: '#475569' }}>{key}</span>
           <input type="range" min={0} max={100} value={val}
                  onChange={(e) => setRatio(key, parseInt(e.target.value))}
                  style={{ flex: 1 }} />
-          <span style={{ width: 40, textAlign: 'right', fontSize: 12, fontWeight: 700, color: '#0891b2' }}>{val}%</span>
+          <span style={{ width: 40, textAlign: 'right', fontSize: 14, fontWeight: 700, color: '#0891b2' }}>{val}%</span>
         </div>
       ))}
     </div>
@@ -256,7 +284,7 @@ const DosingSection = ({ s, onChange }) => {
 const IrrigationSection = ({ s, onChange }) => (
   <div className="space-y-3">
     <div>
-      <div style={{ fontSize: 11, fontWeight: 700, color: '#475569', marginBottom: 6 }}>관수 방식 (단일 선택)</div>
+      <div style={{ fontSize: 13, fontWeight: 700, color: '#475569', marginBottom: 6 }}>관수 방식 (단일 선택)</div>
       <div className="grid grid-cols-3 gap-2">
         <RadioCard active={s.irrigationMode === 'solar'} onClick={() => onChange({ irrigationMode: 'solar' })}
                    icon="☀️" label="일사량 비례" desc="누적 일사량 기준" />
@@ -279,7 +307,7 @@ const IrrigationSection = ({ s, onChange }) => (
     )}
     {s.irrigationMode === 'schedule' && (
       <div>
-        <div style={{ fontSize: 11, fontWeight: 700, color: '#475569', marginBottom: 6 }}>관수 시각 슬롯 (최대 14)</div>
+        <div style={{ fontSize: 13, fontWeight: 700, color: '#475569', marginBottom: 6 }}>관수 시각 슬롯 (최대 14)</div>
         <div className="grid grid-cols-7 gap-2">
           {Array(14).fill(0).map((_, i) => {
             const time = s.scheduleSlots?.[i] || '';
@@ -291,7 +319,7 @@ const IrrigationSection = ({ s, onChange }) => (
                        onChange({ scheduleSlots: slots.filter(x => x) });
                      }}
                      style={{
-                       padding: '4px 6px', fontSize: 11, textAlign: 'center', borderRadius: 6,
+                       padding: '4px 6px', fontSize: 13, textAlign: 'center', borderRadius: 6,
                        border: '1px solid ' + (time ? '#0891b2' : '#cbd5e1'),
                        background: time ? '#f0f9ff' : '#fff', fontWeight: 700, color: '#0f172a',
                      }} />
@@ -320,18 +348,18 @@ const ValvesSection = ({ s, onChange }) => {
     <div className="space-y-3">
       {/* 일괄 설정 */}
       <div style={{ padding: 10, background: '#fef3c7', borderRadius: 8, border: '1px solid #fde68a' }}>
-        <div style={{ fontSize: 11, fontWeight: 700, color: '#92400e', marginBottom: 6 }}>📦 일괄 설정 (모든 밸브 동일)</div>
+        <div style={{ fontSize: 13, fontWeight: 700, color: '#92400e', marginBottom: 6 }}>📦 일괄 설정 (모든 밸브 동일)</div>
         <div className="grid grid-cols-2 gap-2">
           <div className="flex gap-1 items-center">
             <input type="number" value={bulkDur} onChange={(e) => setBulkDur(parseInt(e.target.value) || 0)}
                    style={inputSm} />
-            <span style={{ fontSize: 10, color: '#92400e' }}>초</span>
+            <span style={{ fontSize: 12, color: '#92400e' }}>초</span>
             <button onClick={() => bulkApply('duration', bulkDur)} style={miniBtn('#d97706')}>시간 적용</button>
           </div>
           <div className="flex gap-1 items-center">
             <input type="number" value={bulkVol} onChange={(e) => setBulkVol(parseInt(e.target.value) || 0)}
                    style={inputSm} />
-            <span style={{ fontSize: 10, color: '#92400e' }}>mL</span>
+            <span style={{ fontSize: 12, color: '#92400e' }}>mL</span>
             <button onClick={() => bulkApply('volume', bulkVol)} style={miniBtn('#d97706')}>유량 적용</button>
           </div>
         </div>
@@ -340,12 +368,12 @@ const ValvesSection = ({ s, onChange }) => {
       <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-2">
         {s.valves.map((v, i) => (
           <div key={i} style={{ padding: 6, background: '#fff', borderRadius: 8, border: '1px solid #e2e8f0' }}>
-            <div style={{ fontSize: 10, fontWeight: 800, color: '#0891b2', marginBottom: 4 }}>V{i + 1}</div>
+            <div style={{ fontSize: 12, fontWeight: 800, color: '#0891b2', marginBottom: 4 }}>V{i + 1}</div>
             <input type="text" value={fmt(v.duration)} readOnly
-                   style={{ width: '100%', fontSize: 10, padding: '2px 4px', border: '1px solid #e2e8f0', borderRadius: 4, marginBottom: 2 }} />
+                   style={{ width: '100%', fontSize: 12, padding: '2px 4px', border: '1px solid #e2e8f0', borderRadius: 4, marginBottom: 2 }} />
             <input type="number" value={v.volume} onChange={(e) => setValve(i, { volume: parseInt(e.target.value) || 0 })}
-                   style={{ width: '100%', fontSize: 10, padding: '2px 4px', border: '1px solid #e2e8f0', borderRadius: 4 }} />
-            <div style={{ fontSize: 9, color: '#94a3b8', textAlign: 'center', marginTop: 2 }}>mL</div>
+                   style={{ width: '100%', fontSize: 12, padding: '2px 4px', border: '1px solid #e2e8f0', borderRadius: 4 }} />
+            <div style={{ fontSize: 11, color: '#94a3b8', textAlign: 'center', marginTop: 2 }}>mL</div>
           </div>
         ))}
       </div>
@@ -361,11 +389,11 @@ const DaysSelector = ({ days = [], onChange }) => {
   };
   return (
     <div>
-      <div style={{ fontSize: 11, fontWeight: 700, color: '#475569', marginBottom: 6 }}>적용 요일</div>
+      <div style={{ fontSize: 13, fontWeight: 700, color: '#475569', marginBottom: 6 }}>적용 요일</div>
       <div className="flex gap-1">
         {DAYS.map(d => (
           <button key={d.n} onClick={() => toggle(d.n)} style={{
-            width: 36, height: 32, borderRadius: 8, border: 'none', fontSize: 12, fontWeight: 800, cursor: 'pointer',
+            width: 36, height: 32, borderRadius: 8, border: 'none', fontSize: 14, fontWeight: 800, cursor: 'pointer',
             background: days.includes(d.n) ? '#0891b2' : '#f1f5f9',
             color: days.includes(d.n) ? '#fff' : '#94a3b8',
           }}>{d.l}</button>
@@ -381,31 +409,31 @@ const RadioCard = ({ active, onClick, icon, label, desc }) => (
     background: active ? '#f0f9ff' : '#fff', cursor: 'pointer', textAlign: 'left',
     display: 'flex', flexDirection: 'column', gap: 4,
   }}>
-    <span style={{ fontSize: 16 }}>{icon}</span>
-    <span style={{ fontSize: 12, fontWeight: 800, color: active ? '#0891b2' : '#0f172a' }}>{label}</span>
-    <span style={{ fontSize: 10, color: '#64748b' }}>{desc}</span>
+    <span style={{ fontSize: 18 }}>{icon}</span>
+    <span style={{ fontSize: 14, fontWeight: 800, color: active ? '#0891b2' : '#0f172a' }}>{label}</span>
+    <span style={{ fontSize: 12, color: '#64748b' }}>{desc}</span>
   </button>
 );
 
 const NumberInput = ({ label, value, unit, onChange, step = 1, min, max, color = '#0891b2' }) => (
   <div>
-    <div style={{ fontSize: 11, fontWeight: 700, color: '#475569', marginBottom: 4 }}>{label}</div>
+    <div style={{ fontSize: 13, fontWeight: 700, color: '#475569', marginBottom: 4 }}>{label}</div>
     <div style={{ display: 'flex', alignItems: 'center', gap: 4, background: '#fff', borderRadius: 8, padding: '4px 10px', border: `1.5px solid ${color}30` }}>
       <input type="number" value={value} onChange={(e) => onChange(parseFloat(e.target.value) || 0)}
              step={step} min={min} max={max}
-             style={{ flex: 1, fontSize: 16, fontWeight: 800, color, border: 'none', outline: 'none', background: 'transparent' }} />
-      {unit && <span style={{ fontSize: 11, color: '#64748b', fontWeight: 700 }}>{unit}</span>}
+             style={{ flex: 1, fontSize: 18, fontWeight: 800, color, border: 'none', outline: 'none', background: 'transparent' }} />
+      {unit && <span style={{ fontSize: 13, color: '#64748b', fontWeight: 700 }}>{unit}</span>}
     </div>
   </div>
 );
 
 const TextInput = ({ label, value, onChange, placeholder }) => (
   <div>
-    <div style={{ fontSize: 11, fontWeight: 700, color: '#475569', marginBottom: 4 }}>{label}</div>
+    <div style={{ fontSize: 13, fontWeight: 700, color: '#475569', marginBottom: 4 }}>{label}</div>
     <input value={value} onChange={(e) => onChange(e.target.value)} placeholder={placeholder}
-           style={{ width: '100%', padding: '6px 10px', fontSize: 13, fontWeight: 700, borderRadius: 8, border: '1px solid #e2e8f0', outline: 'none' }} />
+           style={{ width: '100%', padding: '6px 10px', fontSize: 15, fontWeight: 700, borderRadius: 8, border: '1px solid #e2e8f0', outline: 'none' }} />
   </div>
 );
 
-const inputSm = { width: 60, padding: '3px 6px', fontSize: 11, borderRadius: 4, border: '1px solid #fde68a', textAlign: 'center', fontWeight: 700 };
-const miniBtn = (color) => ({ background: color, color: '#fff', border: 'none', padding: '3px 8px', borderRadius: 4, fontSize: 10, fontWeight: 800, cursor: 'pointer' });
+const inputSm = { width: 60, padding: '3px 6px', fontSize: 13, borderRadius: 4, border: '1px solid #fde68a', textAlign: 'center', fontWeight: 700 };
+const miniBtn = (color) => ({ background: color, color: '#fff', border: 'none', padding: '3px 8px', borderRadius: 4, fontSize: 12, fontWeight: 800, cursor: 'pointer' });

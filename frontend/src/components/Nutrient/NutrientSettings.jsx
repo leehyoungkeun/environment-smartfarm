@@ -196,8 +196,24 @@ const TanksEditor = ({ tanks: initial, onSave }) => {
                   width: 32, height: 32, borderRadius: 8, background: '#0891b2', color: '#fff',
                   fontSize: 15, fontWeight: 800, display: 'flex', alignItems: 'center', justifyContent: 'center',
                 }}>{t.id}</span>
-                <input value={t.label} onChange={(e) => updateTank(i, { label: e.target.value })}
-                       style={{ fontSize: 15, fontWeight: 700, color: '#0f172a', border: 'none', background: 'transparent', outline: 'none', flex: 1 }} />
+                <input
+                  value={t.label}
+                  onChange={(e) => updateTank(i, { label: e.target.value })}
+                  placeholder="이름 입력"
+                  className="tank-label-input"
+                  title="클릭해서 이름 수정"
+                  style={{
+                    fontSize: 15, fontWeight: 700, color: '#0f172a',
+                    border: 'none',
+                    borderBottom: '1px dashed #cbd5e1',
+                    background: 'transparent',
+                    outline: 'none',
+                    flex: 1,
+                    padding: '2px 4px',
+                    cursor: 'text',
+                  }}
+                />
+                <span style={{ fontSize: 11, color: '#94a3b8', marginLeft: 2 }}>✏️</span>
               </div>
               <button onClick={() => removeTank(i)} style={{ color: '#94a3b8', background: 'none', border: 'none', cursor: 'pointer' }}>✕</button>
             </div>

@@ -139,6 +139,17 @@ export default function NutrientPanel({ farmId }) {
         @keyframes flow-dash { to { stroke-dashoffset: -20; } }
         @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
         @keyframes wave { 0%, 100% { transform: translateX(0); } 50% { transform: translateX(-3px); } }
+
+        /* 도싱 탱크 이름 input — 수정 가능 시각 단서 */
+        .tank-label-input:hover {
+          border-bottom-color: #94a3b8 !important;
+          background: #f1f5f9 !important;
+        }
+        .tank-label-input:focus {
+          border-bottom: 2px solid #0891b2 !important;
+          background: #f0f9ff !important;
+        }
+        .tank-label-input::placeholder { color: #cbd5e1; }
       `}</style>
     </div>
   );

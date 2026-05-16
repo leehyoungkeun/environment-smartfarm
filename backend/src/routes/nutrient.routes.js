@@ -17,11 +17,20 @@ const router = express.Router();
 const DEFAULT_ALERT_THRESHOLDS = {
   ecUpper: 4.0, ecLower: 0.2, ecCritical: 0.1,
   phUpper: 8.0, phLower: 4.5, phCritical: 6.5,
+  // 정밀도·다량공급·최소일사량 (운영 안정성)
+  ecHysteresis: 0.1, phHysteresis: 0.1,
+  ecDeviation: 0.5, phDeviation: 0.5,
+  minSolarWm2: 50,
 };
 
 const DEFAULT_HARDWARE = {
   modbusUnit: 3, ecSensorAddr: 100, phSensorAddr: 101,
   flowSensorAddr: 102, pumpResponse: 50, dosingPulseUnit: 500,
+  // 교반기·산알칼리·온도·유량단위
+  mixerOnSec: 30, mixerOffMin: 50,
+  acidAlkaliMode: 'both',
+  rawTempTarget: 18, outsideTempTarget: 22,
+  flowUnit: 'L',
 };
 
 async function getOrCreateConfig(farmId) {

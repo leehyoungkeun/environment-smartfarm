@@ -13,6 +13,32 @@ const farmId = global.get('FARM_ID') || 'farm_0001';
 const apiKey = global.get('sensorApiKey') || 'smartfarm-sensor-key';
 const config = global.get('nutrientConfig') || {};
 const alerts = config.alerts || { ecUpper: 4.0, ecCritical: 0.1, phUpper: 8.0, phCritical: 6.5 };
+const activeScenario = global.get('activeScenario') || {};
+
+// ⭐ 히스테리시스 + 다량공급 — cycle-runner 가 dosingMode 참조
+// 목표값 ± hysteresis 범위 안이면 도싱 안 함 (펌프 hunting 방지)
+// 목표 ± deviation 이상 차이면 빠른 보정 (다량공급)
+const ecHyst = alerts.ecHysteresis ?? 0.1;
+const phHyst = alerts.phHysteresis ?? 0.1;
+const ecDev = alerts.ecDeviation ?? 0.5;
+const phDev = alerts.phDeviation ?? 0.5;
+
+if (activeScenario.ecTarget != null && r.ec != null) {
+    const gap = r.ec - activeScenario.ecTarget;
+    let mode;
+    if (Math.abs(gap) <= ecHyst) mode = 'idle';
+    else if (Math.abs(gap) >= ecDev) mode = gap < 0 ? 'fast_up' : 'fast_down';
+    else mode = gap < 0 ? 'normal_up' : 'normal_down';
+    global.set('ecDosingMode', mode);
+}
+if (activeScenario.phTarget != null && r.ph != null) {
+    const gap = r.ph - activeScenario.phTarget;
+    let mode;
+    if (Math.abs(gap) <= phHyst) mode = 'idle';
+    else if (Math.abs(gap) >= phDev) mode = gap > 0 ? 'fast_acid' : 'fast_alkali';
+    else mode = gap > 0 ? 'normal_acid' : 'normal_alkali';
+    global.set('phDosingMode', mode);
+}
 
 const triggered = []; // { type, severity, value, threshold, message, action }
 

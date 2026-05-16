@@ -46,15 +46,33 @@ node.status({ fill: 'blue', shape: 'dot', text: `▶ ${cycleId.slice(-6)}` });
 const BASE_VOLUME_ML = 100 * 1000; // 100L 메인 탱크 가정 (config 로 이동 가능)
 const dosingRatio = scenario.dosingRatio || {};
 
+// ⭐ 산/알칼리 운영 모드 — 'both' | 'acid' | 'alkali'
+const acidAlkaliMode = hw.acidAlkaliMode || 'both';
+
+// ⭐ 다량공급 boost factor — safety-interlock 이 set 한 dosingMode 기반
+const ecMode = global.get('ecDosingMode') || 'normal_up';
+const phMode = global.get('phDosingMode') || 'normal_acid';
+const isFast = ecMode.startsWith('fast') || phMode.startsWith('fast');
+const boost = isFast ? 2.0 : 1.0;  // 빠른 모드면 2배 도싱
+
 // 도싱 펌프 채널 (Unit-Id 3 채널 0~5)
-const dosingChannels = tanks.slice(0, 6).map((t, i) => ({
-    channel: t.modbusReg ?? i,
-    label: t.id,
-    ratio: dosingRatio[t.id] || 0,
-    volumeMl: BASE_VOLUME_ML * (dosingRatio[t.id] || 0) / 100,
-    // 도싱 펌프 속도: hw.dosingPulseUnit (mL per ms 가정, 보정 필요)
-    durationMs: (BASE_VOLUME_ML * (dosingRatio[t.id] || 0) / 100) / (hw.dosingPulseUnit || 500) * 60000,
-}));
+const dosingChannels = tanks.slice(0, 6).map((t, i) => {
+    const ratio = dosingRatio[t.id] || 0;
+    // 산/알칼리 모드 필터링
+    const isAcid = t.id === '산' || t.id === 'acid';
+    const isAlkali = t.id === 'F' || t.id === 'alkali';
+    let effectiveRatio = ratio;
+    if (acidAlkaliMode === 'acid' && isAlkali) effectiveRatio = 0;
+    if (acidAlkaliMode === 'alkali' && isAcid) effectiveRatio = 0;
+    const volumeMl = BASE_VOLUME_ML * effectiveRatio / 100 * boost;
+    return {
+        channel: t.modbusReg ?? i,
+        label: t.id,
+        ratio: effectiveRatio,
+        volumeMl,
+        durationMs: volumeMl / (hw.dosingPulseUnit || 500) * 60000,
+    };
+});
 
 // 도싱 실행 함수
 function runDosing() {
@@ -71,15 +89,16 @@ function runDosing() {
     setTimeout(runMixing, maxDuration + 1000);
 }
 
-// === Phase 2: 교반 (60초) ===
+// === Phase 2: 교반 — hw.mixerOnSec 설정값 사용 ===
 function runMixing() {
     if (global.get('safetyStop')) return cleanup();
     updateCycle({ phase: 'mixing' });
     sendRelay(7, true, '교반기 ON'); // 채널 7 = 교반기
+    const mixSec = hw.mixerOnSec ?? 30;
     setTimeout(() => {
-        sendRelay(7, false, '교반기 OFF');
+        sendRelay(7, false, `교반기 OFF (${mixSec}s)`);
         runStabilization();
-    }, 60 * 1000);
+    }, mixSec * 1000);
 }
 
 // === Phase 3: EC/pH 안정화 확인 (10초) ===

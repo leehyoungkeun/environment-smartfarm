@@ -62,6 +62,14 @@ let shouldTrigger = false;
 let reason = '';
 
 if (scenario.irrigationMode === 'solar') {
+    // ⭐ 최소 일사량 체크 — 현재 일사량이 기준 미만이면 적산 중단·트리거 무시
+    const config = global.get('nutrientConfig') || {};
+    const minSolar = config.alerts?.minSolarWm2 ?? 50;
+    const currentSolar = global.get('currentSolarWm2') || 0;
+    if (currentSolar < minSolar) {
+        node.status({ fill: 'grey', shape: 'ring', text: `흐림 ${currentSolar}<${minSolar} W/m²` });
+        return [null, null];
+    }
     // 일사량 적산 도달 시
     if ((state.solarAccumulated || 0) >= (scenario.solarThreshold || 100)) {
         shouldTrigger = true;

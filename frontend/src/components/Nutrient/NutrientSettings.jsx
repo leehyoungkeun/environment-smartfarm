@@ -14,12 +14,26 @@ const DEFAULT_TANKS = [
 const DEFAULT_ALERTS = {
   ecUpper: 4.0, ecLower: 0.2, ecCritical: 0.1,
   phUpper: 8.0, phLower: 4.5, phCritical: 6.5,
+  // 정밀도 (히스테리시스) — 목표값 ± 이 범위 안에선 도싱 안 함 (펌프 hunting 방지)
+  ecHysteresis: 0.1, phHysteresis: 0.1,
+  // 다량공급 임계값 — 목표 대비 이 차이 이상이면 빠른 보정 모드
+  ecDeviation: 0.5, phDeviation: 0.5,
+  // solar 모드: 현재 일사량이 이 값 미만이면 트리거 무시 (흐린 날 노이즈 방지)
+  minSolarWm2: 50,
 };
 
 const DEFAULT_HW = {
   modbusUnit: 3, ecSensorAddr: 100, phSensorAddr: 101, flowSensorAddr: 102,
   pumpResponse: 50,
   dosingPulseUnit: 500,
+  // 교반기 시간
+  mixerOnSec: 30, mixerOffMin: 50,
+  // 산/알칼리 운영 모드: 'both' | 'acid' | 'alkali'
+  acidAlkaliMode: 'both',
+  // 온도 보정 기준 (°C)
+  rawTempTarget: 18, outsideTempTarget: 22,
+  // 유량 표시 단위
+  flowUnit: 'L',
 };
 
 export default function NutrientSettings({ farmId }) {
@@ -310,6 +324,52 @@ const AlertsEditor = ({ alerts: initial, onSave }) => {
                         onChange={(v) => setA({ ...a, phCritical: v })} color="#991b1b" />
         </div>
       </div>
+
+      {/* ⭐ 신규: 정밀도 (히스테리시스) + 다량공급 (편차) + 최소 일사량 */}
+      <div style={{ padding: 12, background: '#f8fafc', borderRadius: 8, border: '1px solid #e2e8f0' }}>
+        <div style={{ fontSize: 13, fontWeight: 800, color: '#0f172a', marginBottom: 8 }}>
+          ⚙️ 제어 정밀도 (운영 안정성)
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div>
+            <div style={{ fontSize: 13, fontWeight: 700, color: '#475569', marginBottom: 6 }}>
+              🎯 정밀도 (히스테리시스)
+            </div>
+            <div style={{ fontSize: 11, color: '#94a3b8', marginBottom: 6 }}>
+              목표값 ±이 범위 안에선 도싱 안 함 (펌프 hunting 방지)
+            </div>
+            <ThresholdRow level="EC ±" desc="mS/cm" value={a.ecHysteresis ?? 0.1} step={0.01}
+                          onChange={(v) => setA({ ...a, ecHysteresis: v })} color="#0891b2" />
+            <ThresholdRow level="pH ±" desc="" value={a.phHysteresis ?? 0.1} step={0.01}
+                          onChange={(v) => setA({ ...a, phHysteresis: v })} color="#7c3aed" />
+          </div>
+          <div>
+            <div style={{ fontSize: 13, fontWeight: 700, color: '#475569', marginBottom: 6 }}>
+              ⚡ 다량공급 (편차 임계값)
+            </div>
+            <div style={{ fontSize: 11, color: '#94a3b8', marginBottom: 6 }}>
+              목표 대비 이 차이 이상이면 빠른 보정 모드 (강한 도싱)
+            </div>
+            <ThresholdRow level="EC 갭" desc="mS/cm" value={a.ecDeviation ?? 0.5} step={0.1}
+                          onChange={(v) => setA({ ...a, ecDeviation: v })} color="#dc2626" />
+            <ThresholdRow level="pH 갭" desc="" value={a.phDeviation ?? 0.5} step={0.1}
+                          onChange={(v) => setA({ ...a, phDeviation: v })} color="#dc2626" />
+          </div>
+        </div>
+
+        <div style={{ marginTop: 10, paddingTop: 10, borderTop: '1px dashed #cbd5e1' }}>
+          <div style={{ fontSize: 13, fontWeight: 700, color: '#475569', marginBottom: 6 }}>
+            ☀️ 최소 일사량 (solar 트리거)
+          </div>
+          <div style={{ fontSize: 11, color: '#94a3b8', marginBottom: 6 }}>
+            현재 일사량이 이 값 미만이면 solar 모드 트리거 무시 (흐린 날 노이즈 방지)
+          </div>
+          <ThresholdRow level="기준값" desc="W/m²" value={a.minSolarWm2 ?? 50} step={10}
+                        onChange={(v) => setA({ ...a, minSolarWm2: v })} color="#d97706" />
+        </div>
+      </div>
+
       <button onClick={() => onSave(a)} disabled={!dirty} style={{
         marginTop: 4, width: '100%', padding: 10, borderRadius: 8, border: 'none',
         background: dirty ? '#0891b2' : '#cbd5e1', color: '#fff',
@@ -363,6 +423,7 @@ const HardwareEditor = ({ hardware: initial, onSave }) => {
       <div style={{ fontSize: 14, color: '#64748b', padding: 8, background: '#fef3c7', borderRadius: 6 }}>
         💡 RPi Modbus RTU 통신용. 실제 양액기 하드웨어 설치 후 등록.
       </div>
+      <div style={{ fontSize: 13, fontWeight: 800, color: '#0f172a', marginTop: 4 }}>📟 Modbus 매핑</div>
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         <NumIn label="Modbus Unit" value={hw.modbusUnit} onChange={(v) => setHw({ ...hw, modbusUnit: v })} />
         <NumIn label="EC 센서 주소" value={hw.ecSensorAddr} onChange={(v) => setHw({ ...hw, ecSensorAddr: v })} />
@@ -371,6 +432,41 @@ const HardwareEditor = ({ hardware: initial, onSave }) => {
         <NumIn label="펌프 응답 (ms)" value={hw.pumpResponse} onChange={(v) => setHw({ ...hw, pumpResponse: v })} />
         <NumIn label="도징 펄스 단위 (mL)" value={hw.dosingPulseUnit} onChange={(v) => setHw({ ...hw, dosingPulseUnit: v })} />
       </div>
+
+      {/* ⭐ 신규: 교반기 시간 */}
+      <div style={{ fontSize: 13, fontWeight: 800, color: '#0f172a', marginTop: 4 }}>🌀 교반기 사이클</div>
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        <NumIn label="작동 (초)" value={hw.mixerOnSec ?? 30} onChange={(v) => setHw({ ...hw, mixerOnSec: v })} />
+        <NumIn label="정지 (분)" value={hw.mixerOffMin ?? 50} onChange={(v) => setHw({ ...hw, mixerOffMin: v })} />
+      </div>
+
+      {/* ⭐ 신규: 산/알칼리 모드 + 온도 기준 + 유량 단위 */}
+      <div style={{ fontSize: 13, fontWeight: 800, color: '#0f172a', marginTop: 4 }}>⚙️ 사용 환경</div>
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        <div>
+          <div style={{ fontSize: 13, fontWeight: 700, color: '#475569', marginBottom: 4 }}>산/알칼리 운영</div>
+          <select value={hw.acidAlkaliMode ?? 'both'} onChange={(e) => setHw({ ...hw, acidAlkaliMode: e.target.value })}
+                  style={{ width: '100%', padding: '6px 10px', fontSize: 14, fontWeight: 700, color: '#0891b2',
+                           border: '1px solid #cbd5e1', borderRadius: 8, outline: 'none', background: '#fff' }}>
+            <option value="both">둘 다 사용</option>
+            <option value="acid">산만</option>
+            <option value="alkali">알칼리만</option>
+          </select>
+        </div>
+        <div>
+          <div style={{ fontSize: 13, fontWeight: 700, color: '#475569', marginBottom: 4 }}>유량 단위</div>
+          <select value={hw.flowUnit ?? 'L'} onChange={(e) => setHw({ ...hw, flowUnit: e.target.value })}
+                  style={{ width: '100%', padding: '6px 10px', fontSize: 14, fontWeight: 700, color: '#0891b2',
+                           border: '1px solid #cbd5e1', borderRadius: 8, outline: 'none', background: '#fff' }}>
+            <option value="mL">mL</option>
+            <option value="L">L</option>
+            <option value="10L">10L</option>
+          </select>
+        </div>
+        <NumIn label="원수 온도 기준 (°C)" value={hw.rawTempTarget ?? 18} onChange={(v) => setHw({ ...hw, rawTempTarget: v })} />
+        <NumIn label="외부 온도 기준 (°C)" value={hw.outsideTempTarget ?? 22} onChange={(v) => setHw({ ...hw, outsideTempTarget: v })} />
+      </div>
+
       <button onClick={() => onSave(hw)} disabled={!dirty} style={{
         width: '100%', padding: 10, borderRadius: 8, border: 'none',
         background: dirty ? '#0891b2' : '#cbd5e1', color: '#fff',

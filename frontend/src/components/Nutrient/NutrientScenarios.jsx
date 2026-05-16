@@ -283,10 +283,10 @@ const EditForm = ({ scenario, onChange, onDelete }) => {
 
   return (
     <div>
-      <div style={{ display: 'flex', gap: 4, marginBottom: 12 }}>
+      <div style={{ display: 'flex', gap: 6, marginBottom: 14 }}>
         {SECTIONS.map(sec => (
           <button key={sec.id} onClick={() => setSection(sec.id)} style={{
-            padding: '6px 12px', borderRadius: 6, fontSize: 13, fontWeight: 700,
+            padding: '8px 16px', borderRadius: 6, fontSize: 14, fontWeight: 700,
             background: section === sec.id ? '#0891b2' : '#fff',
             color: section === sec.id ? '#fff' : '#475569',
             border: section === sec.id ? 'none' : '1px solid #e2e8f0',
@@ -407,19 +407,19 @@ const ValvesSection = ({ s, onChange }) => {
   return (
     <div className="space-y-3">
       {/* 일괄 설정 */}
-      <div style={{ padding: 10, background: '#fef3c7', borderRadius: 8, border: '1px solid #fde68a' }}>
-        <div style={{ fontSize: 13, fontWeight: 700, color: '#92400e', marginBottom: 6 }}>📦 일괄 설정 (모든 밸브 동일)</div>
-        <div className="grid grid-cols-2 gap-2">
-          <div className="flex gap-1 items-center">
+      <div style={{ padding: 12, background: '#fef3c7', borderRadius: 8, border: '1px solid #fde68a' }}>
+        <div style={{ fontSize: 15, fontWeight: 800, color: '#92400e', marginBottom: 8 }}>📦 일괄 설정 (모든 밸브 동일)</div>
+        <div className="grid grid-cols-2 gap-3">
+          <div className="flex gap-2 items-center">
             <input type="number" value={bulkDur} onChange={(e) => setBulkDur(parseInt(e.target.value) || 0)}
                    style={inputSm} />
-            <span style={{ fontSize: 12, color: '#92400e' }}>초</span>
+            <span style={{ fontSize: 13, fontWeight: 700, color: '#92400e' }}>초</span>
             <button onClick={() => bulkApply('duration', bulkDur)} style={miniBtn('#d97706')}>시간 적용</button>
           </div>
-          <div className="flex gap-1 items-center">
+          <div className="flex gap-2 items-center">
             <input type="number" value={bulkVol} onChange={(e) => setBulkVol(parseInt(e.target.value) || 0)}
                    style={inputSm} />
-            <span style={{ fontSize: 12, color: '#92400e' }}>mL</span>
+            <span style={{ fontSize: 13, fontWeight: 700, color: '#92400e' }}>mL</span>
             <button onClick={() => bulkApply('volume', bulkVol)} style={miniBtn('#d97706')}>유량 적용</button>
           </div>
         </div>
@@ -427,13 +427,13 @@ const ValvesSection = ({ s, onChange }) => {
       {/* 개별 밸브 그리드 */}
       <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-2">
         {s.valves.map((v, i) => (
-          <div key={i} style={{ padding: 6, background: '#fff', borderRadius: 8, border: '1px solid #e2e8f0' }}>
-            <div style={{ fontSize: 12, fontWeight: 800, color: '#0891b2', marginBottom: 4 }}>V{i + 1}</div>
+          <div key={i} style={{ padding: 8, background: '#fff', borderRadius: 8, border: '1px solid #e2e8f0' }}>
+            <div style={{ fontSize: 14, fontWeight: 800, color: '#0891b2', marginBottom: 6 }}>V{i + 1}</div>
             <input type="text" value={fmt(v.duration)} readOnly
-                   style={{ width: '100%', fontSize: 12, padding: '2px 4px', border: '1px solid #e2e8f0', borderRadius: 4, marginBottom: 2 }} />
+                   style={{ width: '100%', fontSize: 14, fontWeight: 700, padding: '4px 6px', border: '1px solid #e2e8f0', borderRadius: 6, marginBottom: 4, textAlign: 'center' }} />
             <input type="number" value={v.volume} onChange={(e) => setValve(i, { volume: parseInt(e.target.value) || 0 })}
-                   style={{ width: '100%', fontSize: 12, padding: '2px 4px', border: '1px solid #e2e8f0', borderRadius: 4 }} />
-            <div style={{ fontSize: 11, color: '#94a3b8', textAlign: 'center', marginTop: 2 }}>mL</div>
+                   style={{ width: '100%', fontSize: 14, fontWeight: 700, padding: '4px 6px', border: '1px solid #e2e8f0', borderRadius: 6, textAlign: 'center' }} />
+            <div style={{ fontSize: 12, color: '#94a3b8', textAlign: 'center', marginTop: 3, fontWeight: 600 }}>mL</div>
           </div>
         ))}
       </div>
@@ -449,11 +449,11 @@ const DaysSelector = ({ days = [], onChange }) => {
   };
   return (
     <div>
-      <div style={{ fontSize: 13, fontWeight: 700, color: '#475569', marginBottom: 6 }}>적용 요일</div>
-      <div className="flex gap-1">
+      <div style={{ fontSize: 15, fontWeight: 800, color: '#475569', marginBottom: 8 }}>적용 요일</div>
+      <div className="flex gap-2">
         {DAYS.map(d => (
           <button key={d.n} onClick={() => toggle(d.n)} style={{
-            width: 36, height: 32, borderRadius: 8, border: 'none', fontSize: 14, fontWeight: 800, cursor: 'pointer',
+            width: 40, height: 36, borderRadius: 8, border: 'none', fontSize: 15, fontWeight: 800, cursor: 'pointer',
             background: days.includes(d.n) ? '#0891b2' : '#f1f5f9',
             color: days.includes(d.n) ? '#fff' : '#94a3b8',
           }}>{d.l}</button>
@@ -495,5 +495,5 @@ const TextInput = ({ label, value, onChange, placeholder }) => (
   </div>
 );
 
-const inputSm = { width: 60, padding: '3px 6px', fontSize: 13, borderRadius: 4, border: '1px solid #fde68a', textAlign: 'center', fontWeight: 700 };
-const miniBtn = (color) => ({ background: color, color: '#fff', border: 'none', padding: '3px 8px', borderRadius: 4, fontSize: 12, fontWeight: 800, cursor: 'pointer' });
+const inputSm = { width: 70, padding: '5px 8px', fontSize: 14, borderRadius: 6, border: '1px solid #fde68a', textAlign: 'center', fontWeight: 700 };
+const miniBtn = (color) => ({ background: color, color: '#fff', border: 'none', padding: '5px 12px', borderRadius: 6, fontSize: 13, fontWeight: 800, cursor: 'pointer' });

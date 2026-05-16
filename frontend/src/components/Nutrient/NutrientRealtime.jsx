@@ -338,6 +338,15 @@ const BigGauge = ({ label, unit, color, current, target, history, max }) => {
 
 // ─────────────────────────────────────────
 // 시스템 흐름도 — 최신 스타일 (liquid + flow particles + glassmorphism)
+// 도싱 탱크 개수에 따라 grid 컬럼 수 자동 결정 (가장 균형 잡힌 배치)
+const tankCols = (n) => {
+  if (n <= 3) return n;        // 1·2·3 → 한 줄
+  if (n === 4) return 2;       // 4 → 2x2
+  if (n <= 6) return 3;        // 5·6 → 3열 (2~3행)
+  if (n === 8) return 4;       // 8 → 2x4
+  return 5;                    // 7·9·10 → 5열 (균형)
+};
+
 // ─────────────────────────────────────────
 // 폰 전용 컴팩트 흐름도 — 가로 스크롤 없이 핵심 정보만
 // ─────────────────────────────────────────
@@ -475,9 +484,11 @@ const FlowDiagram = ({ data }) => {
         {/* 화살표 0→1: 원수 → 혼합 (원수펌프 통해서) */}
         <FlowArrow active={data.rawPump} />
 
-        {/* 1. 도싱 탱크 6개 */}
+        {/* 1. 도싱 탱크 — 개수에 따라 자동 정렬 (4→2x2, 6→2x3 등) */}
         <div style={{
-          display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 6,
+          display: 'grid',
+          gridTemplateColumns: `repeat(${tankCols(data.tanks.length)}, 1fr)`,
+          gap: 6,
           padding: 8, background: 'rgba(255,255,255,0.6)', borderRadius: 12,
           backdropFilter: 'blur(8px)', border: '1px solid rgba(186, 230, 253, 0.5)',
         }}>

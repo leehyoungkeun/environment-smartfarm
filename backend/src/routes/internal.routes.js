@@ -6,7 +6,7 @@ import express from "express";
 import Alert from "../models/Alert.js";
 import ControlLog from "../models/ControlLog.js";
 import Config from "../models/Config.js";
-import { pool } from "../db.js";
+import { pool, prisma } from "../db.js";
 import logger from "../utils/logger.js";
 
 const router = express.Router();
@@ -384,6 +384,119 @@ router.post("/control-log", async (req, res) => {
   } catch (error) {
     logger.error("자동화 제어 이력 저장 실패:", error);
     res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// 양액 관리 — RPi Node-RED 전용 (Phase 3)
+// /internal/nutrient/* — authenticateApiKey 적용 (req.farmId 자동 설정)
+// 사용자 UI 는 /api/nutrient/* (JWT) 별도 사용
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+// 설정 조회 (탱크/밸브/경보/하드웨어)
+router.get("/nutrient/config", async (req, res) => {
+  try {
+    const farmId = req.farmId || req.query.farmId || DEFAULT_FARM_ID;
+    let cfg = await prisma.nutrientConfig.findUnique({ where: { farmId } });
+    if (!cfg) cfg = { farmId, tanks: [], valveCount: 0, alerts: {}, hardware: {} };
+    res.json({ success: true, data: cfg });
+  } catch (e) {
+    logger.error("internal nutrient config:", e);
+    res.status(500).json({ success: false, error: e.message });
+  }
+});
+
+// 시나리오 조회 (active 만 필요해도 전체 반환 — RPi 가 find(active) 처리)
+router.get("/nutrient/scenarios", async (req, res) => {
+  try {
+    const farmId = req.farmId || req.query.farmId || DEFAULT_FARM_ID;
+    const rows = await prisma.nutrientScenario.findMany({
+      where: { farmId },
+      orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
+    });
+    res.json({ success: true, data: rows });
+  } catch (e) {
+    res.status(500).json({ success: false, error: e.message });
+  }
+});
+
+// 운영 상태 조회 (mode 등)
+router.get("/nutrient/state", async (req, res) => {
+  try {
+    const farmId = req.farmId || req.query.farmId || DEFAULT_FARM_ID;
+    let st = await prisma.nutrientState.findUnique({ where: { farmId } });
+    if (!st) st = await prisma.nutrientState.create({ data: { farmId } });
+    res.json({ success: true, data: st });
+  } catch (e) {
+    res.status(500).json({ success: false, error: e.message });
+  }
+});
+
+// telemetry 업로드 (EC/pH/currentCycle/solarAccumulated)
+router.put("/nutrient/state/telemetry", async (req, res) => {
+  try {
+    const farmId = req.farmId || req.body?.farmId || DEFAULT_FARM_ID;
+    const b = req.body || {};
+    const data = { updatedAt: new Date() };
+    if (b.ecCurrent !== undefined) data.ecCurrent = b.ecCurrent;
+    if (b.phCurrent !== undefined) data.phCurrent = b.phCurrent;
+    if (b.solarAccumulated !== undefined) data.solarAccumulated = b.solarAccumulated;
+    if (b.currentCycle !== undefined) data.currentCycle = b.currentCycle;
+    const st = await prisma.nutrientState.upsert({
+      where: { farmId }, update: data, create: { farmId, ...data },
+    });
+    res.json({ success: true, data: st });
+  } catch (e) {
+    res.status(400).json({ success: false, error: e.message });
+  }
+});
+
+// 경보 생성 (RPi 에서 한계 초과 발견 시)
+router.post("/nutrient/alerts", async (req, res) => {
+  try {
+    const farmId = req.farmId || req.body?.farmId || DEFAULT_FARM_ID;
+    const b = req.body || {};
+    if (!b.type && !b.alertType) {
+      return res.status(400).json({ success: false, error: "alertType 필수" });
+    }
+    const row = await prisma.nutrientAlert.create({
+      data: {
+        farmId,
+        alertType: b.alertType || b.type,
+        severity: b.severity || "warning",
+        value: b.value ?? null,
+        threshold: b.threshold ?? null,
+        message: b.message || b.alertType || b.type,
+        action: b.action ?? null,
+      },
+    });
+    res.status(201).json({ success: true, data: row });
+  } catch (e) {
+    res.status(400).json({ success: false, error: e.message });
+  }
+});
+
+// 누적 카운터 증가 (RPi 가 사이클 완료 시)
+router.post("/nutrient/counters/increment", async (req, res) => {
+  try {
+    const farmId = req.farmId || req.body?.farmId || DEFAULT_FARM_ID;
+    const b = req.body || {};
+    // ensure row
+    let c = await prisma.nutrientCounter.findUnique({ where: { farmId } });
+    if (!c) c = await prisma.nutrientCounter.create({ data: { farmId } });
+    c = await prisma.nutrientCounter.update({
+      where: { farmId },
+      data: {
+        totalDoseL:       { increment: b.doseL || 0 },
+        totalIrrigationL: { increment: b.irrigationL || 0 },
+        totalCycles:      { increment: b.cycles || 0 },
+        pumpRuntimeMin:   { increment: b.runtimeMin || 0 },
+        updatedAt:        new Date(),
+      },
+    });
+    res.json({ success: true, data: c });
+  } catch (e) {
+    res.status(400).json({ success: false, error: e.message });
   }
 });
 

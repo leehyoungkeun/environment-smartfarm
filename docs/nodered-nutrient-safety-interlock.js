@@ -89,16 +89,22 @@ if (criticalHit) {
     global.set('safetyStop', true);
     global.set('emergencyReason', criticalHit.type);
 
-    // 릴레이 OFF 명령 → 다음 노드 (output 2 = 비상)
+    // modbus-flex-write 호환: FC15 = Write Multiple Coils
     const offCmd = {
-        modbus: { unitId: 3, fc: 15, address: 0, quantity: 24, value: Array(24).fill(false) },
+        payload: {
+            value: Array(24).fill(false),
+            fc: 15,
+            unitid: 3,
+            address: 0,
+            quantity: 24,
+        },
         reason: criticalHit.message,
     };
     node.status({ fill: 'red', shape: 'ring', text: `🛑 ${criticalHit.type}` });
 
     // backend 경보 POST 메시지
     const alertMsg = {
-        url: `https://api.smartgreen.kr/api/nutrient/${farmConfig.farmId || 'farm_0001'}/alerts`,
+        url: `https://api.smartgreen.kr/internal/nutrient/alerts`,
         method: 'POST',
         headers: {
             'Content-Type': 'application/json',
@@ -113,7 +119,7 @@ if (criticalHit) {
 if (triggered.length > 0) {
     node.status({ fill: 'yellow', shape: 'dot', text: `⚠️ ${triggered[0].type}` });
     const alertMsgs = triggered.map(t => ({
-        url: `https://api.smartgreen.kr/api/nutrient/${farmConfig.farmId || 'farm_0001'}/alerts`,
+        url: `https://api.smartgreen.kr/internal/nutrient/alerts`,
         method: 'POST',
         headers: {
             'Content-Type': 'application/json',

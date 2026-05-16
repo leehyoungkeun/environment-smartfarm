@@ -150,8 +150,15 @@ function sendRelay(channel, on, label) {
         node.log(`[SIM] ${label} (CH${channel} ${on ? 'ON' : 'OFF'})`);
         return;
     }
+    // modbus-flex-write 호환: msg.payload = { value, fc, unitid, address, quantity }
     node.send([{
-        modbus: { unitId: 3, fc: 5, address: channel, value: on },
+        payload: {
+            value: on,
+            fc: 5,           // FC5 = Write Single Coil
+            unitid: 3,       // Unit-Id 3 = 24CH 양액 릴레이
+            address: channel,
+            quantity: 1,
+        },
         label,
     }, null]);
 }
@@ -164,7 +171,7 @@ function updateCycle(patch) {
 
 function sendBackend(method, path, body) {
     node.send([null, {
-        url: `https://api.smartgreen.kr/api/nutrient/${farmId}${path}`,
+        url: `https://api.smartgreen.kr/internal/nutrient${path}`,
         method,
         headers: {
             'Content-Type': 'application/json',

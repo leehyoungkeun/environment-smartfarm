@@ -11,7 +11,8 @@ const farmConfig = global.get('farmConfig') || {};
 const farmId = farmConfig.farmId || 'farm_0001';
 const apiKey = farmConfig.apiKey || '';
 
-const baseUrl = `https://api.smartgreen.kr/api/nutrient/${farmId}`;
+// RPi → backend 내부용 라우트 (authenticateApiKey, farmId 는 x-api-key 로 자동 식별)
+const baseUrl = `https://api.smartgreen.kr/internal/nutrient`;
 const headers = {
     'Content-Type': 'application/json',
     'x-api-key': apiKey,

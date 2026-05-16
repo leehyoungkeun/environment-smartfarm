@@ -2,7 +2,7 @@
 // 입력: msg.payload = { ec, ph, flow, temperature, timestamp }
 // 출력: HTTP request 노드로 전달
 //
-// backend: PUT /api/nutrient/:farmId/state/telemetry
+// backend: PUT /internal/nutrient/state/telemetry (farmId 는 x-api-key 로 식별)
 // body: { ecCurrent, phCurrent, solarAccumulated?, currentCycle? }
 
 const r = msg.payload;
@@ -31,7 +31,7 @@ const body = {
 if (currentCycle) body.currentCycle = currentCycle;
 
 // HTTP request 노드용 msg 구성
-msg.url = `https://api.smartgreen.kr/api/nutrient/${farmId}/state/telemetry`;
+msg.url = `https://api.smartgreen.kr/internal/nutrient/state/telemetry`;
 msg.method = 'PUT';
 msg.headers = {
     'Content-Type': 'application/json',

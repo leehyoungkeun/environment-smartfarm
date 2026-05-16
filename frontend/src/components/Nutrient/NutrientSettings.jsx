@@ -83,7 +83,7 @@ export default function NutrientSettings({ farmId }) {
   };
 
   if (loading || !config) {
-    return <div style={{ padding: 24, textAlign: 'center', color: '#64748b', fontSize: 14 }}>설정 불러오는 중…</div>;
+    return <div style={{ padding: 24, textAlign: 'center', color: '#64748b', fontSize: 15 }}>설정 불러오는 중…</div>;
   }
 
   return (
@@ -91,12 +91,12 @@ export default function NutrientSettings({ farmId }) {
       {error && (
         <div style={{
           padding: '10px 14px', background: '#fee2e2', border: '1px solid #fca5a5',
-          borderRadius: 10, color: '#991b1b', fontSize: 13, fontWeight: 700,
+          borderRadius: 10, color: '#991b1b', fontSize: 14, fontWeight: 700,
           display: 'flex', justifyContent: 'space-between', alignItems: 'center',
         }}>
           <span>⚠️ {error}</span>
           <button onClick={() => setError(null)} style={{
-            background: 'transparent', border: 'none', color: '#991b1b', fontSize: 16, cursor: 'pointer',
+            background: 'transparent', border: 'none', color: '#991b1b', fontSize: 17, cursor: 'pointer',
           }}>✕</button>
         </div>
       )}
@@ -154,13 +154,13 @@ const Section = ({ title, subtitle, open, onToggle, saving, children }) => (
       display: 'flex', justifyContent: 'space-between', alignItems: 'center', textAlign: 'left',
     }}>
       <div>
-        <div style={{ fontSize: 16, fontWeight: 800, color: '#0f172a' }}>{title}</div>
-        <div style={{ fontSize: 13, color: '#64748b', marginTop: 2 }}>
+        <div style={{ fontSize: 17, fontWeight: 800, color: '#0f172a' }}>{title}</div>
+        <div style={{ fontSize: 14, color: '#64748b', marginTop: 2 }}>
           {subtitle}
-          {saving && <span style={{ marginLeft: 8, fontSize: 11, color: '#0891b2', fontWeight: 700 }}>저장 중…</span>}
+          {saving && <span style={{ marginLeft: 8, fontSize: 13, color: '#0891b2', fontWeight: 700 }}>저장 중…</span>}
         </div>
       </div>
-      <span style={{ fontSize: 16, color: '#94a3b8', transition: 'transform 0.2s',
+      <span style={{ fontSize: 17, color: '#94a3b8', transition: 'transform 0.2s',
                      transform: open ? 'rotate(180deg)' : '' }}>▾</span>
     </button>
     {open && (
@@ -194,7 +194,7 @@ const TanksEditor = ({ tanks: initial, onSave }) => {
               <div className="flex items-center gap-2">
                 <span style={{
                   width: 32, height: 32, borderRadius: 8, background: '#0891b2', color: '#fff',
-                  fontSize: 15, fontWeight: 800, display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  fontSize: 16, fontWeight: 800, display: 'flex', alignItems: 'center', justifyContent: 'center',
                 }}>{t.id}</span>
                 <input
                   value={t.label}
@@ -203,7 +203,7 @@ const TanksEditor = ({ tanks: initial, onSave }) => {
                   className="tank-label-input"
                   title="클릭해서 이름 수정"
                   style={{
-                    fontSize: 15, fontWeight: 700, color: '#0f172a',
+                    fontSize: 16, fontWeight: 700, color: '#0f172a',
                     border: 'none',
                     borderBottom: '1px dashed #cbd5e1',
                     background: 'transparent',
@@ -213,7 +213,7 @@ const TanksEditor = ({ tanks: initial, onSave }) => {
                     cursor: 'text',
                   }}
                 />
-                <span style={{ fontSize: 11, color: '#94a3b8', marginLeft: 2 }}>✏️</span>
+                <span style={{ fontSize: 13, color: '#94a3b8', marginLeft: 2 }}>✏️</span>
               </div>
               <button onClick={() => removeTank(i)} style={{ color: '#94a3b8', background: 'none', border: 'none', cursor: 'pointer' }}>✕</button>
             </div>
@@ -223,19 +223,19 @@ const TanksEditor = ({ tanks: initial, onSave }) => {
                 <div style={{ height: 6, background: '#e2e8f0', borderRadius: 3, overflow: 'hidden' }}>
                   <div style={{ width: `${t.level}%`, height: '100%', background: t.level > 30 ? '#16a34a' : '#dc2626' }} />
                 </div>
-                <div style={{ fontSize: 13, fontWeight: 700, color: '#0f172a', marginTop: 2 }}>{t.level}%</div>
+                <div style={{ fontSize: 14, fontWeight: 700, color: '#0f172a', marginTop: 2 }}>{t.level}%</div>
               </div>
               <div>
                 <div style={{ color: '#64748b', marginBottom: 2 }}>용량</div>
                 <input type="number" value={t.capacity} onChange={(e) => updateTank(i, { capacity: parseInt(e.target.value) || 0 })}
-                       style={{ width: '100%', padding: '3px 6px', fontSize: 13, fontWeight: 700, border: '1px solid #cbd5e1', borderRadius: 4 }} />
-                <div style={{ fontSize: 11, color: '#94a3b8', textAlign: 'right' }}>L</div>
+                       style={{ width: '100%', padding: '3px 6px', fontSize: 14, fontWeight: 700, border: '1px solid #cbd5e1', borderRadius: 4 }} />
+                <div style={{ fontSize: 13, color: '#94a3b8', textAlign: 'right' }}>L</div>
               </div>
               <div>
                 <div style={{ color: '#64748b', marginBottom: 2 }}>Modbus</div>
                 <input type="number" value={t.modbusReg} onChange={(e) => updateTank(i, { modbusReg: parseInt(e.target.value) || 0 })}
-                       style={{ width: '100%', padding: '3px 6px', fontSize: 13, fontWeight: 700, border: '1px solid #cbd5e1', borderRadius: 4 }} />
-                <div style={{ fontSize: 11, color: '#94a3b8', textAlign: 'right' }}>주소</div>
+                       style={{ width: '100%', padding: '3px 6px', fontSize: 14, fontWeight: 700, border: '1px solid #cbd5e1', borderRadius: 4 }} />
+                <div style={{ fontSize: 13, color: '#94a3b8', textAlign: 'right' }}>주소</div>
               </div>
             </div>
           </div>
@@ -244,15 +244,15 @@ const TanksEditor = ({ tanks: initial, onSave }) => {
       <button onClick={addTank} disabled={tanks.length >= 10} style={{
         width: '100%', padding: 10, borderRadius: 8, border: '2px dashed ' + (tanks.length >= 10 ? '#cbd5e1' : '#0891b2'),
         background: '#fff', color: tanks.length >= 10 ? '#94a3b8' : '#0891b2',
-        fontSize: 14, fontWeight: 700, cursor: tanks.length >= 10 ? 'not-allowed' : 'pointer',
+        fontSize: 15, fontWeight: 700, cursor: tanks.length >= 10 ? 'not-allowed' : 'pointer',
       }}>+ 탱크 추가</button>
-      <div style={{ fontSize: 13, color: '#94a3b8', marginTop: 8, padding: 8, background: '#fef3c7', borderRadius: 6 }}>
+      <div style={{ fontSize: 14, color: '#94a3b8', marginTop: 8, padding: 8, background: '#fef3c7', borderRadius: 6 }}>
         💡 한국형 A/B 액: 3-6개 · 단비혼합: 7-8개 · 네덜란드 풀스펙: 9-10개
       </div>
       <button onClick={save} disabled={!dirty} style={{
         marginTop: 10, width: '100%', padding: 10, borderRadius: 8, border: 'none',
         background: dirty ? '#0891b2' : '#cbd5e1', color: '#fff',
-        fontSize: 14, fontWeight: 800, cursor: dirty ? 'pointer' : 'not-allowed',
+        fontSize: 15, fontWeight: 800, cursor: dirty ? 'pointer' : 'not-allowed',
       }}>{dirty ? '변경사항 저장' : '저장됨'}</button>
     </div>
   );
@@ -267,34 +267,34 @@ const ValvesEditor = ({ count: initial, onSave }) => {
   return (
     <div>
       <div className="flex items-center gap-3 mb-3">
-        <span style={{ fontSize: 14, fontWeight: 700, color: '#475569' }}>밸브 수:</span>
+        <span style={{ fontSize: 15, fontWeight: 700, color: '#475569' }}>밸브 수:</span>
         <div className="flex items-center gap-1">
           <button onClick={() => setCount(c => Math.max(1, c - 1))}
                   style={{ width: 28, height: 28, borderRadius: 6, border: '1px solid #cbd5e1', background: '#fff', cursor: 'pointer', fontWeight: 800 }}>−</button>
           <input type="number" value={count} onChange={(e) => setCount(Math.max(1, Math.min(24, parseInt(e.target.value) || 1)))}
-                 style={{ width: 60, padding: '4px 8px', fontSize: 16, fontWeight: 800, textAlign: 'center',
+                 style={{ width: 60, padding: '4px 8px', fontSize: 17, fontWeight: 800, textAlign: 'center',
                           border: '1px solid #cbd5e1', borderRadius: 6, color: '#0891b2' }} />
           <button onClick={() => setCount(c => Math.min(24, c + 1))}
                   style={{ width: 28, height: 28, borderRadius: 6, border: '1px solid #cbd5e1', background: '#fff', cursor: 'pointer', fontWeight: 800 }}>+</button>
         </div>
-        <span style={{ fontSize: 13, color: '#94a3b8' }}>(1~24)</span>
+        <span style={{ fontSize: 14, color: '#94a3b8' }}>(1~24)</span>
       </div>
       <div className="grid grid-cols-6 md:grid-cols-12 gap-2">
         {Array.from({ length: count }).map((_, i) => (
           <div key={i} style={{
             padding: '8px 4px', background: '#f0fdf4', borderRadius: 6,
             border: '1px solid #86efac', textAlign: 'center',
-            fontSize: 14, fontWeight: 800, color: '#15803d',
+            fontSize: 15, fontWeight: 800, color: '#15803d',
           }}>{i + 1}</div>
         ))}
       </div>
-      <div style={{ fontSize: 13, color: '#94a3b8', marginTop: 8, padding: 8, background: '#fef3c7', borderRadius: 6 }}>
+      <div style={{ fontSize: 14, color: '#94a3b8', marginTop: 8, padding: 8, background: '#fef3c7', borderRadius: 6 }}>
         💡 소규모 4-8 · 중규모 10-16 · 대규모 18-24 구역
       </div>
       <button onClick={() => onSave(count)} disabled={!dirty} style={{
         marginTop: 10, width: '100%', padding: 10, borderRadius: 8, border: 'none',
         background: dirty ? '#0891b2' : '#cbd5e1', color: '#fff',
-        fontSize: 14, fontWeight: 800, cursor: dirty ? 'pointer' : 'not-allowed',
+        fontSize: 15, fontWeight: 800, cursor: dirty ? 'pointer' : 'not-allowed',
       }}>{dirty ? '변경사항 저장' : '저장됨'}</button>
     </div>
   );
@@ -312,7 +312,7 @@ const AlertsEditor = ({ alerts: initial, onSave }) => {
     <div className="space-y-4">
       {/* EC 범위 시각화 */}
       <div>
-        <div style={{ fontSize: 14, fontWeight: 700, color: '#475569', marginBottom: 6 }}>
+        <div style={{ fontSize: 15, fontWeight: 700, color: '#475569', marginBottom: 6 }}>
           📊 EC 범위 (현재: <strong style={{ color: '#0891b2' }}>{currentEC} mS/cm</strong>)
         </div>
         <ECRangeBar critical={a.ecCritical} lower={a.ecLower} upper={a.ecUpper} current={currentEC} />
@@ -321,7 +321,7 @@ const AlertsEditor = ({ alerts: initial, onSave }) => {
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         {/* EC */}
         <div style={{ padding: 12, background: '#f0f9ff', borderRadius: 8, border: '1px solid #bfdbfe' }}>
-          <div style={{ fontSize: 15, fontWeight: 800, color: '#1e40af', marginBottom: 8 }}>EC 한계 (mS/cm)</div>
+          <div style={{ fontSize: 16, fontWeight: 800, color: '#1e40af', marginBottom: 8 }}>EC 한계 (mS/cm)</div>
           <ThresholdRow level="🔴 경보 상한" desc="초과 시 경보 발생" value={a.ecUpper} step={0.1}
                         onChange={(v) => setA({ ...a, ecUpper: v })} color="#dc2626" />
           <ThresholdRow level="🟡 경보 하한" desc="미달 시 경보 발생" value={a.ecLower} step={0.1}
@@ -331,7 +331,7 @@ const AlertsEditor = ({ alerts: initial, onSave }) => {
         </div>
         {/* pH */}
         <div style={{ padding: 12, background: '#faf5ff', borderRadius: 8, border: '1px solid #d8b4fe' }}>
-          <div style={{ fontSize: 15, fontWeight: 800, color: '#7c3aed', marginBottom: 8 }}>pH 한계</div>
+          <div style={{ fontSize: 16, fontWeight: 800, color: '#7c3aed', marginBottom: 8 }}>pH 한계</div>
           <ThresholdRow level="🔴 경보 상한" desc="초과 시 경보" value={a.phUpper} step={0.1}
                         onChange={(v) => setA({ ...a, phUpper: v })} color="#dc2626" />
           <ThresholdRow level="🟡 경보 하한" desc="미달 시 경보" value={a.phLower} step={0.1}
@@ -343,16 +343,16 @@ const AlertsEditor = ({ alerts: initial, onSave }) => {
 
       {/* ⭐ 신규: 정밀도 (히스테리시스) + 다량공급 (편차) + 최소 일사량 */}
       <div style={{ padding: 12, background: '#f8fafc', borderRadius: 8, border: '1px solid #e2e8f0' }}>
-        <div style={{ fontSize: 13, fontWeight: 800, color: '#0f172a', marginBottom: 8 }}>
+        <div style={{ fontSize: 14, fontWeight: 800, color: '#0f172a', marginBottom: 8 }}>
           ⚙️ 제어 정밀도 (운영 안정성)
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div>
-            <div style={{ fontSize: 13, fontWeight: 700, color: '#475569', marginBottom: 6 }}>
+            <div style={{ fontSize: 14, fontWeight: 700, color: '#475569', marginBottom: 6 }}>
               🎯 정밀도 (히스테리시스)
             </div>
-            <div style={{ fontSize: 11, color: '#94a3b8', marginBottom: 6 }}>
+            <div style={{ fontSize: 13, color: '#94a3b8', marginBottom: 6 }}>
               목표값 ±이 범위 안에선 도싱 안 함 (펌프 hunting 방지)
             </div>
             <ThresholdRow level="EC ±" desc="mS/cm" value={a.ecHysteresis ?? 0.1} step={0.01}
@@ -361,10 +361,10 @@ const AlertsEditor = ({ alerts: initial, onSave }) => {
                           onChange={(v) => setA({ ...a, phHysteresis: v })} color="#7c3aed" />
           </div>
           <div>
-            <div style={{ fontSize: 13, fontWeight: 700, color: '#475569', marginBottom: 6 }}>
+            <div style={{ fontSize: 14, fontWeight: 700, color: '#475569', marginBottom: 6 }}>
               ⚡ 다량공급 (편차 임계값)
             </div>
-            <div style={{ fontSize: 11, color: '#94a3b8', marginBottom: 6 }}>
+            <div style={{ fontSize: 13, color: '#94a3b8', marginBottom: 6 }}>
               목표 대비 이 차이 이상이면 빠른 보정 모드 (강한 도싱)
             </div>
             <ThresholdRow level="EC 갭" desc="mS/cm" value={a.ecDeviation ?? 0.5} step={0.1}
@@ -375,10 +375,10 @@ const AlertsEditor = ({ alerts: initial, onSave }) => {
         </div>
 
         <div style={{ marginTop: 10, paddingTop: 10, borderTop: '1px dashed #cbd5e1' }}>
-          <div style={{ fontSize: 13, fontWeight: 700, color: '#475569', marginBottom: 6 }}>
+          <div style={{ fontSize: 14, fontWeight: 700, color: '#475569', marginBottom: 6 }}>
             ☀️ 최소 일사량 (solar 트리거)
           </div>
-          <div style={{ fontSize: 11, color: '#94a3b8', marginBottom: 6 }}>
+          <div style={{ fontSize: 13, color: '#94a3b8', marginBottom: 6 }}>
             현재 일사량이 이 값 미만이면 solar 모드 트리거 무시 (흐린 날 노이즈 방지)
           </div>
           <ThresholdRow level="기준값" desc="W/m²" value={a.minSolarWm2 ?? 50} step={10}
@@ -389,7 +389,7 @@ const AlertsEditor = ({ alerts: initial, onSave }) => {
       <button onClick={() => onSave(a)} disabled={!dirty} style={{
         marginTop: 4, width: '100%', padding: 10, borderRadius: 8, border: 'none',
         background: dirty ? '#0891b2' : '#cbd5e1', color: '#fff',
-        fontSize: 14, fontWeight: 800, cursor: dirty ? 'pointer' : 'not-allowed',
+        fontSize: 15, fontWeight: 800, cursor: dirty ? 'pointer' : 'not-allowed',
       }}>{dirty ? '변경사항 저장' : '저장됨'}</button>
     </div>
   );
@@ -407,9 +407,9 @@ const ECRangeBar = ({ critical, lower, upper, current }) => {
         <div style={{ position: 'absolute', left: `${pct(upper)}%`, width: `${100 - pct(upper)}%`, height: '100%', background: '#fde68a' }} />
         {/* 현재값 marker */}
         <div style={{ position: 'absolute', left: `${pct(current)}%`, top: 0, width: 3, height: '100%', background: '#0891b2' }} />
-        <span style={{ position: 'absolute', left: `calc(${pct(current)}% - 14px)`, top: -16, fontSize: 11, fontWeight: 800, color: '#0891b2' }}>현재</span>
+        <span style={{ position: 'absolute', left: `calc(${pct(current)}% - 14px)`, top: -16, fontSize: 13, fontWeight: 800, color: '#0891b2' }}>현재</span>
       </div>
-      <div className="flex justify-between mt-1" style={{ fontSize: 11, color: '#94a3b8', fontWeight: 600 }}>
+      <div className="flex justify-between mt-1" style={{ fontSize: 13, color: '#94a3b8', fontWeight: 600 }}>
         {[0, 1, 2, 3, 4, 5].map(v => <span key={v}>{v}</span>)}
       </div>
     </div>
@@ -419,11 +419,11 @@ const ECRangeBar = ({ critical, lower, upper, current }) => {
 const ThresholdRow = ({ level, desc, value, step, onChange, color }) => (
   <div className="flex items-center justify-between gap-3 mb-2">
     <div>
-      <div style={{ fontSize: 14, fontWeight: 800, color }}>{level}</div>
-      <div style={{ fontSize: 12, color: '#64748b' }}>{desc}</div>
+      <div style={{ fontSize: 15, fontWeight: 800, color }}>{level}</div>
+      <div style={{ fontSize: 13, color: '#64748b' }}>{desc}</div>
     </div>
     <input type="number" value={value} step={step} onChange={(e) => onChange(parseFloat(e.target.value) || 0)}
-           style={{ width: 70, padding: '4px 8px', fontSize: 15, fontWeight: 800, color,
+           style={{ width: 70, padding: '4px 8px', fontSize: 16, fontWeight: 800, color,
                     border: `1px solid ${color}40`, borderRadius: 6, textAlign: 'right' }} />
   </div>
 );
@@ -436,10 +436,10 @@ const HardwareEditor = ({ hardware: initial, onSave }) => {
   const dirty = JSON.stringify(hw) !== JSON.stringify(initial);
   return (
     <div className="space-y-3">
-      <div style={{ fontSize: 14, color: '#64748b', padding: 8, background: '#fef3c7', borderRadius: 6 }}>
+      <div style={{ fontSize: 15, color: '#64748b', padding: 8, background: '#fef3c7', borderRadius: 6 }}>
         💡 RPi Modbus RTU 통신용. 실제 양액기 하드웨어 설치 후 등록.
       </div>
-      <div style={{ fontSize: 13, fontWeight: 800, color: '#0f172a', marginTop: 4 }}>📟 Modbus 매핑</div>
+      <div style={{ fontSize: 14, fontWeight: 800, color: '#0f172a', marginTop: 4 }}>📟 Modbus 매핑</div>
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         <NumIn label="Modbus Unit" value={hw.modbusUnit} onChange={(v) => setHw({ ...hw, modbusUnit: v })} />
         <NumIn label="EC 센서 주소" value={hw.ecSensorAddr} onChange={(v) => setHw({ ...hw, ecSensorAddr: v })} />
@@ -450,19 +450,19 @@ const HardwareEditor = ({ hardware: initial, onSave }) => {
       </div>
 
       {/* ⭐ 신규: 교반기 시간 */}
-      <div style={{ fontSize: 13, fontWeight: 800, color: '#0f172a', marginTop: 4 }}>🌀 교반기 사이클</div>
+      <div style={{ fontSize: 14, fontWeight: 800, color: '#0f172a', marginTop: 4 }}>🌀 교반기 사이클</div>
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         <NumIn label="작동 (초)" value={hw.mixerOnSec ?? 30} onChange={(v) => setHw({ ...hw, mixerOnSec: v })} />
         <NumIn label="정지 (분)" value={hw.mixerOffMin ?? 50} onChange={(v) => setHw({ ...hw, mixerOffMin: v })} />
       </div>
 
       {/* ⭐ 신규: 산/알칼리 모드 + 온도 기준 + 유량 단위 */}
-      <div style={{ fontSize: 13, fontWeight: 800, color: '#0f172a', marginTop: 4 }}>⚙️ 사용 환경</div>
+      <div style={{ fontSize: 14, fontWeight: 800, color: '#0f172a', marginTop: 4 }}>⚙️ 사용 환경</div>
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         <div>
-          <div style={{ fontSize: 13, fontWeight: 700, color: '#475569', marginBottom: 4 }}>산/알칼리 운영</div>
+          <div style={{ fontSize: 14, fontWeight: 700, color: '#475569', marginBottom: 4 }}>산/알칼리 운영</div>
           <select value={hw.acidAlkaliMode ?? 'both'} onChange={(e) => setHw({ ...hw, acidAlkaliMode: e.target.value })}
-                  style={{ width: '100%', padding: '6px 10px', fontSize: 14, fontWeight: 700, color: '#0891b2',
+                  style={{ width: '100%', padding: '6px 10px', fontSize: 15, fontWeight: 700, color: '#0891b2',
                            border: '1px solid #cbd5e1', borderRadius: 8, outline: 'none', background: '#fff' }}>
             <option value="both">둘 다 사용</option>
             <option value="acid">산만</option>
@@ -470,9 +470,9 @@ const HardwareEditor = ({ hardware: initial, onSave }) => {
           </select>
         </div>
         <div>
-          <div style={{ fontSize: 13, fontWeight: 700, color: '#475569', marginBottom: 4 }}>유량 단위</div>
+          <div style={{ fontSize: 14, fontWeight: 700, color: '#475569', marginBottom: 4 }}>유량 단위</div>
           <select value={hw.flowUnit ?? 'L'} onChange={(e) => setHw({ ...hw, flowUnit: e.target.value })}
-                  style={{ width: '100%', padding: '6px 10px', fontSize: 14, fontWeight: 700, color: '#0891b2',
+                  style={{ width: '100%', padding: '6px 10px', fontSize: 15, fontWeight: 700, color: '#0891b2',
                            border: '1px solid #cbd5e1', borderRadius: 8, outline: 'none', background: '#fff' }}>
             <option value="mL">mL</option>
             <option value="L">L</option>
@@ -486,7 +486,7 @@ const HardwareEditor = ({ hardware: initial, onSave }) => {
       <button onClick={() => onSave(hw)} disabled={!dirty} style={{
         width: '100%', padding: 10, borderRadius: 8, border: 'none',
         background: dirty ? '#0891b2' : '#cbd5e1', color: '#fff',
-        fontSize: 14, fontWeight: 800, cursor: dirty ? 'pointer' : 'not-allowed',
+        fontSize: 15, fontWeight: 800, cursor: dirty ? 'pointer' : 'not-allowed',
       }}>{dirty ? '변경사항 저장' : '저장됨'}</button>
     </div>
   );
@@ -494,9 +494,9 @@ const HardwareEditor = ({ hardware: initial, onSave }) => {
 
 const NumIn = ({ label, value, onChange }) => (
   <div>
-    <div style={{ fontSize: 13, fontWeight: 700, color: '#475569', marginBottom: 4 }}>{label}</div>
+    <div style={{ fontSize: 14, fontWeight: 700, color: '#475569', marginBottom: 4 }}>{label}</div>
     <input type="number" value={value} onChange={(e) => onChange(parseInt(e.target.value) || 0)}
-           style={{ width: '100%', padding: '6px 10px', fontSize: 15, fontWeight: 800, color: '#0891b2',
+           style={{ width: '100%', padding: '6px 10px', fontSize: 16, fontWeight: 800, color: '#0891b2',
                     border: '1px solid #cbd5e1', borderRadius: 8, outline: 'none' }} />
   </div>
 );
@@ -558,7 +558,7 @@ const CalibrationEditor = ({ farmId }) => {
 
   return (
     <div className="space-y-3">
-      <div style={{ fontSize: 13, color: '#64748b', padding: 8, background: '#eff6ff', borderRadius: 6, border: '1px solid #bfdbfe' }}>
+      <div style={{ fontSize: 14, color: '#64748b', padding: 8, background: '#eff6ff', borderRadius: 6, border: '1px solid #bfdbfe' }}>
         💡 권장 주기: <strong>월 1회</strong> · 표준액에 센서 5분 침지 후 안정화되면 보정 시작
       </div>
 
@@ -567,15 +567,15 @@ const CalibrationEditor = ({ farmId }) => {
         <div style={{ padding: 12, background: '#f0f9ff', borderRadius: 10, border: '1px solid #bfdbfe' }}>
           <div className="flex justify-between items-start mb-2">
             <div>
-              <div style={{ fontSize: 15, fontWeight: 800, color: '#1e40af' }}>EC 센서 (1-포인트)</div>
-              <div style={{ fontSize: 12, color: '#64748b', marginTop: 2 }}>KCl 표준액 1.413 mS/cm (25°C)</div>
+              <div style={{ fontSize: 16, fontWeight: 800, color: '#1e40af' }}>EC 센서 (1-포인트)</div>
+              <div style={{ fontSize: 13, color: '#64748b', marginTop: 2 }}>KCl 표준액 1.413 mS/cm (25°C)</div>
             </div>
             <span style={{
-              padding: '2px 6px', fontSize: 11, fontWeight: 700,
+              padding: '2px 6px', fontSize: 13, fontWeight: 700,
               background: '#dbeafe', color: '#1e40af', borderRadius: 4,
             }}>마지막: {fmtDate(latestEc?.calibratedAt)}</span>
           </div>
-          <div className="grid grid-cols-3 gap-2 mb-2" style={{ fontSize: 13 }}>
+          <div className="grid grid-cols-3 gap-2 mb-2" style={{ fontSize: 14 }}>
             <CalCell label="표준값" value={latestEc ? `${latestEc.standardValue} mS` : '—'} color="#1e40af" />
             <CalCell label="측정값" value={latestEc ? `${latestEc.measuredValue} mS` : '—'} color="#0891b2" />
             <CalCell label="오프셋"
@@ -584,7 +584,7 @@ const CalibrationEditor = ({ farmId }) => {
           </div>
           <button onClick={() => setStep('ec')} style={{
             width: '100%', padding: '8px', borderRadius: 6, border: 'none',
-            background: '#1e40af', color: '#fff', fontSize: 14, fontWeight: 700, cursor: 'pointer',
+            background: '#1e40af', color: '#fff', fontSize: 15, fontWeight: 700, cursor: 'pointer',
           }}>EC 재보정 시작</button>
         </div>
 
@@ -592,17 +592,17 @@ const CalibrationEditor = ({ farmId }) => {
         <div style={{ padding: 12, background: '#faf5ff', borderRadius: 10, border: '1px solid #d8b4fe' }}>
           <div className="flex justify-between items-start mb-2">
             <div>
-              <div style={{ fontSize: 15, fontWeight: 800, color: '#7c3aed' }}>pH 센서 (3-포인트)</div>
-              <div style={{ fontSize: 12, color: '#64748b', marginTop: 2 }}>완충액 4.01 / 6.86 / 9.18</div>
+              <div style={{ fontSize: 16, fontWeight: 800, color: '#7c3aed' }}>pH 센서 (3-포인트)</div>
+              <div style={{ fontSize: 13, color: '#64748b', marginTop: 2 }}>완충액 4.01 / 6.86 / 9.18</div>
             </div>
             <span style={{
-              padding: '2px 6px', fontSize: 11, fontWeight: 700,
+              padding: '2px 6px', fontSize: 13, fontWeight: 700,
               background: '#ede9fe', color: '#7c3aed', borderRadius: 4,
             }}>슬로프: {latestPh ? `${latestPh.slope}%` : '—'}</span>
           </div>
           <div className="space-y-1 mb-2">
             {(latestPh?.points || [{buffer:4.01},{buffer:6.86},{buffer:9.18}]).map((p, i) => (
-              <div key={i} className="flex justify-between items-center" style={{ fontSize: 13, padding: '4px 6px', background: '#fff', borderRadius: 4 }}>
+              <div key={i} className="flex justify-between items-center" style={{ fontSize: 14, padding: '4px 6px', background: '#fff', borderRadius: 4 }}>
                 <span style={{ color: '#7c3aed', fontWeight: 700 }}>pH {p.buffer}</span>
                 <span style={{ color: '#64748b' }}>측정 {p.measured ?? '—'}</span>
                 <span style={{ color: p.offset != null && Math.abs(p.offset) < 0.1 ? '#16a34a' : '#d97706', fontWeight: 700 }}>
@@ -613,7 +613,7 @@ const CalibrationEditor = ({ farmId }) => {
           </div>
           <button onClick={() => setStep('ph-1')} style={{
             width: '100%', padding: '8px', borderRadius: 6, border: 'none',
-            background: '#7c3aed', color: '#fff', fontSize: 14, fontWeight: 700, cursor: 'pointer',
+            background: '#7c3aed', color: '#fff', fontSize: 15, fontWeight: 700, cursor: 'pointer',
           }}>pH 재보정 시작</button>
         </div>
       </div>
@@ -621,16 +621,16 @@ const CalibrationEditor = ({ farmId }) => {
       {/* 보정 진행 모달 (인라인) */}
       {step && (
         <div style={{ padding: 12, background: '#fef3c7', borderRadius: 8, border: '1px solid #fcd34d' }}>
-          <div style={{ fontSize: 14, fontWeight: 800, color: '#92400e', marginBottom: 6 }}>
+          <div style={{ fontSize: 15, fontWeight: 800, color: '#92400e', marginBottom: 6 }}>
             🧪 {step === 'ec' ? 'EC 표준액 1.413 mS/cm' :
                 step === 'ph-1' ? 'pH 4.01 완충액' :
                 step === 'ph-2' ? 'pH 6.86 완충액' : 'pH 9.18 완충액'}에 센서 침지 중…
           </div>
-          <div style={{ fontSize: 13, color: '#78350f', marginBottom: 8 }}>
+          <div style={{ fontSize: 14, color: '#78350f', marginBottom: 8 }}>
             ① 센서를 표준액에 5분간 담그세요 · ② 안정된 측정값을 입력하세요 · ③ [확인] 으로 저장
           </div>
           <div className="flex items-center gap-2 mb-2">
-            <span style={{ fontSize: 13, fontWeight: 700, color: '#78350f' }}>측정값:</span>
+            <span style={{ fontSize: 14, fontWeight: 700, color: '#78350f' }}>측정값:</span>
             <input
               type="number" step="0.01"
               value={step === 'ec' ? ecMeasurement :
@@ -643,7 +643,7 @@ const CalibrationEditor = ({ farmId }) => {
                 else setPhMeasurements(p => ({ ...p, '9.18': e.target.value }));
               }}
               placeholder={step === 'ec' ? '1.413' : step === 'ph-1' ? '4.01' : step === 'ph-2' ? '6.86' : '9.18'}
-              style={{ flex: 1, padding: '6px 10px', fontSize: 14, fontWeight: 700,
+              style={{ flex: 1, padding: '6px 10px', fontSize: 15, fontWeight: 700,
                        border: '1px solid #fcd34d', borderRadius: 6, color: '#0f172a' }} />
           </div>
           <div className="flex gap-2">
@@ -654,11 +654,11 @@ const CalibrationEditor = ({ farmId }) => {
               else completePh();
             }} style={{
               padding: '6px 14px', background: '#16a34a', color: '#fff', border: 'none',
-              borderRadius: 6, fontSize: 14, fontWeight: 700, cursor: 'pointer',
+              borderRadius: 6, fontSize: 15, fontWeight: 700, cursor: 'pointer',
             }}>✓ {step === 'ec' || step === 'ph-3' ? '저장' : '다음'}</button>
             <button onClick={() => setStep(null)} style={{
               padding: '6px 14px', background: '#fff', color: '#64748b',
-              border: '1px solid #cbd5e1', borderRadius: 6, fontSize: 14, fontWeight: 700, cursor: 'pointer',
+              border: '1px solid #cbd5e1', borderRadius: 6, fontSize: 15, fontWeight: 700, cursor: 'pointer',
             }}>취소</button>
           </div>
         </div>
@@ -666,9 +666,9 @@ const CalibrationEditor = ({ farmId }) => {
 
       {/* 이력 */}
       <div>
-        <div style={{ fontSize: 14, fontWeight: 700, color: '#475569', marginBottom: 6 }}>📜 보정 이력</div>
+        <div style={{ fontSize: 15, fontWeight: 700, color: '#475569', marginBottom: 6 }}>📜 보정 이력</div>
         <div style={{ maxHeight: 160, overflowY: 'auto', border: '1px solid #e2e8f0', borderRadius: 8 }}>
-          <table style={{ width: '100%', fontSize: 13, borderCollapse: 'collapse' }}>
+          <table style={{ width: '100%', fontSize: 14, borderCollapse: 'collapse' }}>
             <thead>
               <tr style={{ background: '#f8fafc', position: 'sticky', top: 0 }}>
                 <th style={{ padding: 6, textAlign: 'left', fontWeight: 700, color: '#475569' }}>일시</th>
@@ -711,8 +711,8 @@ const CalibrationEditor = ({ farmId }) => {
 
 const CalCell = ({ label, value, color }) => (
   <div style={{ padding: '4px 6px', background: '#fff', borderRadius: 4, textAlign: 'center' }}>
-    <div style={{ fontSize: 11, color: '#94a3b8' }}>{label}</div>
-    <div style={{ fontSize: 14, fontWeight: 800, color }}>{value}</div>
+    <div style={{ fontSize: 13, color: '#94a3b8' }}>{label}</div>
+    <div style={{ fontSize: 15, fontWeight: 800, color }}>{value}</div>
   </div>
 );
 
@@ -768,20 +768,20 @@ const AlertHistory = ({ farmId }) => {
             padding: '4px 10px', borderRadius: 16, border: 'none',
             background: filter === f.id ? '#0f172a' : '#f1f5f9',
             color: filter === f.id ? '#fff' : '#475569',
-            fontSize: 13, fontWeight: 700, cursor: 'pointer',
+            fontSize: 14, fontWeight: 700, cursor: 'pointer',
           }}>{f.label} <span style={{ opacity: 0.6 }}>({f.n})</span></button>
         ))}
         <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="🔍 검색"
-               style={{ flex: 1, minWidth: 100, padding: '4px 10px', fontSize: 13,
+               style={{ flex: 1, minWidth: 100, padding: '4px 10px', fontSize: 14,
                         border: '1px solid #cbd5e1', borderRadius: 16, outline: 'none' }} />
       </div>
 
       {/* 리스트 */}
       <div style={{ maxHeight: 280, overflowY: 'auto', border: '1px solid #e2e8f0', borderRadius: 8 }}>
         {loading ? (
-          <div style={{ padding: 24, textAlign: 'center', fontSize: 14, color: '#94a3b8' }}>불러오는 중…</div>
+          <div style={{ padding: 24, textAlign: 'center', fontSize: 15, color: '#94a3b8' }}>불러오는 중…</div>
         ) : filtered.length === 0 ? (
-          <div style={{ padding: 24, textAlign: 'center', fontSize: 14, color: '#94a3b8' }}>
+          <div style={{ padding: 24, textAlign: 'center', fontSize: 15, color: '#94a3b8' }}>
             {history.length === 0 ? '경보 이력 없음 — 양액 시스템 가동 후 자동 기록됩니다' : '조건에 맞는 경보가 없습니다'}
           </div>
         ) : filtered.map(a => (
@@ -790,28 +790,28 @@ const AlertHistory = ({ farmId }) => {
             display: 'flex', alignItems: 'flex-start', gap: 10,
           }}>
             <span style={{
-              padding: '2px 6px', borderRadius: 4, fontSize: 11, fontWeight: 800,
+              padding: '2px 6px', borderRadius: 4, fontSize: 13, fontWeight: 800,
               background: sevBg[a.severity], color: sevColor[a.severity], flexShrink: 0,
             }}>{a.severity === 'critical' ? '🛑' : '⚠️'}</span>
             <div style={{ flex: 1 }}>
               <div className="flex justify-between items-start gap-2">
-                <span style={{ fontSize: 14, fontWeight: 700, color: '#0f172a' }}>{a.alertType}</span>
-                <span style={{ fontSize: 12, color: '#94a3b8', flexShrink: 0 }}>{fmtDate(a.occurredAt)}</span>
+                <span style={{ fontSize: 15, fontWeight: 700, color: '#0f172a' }}>{a.alertType}</span>
+                <span style={{ fontSize: 13, color: '#94a3b8', flexShrink: 0 }}>{fmtDate(a.occurredAt)}</span>
               </div>
-              <div style={{ fontSize: 13, color: '#475569', marginTop: 2 }}>{a.message}</div>
+              <div style={{ fontSize: 14, color: '#475569', marginTop: 2 }}>{a.message}</div>
               {a.value != null && (
-                <div style={{ fontSize: 12, color: '#64748b', marginTop: 2 }}>
+                <div style={{ fontSize: 13, color: '#64748b', marginTop: 2 }}>
                   측정 <strong style={{ color: sevColor[a.severity] }}>{a.value}</strong>
                   {a.threshold != null && <> {' '}/ 한계 <strong>{a.threshold}</strong></>}
                 </div>
               )}
               <div className="flex justify-between items-center" style={{ marginTop: 2 }}>
-                <span style={{ fontSize: 12, color: a.resolved ? '#16a34a' : '#dc2626', fontWeight: 600 }}>
+                <span style={{ fontSize: 13, color: a.resolved ? '#16a34a' : '#dc2626', fontWeight: 600 }}>
                   {a.resolved ? '✓ 해결' : '◌ 진행중'}{a.action ? ` · ${a.action}` : ''}
                 </span>
                 {!a.resolved && (
                   <button onClick={() => resolveOne(a.id)} style={{
-                    padding: '2px 8px', fontSize: 11, fontWeight: 700,
+                    padding: '2px 8px', fontSize: 13, fontWeight: 700,
                     background: '#16a34a', color: '#fff', border: 'none',
                     borderRadius: 4, cursor: 'pointer',
                   }}>해결 처리</button>
@@ -822,7 +822,7 @@ const AlertHistory = ({ farmId }) => {
         ))}
       </div>
 
-      <div style={{ fontSize: 12, color: '#94a3b8', marginTop: 6, textAlign: 'right' }}>
+      <div style={{ fontSize: 13, color: '#94a3b8', marginTop: 6, textAlign: 'right' }}>
         총 {filtered.length}건 표시 (전체 {history.length}건)
       </div>
     </div>
@@ -861,7 +861,7 @@ const CounterReset = ({ farmId }) => {
   };
 
   if (!counters) {
-    return <div style={{ padding: 16, textAlign: 'center', color: '#94a3b8', fontSize: 13 }}>불러오는 중…</div>;
+    return <div style={{ padding: 16, textAlign: 'center', color: '#94a3b8', fontSize: 14 }}>불러오는 중…</div>;
   }
 
   const fmtDate = (d) => d ? new Date(d).toLocaleDateString('ko-KR') : '—';
@@ -877,10 +877,10 @@ const CounterReset = ({ farmId }) => {
     <div>
       <div style={{
         padding: 10, marginBottom: 10, background: '#fef2f2', borderRadius: 8,
-        border: '1px solid #fca5a5', fontSize: 13, color: '#991b1b',
+        border: '1px solid #fca5a5', fontSize: 14, color: '#991b1b',
       }}>
         ⚠️ <strong>주의</strong> · 초기화는 되돌릴 수 없습니다. 필터 교체·정비 후에만 사용하세요.
-        <div style={{ fontSize: 12, color: '#dc2626', marginTop: 4 }}>
+        <div style={{ fontSize: 13, color: '#dc2626', marginTop: 4 }}>
           마지막 초기화: <strong>{fmtDate(counters.lastResetAt)}</strong> · 마지막 필터 교체: <strong>{fmtDate(counters.filterChangeAt)}</strong>
         </div>
       </div>
@@ -890,15 +890,15 @@ const CounterReset = ({ farmId }) => {
           <div key={c.key} style={{
             padding: 10, background: '#f8fafc', borderRadius: 8, border: '1px solid #e2e8f0',
           }}>
-            <div style={{ fontSize: 18 }}>{c.icon}</div>
-            <div style={{ fontSize: 12, color: '#64748b', fontWeight: 700, marginTop: 2 }}>{c.label}</div>
-            <div style={{ fontSize: 16, fontWeight: 800, color: c.color, marginTop: 4 }}>
-              {c.value} <span style={{ fontSize: 11, fontWeight: 600 }}>{c.unit}</span>
+            <div style={{ fontSize: 19 }}>{c.icon}</div>
+            <div style={{ fontSize: 13, color: '#64748b', fontWeight: 700, marginTop: 2 }}>{c.label}</div>
+            <div style={{ fontSize: 17, fontWeight: 800, color: c.color, marginTop: 4 }}>
+              {c.value} <span style={{ fontSize: 13, fontWeight: 600 }}>{c.unit}</span>
             </div>
             <button onClick={() => setConfirming(c.key)} style={{
               marginTop: 6, width: '100%', padding: '4px', borderRadius: 4,
               border: '1px solid #cbd5e1', background: '#fff', color: '#dc2626',
-              fontSize: 12, fontWeight: 700, cursor: 'pointer',
+              fontSize: 13, fontWeight: 700, cursor: 'pointer',
             }}>초기화</button>
           </div>
         ))}
@@ -910,12 +910,12 @@ const CounterReset = ({ farmId }) => {
         display: 'flex', justifyContent: 'space-between', alignItems: 'center',
       }}>
         <div>
-          <div style={{ fontSize: 14, fontWeight: 700, color: '#9a3412' }}>🔧 필터 교체 기록</div>
-          <div style={{ fontSize: 12, color: '#c2410c', marginTop: 2 }}>마지막 교체: {fmtDate(counters.filterChangeAt)} · 권장 주기 90일</div>
+          <div style={{ fontSize: 15, fontWeight: 700, color: '#9a3412' }}>🔧 필터 교체 기록</div>
+          <div style={{ fontSize: 13, color: '#c2410c', marginTop: 2 }}>마지막 교체: {fmtDate(counters.filterChangeAt)} · 권장 주기 90일</div>
         </div>
         <button onClick={doFilterChange} style={{
           padding: '6px 12px', borderRadius: 6, border: 'none',
-          background: '#ea580c', color: '#fff', fontSize: 13, fontWeight: 700, cursor: 'pointer',
+          background: '#ea580c', color: '#fff', fontSize: 14, fontWeight: 700, cursor: 'pointer',
         }}>교체 완료 기록</button>
       </div>
 
@@ -925,21 +925,21 @@ const CounterReset = ({ farmId }) => {
           marginTop: 10, padding: 12, background: '#fef2f2', borderRadius: 8,
           border: '2px solid #dc2626',
         }}>
-          <div style={{ fontSize: 15, fontWeight: 800, color: '#991b1b', marginBottom: 6 }}>
+          <div style={{ fontSize: 16, fontWeight: 800, color: '#991b1b', marginBottom: 6 }}>
             🛑 정말 초기화하시겠습니까?
           </div>
-          <div style={{ fontSize: 13, color: '#7f1d1d', marginBottom: 8 }}>
+          <div style={{ fontSize: 14, color: '#7f1d1d', marginBottom: 8 }}>
             <strong>{cards.find(c => c.key === confirming)?.label}</strong> 누적값이 0으로 리셋됩니다.
             <br />이 작업은 <strong>되돌릴 수 없습니다</strong>.
           </div>
           <div className="flex gap-2">
             <button onClick={() => doReset(confirming)} style={{
               padding: '6px 14px', background: '#dc2626', color: '#fff', border: 'none',
-              borderRadius: 6, fontSize: 14, fontWeight: 700, cursor: 'pointer',
+              borderRadius: 6, fontSize: 15, fontWeight: 700, cursor: 'pointer',
             }}>네, 초기화합니다</button>
             <button onClick={() => setConfirming(null)} style={{
               padding: '6px 14px', background: '#fff', color: '#64748b',
-              border: '1px solid #cbd5e1', borderRadius: 6, fontSize: 14, fontWeight: 700, cursor: 'pointer',
+              border: '1px solid #cbd5e1', borderRadius: 6, fontSize: 15, fontWeight: 700, cursor: 'pointer',
             }}>취소</button>
           </div>
         </div>

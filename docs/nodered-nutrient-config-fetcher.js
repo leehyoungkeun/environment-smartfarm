@@ -25,7 +25,8 @@ const reqs = [
 
 node.status({ fill: 'blue', shape: 'dot', text: '⟳ 동기화 중' });
 
-return reqs.map(r => ({ ...r }));
+// NR multi-message single-output 패턴: 한 출력 포트에 여러 msg 발신
+return [reqs.map(r => ({ ...r }))];
 
 // ─────────────────────────────────────────
 // 응답 처리 노드 (별도 function):

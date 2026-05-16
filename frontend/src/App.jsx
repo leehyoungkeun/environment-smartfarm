@@ -263,7 +263,7 @@ function AppContent() {
     return () => { clearInterval(ipInterval); clearInterval(clockInterval); };
   }, []);
 
-  const VALID_PAGES = ['dashboard','control','cctv','history','journal','report','ai','farms','server','settings','users'];
+  const VALID_PAGES = ['dashboard','control','cctv','nutrient','history','journal','report','ai','farms','server','settings','users'];
   useEffect(() => {
     if (!user) return;
     // 유효하지 않은 페이지 → 대시보드로 리다이렉트
@@ -272,7 +272,7 @@ function AppContent() {
       return;
     }
     // 권한 없는 페이지 → 대시보드로 리다이렉트
-    const pagePermission = currentPage === 'cctv' ? 'control' : currentPage;
+    const pagePermission = (currentPage === 'cctv' || currentPage === 'nutrient') ? 'control' : currentPage;
     if (currentPage !== 'dashboard' && !hasPermission(pagePermission)) {
       setCurrentPage('dashboard');
     }

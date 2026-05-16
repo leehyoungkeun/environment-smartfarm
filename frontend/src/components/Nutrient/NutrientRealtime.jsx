@@ -376,10 +376,13 @@ const FlowDiagram = ({ data }) => {
         </span>
       </div>
 
+      {/* 가로 스크롤 컨테이너 — 좁은 화면(폰)에서 노드 깨짐 방지 */}
+      <div style={{ overflowX: 'auto', WebkitOverflowScrolling: 'touch', marginRight: -8, paddingRight: 8 }}>
       {/* 그리드 레이아웃 — 5단 (원수탱크 / 도싱탱크 / 혼합+교반 / 펌프 / 밸브) */}
       <div style={{ position: 'relative', display: 'grid',
-        gridTemplateColumns: 'minmax(0, 0.5fr) 28px minmax(0, 1fr) 28px minmax(0, 1.1fr) 28px minmax(0, 0.5fr) 28px minmax(0, 1.4fr)',
+        gridTemplateColumns: 'minmax(120px, 0.5fr) 28px minmax(220px, 1fr) 28px minmax(160px, 1.1fr) 28px minmax(120px, 0.5fr) 28px minmax(200px, 1.4fr)',
         alignItems: 'center', gap: 4,
+        minWidth: 800,
       }}>
         {/* 0. 원수 탱크 */}
         <RawTankNode tank={data.rawTank} active={data.rawPump} />
@@ -420,6 +423,11 @@ const FlowDiagram = ({ data }) => {
         {/* 4. 밸브 그리드 */}
         <ValveGrid count={data.totalValves} active={data.activeValve} />
       </div>
+      </div>
+      {/* 폰에서 가로 스크롤 힌트 — 좁은 화면에서만 표시 */}
+      <div className="md:hidden" style={{
+        textAlign: 'center', fontSize: 11, color: '#94a3b8', marginTop: 6,
+      }}>👈 좌우로 스와이프하여 전체 흐름 보기</div>
     </div>
   );
 };

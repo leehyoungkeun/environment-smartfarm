@@ -1,66 +1,113 @@
-import { useState } from 'react';
-
-// Phase 2 에서 API 연동 — mock
-const MOCK_SCENARIOS = [
-  {
-    id: 1, name: '생장기', active: true, enabled: true,
-    ecTarget: 1.8, phTarget: 6.0,
-    dosingRatio: { A: 25, B: 25, C: 20, D: 20, acid: 5, F: 5 },
-    irrigationMode: 'solar', // 'solar' | 'timer' | 'schedule'
-    solarThreshold: 100, solarAccumulated: 72, // 일사량 적산 (목표 대비 %)
-    timerInterval: '00:30',
-    timerStart: '07:00', timerEnd: '22:00',
-    scheduleSlots: ['08:00', '09:30', '11:00', '12:30', '14:00', '15:30', '17:00'],
-    days: [1, 2, 3, 4, 5, 6, 0],
-    valves: Array(14).fill({ duration: 600, volume: 150 }),
-  },
-  {
-    id: 2, name: '개화기', active: false, enabled: true,
-    ecTarget: 2.2, phTarget: 5.8,
-    dosingRatio: { A: 30, B: 30, C: 15, D: 15, acid: 5, F: 5 },
-    irrigationMode: 'timer',
-    timerInterval: '00:45', timerStart: '07:00', timerEnd: '22:00',
-    solarAccumulated: 0,
-    days: [1, 2, 3, 4, 5, 6, 0],
-    valves: Array(14).fill({ duration: 720, volume: 180 }),
-  },
-];
+import { useEffect, useState } from 'react';
+import * as nutrientApi from '../../services/nutrientApi';
 
 export default function NutrientScenarios({ farmId }) {
-  const [scenarios, setScenarios] = useState(MOCK_SCENARIOS);
+  const [scenarios, setScenarios] = useState([]);
   const [editingId, setEditingId] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+  const [saving, setSaving] = useState(false);
 
-  const updateScenario = (id, updates) => {
+  // 초기 로드
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        setLoading(true);
+        const data = await nutrientApi.listScenarios(farmId);
+        if (!cancelled) setScenarios(data || []);
+      } catch (e) {
+        if (!cancelled) setError(e.response?.data?.error || e.message);
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [farmId]);
+
+  // patch 후 로컬 state 즉시 반영 + 서버 저장 (debounce 는 향후 추가 가능)
+  const updateScenario = async (id, updates) => {
     setScenarios(prev => prev.map(s => s.id === id ? { ...s, ...updates } : s));
+    try {
+      setSaving(true);
+      await nutrientApi.updateScenario(farmId, id, updates);
+    } catch (e) {
+      setError(e.response?.data?.error || e.message);
+    } finally {
+      setSaving(false);
+    }
   };
 
-  const addScenario = () => {
+  const addScenario = async () => {
     if (scenarios.length >= 12) return alert('시나리오는 최대 12개까지');
-    const newId = Math.max(...scenarios.map(s => s.id), 0) + 1;
-    setScenarios(prev => [...prev, {
-      id: newId, name: `시나리오 ${newId}`, active: false, enabled: true,
-      ecTarget: 2.0, phTarget: 6.0,
-      dosingRatio: { A: 20, B: 20, C: 20, D: 20, acid: 10, F: 10 },
-      irrigationMode: 'timer',
-      timerInterval: '00:30', timerStart: '08:00', timerEnd: '20:00',
-      days: [1, 2, 3, 4, 5, 6, 0],
-      valves: Array(14).fill({ duration: 600, volume: 150 }),
-    }]);
-    setEditingId(newId);
+    try {
+      setSaving(true);
+      const row = await nutrientApi.createScenario(farmId, {
+        name: `시나리오 ${scenarios.length + 1}`,
+        enabled: true,
+        ecTarget: 2.0, phTarget: 6.0,
+        dosingRatio: { A: 20, B: 20, C: 20, D: 20, acid: 10, F: 10 },
+        irrigationMode: 'timer',
+        timerInterval: '00:30', timerStart: '08:00', timerEnd: '20:00',
+        days: [1, 2, 3, 4, 5, 6, 0],
+        valves: Array(14).fill({ duration: 600, volume: 150 }),
+      });
+      setScenarios(prev => [...prev, row]);
+      setEditingId(row.id);
+    } catch (e) {
+      setError(e.response?.data?.error || e.message);
+    } finally {
+      setSaving(false);
+    }
   };
 
-  const deleteScenario = (id) => {
+  const deleteScenario = async (id) => {
     if (!confirm('이 시나리오를 삭제할까요?')) return;
-    setScenarios(prev => prev.filter(s => s.id !== id));
-    if (editingId === id) setEditingId(null);
+    try {
+      setSaving(true);
+      await nutrientApi.deleteScenario(farmId, id);
+      setScenarios(prev => prev.filter(s => s.id !== id));
+      if (editingId === id) setEditingId(null);
+    } catch (e) {
+      setError(e.response?.data?.error || e.message);
+    } finally {
+      setSaving(false);
+    }
   };
 
-  const activate = (id) => {
-    setScenarios(prev => prev.map(s => ({ ...s, active: s.id === id })));
+  const activate = async (id) => {
+    try {
+      setSaving(true);
+      await nutrientApi.activateScenario(farmId, id);
+      setScenarios(prev => prev.map(s => ({ ...s, active: s.id === id })));
+    } catch (e) {
+      setError(e.response?.data?.error || e.message);
+    } finally {
+      setSaving(false);
+    }
   };
+
+  if (loading) {
+    return <div style={{ padding: 24, textAlign: 'center', color: '#64748b', fontSize: 14 }}>시나리오 불러오는 중…</div>;
+  }
 
   return (
     <div className="space-y-3">
+      {/* 에러 배너 */}
+      {error && (
+        <div style={{
+          padding: '10px 14px', background: '#fee2e2', border: '1px solid #fca5a5',
+          borderRadius: 10, color: '#991b1b', fontSize: 13, fontWeight: 700,
+          display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+        }}>
+          <span>⚠️ {error}</span>
+          <button onClick={() => setError(null)} style={{
+            background: 'transparent', border: 'none', color: '#991b1b',
+            fontSize: 16, cursor: 'pointer',
+          }}>✕</button>
+        </div>
+      )}
+
       {/* 헤더 + 추가 버튼 */}
       <div style={{
         background: '#fff', borderRadius: 12, padding: '10px 14px', border: '1px solid #e2e8f0',
@@ -68,27 +115,40 @@ export default function NutrientScenarios({ farmId }) {
       }}>
         <span style={{ fontSize: 15, fontWeight: 700, color: '#475569' }}>
           시나리오 <strong style={{ color: '#0891b2' }}>{scenarios.length}</strong> / 최대 12
+          {saving && <span style={{ marginLeft: 8, fontSize: 12, color: '#94a3b8' }}>저장 중…</span>}
         </span>
-        <button onClick={addScenario} disabled={scenarios.length >= 12}
+        <button onClick={addScenario} disabled={scenarios.length >= 12 || saving}
           style={{
-            background: scenarios.length >= 12 ? '#cbd5e1' : '#0891b2',
+            background: scenarios.length >= 12 || saving ? '#cbd5e1' : '#0891b2',
             color: '#fff', border: 'none', padding: '6px 14px', borderRadius: 8,
-            fontSize: 14, fontWeight: 800, cursor: scenarios.length >= 12 ? 'not-allowed' : 'pointer',
+            fontSize: 14, fontWeight: 800,
+            cursor: scenarios.length >= 12 || saving ? 'not-allowed' : 'pointer',
           }}>+ 시나리오 추가</button>
       </div>
 
       {/* 시나리오 카드 리스트 */}
-      <div className="space-y-2">
-        {scenarios.map(s => (
-          <ScenarioCard
-            key={s.id} scenario={s} isEditing={editingId === s.id}
-            onEdit={() => setEditingId(editingId === s.id ? null : s.id)}
-            onChange={(updates) => updateScenario(s.id, updates)}
-            onDelete={() => deleteScenario(s.id)}
-            onActivate={() => activate(s.id)}
-          />
-        ))}
-      </div>
+      {scenarios.length === 0 ? (
+        <div style={{
+          padding: '40px 20px', textAlign: 'center', background: '#fff',
+          borderRadius: 12, border: '1px dashed #cbd5e1', color: '#64748b', fontSize: 14,
+        }}>
+          <div style={{ fontSize: 32, marginBottom: 8 }}>📋</div>
+          <div style={{ fontWeight: 700, marginBottom: 4 }}>등록된 시나리오가 없습니다</div>
+          <div style={{ fontSize: 12, color: '#94a3b8' }}>+ 시나리오 추가 버튼을 눌러 첫 시나리오를 만드세요</div>
+        </div>
+      ) : (
+        <div className="space-y-2">
+          {scenarios.map((s, idx) => (
+            <ScenarioCard
+              key={s.id} scenario={s} index={idx + 1} isEditing={editingId === s.id}
+              onEdit={() => setEditingId(editingId === s.id ? null : s.id)}
+              onChange={(updates) => updateScenario(s.id, updates)}
+              onDelete={() => deleteScenario(s.id)}
+              onActivate={() => activate(s.id)}
+            />
+          ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -96,7 +156,7 @@ export default function NutrientScenarios({ farmId }) {
 // ─────────────────────────────────────────
 // 시나리오 카드
 // ─────────────────────────────────────────
-const ScenarioCard = ({ scenario, isEditing, onEdit, onChange, onDelete, onActivate }) => {
+const ScenarioCard = ({ scenario, index, isEditing, onEdit, onChange, onDelete, onActivate }) => {
   const s = scenario;
   const modeLabel = { solar: '일사량 비례', timer: '작동 간격', schedule: '지정시각' };
 
@@ -110,7 +170,7 @@ const ScenarioCard = ({ scenario, isEditing, onEdit, onChange, onDelete, onActiv
         <span style={{
           padding: '4px 10px', borderRadius: 12, fontSize: 13, fontWeight: 800,
           background: s.active ? '#dcfce7' : '#f1f5f9', color: s.active ? '#15803d' : '#64748b',
-        }}>{s.id}번</span>
+        }}>{index}번</span>
         <input
           value={s.name}
           onChange={(e) => onChange({ name: e.target.value })}

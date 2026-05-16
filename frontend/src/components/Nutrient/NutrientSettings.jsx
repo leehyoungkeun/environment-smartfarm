@@ -1,6 +1,8 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import * as nutrientApi from '../../services/nutrientApi';
 
-const MOCK_TANKS = [
+// 초기값 — backend 의 DEFAULT_ALERT_THRESHOLDS / DEFAULT_HARDWARE 와 동일
+const DEFAULT_TANKS = [
   { id: 'A', label: '질소·칼슘', level: 80, capacity: 200, modbusReg: 0 },
   { id: 'B', label: '인·칼륨·마그', level: 75, capacity: 200, modbusReg: 1 },
   { id: 'C', label: '미량원소', level: 65, capacity: 100, modbusReg: 2 },
@@ -9,65 +11,15 @@ const MOCK_TANKS = [
   { id: 'F', label: '알칼리 (pH 상승)', level: 85, capacity: 50, modbusReg: 5 },
 ];
 
-const MOCK_ALERTS = {
+const DEFAULT_ALERTS = {
   ecUpper: 4.0, ecLower: 0.2, ecCritical: 0.1,
   phUpper: 8.0, phLower: 4.5, phCritical: 6.5,
 };
 
-const MOCK_HW = {
+const DEFAULT_HW = {
   modbusUnit: 3, ecSensorAddr: 100, phSensorAddr: 101, flowSensorAddr: 102,
-  pumpResponse: 50, // ms
-  dosingPulseUnit: 500, // mL/pulse 등
-};
-
-const MOCK_CALIBRATION = {
-  ec: {
-    lastCalibrated: '2026-05-10 09:23',
-    standardValue: 1.413, // mS/cm (KCl 표준액)
-    measuredValue: 1.408,
-    offset: 0.005,
-    nextDue: '2026-06-10',
-    history: [
-      { date: '2026-05-10 09:23', standard: 1.413, measured: 1.408, offset: 0.005, by: 'admin' },
-      { date: '2026-04-10 10:15', standard: 1.413, measured: 1.395, offset: 0.018, by: 'admin' },
-      { date: '2026-03-12 14:02', standard: 1.413, measured: 1.421, offset: -0.008, by: 'farmer' },
-    ],
-  },
-  ph: {
-    lastCalibrated: '2026-05-10 09:35',
-    points: [
-      { buffer: 4.01, measured: 4.05, offset: -0.04 },
-      { buffer: 6.86, measured: 6.88, offset: -0.02 },
-      { buffer: 9.18, measured: 9.15, offset: 0.03 },
-    ],
-    slope: 98.5, // %
-    nextDue: '2026-06-10',
-    history: [
-      { date: '2026-05-10 09:35', slope: 98.5, by: 'admin' },
-      { date: '2026-04-10 10:30', slope: 97.2, by: 'admin' },
-      { date: '2026-03-12 14:18', slope: 96.8, by: 'farmer' },
-    ],
-  },
-};
-
-const MOCK_ALERT_HISTORY = [
-  { id: 1, time: '2026-05-16 08:23', type: 'EC 상한 초과', value: 4.2, threshold: 4.0, severity: 'warning', resolved: true, action: '도싱 일시정지 · 재희석' },
-  { id: 2, time: '2026-05-16 06:15', type: 'pH 하한 미달', value: 4.3, threshold: 4.5, severity: 'warning', resolved: true, action: '알칼리 도싱 +5%' },
-  { id: 3, time: '2026-05-15 22:47', type: '탱크 A 잔량 부족', value: 12, threshold: 15, severity: 'warning', resolved: true, action: '액 보충 완료' },
-  { id: 4, time: '2026-05-15 17:32', type: 'EC 센서 통신 오류', value: null, threshold: null, severity: 'critical', resolved: true, action: 'Modbus 재연결 (30초)' },
-  { id: 5, time: '2026-05-15 14:08', type: '유량 이상 (목표 대비 -45%)', value: 55, threshold: 100, severity: 'warning', resolved: true, action: '필터 청소 알림' },
-  { id: 6, time: '2026-05-14 11:25', type: 'pH 상한 초과', value: 8.3, threshold: 8.0, severity: 'warning', resolved: true, action: '산 도싱 +3%' },
-  { id: 7, time: '2026-05-14 03:12', type: '원수 수위 부족', value: 8, threshold: 15, severity: 'critical', resolved: true, action: '관수 정지 · 수동 보충' },
-  { id: 8, time: '2026-05-13 19:50', type: '교반기 응답 없음', value: null, threshold: null, severity: 'critical', resolved: true, action: '재시작 후 정상' },
-];
-
-const MOCK_COUNTERS = {
-  totalDoseL: 14523.7, // 누적 도싱량 (L)
-  totalIrrigationL: 285430.5, // 누적 관수량 (L)
-  totalCycles: 8420, // 누적 1회 관수 횟수
-  pumpRuntime: 6240, // 펌프 누적 가동 시간 (분)
-  filterChangeAt: '2026-04-22',
-  lastReset: '2026-01-01',
+  pumpResponse: 50,
+  dosingPulseUnit: 500,
 };
 
 export default function NutrientSettings({ farmId }) {
@@ -77,54 +29,110 @@ export default function NutrientSettings({ farmId }) {
   });
   const toggle = (k) => setOpen(o => ({ ...o, [k]: !o[k] }));
 
+  const [config, setConfig] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+  const [savingSection, setSavingSection] = useState(null);
+
+  // 초기 config 로드
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const cfg = await nutrientApi.getConfig(farmId);
+        if (cancelled) return;
+        setConfig({
+          tanks: (cfg.tanks && cfg.tanks.length) ? cfg.tanks : DEFAULT_TANKS,
+          valveCount: cfg.valveCount || 14,
+          alerts: { ...DEFAULT_ALERTS, ...(cfg.alerts || {}) },
+          hardware: { ...DEFAULT_HW, ...(cfg.hardware || {}) },
+        });
+      } catch (e) {
+        if (!cancelled) setError(e.response?.data?.error || e.message);
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [farmId]);
+
+  const saveSection = async (section, value) => {
+    setConfig(prev => ({ ...prev, [section]: value }));
+    setSavingSection(section);
+    try {
+      await nutrientApi.updateConfig(farmId, { [section]: value });
+    } catch (e) {
+      setError(e.response?.data?.error || e.message);
+    } finally {
+      setSavingSection(null);
+    }
+  };
+
+  if (loading || !config) {
+    return <div style={{ padding: 24, textAlign: 'center', color: '#64748b', fontSize: 14 }}>설정 불러오는 중…</div>;
+  }
+
   return (
     <div className="space-y-2">
+      {error && (
+        <div style={{
+          padding: '10px 14px', background: '#fee2e2', border: '1px solid #fca5a5',
+          borderRadius: 10, color: '#991b1b', fontSize: 13, fontWeight: 700,
+          display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+        }}>
+          <span>⚠️ {error}</span>
+          <button onClick={() => setError(null)} style={{
+            background: 'transparent', border: 'none', color: '#991b1b', fontSize: 16, cursor: 'pointer',
+          }}>✕</button>
+        </div>
+      )}
+
       {/* 1. 도싱 탱크 */}
-      <Section title="💧 도싱 탱크" subtitle={`${MOCK_TANKS.length}개 사용 · 최대 10개`}
-               open={open.tanks} onToggle={() => toggle('tanks')}>
-        <TanksEditor />
+      <Section title="💧 도싱 탱크" subtitle={`${config.tanks.length}개 사용 · 최대 10개`}
+               open={open.tanks} onToggle={() => toggle('tanks')} saving={savingSection === 'tanks'}>
+        <TanksEditor tanks={config.tanks} onSave={(t) => saveSection('tanks', t)} />
       </Section>
 
       {/* 2. 관수 밸브 */}
-      <Section title="🚿 관수 밸브" subtitle="14구역 · 최대 24개"
-               open={open.valves} onToggle={() => toggle('valves')}>
-        <ValvesEditor />
+      <Section title="🚿 관수 밸브" subtitle={`${config.valveCount}구역 · 최대 24개`}
+               open={open.valves} onToggle={() => toggle('valves')} saving={savingSection === 'valveCount'}>
+        <ValvesEditor count={config.valveCount} onSave={(n) => saveSection('valveCount', n)} />
       </Section>
 
       {/* 3. 경보 한계값 */}
       <Section title="⚠️ 경보 한계값" subtitle="EC · pH 3단계 (작동중단 / 경보 / 정상)"
-               open={open.alerts} onToggle={() => toggle('alerts')}>
-        <AlertsEditor />
+               open={open.alerts} onToggle={() => toggle('alerts')} saving={savingSection === 'alerts'}>
+        <AlertsEditor alerts={config.alerts} onSave={(a) => saveSection('alerts', a)} />
       </Section>
 
-      {/* 4. 센서 보정 (신규) */}
+      {/* 4. 센서 보정 */}
       <Section title="🎯 센서 보정" subtitle="EC 1-포인트 (1.413 mS/cm) · pH 3-포인트 (4.01/6.86/9.18)"
                open={open.calibration} onToggle={() => toggle('calibration')}>
-        <CalibrationEditor />
+        <CalibrationEditor farmId={farmId} />
       </Section>
 
-      {/* 5. 경보 이력 (신규) */}
-      <Section title="📋 경보 이력" subtitle={`최근 ${MOCK_ALERT_HISTORY.length}건 · 원인 · 조치 추적`}
+      {/* 5. 경보 이력 */}
+      <Section title="📋 경보 이력" subtitle="원인 · 조치 추적"
                open={open.alertHistory} onToggle={() => toggle('alertHistory')}>
-        <AlertHistory />
+        <AlertHistory farmId={farmId} />
       </Section>
 
-      {/* 6. 카운터 초기화 (신규, 신중) */}
+      {/* 6. 누적 카운터 */}
       <Section title="🔄 누적 카운터" subtitle="도싱·관수·펌프 누적값 · 필터 교체 · 초기화"
                open={open.counters} onToggle={() => toggle('counters')}>
-        <CounterReset />
+        <CounterReset farmId={farmId} />
       </Section>
 
       {/* 7. 하드웨어·설비 */}
       <Section title="🛠️ 설비·시스템" subtitle="Modbus 매핑 · 펌프 응답"
-               open={open.hw} onToggle={() => toggle('hw')}>
-        <HardwareEditor />
+               open={open.hw} onToggle={() => toggle('hw')} saving={savingSection === 'hardware'}>
+        <HardwareEditor hardware={config.hardware} onSave={(h) => saveSection('hardware', h)} />
       </Section>
     </div>
   );
 }
 
-const Section = ({ title, subtitle, open, onToggle, children }) => (
+const Section = ({ title, subtitle, open, onToggle, saving, children }) => (
   <div style={{ background: '#fff', borderRadius: 12, border: '1px solid #e2e8f0', overflow: 'hidden' }}>
     <button onClick={onToggle} style={{
       width: '100%', padding: '12px 16px', border: 'none', cursor: 'pointer',
@@ -133,7 +141,10 @@ const Section = ({ title, subtitle, open, onToggle, children }) => (
     }}>
       <div>
         <div style={{ fontSize: 16, fontWeight: 800, color: '#0f172a' }}>{title}</div>
-        <div style={{ fontSize: 13, color: '#64748b', marginTop: 2 }}>{subtitle}</div>
+        <div style={{ fontSize: 13, color: '#64748b', marginTop: 2 }}>
+          {subtitle}
+          {saving && <span style={{ marginLeft: 8, fontSize: 11, color: '#0891b2', fontWeight: 700 }}>저장 중…</span>}
+        </div>
       </div>
       <span style={{ fontSize: 16, color: '#94a3b8', transition: 'transform 0.2s',
                      transform: open ? 'rotate(180deg)' : '' }}>▾</span>
@@ -147,14 +158,18 @@ const Section = ({ title, subtitle, open, onToggle, children }) => (
 // ─────────────────────────────────────────
 // 도싱 탱크 편집
 // ─────────────────────────────────────────
-const TanksEditor = () => {
-  const [tanks, setTanks] = useState(MOCK_TANKS);
-  const updateTank = (i, updates) => setTanks(prev => prev.map((t, idx) => idx === i ? { ...t, ...updates } : t));
+const TanksEditor = ({ tanks: initial, onSave }) => {
+  const [tanks, setTanks] = useState(initial);
+  const [dirty, setDirty] = useState(false);
+  const markDirty = () => setDirty(true);
+  const updateTank = (i, updates) => { setTanks(prev => prev.map((t, idx) => idx === i ? { ...t, ...updates } : t)); markDirty(); };
   const addTank = () => {
     if (tanks.length >= 10) return alert('최대 10개');
     setTanks(prev => [...prev, { id: `T${prev.length+1}`, label: '신규', level: 100, capacity: 100, modbusReg: prev.length }]);
+    markDirty();
   };
-  const removeTank = (i) => setTanks(prev => prev.filter((_, idx) => idx !== i));
+  const removeTank = (i) => { setTanks(prev => prev.filter((_, idx) => idx !== i)); markDirty(); };
+  const save = async () => { await onSave(tanks); setDirty(false); };
 
   return (
     <div>
@@ -204,6 +219,11 @@ const TanksEditor = () => {
       <div style={{ fontSize: 13, color: '#94a3b8', marginTop: 8, padding: 8, background: '#fef3c7', borderRadius: 6 }}>
         💡 한국형 A/B 액: 3-6개 · 단비혼합: 7-8개 · 네덜란드 풀스펙: 9-10개
       </div>
+      <button onClick={save} disabled={!dirty} style={{
+        marginTop: 10, width: '100%', padding: 10, borderRadius: 8, border: 'none',
+        background: dirty ? '#0891b2' : '#cbd5e1', color: '#fff',
+        fontSize: 14, fontWeight: 800, cursor: dirty ? 'pointer' : 'not-allowed',
+      }}>{dirty ? '변경사항 저장' : '저장됨'}</button>
     </div>
   );
 };
@@ -211,8 +231,9 @@ const TanksEditor = () => {
 // ─────────────────────────────────────────
 // 관수 밸브 편집
 // ─────────────────────────────────────────
-const ValvesEditor = () => {
-  const [count, setCount] = useState(14);
+const ValvesEditor = ({ count: initial, onSave }) => {
+  const [count, setCount] = useState(initial || 14);
+  const dirty = count !== initial;
   return (
     <div>
       <div className="flex items-center gap-3 mb-3">
@@ -240,6 +261,11 @@ const ValvesEditor = () => {
       <div style={{ fontSize: 13, color: '#94a3b8', marginTop: 8, padding: 8, background: '#fef3c7', borderRadius: 6 }}>
         💡 소규모 4-8 · 중규모 10-16 · 대규모 18-24 구역
       </div>
+      <button onClick={() => onSave(count)} disabled={!dirty} style={{
+        marginTop: 10, width: '100%', padding: 10, borderRadius: 8, border: 'none',
+        background: dirty ? '#0891b2' : '#cbd5e1', color: '#fff',
+        fontSize: 14, fontWeight: 800, cursor: dirty ? 'pointer' : 'not-allowed',
+      }}>{dirty ? '변경사항 저장' : '저장됨'}</button>
     </div>
   );
 };
@@ -247,9 +273,10 @@ const ValvesEditor = () => {
 // ─────────────────────────────────────────
 // 경보 한계값 편집 + 시각화
 // ─────────────────────────────────────────
-const AlertsEditor = () => {
-  const [a, setA] = useState(MOCK_ALERTS);
-  const currentEC = 1.8; // mock
+const AlertsEditor = ({ alerts: initial, onSave }) => {
+  const [a, setA] = useState(initial);
+  const dirty = JSON.stringify(a) !== JSON.stringify(initial);
+  const currentEC = 1.8; // mock (RPi telemetry 연동 시 state.ecCurrent)
 
   return (
     <div className="space-y-4">
@@ -283,6 +310,11 @@ const AlertsEditor = () => {
                         onChange={(v) => setA({ ...a, phCritical: v })} color="#991b1b" />
         </div>
       </div>
+      <button onClick={() => onSave(a)} disabled={!dirty} style={{
+        marginTop: 4, width: '100%', padding: 10, borderRadius: 8, border: 'none',
+        background: dirty ? '#0891b2' : '#cbd5e1', color: '#fff',
+        fontSize: 14, fontWeight: 800, cursor: dirty ? 'pointer' : 'not-allowed',
+      }}>{dirty ? '변경사항 저장' : '저장됨'}</button>
     </div>
   );
 };
@@ -323,8 +355,9 @@ const ThresholdRow = ({ level, desc, value, step, onChange, color }) => (
 // ─────────────────────────────────────────
 // 하드웨어 편집
 // ─────────────────────────────────────────
-const HardwareEditor = () => {
-  const [hw, setHw] = useState(MOCK_HW);
+const HardwareEditor = ({ hardware: initial, onSave }) => {
+  const [hw, setHw] = useState(initial);
+  const dirty = JSON.stringify(hw) !== JSON.stringify(initial);
   return (
     <div className="space-y-3">
       <div style={{ fontSize: 14, color: '#64748b', padding: 8, background: '#fef3c7', borderRadius: 6 }}>
@@ -338,6 +371,11 @@ const HardwareEditor = () => {
         <NumIn label="펌프 응답 (ms)" value={hw.pumpResponse} onChange={(v) => setHw({ ...hw, pumpResponse: v })} />
         <NumIn label="도징 펄스 단위 (mL)" value={hw.dosingPulseUnit} onChange={(v) => setHw({ ...hw, dosingPulseUnit: v })} />
       </div>
+      <button onClick={() => onSave(hw)} disabled={!dirty} style={{
+        width: '100%', padding: 10, borderRadius: 8, border: 'none',
+        background: dirty ? '#0891b2' : '#cbd5e1', color: '#fff',
+        fontSize: 14, fontWeight: 800, cursor: dirty ? 'pointer' : 'not-allowed',
+      }}>{dirty ? '변경사항 저장' : '저장됨'}</button>
     </div>
   );
 };
@@ -354,9 +392,57 @@ const NumIn = ({ label, value, onChange }) => (
 // ─────────────────────────────────────────
 // 센서 보정 (EC 1-pt + pH 3-pt)
 // ─────────────────────────────────────────
-const CalibrationEditor = () => {
-  const [cal] = useState(MOCK_CALIBRATION);
+const CalibrationEditor = ({ farmId }) => {
+  const [ecHistory, setEcHistory] = useState([]);
+  const [phHistory, setPhHistory] = useState([]);
   const [step, setStep] = useState(null); // null | 'ec' | 'ph-1' | 'ph-2' | 'ph-3'
+  const [phMeasurements, setPhMeasurements] = useState({ '4.01': '', '6.86': '', '9.18': '' });
+  const [ecMeasurement, setEcMeasurement] = useState('');
+
+  const reload = async () => {
+    try {
+      const [ec, ph] = await Promise.all([
+        nutrientApi.listCalibrations(farmId, 'ec'),
+        nutrientApi.listCalibrations(farmId, 'ph'),
+      ]);
+      setEcHistory(ec || []);
+      setPhHistory(ph || []);
+    } catch { /* 빈 이력으로 표시 */ }
+  };
+
+  useEffect(() => { reload(); }, [farmId]);
+
+  const latestEc = ecHistory[0];
+  const latestPh = phHistory[0];
+
+  const completeEc = async () => {
+    const measured = parseFloat(ecMeasurement);
+    if (isNaN(measured)) return alert('측정값을 입력하세요');
+    const offset = +(measured - 1.413).toFixed(3);
+    await nutrientApi.createCalibration(farmId, {
+      sensorType: 'ec', standardValue: 1.413, measuredValue: measured, offset,
+    });
+    setEcMeasurement('');
+    setStep(null);
+    await reload();
+  };
+
+  const completePh = async () => {
+    const points = [4.01, 6.86, 9.18].map(buffer => {
+      const measured = parseFloat(phMeasurements[String(buffer)]);
+      return { buffer, measured: isNaN(measured) ? buffer : measured, offset: isNaN(measured) ? 0 : +(measured - buffer).toFixed(3) };
+    });
+    const totalOffset = points.reduce((s, p) => s + Math.abs(p.offset), 0);
+    const slope = +(100 - totalOffset * 10).toFixed(1); // 단순 근사 (실제 보정엔 별도 계산식 필요)
+    await nutrientApi.createCalibration(farmId, {
+      sensorType: 'ph', points, slope,
+    });
+    setPhMeasurements({ '4.01': '', '6.86': '', '9.18': '' });
+    setStep(null);
+    await reload();
+  };
+
+  const fmtDate = (d) => d ? new Date(d).toLocaleString('ko-KR', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }) : '—';
 
   return (
     <div className="space-y-3">
@@ -375,18 +461,19 @@ const CalibrationEditor = () => {
             <span style={{
               padding: '2px 6px', fontSize: 11, fontWeight: 700,
               background: '#dbeafe', color: '#1e40af', borderRadius: 4,
-            }}>마지막: {cal.ec.lastCalibrated}</span>
+            }}>마지막: {fmtDate(latestEc?.calibratedAt)}</span>
           </div>
           <div className="grid grid-cols-3 gap-2 mb-2" style={{ fontSize: 13 }}>
-            <CalCell label="표준값" value={`${cal.ec.standardValue} mS`} color="#1e40af" />
-            <CalCell label="측정값" value={`${cal.ec.measuredValue} mS`} color="#0891b2" />
-            <CalCell label="오프셋" value={`${cal.ec.offset >= 0 ? '+' : ''}${cal.ec.offset}`} color={Math.abs(cal.ec.offset) < 0.05 ? '#16a34a' : '#d97706'} />
+            <CalCell label="표준값" value={latestEc ? `${latestEc.standardValue} mS` : '—'} color="#1e40af" />
+            <CalCell label="측정값" value={latestEc ? `${latestEc.measuredValue} mS` : '—'} color="#0891b2" />
+            <CalCell label="오프셋"
+                     value={latestEc ? `${latestEc.offset >= 0 ? '+' : ''}${latestEc.offset}` : '—'}
+                     color={latestEc && Math.abs(latestEc.offset) < 0.05 ? '#16a34a' : '#d97706'} />
           </div>
           <button onClick={() => setStep('ec')} style={{
             width: '100%', padding: '8px', borderRadius: 6, border: 'none',
             background: '#1e40af', color: '#fff', fontSize: 14, fontWeight: 700, cursor: 'pointer',
           }}>EC 재보정 시작</button>
-          <div style={{ fontSize: 11, color: '#94a3b8', textAlign: 'right', marginTop: 4 }}>다음 권장: {cal.ec.nextDue}</div>
         </div>
 
         {/* pH 3-포인트 보정 */}
@@ -399,15 +486,15 @@ const CalibrationEditor = () => {
             <span style={{
               padding: '2px 6px', fontSize: 11, fontWeight: 700,
               background: '#ede9fe', color: '#7c3aed', borderRadius: 4,
-            }}>슬로프: {cal.ph.slope}%</span>
+            }}>슬로프: {latestPh ? `${latestPh.slope}%` : '—'}</span>
           </div>
           <div className="space-y-1 mb-2">
-            {cal.ph.points.map((p, i) => (
+            {(latestPh?.points || [{buffer:4.01},{buffer:6.86},{buffer:9.18}]).map((p, i) => (
               <div key={i} className="flex justify-between items-center" style={{ fontSize: 13, padding: '4px 6px', background: '#fff', borderRadius: 4 }}>
                 <span style={{ color: '#7c3aed', fontWeight: 700 }}>pH {p.buffer}</span>
-                <span style={{ color: '#64748b' }}>측정 {p.measured}</span>
-                <span style={{ color: Math.abs(p.offset) < 0.1 ? '#16a34a' : '#d97706', fontWeight: 700 }}>
-                  {p.offset >= 0 ? '+' : ''}{p.offset}
+                <span style={{ color: '#64748b' }}>측정 {p.measured ?? '—'}</span>
+                <span style={{ color: p.offset != null && Math.abs(p.offset) < 0.1 ? '#16a34a' : '#d97706', fontWeight: 700 }}>
+                  {p.offset != null ? `${p.offset >= 0 ? '+' : ''}${p.offset}` : '—'}
                 </span>
               </div>
             ))}
@@ -416,11 +503,10 @@ const CalibrationEditor = () => {
             width: '100%', padding: '8px', borderRadius: 6, border: 'none',
             background: '#7c3aed', color: '#fff', fontSize: 14, fontWeight: 700, cursor: 'pointer',
           }}>pH 재보정 시작</button>
-          <div style={{ fontSize: 11, color: '#94a3b8', textAlign: 'right', marginTop: 4 }}>다음 권장: {cal.ph.nextDue}</div>
         </div>
       </div>
 
-      {/* 보정 진행 모달 (간단한 inline UI) */}
+      {/* 보정 진행 모달 (인라인) */}
       {step && (
         <div style={{ padding: 12, background: '#fef3c7', borderRadius: 8, border: '1px solid #fcd34d' }}>
           <div style={{ fontSize: 14, fontWeight: 800, color: '#92400e', marginBottom: 6 }}>
@@ -429,17 +515,35 @@ const CalibrationEditor = () => {
                 step === 'ph-2' ? 'pH 6.86 완충액' : 'pH 9.18 완충액'}에 센서 침지 중…
           </div>
           <div style={{ fontSize: 13, color: '#78350f', marginBottom: 8 }}>
-            ① 센서를 표준액에 5분간 담그세요 · ② 측정값이 안정되면 [확인]을 누르세요 · ③ 보정 완료
+            ① 센서를 표준액에 5분간 담그세요 · ② 안정된 측정값을 입력하세요 · ③ [확인] 으로 저장
+          </div>
+          <div className="flex items-center gap-2 mb-2">
+            <span style={{ fontSize: 13, fontWeight: 700, color: '#78350f' }}>측정값:</span>
+            <input
+              type="number" step="0.01"
+              value={step === 'ec' ? ecMeasurement :
+                     step === 'ph-1' ? phMeasurements['4.01'] :
+                     step === 'ph-2' ? phMeasurements['6.86'] : phMeasurements['9.18']}
+              onChange={(e) => {
+                if (step === 'ec') setEcMeasurement(e.target.value);
+                else if (step === 'ph-1') setPhMeasurements(p => ({ ...p, '4.01': e.target.value }));
+                else if (step === 'ph-2') setPhMeasurements(p => ({ ...p, '6.86': e.target.value }));
+                else setPhMeasurements(p => ({ ...p, '9.18': e.target.value }));
+              }}
+              placeholder={step === 'ec' ? '1.413' : step === 'ph-1' ? '4.01' : step === 'ph-2' ? '6.86' : '9.18'}
+              style={{ flex: 1, padding: '6px 10px', fontSize: 14, fontWeight: 700,
+                       border: '1px solid #fcd34d', borderRadius: 6, color: '#0f172a' }} />
           </div>
           <div className="flex gap-2">
             <button onClick={() => {
-              if (step === 'ph-1') setStep('ph-2');
+              if (step === 'ec') completeEc();
+              else if (step === 'ph-1') setStep('ph-2');
               else if (step === 'ph-2') setStep('ph-3');
-              else { alert('보정 완료'); setStep(null); }
+              else completePh();
             }} style={{
               padding: '6px 14px', background: '#16a34a', color: '#fff', border: 'none',
               borderRadius: 6, fontSize: 14, fontWeight: 700, cursor: 'pointer',
-            }}>✓ 확인</button>
+            }}>✓ {step === 'ec' || step === 'ph-3' ? '저장' : '다음'}</button>
             <button onClick={() => setStep(null)} style={{
               padding: '6px 14px', background: '#fff', color: '#64748b',
               border: '1px solid #cbd5e1', borderRadius: 6, fontSize: 14, fontWeight: 700, cursor: 'pointer',
@@ -462,24 +566,27 @@ const CalibrationEditor = () => {
               </tr>
             </thead>
             <tbody>
-              {cal.ec.history.map((h, i) => (
-                <tr key={`ec-${i}`} style={{ borderTop: '1px solid #f1f5f9' }}>
-                  <td style={{ padding: 6, color: '#64748b' }}>{h.date}</td>
+              {ecHistory.length === 0 && phHistory.length === 0 && (
+                <tr><td colSpan={4} style={{ padding: 16, textAlign: 'center', color: '#94a3b8' }}>이력 없음 — 보정을 시작하면 자동 기록됩니다</td></tr>
+              )}
+              {ecHistory.map((h) => (
+                <tr key={h.id} style={{ borderTop: '1px solid #f1f5f9' }}>
+                  <td style={{ padding: 6, color: '#64748b' }}>{fmtDate(h.calibratedAt)}</td>
                   <td style={{ padding: 6, color: '#1e40af', fontWeight: 700 }}>EC</td>
-                  <td style={{ padding: 6, textAlign: 'right', color: Math.abs(h.offset) < 0.05 ? '#16a34a' : '#d97706', fontWeight: 700 }}>
-                    {h.offset >= 0 ? '+' : ''}{h.offset}
+                  <td style={{ padding: 6, textAlign: 'right', color: Math.abs(h.offset || 0) < 0.05 ? '#16a34a' : '#d97706', fontWeight: 700 }}>
+                    {h.offset != null ? `${h.offset >= 0 ? '+' : ''}${h.offset}` : '—'}
                   </td>
-                  <td style={{ padding: 6, textAlign: 'right', color: '#64748b' }}>{h.by}</td>
+                  <td style={{ padding: 6, textAlign: 'right', color: '#64748b' }}>{h.performedBy || '—'}</td>
                 </tr>
               ))}
-              {cal.ph.history.map((h, i) => (
-                <tr key={`ph-${i}`} style={{ borderTop: '1px solid #f1f5f9' }}>
-                  <td style={{ padding: 6, color: '#64748b' }}>{h.date}</td>
+              {phHistory.map((h) => (
+                <tr key={h.id} style={{ borderTop: '1px solid #f1f5f9' }}>
+                  <td style={{ padding: 6, color: '#64748b' }}>{fmtDate(h.calibratedAt)}</td>
                   <td style={{ padding: 6, color: '#7c3aed', fontWeight: 700 }}>pH</td>
-                  <td style={{ padding: 6, textAlign: 'right', color: h.slope > 95 ? '#16a34a' : '#d97706', fontWeight: 700 }}>
-                    {h.slope}%
+                  <td style={{ padding: 6, textAlign: 'right', color: (h.slope || 0) > 95 ? '#16a34a' : '#d97706', fontWeight: 700 }}>
+                    {h.slope != null ? `${h.slope}%` : '—'}
                   </td>
-                  <td style={{ padding: 6, textAlign: 'right', color: '#64748b' }}>{h.by}</td>
+                  <td style={{ padding: 6, textAlign: 'right', color: '#64748b' }}>{h.performedBy || '—'}</td>
                 </tr>
               ))}
             </tbody>
@@ -500,18 +607,37 @@ const CalCell = ({ label, value, color }) => (
 // ─────────────────────────────────────────
 // 경보 이력 (검색·필터·해결처리)
 // ─────────────────────────────────────────
-const AlertHistory = () => {
-  const [history] = useState(MOCK_ALERT_HISTORY);
-  const [filter, setFilter] = useState('all'); // all | warning | critical | unresolved
+const AlertHistory = ({ farmId }) => {
+  const [history, setHistory] = useState([]);
+  const [filter, setFilter] = useState('all');
   const [search, setSearch] = useState('');
+  const [loading, setLoading] = useState(true);
+
+  const reload = async () => {
+    try {
+      const rows = await nutrientApi.listAlerts(farmId, { limit: 200 });
+      setHistory(rows || []);
+    } catch { /* 빈 상태 */ }
+    finally { setLoading(false); }
+  };
+  useEffect(() => { reload(); }, [farmId]);
+
+  const resolveOne = async (id) => {
+    try {
+      await nutrientApi.resolveAlert(farmId, id, '수동 해결');
+      await reload();
+    } catch (e) { alert(`해결 처리 실패: ${e.response?.data?.error || e.message}`); }
+  };
 
   const filtered = history.filter(a => {
     if (filter === 'warning' && a.severity !== 'warning') return false;
     if (filter === 'critical' && a.severity !== 'critical') return false;
     if (filter === 'unresolved' && a.resolved) return false;
-    if (search && !a.type.includes(search) && !a.action.includes(search)) return false;
+    if (search && !a.alertType?.includes(search) && !a.message?.includes(search) && !a.action?.includes(search)) return false;
     return true;
   });
+
+  const fmtDate = (d) => d ? new Date(d).toLocaleString('ko-KR', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }) : '—';
 
   const sevColor = { warning: '#d97706', critical: '#dc2626', info: '#0891b2' };
   const sevBg = { warning: '#fef3c7', critical: '#fee2e2', info: '#dbeafe' };
@@ -540,9 +666,11 @@ const AlertHistory = () => {
 
       {/* 리스트 */}
       <div style={{ maxHeight: 280, overflowY: 'auto', border: '1px solid #e2e8f0', borderRadius: 8 }}>
-        {filtered.length === 0 ? (
+        {loading ? (
+          <div style={{ padding: 24, textAlign: 'center', fontSize: 14, color: '#94a3b8' }}>불러오는 중…</div>
+        ) : filtered.length === 0 ? (
           <div style={{ padding: 24, textAlign: 'center', fontSize: 14, color: '#94a3b8' }}>
-            조건에 맞는 경보가 없습니다
+            {history.length === 0 ? '경보 이력 없음 — 양액 시스템 가동 후 자동 기록됩니다' : '조건에 맞는 경보가 없습니다'}
           </div>
         ) : filtered.map(a => (
           <div key={a.id} style={{
@@ -555,17 +683,27 @@ const AlertHistory = () => {
             }}>{a.severity === 'critical' ? '🛑' : '⚠️'}</span>
             <div style={{ flex: 1 }}>
               <div className="flex justify-between items-start gap-2">
-                <span style={{ fontSize: 14, fontWeight: 700, color: '#0f172a' }}>{a.type}</span>
-                <span style={{ fontSize: 12, color: '#94a3b8', flexShrink: 0 }}>{a.time}</span>
+                <span style={{ fontSize: 14, fontWeight: 700, color: '#0f172a' }}>{a.alertType}</span>
+                <span style={{ fontSize: 12, color: '#94a3b8', flexShrink: 0 }}>{fmtDate(a.occurredAt)}</span>
               </div>
-              {a.value !== null && (
+              <div style={{ fontSize: 13, color: '#475569', marginTop: 2 }}>{a.message}</div>
+              {a.value != null && (
                 <div style={{ fontSize: 12, color: '#64748b', marginTop: 2 }}>
                   측정 <strong style={{ color: sevColor[a.severity] }}>{a.value}</strong>
-                  {' '}/ 한계 <strong>{a.threshold}</strong>
+                  {a.threshold != null && <> {' '}/ 한계 <strong>{a.threshold}</strong></>}
                 </div>
               )}
-              <div style={{ fontSize: 12, color: a.resolved ? '#16a34a' : '#dc2626', marginTop: 2, fontWeight: 600 }}>
-                {a.resolved ? '✓ 해결' : '◌ 진행중'} · {a.action}
+              <div className="flex justify-between items-center" style={{ marginTop: 2 }}>
+                <span style={{ fontSize: 12, color: a.resolved ? '#16a34a' : '#dc2626', fontWeight: 600 }}>
+                  {a.resolved ? '✓ 해결' : '◌ 진행중'}{a.action ? ` · ${a.action}` : ''}
+                </span>
+                {!a.resolved && (
+                  <button onClick={() => resolveOne(a.id)} style={{
+                    padding: '2px 8px', fontSize: 11, fontWeight: 700,
+                    background: '#16a34a', color: '#fff', border: 'none',
+                    borderRadius: 4, cursor: 'pointer',
+                  }}>해결 처리</button>
+                )}
               </div>
             </div>
           </div>
@@ -582,15 +720,45 @@ const AlertHistory = () => {
 // ─────────────────────────────────────────
 // 카운터 초기화 (확인 절차 필수)
 // ─────────────────────────────────────────
-const CounterReset = () => {
-  const [counters] = useState(MOCK_COUNTERS);
-  const [confirming, setConfirming] = useState(null); // null | counter key
+const CounterReset = ({ farmId }) => {
+  const [counters, setCounters] = useState(null);
+  const [confirming, setConfirming] = useState(null); // null | 'dose'|'irrigation'|'cycles'|'runtime'
+
+  const reload = async () => {
+    try {
+      const c = await nutrientApi.getCounters(farmId);
+      setCounters(c);
+    } catch { /* 빈 상태 */ }
+  };
+  useEffect(() => { reload(); }, [farmId]);
+
+  const doReset = async (target) => {
+    try {
+      await nutrientApi.resetCounter(farmId, target);
+      setConfirming(null);
+      await reload();
+    } catch (e) { alert(`초기화 실패: ${e.response?.data?.error || e.message}`); }
+  };
+
+  const doFilterChange = async () => {
+    if (!confirm('필터 교체 기록을 남기시겠습니까?')) return;
+    try {
+      await nutrientApi.recordFilterChange(farmId);
+      await reload();
+    } catch (e) { alert(`기록 실패: ${e.response?.data?.error || e.message}`); }
+  };
+
+  if (!counters) {
+    return <div style={{ padding: 16, textAlign: 'center', color: '#94a3b8', fontSize: 13 }}>불러오는 중…</div>;
+  }
+
+  const fmtDate = (d) => d ? new Date(d).toLocaleDateString('ko-KR') : '—';
 
   const cards = [
-    { key: 'totalDoseL', label: '누적 도싱량', value: counters.totalDoseL.toLocaleString(), unit: 'L', color: '#0891b2', icon: '💧' },
-    { key: 'totalIrrigationL', label: '누적 관수량', value: counters.totalIrrigationL.toLocaleString(), unit: 'L', color: '#16a34a', icon: '🚿' },
-    { key: 'totalCycles', label: '누적 회수', value: counters.totalCycles.toLocaleString(), unit: '회', color: '#7c3aed', icon: '🔁' },
-    { key: 'pumpRuntime', label: '펌프 가동', value: Math.floor(counters.pumpRuntime / 60).toLocaleString(), unit: '시간', color: '#d97706', icon: '⚙️' },
+    { key: 'dose',       label: '누적 도싱량', value: counters.totalDoseL.toLocaleString(),       unit: 'L',  color: '#0891b2', icon: '💧' },
+    { key: 'irrigation', label: '누적 관수량', value: counters.totalIrrigationL.toLocaleString(), unit: 'L',  color: '#16a34a', icon: '🚿' },
+    { key: 'cycles',     label: '누적 회수',   value: counters.totalCycles.toLocaleString(),      unit: '회', color: '#7c3aed', icon: '🔁' },
+    { key: 'runtime',    label: '펌프 가동',   value: Math.floor(counters.pumpRuntimeMin / 60).toLocaleString(), unit: '시간', color: '#d97706', icon: '⚙️' },
   ];
 
   return (
@@ -601,7 +769,7 @@ const CounterReset = () => {
       }}>
         ⚠️ <strong>주의</strong> · 초기화는 되돌릴 수 없습니다. 필터 교체·정비 후에만 사용하세요.
         <div style={{ fontSize: 12, color: '#dc2626', marginTop: 4 }}>
-          마지막 초기화: <strong>{counters.lastReset}</strong> · 마지막 필터 교체: <strong>{counters.filterChangeAt}</strong>
+          마지막 초기화: <strong>{fmtDate(counters.lastResetAt)}</strong> · 마지막 필터 교체: <strong>{fmtDate(counters.filterChangeAt)}</strong>
         </div>
       </div>
 
@@ -631,9 +799,9 @@ const CounterReset = () => {
       }}>
         <div>
           <div style={{ fontSize: 14, fontWeight: 700, color: '#9a3412' }}>🔧 필터 교체 기록</div>
-          <div style={{ fontSize: 12, color: '#c2410c', marginTop: 2 }}>마지막 교체: {counters.filterChangeAt} · 권장 주기 90일</div>
+          <div style={{ fontSize: 12, color: '#c2410c', marginTop: 2 }}>마지막 교체: {fmtDate(counters.filterChangeAt)} · 권장 주기 90일</div>
         </div>
-        <button style={{
+        <button onClick={doFilterChange} style={{
           padding: '6px 12px', borderRadius: 6, border: 'none',
           background: '#ea580c', color: '#fff', fontSize: 13, fontWeight: 700, cursor: 'pointer',
         }}>교체 완료 기록</button>
@@ -653,7 +821,7 @@ const CounterReset = () => {
             <br />이 작업은 <strong>되돌릴 수 없습니다</strong>.
           </div>
           <div className="flex gap-2">
-            <button onClick={() => { alert('초기화 완료 (mock)'); setConfirming(null); }} style={{
+            <button onClick={() => doReset(confirming)} style={{
               padding: '6px 14px', background: '#dc2626', color: '#fff', border: 'none',
               borderRadius: 6, fontSize: 14, fontWeight: 700, cursor: 'pointer',
             }}>네, 초기화합니다</button>

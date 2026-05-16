@@ -1,7 +1,8 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import NutrientRealtime from './NutrientRealtime';
 import NutrientScenarios from './NutrientScenarios';
 import NutrientSettings from './NutrientSettings';
+import * as nutrientApi from '../../services/nutrientApi';
 
 const TABS = [
   { id: 'realtime', label: '실시간', icon: '📊', desc: '운영·제어·흐름' },
@@ -24,9 +25,30 @@ const MOCK_ENV = {
 
 export default function NutrientPanel({ farmId }) {
   const [activeTab, setActiveTab] = useState('realtime');
-  const [mode, setMode] = useState('paused'); // Phase 2 에서 API 연동
-  const [alerts] = useState([]); // sticky 경보 배너 (Phase 2)
+  const [mode, setMode] = useState('paused');
+  const [alerts] = useState([]); // sticky 경보 배너 (Phase 3 RPi telemetry 연동 후 활성)
   const [env] = useState(MOCK_ENV);
+
+  // 초기 mode 로드 (DB → state)
+  useEffect(() => {
+    let cancelled = false;
+    nutrientApi.getState(farmId)
+      .then(s => { if (!cancelled && s?.mode) setMode(s.mode); })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [farmId]);
+
+  // mode 변경 → API 호출 (optimistic update + 실패 시 복원)
+  const handleModeChange = async (newMode) => {
+    const prev = mode;
+    setMode(newMode);
+    try {
+      await nutrientApi.setMode(farmId, newMode);
+    } catch (e) {
+      setMode(prev);
+      alert(`모드 변경 실패: ${e.response?.data?.error || e.message}`);
+    }
+  };
 
   const modeInfo = MODES[mode];
   const tempDiff = env.outTemp - env.inTemp;
@@ -60,7 +82,7 @@ export default function NutrientPanel({ farmId }) {
             <p style={{ color: '#cffafe', fontSize: 13, margin: '2px 0 0' }}>양액 자동 공급 시스템</p>
           </div>
         </div>
-        <ModeSelector mode={mode} onChange={setMode} info={modeInfo} />
+        <ModeSelector mode={mode} onChange={handleModeChange} info={modeInfo} />
       </div>
 
       {/* 외부 환경 row — 양액 자동화의 핵심 트리거 데이터 */}
@@ -108,7 +130,7 @@ export default function NutrientPanel({ farmId }) {
       </div>
 
       {/* 컨텐츠 */}
-      {activeTab === 'realtime' && <NutrientRealtime farmId={farmId} mode={mode} onModeChange={setMode} />}
+      {activeTab === 'realtime' && <NutrientRealtime farmId={farmId} mode={mode} onModeChange={handleModeChange} />}
       {activeTab === 'scenarios' && <NutrientScenarios farmId={farmId} />}
       {activeTab === 'settings' && <NutrientSettings farmId={farmId} />}
 

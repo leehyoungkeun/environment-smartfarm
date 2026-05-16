@@ -16,6 +16,7 @@ import FarmManager from './components/Settings/FarmManager';
 import FarmOverviewWidget from './components/Dashboard/FarmOverviewWidget';
 import ReportPage from './components/Dashboard/ReportPage';
 import CCTVPanel from './components/Dashboard/CCTVPanel';
+import NutrientPanel from './components/Nutrient/NutrientPanel';
 import { getApiBase, getRpiApiBase, isFarmLocalMode, getSystemMode, onModeChange, setFarmLocalMode } from './services/apiSwitcher';
 import TouchKeyboard from './components/Common/TouchKeyboard';
 
@@ -321,6 +322,7 @@ function AppContent() {
         { id: 'dashboard', label: '대시보드', icon: '📊', permission: 'dashboard' },
         { id: 'control', label: '제어', icon: '🎛️', permission: 'control' },
         { id: 'cctv', label: 'CCTV', icon: '📹', permission: 'control' },
+        { id: 'nutrient', label: '양액관리', icon: '💧', permission: 'control' },
         { id: 'journal', label: '영농일지', icon: '📝', permission: 'journal' },
         { id: 'report', label: '보고서', icon: '📄', permission: 'report' },
         { id: 'ai', label: 'AI도우미', icon: '🤖', permission: 'ai' },
@@ -687,6 +689,9 @@ function AppContent() {
         )}
         {currentPage === 'cctv' && hasPermission('control') && (
           <CCTVPanel farmId={farmId} />
+        )}
+        {currentPage === 'nutrient' && hasPermission('control') && (
+          <NutrientPanel farmId={farmId} />
         )}
         {currentPage === 'journal' && hasPermission('journal') && (
           <div className="max-w-7xl mx-auto px-4 md:px-6 py-4 md:py-6">

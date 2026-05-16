@@ -1,6 +1,8 @@
-import { useState, useEffect } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import * as nutrientApi from '../../services/nutrientApi';
 
-// Phase 2 에서 API/WebSocket 연동 — 지금은 mock
+// 시각효과·차트용 base (state API 응답이 비어있을 때 fallback)
+// Phase 3.2 RPi telemetry 연결 시 history·drainEC 등 추가 필드 채워질 예정
 const MOCK = {
   scenarioNo: 1, scenarioName: '생장기',
   liveSensors: { feedEC: 1.8, feedPH: 5.9, drainEC: 1.7, drainPH: 6.1 },
@@ -31,11 +33,83 @@ const MOCK = {
 };
 
 export default function NutrientRealtime({ farmId, mode, onModeChange }) {
-  const [data, setData] = useState(MOCK);
+  const [state, setState] = useState(null);
+  const [scenarios, setScenarios] = useState([]);
+  const [config, setConfig] = useState({ tanks: [], valveCount: 14 });
   const [detailsOpen, setDetailsOpen] = useState(false);
   const [ecPhCompact, setEcPhCompact] = useState(false);
 
-  useEffect(() => { setData(MOCK); }, [farmId]);
+  // 초기 1회 fetch — scenarios + config (변경 빈도 낮음)
+  useEffect(() => {
+    let cancelled = false;
+    Promise.all([
+      nutrientApi.listScenarios(farmId).catch(() => []),
+      nutrientApi.getConfig(farmId).catch(() => ({ tanks: [], valveCount: 14 })),
+    ]).then(([sc, cfg]) => {
+      if (cancelled) return;
+      setScenarios(sc || []);
+      setConfig(cfg || { tanks: [], valveCount: 14 });
+    });
+    return () => { cancelled = true; };
+  }, [farmId]);
+
+  // state polling — 5초 (RPi telemetry 빈도와 일치)
+  useEffect(() => {
+    let cancelled = false;
+    const fetch = async () => {
+      try {
+        const s = await nutrientApi.getState(farmId);
+        if (!cancelled) setState(s);
+      } catch { /* 일시 오류 무시, 다음 polling 에서 회복 */ }
+    };
+    fetch();
+    const id = setInterval(fetch, 5000);
+    return () => { cancelled = true; clearInterval(id); };
+  }, [farmId]);
+
+  // data 통합 — state(실시간) + scenarios + config 우선, 빈 값은 MOCK fallback
+  const data = useMemo(() => {
+    const activeScenario = scenarios.find(s => s.active);
+    const cc = state?.currentCycle && Object.keys(state.currentCycle).length > 0 ? state.currentCycle : null;
+    const dosingPhase = cc?.phase === 'dosing';
+    const mixingPhase = cc?.phase === 'mixing';
+    const irrigatingPhase = cc?.phase === 'irrigating';
+    return {
+      ...MOCK,
+      scenarioNo: activeScenario ? (scenarios.indexOf(activeScenario) + 1) : MOCK.scenarioNo,
+      scenarioName: activeScenario?.name ?? '시나리오 없음',
+      liveSensors: {
+        ...MOCK.liveSensors,
+        feedEC: state?.ecCurrent ?? MOCK.liveSensors.feedEC,
+        feedPH: state?.phCurrent ?? MOCK.liveSensors.feedPH,
+      },
+      targets: {
+        ec: activeScenario?.ecTarget ?? MOCK.targets.ec,
+        ph: activeScenario?.phTarget ?? MOCK.targets.ph,
+      },
+      currentCycle: cc ? {
+        time: cc.startedAt ? Math.floor((Date.now() - new Date(cc.startedAt).getTime()) / 1000) : MOCK.currentCycle.time,
+        volume: cc.suppliedL ?? 0,
+        phase: cc.phase ?? null,
+      } : MOCK.currentCycle,
+      flow: {
+        ...MOCK.flow,
+        tanks: (config.tanks && config.tanks.length > 0)
+          ? config.tanks.map((t, i) => ({ ...t, dosing: dosingPhase }))
+          : MOCK.flow.tanks,
+        totalValves: config.valveCount || MOCK.flow.totalValves,
+        activeValve: cc?.valveIdx > 0 ? cc.valveIdx : null,
+        irrigationPump: irrigatingPhase,
+        mixerAgitator: mixingPhase,
+        rawPump: irrigatingPhase,
+        mixer: {
+          ...MOCK.flow.mixer,
+          ec: state?.ecCurrent ?? MOCK.flow.mixer.ec,
+          ph: state?.phCurrent ?? MOCK.flow.mixer.ph,
+        },
+      },
+    };
+  }, [state, scenarios, config]);
 
   return (
     <div className="space-y-3">

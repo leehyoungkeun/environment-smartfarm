@@ -31,29 +31,32 @@ router.post("/glitchtip-to-slack", verifyToken, async (req, res) => {
     const levelEmoji = { error: "🚨", warning: "⚠️", info: "ℹ️", debug: "🐛" }[level] || "🚨";
 
     const slackPayload = {
-      text: `${levelEmoji} *${title}*${project ? ` (${project})` : ""}`,
+      text: `${levelEmoji} ${title}${project ? ` (${project})` : ""}`,
       blocks: [
-        { type: "header", text: { type: "plain_text", text: `${levelEmoji} ${title}`.slice(0, 150) } },
+        {
+          type: "section",
+          text: { type: "mrkdwn", text: `${levelEmoji} *${title}*` },
+        },
         {
           type: "section",
           fields: [
-            { type: "mrkdwn", text: `*Project:*\n${project || "—"}` },
-            { type: "mrkdwn", text: `*Level:*\n${level}` },
-            { type: "mrkdwn", text: `*Events:*\n${count}` },
-            ...(culprit ? [{ type: "mrkdwn", text: `*Where:*\n\`${String(culprit).slice(0, 80)}\`` }] : []),
+            { type: "mrkdwn", text: `*프로젝트:*\n${project || "—"}` },
+            { type: "mrkdwn", text: `*레벨:*\n${level}` },
+            { type: "mrkdwn", text: `*이벤트:*\n${count}` },
+            ...(culprit ? [{ type: "mrkdwn", text: `*위치:*\n\`${String(culprit).slice(0, 80)}\`` }] : []),
           ],
         },
         ...(url ? [{
           type: "actions",
-          elements: [{ type: "button", text: { type: "plain_text", text: "GlitchTip 에서 보기" }, url }],
+          elements: [{ type: "button", text: { type: "plain_text", text: "GlitchTip 에서 보기", emoji: true }, url }],
         }] : []),
       ],
     };
 
     const response = await fetch(SLACK_WEBHOOK, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(slackPayload),
+      headers: { "Content-Type": "application/json; charset=utf-8" },
+      body: Buffer.from(JSON.stringify(slackPayload), "utf-8"),
       signal: AbortSignal.timeout(5000),
     });
     if (!response.ok) throw new Error(`Slack ${response.status}: ${await response.text().catch(() => "")}`);

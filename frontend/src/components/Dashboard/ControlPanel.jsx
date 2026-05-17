@@ -869,8 +869,9 @@ const ControlPanel = ({ farmId, houseId, houseConfig }) => {
     setBidirProgress({});
 
     for (const device of devices) {
-      const typeInfo = DEVICE_TYPE_INFO[device.type] || { commands: ['on', 'off'] };
-      const stopCmd = typeInfo.commands.includes('stop') ? 'stop' : 'off';
+      // device 의 실제 controlType 기준으로 비상정지 명령 결정
+      // (메타 commands 만 보면 valve(single) 같은 케이스에서 stop 으로 잘못 보냄)
+      const stopCmd = device.modbus?.controlType === 'bidir' ? 'stop' : 'off';
       const modbusConfig = device.modbus || null;
       try {
         const isLocal = ['localhost', '127.0.0.1'].includes(window.location.hostname);
@@ -1265,8 +1266,16 @@ const ControlPanel = ({ farmId, houseId, houseConfig }) => {
     return map[status] || { text: '대기', color: '#6b7280', animate: false };
   };
 
+  // type + controlType 합성 키로 그룹화 — 같은 type 안에 단방향·양방향 섞여도 카드 분리
+  // 예: valve(single) → 관수밸브 (단방향), valve(bidir) → 관수밸브 (양방향) 각자 카드
   const groupedDevices = {};
-  devices.forEach(d => { const type = d.type || 'window'; if (!groupedDevices[type]) groupedDevices[type] = []; groupedDevices[type].push(d); });
+  devices.forEach(d => {
+    const type = d.type || 'window';
+    const ctrl = d.modbus?.controlType || (DEVICE_TYPE_INFO[type]?.commands?.includes('stop') ? 'bidir' : 'single');
+    const groupKey = `${type}__${ctrl}`;
+    if (!groupedDevices[groupKey]) groupedDevices[groupKey] = [];
+    groupedDevices[groupKey].push(d);
+  });
 
   // Modbus 작업 중 모든 제어 버튼 비활성화 (RS-485 half-duplex)
   const anyModbusBusy = Object.values(modbusStatus).some(s => s === 'verifying');
@@ -1386,20 +1395,25 @@ const ControlPanel = ({ farmId, houseId, houseConfig }) => {
           </button>
       </div>
 
-      {Object.entries(groupedDevices).map(([type, devicesInGroup]) => {
+      {Object.entries(groupedDevices).map(([groupKey, devicesInGroup]) => {
+        const [type, groupCtrl] = groupKey.split('__');
         const typeInfo = DEVICE_TYPE_INFO[type] || { label: type, icon: '🔧', commands: ['on', 'off'] };
-        const isToggleType = !typeInfo.commands.includes('stop');
+        // 그룹의 controlType 으로 버튼 분기 결정 (메타의 commands 가 아니라 실제 device 설정)
+        const isToggleType = groupCtrl === 'single';
         const theme = typeTheme[type] || ['#94a3b8', '#64748b'];
         const accent = theme[0];
         const s = getAccentStyles(theme);
+        // 같은 type 에 단방향·양방향 모두 있는 경우만 라벨에 표기 (혼동 방지)
+        const hasMixedCtrl = Object.keys(groupedDevices).some(k => k !== groupKey && k.startsWith(`${type}__`));
+        const ctrlLabel = hasMixedCtrl ? (groupCtrl === 'single' ? ' (단방향)' : ' (양방향)') : '';
 
         return (
-          <div key={type} style={{background:'#fff',borderRadius:16,marginBottom:16,overflow:'hidden',border:'1px solid #d1d5db',boxShadow:'0 4px 12px rgba(0,0,0,0.1)'}}>
+          <div key={groupKey} style={{background:'#fff',borderRadius:16,marginBottom:16,overflow:'hidden',border:'1px solid #d1d5db',boxShadow:'0 4px 12px rgba(0,0,0,0.1)'}}>
             {/* 장치 유형 헤더 */}
             <div style={{background:`linear-gradient(135deg, ${theme[0]} 0%, ${theme[1]} 100%)`,padding:'14px 18px',display:'flex',alignItems:'center',justifyContent:'space-between'}}>
               <h3 style={{fontSize:16,fontWeight:800,color:'#fff',letterSpacing:'-0.01em'}} className="flex items-center gap-2">
                 <span style={{fontSize:18}}>{typeInfo.icon}</span>
-                <span>{typeInfo.label}</span>
+                <span>{typeInfo.label}{ctrlLabel}</span>
               </h3>
               <span style={{background:'rgba(255,255,255,0.2)',color:'#fff',fontSize:12,fontWeight:700,padding:'2px 10px',borderRadius:8}}>
                 {devicesInGroup.length}대

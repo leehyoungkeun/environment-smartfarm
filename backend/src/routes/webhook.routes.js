@@ -3,7 +3,6 @@
 // 인증: URL query token (?token=xxx) — 환경변수 GLITCHTIP_SLACK_TOKEN 과 비교
 
 import express from "express";
-import axios from "axios";
 import logger from "../utils/logger.js";
 
 const router = express.Router();
@@ -51,7 +50,13 @@ router.post("/glitchtip-to-slack", verifyToken, async (req, res) => {
       ],
     };
 
-    await axios.post(SLACK_WEBHOOK, slackPayload, { timeout: 5000 });
+    const response = await fetch(SLACK_WEBHOOK, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(slackPayload),
+      signal: AbortSignal.timeout(5000),
+    });
+    if (!response.ok) throw new Error(`Slack ${response.status}: ${await response.text().catch(() => "")}`);
     logger.info(`GlitchTip → Slack 전송: ${title}`);
     res.json({ ok: true });
   } catch (err) {

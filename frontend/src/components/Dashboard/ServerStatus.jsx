@@ -47,20 +47,14 @@ const ServerStatus = () => {
 
   const checkRpiHealth = useCallback(async () => {
     const healthUrl = farmLocal ? (window.location.origin + '/api/health') : RPI_HEALTH_URL;
-    // HTTPS 페이지에서 HTTP 호출 시 브라우저 Mixed Content 차단 — 시도해도 Network Error 만 발생
-    // farmLocal 모드는 same-origin (HTTPS) 이라 해당 안 됨
-    if (!farmLocal && window.location.protocol === 'https:' && healthUrl.startsWith('http:')) {
-      setRpiStatus({ checked: true, connected: false, skipped: true, latency: null, error: null });
-      return;
-    }
     const start = Date.now();
     try {
       const res = await axios.get(healthUrl, { timeout: 5000 });
       const latency = Date.now() - start;
       const ok = res.data?.status === 'ok' || res.data?.success === true;
-      setRpiStatus({ checked: true, connected: ok, skipped: false, latency, error: ok ? null : '응답 이상' });
+      setRpiStatus({ checked: true, connected: ok, latency, error: ok ? null : '응답 이상' });
     } catch (err) {
-      setRpiStatus({ checked: true, connected: false, skipped: false, latency: null, error: err.message });
+      setRpiStatus({ checked: true, connected: false, latency: null, error: err.message });
     }
   }, []);
 
@@ -207,17 +201,15 @@ const ServerStatus = () => {
           ? (farmLocal ? 'bg-emerald-50 border-emerald-200' : 'bg-blue-50 border-blue-200')
           : 'bg-gray-50 border-gray-200'}`}>
           <div className="flex items-center gap-3 mb-1">
-            <span className="text-xl">{!rpiStatus.checked ? '⏳' : rpiStatus.connected ? (farmLocal ? '🌿' : '🍓') : rpiStatus.skipped ? '➖' : '⚠️'}</span>
+            <span className="text-xl">{!rpiStatus.checked ? '⏳' : rpiStatus.connected ? (farmLocal ? '🌿' : '🍓') : '⚠️'}</span>
             <div>
               <h3 className={`text-base font-bold ${rpiStatus.connected ? (farmLocal ? 'text-emerald-700' : 'text-blue-700') : 'text-gray-500'}`}>
-                {farmLocal ? '팜로컬' : '로컬'} 서버 {!rpiStatus.checked ? '확인 중' : rpiStatus.connected ? '연결됨' : rpiStatus.skipped ? '미사용 (HTTPS)' : '연결 실패'}
+                {farmLocal ? '팜로컬' : '로컬'} 서버 {!rpiStatus.checked ? '확인 중' : rpiStatus.connected ? '연결됨' : '연결 실패'}
               </h3>
               <p className={`text-xs ${rpiStatus.connected ? (farmLocal ? 'text-emerald-600' : 'text-blue-600') : 'text-gray-400'}`}>
                 {rpiStatus.connected
                   ? `응답 ${rpiStatus.latency}ms`
-                  : rpiStatus.skipped
-                    ? '클라우드 모드에서 로컬 health-check 미사용'
-                    : rpiStatus.error || '로컬 미연결'}
+                  : rpiStatus.error || '로컬 미연결'}
               </p>
             </div>
           </div>

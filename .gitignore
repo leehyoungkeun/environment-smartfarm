@@ -78,3 +78,4 @@ backend/certs/
 # RPi 농장 백업 (AWS IoT 인증서 포함 — git에 절대 올리지 말 것)
 rpi-files/farm_*-backup-*/
 rpi-files/master/*.bak.*
+download/

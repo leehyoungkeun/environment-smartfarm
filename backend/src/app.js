@@ -30,6 +30,7 @@ import automationRoutes from "./routes/automation.routes.js";
 import auditLogRoutes from "./routes/audit-logs.js";
 import authRoutes from "./routes/auth.routes.js";
 import internalRoutes from "./routes/internal.routes.js";
+import webhookRoutes from "./routes/webhook.routes.js";
 import devicesRoutes from "./routes/devices.routes.js";
 import deployRoutes from "./routes/deploy.routes.js";
 import camerasRoutes from "./routes/cameras.routes.js";
@@ -215,6 +216,9 @@ app.use("/api/auth", authRoutes);
 
 // Node-RED 내부 통신 (API Key 인증 필수)
 app.use("/internal", authenticateApiKey, internalRoutes);
+
+// 외부 webhook (token query 로 자체 인증)
+app.use("/webhook", webhookRoutes);
 
 // 센서 + 설정 API (API 키 또는 JWT - Node-RED 접근 필요)
 app.use("/api/sensors", authenticateApiKey, sensorsRoutes);

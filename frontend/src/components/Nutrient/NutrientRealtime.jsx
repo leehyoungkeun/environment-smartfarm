@@ -975,14 +975,11 @@ const ManualPalette = ({
       background: '#fffbeb', border: '1.5px solid #fbbf24',
       boxShadow: '0 2px 8px rgba(217,119,6,0.08)',
     }}>
-      {/* 헤더 row 1 — 제목 + segmented + 큐 pill (모바일에서 wrap) */}
+      {/* 헤더 row 1 — segmented + 큐 pill (모바일에서 wrap) */}
       <div style={{
         display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6,
         flexWrap: 'wrap',
       }}>
-        <span style={{ fontSize: 13, fontWeight: 800, color: '#92400e', letterSpacing: '0.04em' }}>
-          ✋ 수동 공급
-        </span>
         {/* segmented sub-mode 토글 */}
         <div style={{
           display: 'inline-flex', borderRadius: 8, overflow: 'hidden',

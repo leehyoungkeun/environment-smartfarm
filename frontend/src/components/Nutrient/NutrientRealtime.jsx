@@ -400,23 +400,15 @@ export default function NutrientRealtime({ farmId, mode, onModeChange }) {
               now={now} />
           </div>
           <div className="md:hidden">
-            {/* 모바일 다이어그램 — 가로 스크롤로 좁은 화면 대응 */}
-            <div style={{
-              marginTop: 12, overflowX: 'auto', WebkitOverflowScrolling: 'touch',
-              borderRadius: 14,
-            }}>
-              <div style={{ minWidth: 560 /* 760 viewBox 의 ~74% */ }}>
-                <Schematic tanks={tanks} valves={valves} ec={ec} ph={ph} mode={mode}
-                  dosingActive={dosingActive} mixingActive={mixingActive}
-                  stabilizing={stabilizing} irrigating={irrigating}
-                  activeValveIdx={activeValveIdx}
-                  rawWaterLevel={state?.rawWater?.level}
-                  selectedValves={selectedValves}
-                  onValveClick={mode === 'manual' ? toggleValve : undefined} />
-              </div>
-            </div>
-            <div style={{ fontSize: 11, color: T.fg3, textAlign: 'center', marginTop: 4 }}>
-              ↔ 좌우 스크롤하면 더 보입니다
+            {/* 모바일 다이어그램 — viewport 폭에 맞춰 자동 scale (스크롤 X) */}
+            <div style={{ marginTop: 12 }}>
+              <Schematic tanks={tanks} valves={valves} ec={ec} ph={ph} mode={mode}
+                dosingActive={dosingActive} mixingActive={mixingActive}
+                stabilizing={stabilizing} irrigating={irrigating}
+                activeValveIdx={activeValveIdx}
+                rawWaterLevel={state?.rawWater?.level}
+                selectedValves={selectedValves}
+                onValveClick={mode === 'manual' ? toggleValve : undefined} />
             </div>
             <CompactStatus tanks={tanks} valves={valves} phaseInfo={phaseInfo}
               activeValveIdx={activeValveIdx} mode={mode} lowTanks={lowTanks} />

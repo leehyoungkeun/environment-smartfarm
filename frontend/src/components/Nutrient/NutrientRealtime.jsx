@@ -342,52 +342,52 @@ export default function NutrientRealtime({ farmId, mode, onModeChange }) {
 
       {!dataReady ? <LoadingPlaceholder /> : (
         <>
+          {/* Manual UI — desktop + mobile 공통 노출 */}
+          {mode === 'manual' && !runningJob && (
+            <ManualPalette
+              scenarios={scenarios}
+              valves={valves}
+              selectedValves={selectedValves}
+              scenarioId={manualScenarioId}
+              onScenarioChange={setManualScenarioId}
+              volumeML={manualVolumeML}
+              onVolumeChange={setManualVolumeML}
+              subMode={manualSubMode}
+              onSubModeChange={setManualSubMode}
+              scheduleCustom={manualScheduleCustom}
+              onScheduleCustomChange={setManualScheduleCustom}
+              onTrigger={handleManualTrigger}
+              alerts={alerts}
+              tanks={tanks}
+              queueCount={pendingJobs.length}
+              queuedCount={queuedJobs.length}
+              onOpenQueue={() => setQueueOpen(true)}
+              onStartQueue={handleStartQueue}
+              onPauseQueue={handlePauseQueue}
+            />
+          )}
+          {runningJob && (
+            <ManualRunningCard job={runningJob} phaseInfo={phaseInfo} onAbort={abortRunningJob} />
+          )}
+          {queueOpen && (
+            <ManualQueueModal
+              jobs={pendingJobs}
+              onCancel={cancelManualJob}
+              onClose={() => setQueueOpen(false)}
+            />
+          )}
+
           <div className="hidden md:grid" style={{ gridTemplateColumns: '225px 1fr 205px', gap: 14, marginTop: 0 }}>
             <LiveStatsPanel ec={ec} ph={ph} ecTarget={ecTarget} phTarget={phTarget}
               phaseInfo={phaseInfo} mode={mode}
               drain={state?.drain} env={state?.env} />
-            <div>
-              {mode === 'manual' && !runningJob && (
-                <ManualPalette
-                  scenarios={scenarios}
-                  valves={valves}
-                  selectedValves={selectedValves}
-                  scenarioId={manualScenarioId}
-                  onScenarioChange={setManualScenarioId}
-                  volumeML={manualVolumeML}
-                  onVolumeChange={setManualVolumeML}
-                  subMode={manualSubMode}
-                  onSubModeChange={setManualSubMode}
-                  scheduleCustom={manualScheduleCustom}
-                  onScheduleCustomChange={setManualScheduleCustom}
-                  onTrigger={handleManualTrigger}
-                  alerts={alerts}
-                  tanks={tanks}
-                  queueCount={pendingJobs.length}
-                  queuedCount={queuedJobs.length}
-                  onOpenQueue={() => setQueueOpen(true)}
-                  onStartQueue={handleStartQueue}
-                  onPauseQueue={handlePauseQueue}
-                />
-              )}
-              {runningJob && (
-                <ManualRunningCard job={runningJob} phaseInfo={phaseInfo} onAbort={abortRunningJob} />
-              )}
-              {queueOpen && (
-                <ManualQueueModal
-                  jobs={pendingJobs}
-                  onCancel={cancelManualJob}
-                  onClose={() => setQueueOpen(false)}
-                />
-              )}
-              <Schematic tanks={tanks} valves={valves} ec={ec} ph={ph} mode={mode}
-                dosingActive={dosingActive} mixingActive={mixingActive}
-                stabilizing={stabilizing} irrigating={irrigating}
-                activeValveIdx={activeValveIdx}
-                rawWaterLevel={state?.rawWater?.level}
-                selectedValves={selectedValves}
-                onValveClick={toggleValve} />
-            </div>
+            <Schematic tanks={tanks} valves={valves} ec={ec} ph={ph} mode={mode}
+              dosingActive={dosingActive} mixingActive={mixingActive}
+              stabilizing={stabilizing} irrigating={irrigating}
+              activeValveIdx={activeValveIdx}
+              rawWaterLevel={state?.rawWater?.level}
+              selectedValves={selectedValves}
+              onValveClick={toggleValve} />
             <TodayPanel
               todayCycles={state?.todayCycles}
               todaySuppliedL={state?.todaySuppliedL}
@@ -401,7 +401,9 @@ export default function NutrientRealtime({ farmId, mode, onModeChange }) {
           </div>
           <div className="md:hidden">
             <CompactStatus tanks={tanks} valves={valves} phaseInfo={phaseInfo}
-              activeValveIdx={activeValveIdx} mode={mode} lowTanks={lowTanks} />
+              activeValveIdx={activeValveIdx} mode={mode} lowTanks={lowTanks}
+              onValveClick={mode === 'manual' ? toggleValve : undefined}
+              selectedValves={selectedValves} />
           </div>
         </>
       )}
@@ -1004,9 +1006,8 @@ const ManualPalette = ({
 
       <div style={{
         display: 'grid',
-        gridTemplateColumns: isQueue
-          ? '1.5fr 0.8fr 1.2fr auto'
-          : '1.5fr 0.8fr 1.4fr 1.2fr auto',
+        // auto-fit 으로 좁은 화면 자동 wrap (mobile 1 column → desktop 4~5 column)
+        gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))',
         gap: 10, alignItems: 'end',
       }}>
         {/* 프로그램 */}
@@ -1722,12 +1723,45 @@ const FlowLine = ({ x1, y1, x2, y2, active, thick }) => {
   );
 };
 
-const CompactStatus = ({ tanks, valves, phaseInfo, activeValveIdx, mode, lowTanks }) => (
+const CompactStatus = ({ tanks, valves, phaseInfo, activeValveIdx, mode, lowTanks,
+  onValveClick, selectedValves }) => (
   <div style={{ marginTop: 16, display: 'flex', flexDirection: 'column', gap: 8 }}>
     <CompactRow label="SENSORS"    value={phaseInfo ? '실시간 수집 중' : '대기'} accent="#0d9488" />
     <CompactRow label="CONTROL"    value={phaseInfo ? `${phaseInfo.short} · −${fmtMS(phaseInfo.remaining)}` : '시나리오 대기'} accent="#d97706" />
     <CompactRow label="ACTUATORS"  value={activeValveIdx ? `V${activeValveIdx} 중` : `밸브 ${valves.length}개 대기`} accent="#2563eb" live={!!activeValveIdx} />
     <CompactRow label="SAFETY"     value={mode === 'emergency' ? '비상정지 ACTIVE' : '정상'} accent="#dc2626" alarm={mode === 'emergency'} />
+
+    {/* manual 모드 — 밸브 클릭 grid (모바일 UI) */}
+    {onValveClick && (
+      <div style={{
+        marginTop: 4, padding: '10px 12px', borderRadius: 10,
+        background: '#fffbeb', border: '1px solid #fbbf24',
+      }}>
+        <div style={{ fontSize: 11, fontWeight: 800, color: '#92400e', marginBottom: 8 }}>
+          ✋ 밸브 선택 (클릭 = 선택/해제)
+        </div>
+        <div style={{
+          display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(56px, 1fr))', gap: 6,
+        }}>
+          {valves.map((v, i) => {
+            const id = v.id ?? i + 1;
+            const sel = selectedValves?.has(id);
+            const live = activeValveIdx === id;
+            return (
+              <button key={id} onClick={() => onValveClick(id)} style={{
+                padding: '10px 4px', borderRadius: 6,
+                border: `1.5px solid ${live ? '#f97316' : sel ? '#0891b2' : '#cbd5e1'}`,
+                background: live ? '#f97316' : sel ? '#ecfeff' : '#fff',
+                color: live ? '#fff' : sel ? '#0e7490' : '#475569',
+                fontSize: 13, fontWeight: 800, fontFamily: MONO,
+                cursor: 'pointer', textAlign: 'center',
+              }}>{v.name || `V${id}`}{sel && ' ●'}</button>
+            );
+          })}
+        </div>
+      </div>
+    )}
+
     {lowTanks.length > 0 && (
       <div style={{
         marginTop: 4, padding: '12px 14px', borderRadius: 8,

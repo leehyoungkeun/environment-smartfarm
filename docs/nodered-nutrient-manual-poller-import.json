@@ -1,0 +1,61 @@
+[
+    {
+        "id": "manual_poll_inject",
+        "type": "inject",
+        "z": "REPLACE_WITH_TAB_ID",
+        "name": "1분 polling",
+        "props": [{"p":"payload","v":"","vt":"date"}],
+        "repeat": "60",
+        "crontab": "",
+        "once": true,
+        "onceDelay": "10",
+        "topic": "",
+        "x": 110,
+        "y": 720,
+        "wires": [["manual_poll_prep"]]
+    },
+    {
+        "id": "manual_poll_prep",
+        "type": "function",
+        "z": "REPLACE_WITH_TAB_ID",
+        "name": "manual-poller pre-fetch",
+        "func": "const apiKey = global.get('sensorApiKey') || 'smartfarm-sensor-key';\nmsg.url = 'https://api.smartgreen.kr/internal/nutrient/manual-jobs/pending';\nmsg.method = 'GET';\nmsg.headers = { 'x-api-key': apiKey };\nreturn msg;",
+        "outputs": 1,
+        "noerr": 0,
+        "x": 290,
+        "y": 720,
+        "wires": [["manual_poll_http"]]
+    },
+    {
+        "id": "manual_poll_http",
+        "type": "http request",
+        "z": "REPLACE_WITH_TAB_ID",
+        "name": "GET pending",
+        "method": "use",
+        "ret": "obj",
+        "paytoqs": "ignore",
+        "url": "",
+        "tls": "",
+        "persist": false,
+        "proxy": "",
+        "insecureHTTPParser": false,
+        "authType": "",
+        "senderr": false,
+        "headers": [],
+        "x": 480,
+        "y": 720,
+        "wires": [["manual_poll_dispatch"]]
+    },
+    {
+        "id": "manual_poll_dispatch",
+        "type": "function",
+        "z": "REPLACE_WITH_TAB_ID",
+        "name": "manual-poller dispatch",
+        "func": "// 수동 작업 polling — backend /internal/nutrient/manual-jobs/pending 응답 처리\n// 입력: msg.payload = { success: true, data: [job, ...] } (backend 응답)\n// cycleInProgress / safetyStop / mode != 'manual' 이면 skip.\n\nconst lastState = global.get('lastState') || {};\nconst mode = lastState.mode || 'paused';\n\nif (mode !== 'manual') {\n    node.status({ fill: 'grey', shape: 'ring', text: `mode=${mode}` });\n    return null;\n}\nif (global.get('cycleInProgress')) {\n    node.status({ fill: 'blue', shape: 'dot', text: '사이클 진행 중' });\n    return null;\n}\nif (global.get('safetyStop')) {\n    node.status({ fill: 'red', shape: 'ring', text: '안전 정지' });\n    return null;\n}\n\nconst response = msg.payload || {};\nif (!response.success || !Array.isArray(response.data)) {\n    node.status({ fill: 'yellow', shape: 'ring', text: '응답 형식 오류' });\n    return null;\n}\n\nconst jobs = response.data;\nif (jobs.length === 0) {\n    node.status({ fill: 'grey', shape: 'dot', text: '대기 작업 없음' });\n    return null;\n}\n\nconst job = jobs[0];\nconst scenarios = global.get('scenarios') || [];\nconst scenario = scenarios.find(s => s.id === job.scenarioId);\nif (!scenario) {\n    node.warn(`scenario 없음: ${job.scenarioId}`);\n    node.status({ fill: 'red', shape: 'ring', text: 'scenario 없음' });\n    return null;\n}\n\nconst payload = {\n    scenarioId: scenario.id,\n    scenario,\n    triggeredAt: new Date().toISOString(),\n    reason: 'manual',\n    manualJobId: job.id,\n    valves: Array.isArray(job.valves) ? job.valves : null,\n    volumeML: job.volumeML ?? null,\n};\n\nnode.status({ fill: 'green', shape: 'dot', text: `▶ ${job.id.slice(-6)}` });\nreturn { payload };",
+        "outputs": 1,
+        "noerr": 0,
+        "x": 670,
+        "y": 720,
+        "wires": [["REPLACE_WITH_CYCLE_RUNNER_ID"]]
+    }
+]

@@ -25,6 +25,11 @@ const tanks = config.tanks || [];
 const valveCount = config.valveCount || 14;
 const hw = config.hardware || { dosingPulseUnit: 500 };
 
+// 수동 작업 (manual-job-poller 가 forward) 인식 — backend status 동기화에 사용
+const manualJobId = msg.payload.manualJobId || null;
+const manualValves = Array.isArray(msg.payload.valves) ? msg.payload.valves : null;
+const manualVolumeML = msg.payload.volumeML ?? null;
+
 // 사이클 ID + 시작 시각
 const cycleId = `cycle-${Date.now()}`;
 const startedAt = new Date().toISOString();
@@ -33,17 +38,24 @@ global.set('cycleInProgress', true);
 global.set('currentCycle', {
     id: cycleId,
     scenarioId: scenario.id,
+    manualJobId,
     startedAt,
     phase: 'dosing',
     suppliedL: 0,
     valveIdx: -1,
 });
 
-node.status({ fill: 'blue', shape: 'dot', text: `▶ ${cycleId.slice(-6)}` });
+node.status({ fill: 'blue', shape: 'dot', text: manualJobId ? `✋ ${cycleId.slice(-6)}` : `▶ ${cycleId.slice(-6)}` });
+
+// 수동 작업이면 backend 에 status=running 통보 (시작 알림)
+if (manualJobId) {
+    sendBackend('PUT', `/manual-jobs/${manualJobId}/status`, { status: 'running' });
+}
 
 // === Phase 1: 도싱 (각 탱크 dosingRatio × baseVolume) ===
 // baseVolume = 메인탱크 부피 (예: 100L) 의 도싱 비율로 mL 산출
-const BASE_VOLUME_ML = 100 * 1000; // 100L 메인 탱크 가정 (config 로 이동 가능)
+// 수동 작업 시 manualVolumeML override 사용
+const BASE_VOLUME_ML = manualVolumeML != null ? manualVolumeML : 100 * 1000; // default 100L
 const dosingRatio = scenario.dosingRatio || {};
 
 // ⭐ 산/알칼리 운영 모드 — 'both' | 'acid' | 'alkali'
@@ -124,23 +136,27 @@ function runIrrigation() {
 
     const valves = scenario.valves || [];
     const valveChannels = hw.valves || [];  // [{ id, name, ch }, ...]
-    let i = 0;
+    // 수동 작업이면 manualValves (밸브 id 배열) 만 순회, 아니면 0..valveCount-1
+    const targetIndices = manualValves
+        ? manualValves.map(id => id - 1).filter(i => i >= 0 && i < valveCount)
+        : Array.from({ length: valveCount }, (_, i) => i);
+    let k = 0;
     const runNext = () => {
-        if (i >= valveCount || global.get('safetyStop')) {
+        if (k >= targetIndices.length || global.get('safetyStop')) {
             global.set('mainPumpOn', false);
             sendRelay(mainPumpCh, false, '메인 펌프 OFF');
             return cleanup();
         }
+        const i = targetIndices[k];
         const v = valves[i] || { duration: 600, volume: 150 };
-        // 32CH default: 밸브 V1~V14 → 채널 16~29
         const channel = valveChannels[i]?.ch ?? (16 + i);
 
-        updateCycle({ phase: 'irrigating', valveIdx: i + 1, suppliedL: (i + 1) * (v.volume / 1000) });
+        updateCycle({ phase: 'irrigating', valveIdx: i + 1, suppliedL: (k + 1) * (v.volume / 1000) });
         sendRelay(channel, true, `밸브 ${i+1} ON (${v.duration}s)`);
 
         setTimeout(() => {
             sendRelay(channel, false, `밸브 ${i+1} OFF`);
-            i++;
+            k++;
             setTimeout(runNext, 500); // 밸브 전환 0.5s 갭
         }, v.duration * 1000);
     };
@@ -151,7 +167,12 @@ function runIrrigation() {
 function cleanup() {
     updateCycle({ phase: 'done' });
 
-    const totalSupplied = (scenario.valves || []).slice(0, valveCount).reduce((s, v) => s + (v?.volume || 0), 0) / 1000;
+    // 수동 작업이면 targetIndices 기준, 아니면 전체 valveCount 기준 누적
+    const usedIndices = manualValves
+        ? manualValves.map(id => id - 1).filter(i => i >= 0 && i < valveCount)
+        : Array.from({ length: valveCount }, (_, i) => i);
+    const totalSupplied = usedIndices.reduce((s, i) =>
+        s + ((scenario.valves || [])[i]?.volume || 0), 0) / 1000;
 
     // 누적 카운터 증가
     sendBackend('POST', `/counters/increment`, {
@@ -160,6 +181,12 @@ function cleanup() {
         cycles: 1,
         runtimeMin: Math.floor((Date.now() - new Date(startedAt).getTime()) / 60000),
     });
+
+    // 수동 작업이면 status 업데이트 — safetyStop 면 aborted, 정상이면 completed
+    if (manualJobId) {
+        const finalStatus = global.get('safetyStop') ? 'aborted' : 'completed';
+        sendBackend('PUT', `/manual-jobs/${manualJobId}/status`, { status: finalStatus });
+    }
 
     global.set('cycleInProgress', false);
     global.set('lastCycleAt', Date.now());

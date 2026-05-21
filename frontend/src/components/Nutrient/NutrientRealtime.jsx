@@ -1832,49 +1832,73 @@ const PhaseTimeline = ({ phaseInfo, dimmed }) => {
         </span>
       </div>
 
-      <div style={{ padding: '16px 18px', display: 'flex', alignItems: 'flex-start', gap: 4 }}>
+      {/* vertical stack — desktop·mobile 통일 (좁은 화면 가시성) */}
+      <div style={{ padding: '12px 14px', display: 'flex', flexDirection: 'column', gap: 0 }}>
         {PHASE_PLAN.map((p, i) => {
           const past = cur > i, isCur = cur === i;
           const c = isCur ? T.acc : past ? T.ok : T.fg4;
           const nodeBg = isCur ? T.accBg : past ? '#f0fdf4' : T.card;
+          const isLast = i === PHASE_PLAN.length - 1;
           return (
-            <React.Fragment key={p.key}>
-              <div style={{ flex: 1, position: 'relative', minWidth: 0 }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            <div key={p.key} style={{
+              position: 'relative',
+              padding: isCur ? '10px 10px' : '6px 10px',
+              borderRadius: 8,
+              background: isCur ? T.accBg : 'transparent',
+              border: isCur ? `1px solid ${T.acc}33` : '1px solid transparent',
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                {/* 노드 + connector 라인 */}
+                <div style={{ position: 'relative', width: 28, flexShrink: 0 }}>
                   <div style={{
-                    width: 32, height: 32, borderRadius: 16, border: `1.5px solid ${c}`,
-                    background: nodeBg,
+                    width: 28, height: 28, borderRadius: 14,
+                    border: `1.5px solid ${c}`, background: nodeBg,
                     display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    fontFamily: MONO, fontSize: 14, fontWeight: 700, color: c, flexShrink: 0,
+                    fontFamily: MONO, fontSize: 12, fontWeight: 700, color: c,
                     animation: isCur ? 'sd-pulse 2s infinite' : 'none',
+                    position: 'relative', zIndex: 1,
                   }}>{past ? '✓' : String(i + 1).padStart(2, '0')}</div>
-                  <div style={{ fontSize: 16, fontWeight: 700,
-                    color: isCur ? T.fg : past ? T.ok : T.fg3,
-                    letterSpacing: '0.04em' }}>
-                    {p.short}
-                  </div>
+                  {/* vertical connector 선 */}
+                  {!isLast && (
+                    <div style={{
+                      position: 'absolute', left: '50%', top: 28, bottom: -8, width: 2,
+                      marginLeft: -1,
+                      background: cur > i ? T.ok : T.hair,
+                    }} />
+                  )}
                 </div>
-                <div style={{ marginTop: 8, marginLeft: 44,
-                  fontSize: 14,
-                  color: isCur ? T.fg2 : T.fg3,
-                  fontFamily: MONO }}>
+                {/* phase 라벨 */}
+                <div style={{
+                  fontSize: 14, fontWeight: isCur ? 800 : 600,
+                  color: isCur ? T.fg : past ? T.ok : T.fg3,
+                  letterSpacing: '0.04em', flex: 1,
+                  whiteSpace: 'nowrap',
+                }}>
+                  {p.short}
+                </div>
+                {/* 시간 정보 */}
+                <div style={{
+                  fontSize: 12, color: isCur ? T.acc : T.fg3, fontFamily: MONO,
+                  whiteSpace: 'nowrap',
+                }}>
                   {isCur && phaseInfo
                     ? <>{fmtMS(phaseInfo.elapsed)} · −{fmtMS(phaseInfo.remaining)}</>
                     : past ? <>완료 · {p.duration}s</> : <>대기 · {p.duration}s</>}
                 </div>
-                {isCur && phaseInfo && (
-                  <div style={{ marginTop: 8, marginLeft: 44, marginRight: 10,
-                    height: 4, background: T.hair, borderRadius: 2, overflow: 'hidden' }}>
-                    <div style={{ width: `${phaseInfo.progress * 100}%`, height: '100%',
-                      background: T.acc, transition: 'width 0.4s' }} />
-                  </div>
-                )}
               </div>
-              {i < PHASE_PLAN.length - 1 && (
-                <div style={{ flexShrink: 0, width: 16, height: 1.5, marginTop: 15,
-                  background: cur > i ? T.ok : T.hair }} />
+              {/* 진행률 bar — 현재 phase 만 */}
+              {isCur && phaseInfo && (
+                <div style={{
+                  marginTop: 6, marginLeft: 40,
+                  height: 4, background: T.hair, borderRadius: 2, overflow: 'hidden',
+                }}>
+                  <div style={{
+                    width: `${phaseInfo.progress * 100}%`, height: '100%',
+                    background: T.acc, transition: 'width 0.4s',
+                  }} />
+                </div>
               )}
-            </React.Fragment>
+            </div>
           );
         })}
       </div>

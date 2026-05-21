@@ -321,8 +321,8 @@ export default function NutrientRealtime({ farmId, mode, onModeChange }) {
 
   return (
     <div style={{
-      fontFamily: SANS, color: T.fg, background: T.bg, borderRadius: 14,
-      padding: 16, border: `1px solid ${T.bd}`, position: 'relative',
+      fontFamily: SANS, color: T.fg,
+      position: 'relative',
       fontFeatureSettings: '"tnum", "cv11"',
     }}>
       <header style={{

@@ -68,7 +68,7 @@ export default function NutrientPanel({ farmId }) {
   const windWarn = env.windSpeed > 5;
 
   return (
-    <div className="max-w-7xl mx-auto px-5 sm:px-6 md:px-8 py-4 md:py-6">
+    <div className="max-w-7xl mx-auto px-4 md:px-6 py-4 md:py-6">
       {/* 경보 sticky 배너 */}
       {alerts.length > 0 && (
         <div style={{

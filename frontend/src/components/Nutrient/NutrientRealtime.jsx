@@ -1075,7 +1075,7 @@ const ManualPalette = ({
           </div>
         )}
 
-        {/* 액션 버튼 — 같은 row 우측 */}
+        {/* 액션 버튼 — 한 row 유지 (flex-shrink 0 + padding 작게) */}
         <button onClick={onTrigger} disabled={!canTrigger}
           title={!canTrigger
             ? (critical ? '비상정지 해제 필요'
@@ -1083,13 +1083,13 @@ const ManualPalette = ({
               : !isQueue && !hasSchedule ? '실행 시각을 지정하세요'
               : '') : ''}
           style={{
-            padding: '8px 14px', borderRadius: 8, border: 'none',
+            padding: '7px 10px', borderRadius: 8, border: 'none',
             background: canTrigger ? '#0891b2' : '#cbd5e1',
-            color: '#fff', fontSize: 13, fontWeight: 800,
+            color: '#fff', fontSize: 12, fontWeight: 800,
             cursor: canTrigger ? 'pointer' : 'not-allowed',
-            whiteSpace: 'nowrap',
+            whiteSpace: 'nowrap', flexShrink: 0,
           }}>
-          {isQueue ? '▶ 큐에 추가' : '📅 예약 등록'}
+          {isQueue ? '▶ 추가' : '📅 예약'}
         </button>
         {/* 일시정지 + 시작 — 큐 순차 모드에서만 */}
         {isQueue && (
@@ -1098,22 +1098,22 @@ const ManualPalette = ({
               disabled={!queueCount || queuedCount === queueCount}
               title={queuedCount === queueCount ? '이미 모두 정지 상태' : '대기 중인 자동 실행 정지'}
               style={{
-                padding: '8px 14px', borderRadius: 8, border: '1px solid #fbbf24',
-                background: '#fff', color: '#92400e', fontSize: 13, fontWeight: 800,
+                padding: '7px 10px', borderRadius: 8, border: '1px solid #fbbf24',
+                background: '#fff', color: '#92400e', fontSize: 12, fontWeight: 800,
                 cursor: (!queueCount || queuedCount === queueCount) ? 'not-allowed' : 'pointer',
                 opacity: (!queueCount || queuedCount === queueCount) ? 0.45 : 1,
-                whiteSpace: 'nowrap',
-              }}>⏸ 일시정지</button>
+                whiteSpace: 'nowrap', flexShrink: 0,
+              }}>⏸ 정지</button>
             <button onClick={onStartQueue}
               disabled={queuedCount === 0}
               title={queuedCount === 0 ? '큐가 비어있습니다' : `${queuedCount} 건 순차 실행`}
               style={{
-                padding: '8px 18px', borderRadius: 8, border: 'none',
+                padding: '7px 12px', borderRadius: 8, border: 'none',
                 background: queuedCount > 0 ? '#16a34a' : '#cbd5e1',
-                color: '#fff', fontSize: 14, fontWeight: 900,
+                color: '#fff', fontSize: 13, fontWeight: 900,
                 cursor: queuedCount > 0 ? 'pointer' : 'not-allowed',
                 boxShadow: queuedCount > 0 ? '0 2px 8px rgba(22,163,74,0.30)' : 'none',
-                whiteSpace: 'nowrap',
+                whiteSpace: 'nowrap', flexShrink: 0,
               }}>▶ 시작 ({queuedCount})</button>
           </>
         )}

@@ -1941,25 +1941,7 @@ const Alerts = ({ alerts }) => {
   );
 };
 
-const Footer = () => (
-  <div style={{
-    marginTop: 14, paddingTop: 12, borderTop: `1px solid ${T.hair}`,
-    display: 'flex', justifyContent: 'flex-end', alignItems: 'center',
-  }}>
-    <div style={{ display: 'flex', gap: 8 }}>
-      <button disabled title="Phase 3.2 이후 활성화" style={{
-        padding: '8px 14px', borderRadius: 6, border: `1px solid ${T.bd}`,
-        background: T.card, color: T.fg3, fontSize: 13, fontWeight: 600,
-        letterSpacing: '0.04em', cursor: 'not-allowed', fontFamily: SANS,
-      }}>강제 사이클</button>
-      <button disabled title="Phase 3.2 이후 활성화" style={{
-        padding: '8px 14px', borderRadius: 6, border: `1px solid ${T.bd}`,
-        background: T.card, color: T.fg3, fontSize: 13, fontWeight: 600,
-        letterSpacing: '0.04em', cursor: 'not-allowed', fontFamily: SANS,
-      }}>센서 캘리브레이션</button>
-    </div>
-  </div>
-);
+const Footer = () => null;
 
 const PausedOverlay = () => (
   <div style={{

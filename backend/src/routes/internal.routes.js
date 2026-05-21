@@ -513,9 +513,15 @@ router.post("/nutrient/counters/increment", async (req, res) => {
 
 // 수동 작업 — pending + due (scheduleAt 도래 또는 null=즉시) 목록
 // RPi 가 1분 주기로 poll
+// mode != 'manual' 면 빈 배열 반환 (사용자가 모드 잠갔다는 의미 — 큐 유지하되 실행 X)
+// 응답에 scenario 객체도 join (RPi 가 별도 fetch 불필요)
 router.get("/nutrient/manual-jobs/pending", async (req, res) => {
   try {
     const farmId = requireFarmId(req, res); if (!farmId) return;
+    const state = await prisma.nutrientState.findUnique({ where: { farmId } });
+    if (state?.mode !== "manual") {
+      return res.json({ success: true, data: [], reason: `mode=${state?.mode}` });
+    }
     const rows = await prisma.nutrientManualJob.findMany({
       where: {
         farmId, status: "pending",
@@ -523,7 +529,29 @@ router.get("/nutrient/manual-jobs/pending", async (req, res) => {
       },
       orderBy: [{ scheduleAt: "asc" }, { createdAt: "asc" }],
     });
-    res.json({ success: true, data: rows });
+    // scenario 객체 join — 한 번에 fetch
+    const scenarioIds = [...new Set(rows.map(r => r.scenarioId).filter(Boolean))];
+    const scenarios = scenarioIds.length
+      ? await prisma.nutrientScenario.findMany({ where: { id: { in: scenarioIds } } })
+      : [];
+    const map = Object.fromEntries(scenarios.map(s => [s.id, s]));
+    const enriched = rows.map(r => ({ ...r, scenario: map[r.scenarioId] || null }));
+    res.json({ success: true, data: enriched });
+  } catch (e) {
+    res.status(500).json({ success: false, error: e.message });
+  }
+});
+
+// 단일 작업 상세 조회 — abort-watcher 가 5초 주기로 status 확인
+router.get("/nutrient/manual-jobs/:id", async (req, res) => {
+  try {
+    const farmId = requireFarmId(req, res); if (!farmId) return;
+    const { id } = req.params;
+    const row = await prisma.nutrientManualJob.findUnique({ where: { id } });
+    if (!row || row.farmId !== farmId) {
+      return res.status(404).json({ success: false, error: "작업 없음" });
+    }
+    res.json({ success: true, data: row });
   } catch (e) {
     res.status(500).json({ success: false, error: e.message });
   }

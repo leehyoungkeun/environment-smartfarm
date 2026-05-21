@@ -1,0 +1,61 @@
+[
+    {
+        "id": "abort_watch_inject",
+        "type": "inject",
+        "z": "REPLACE_WITH_TAB_ID",
+        "name": "abort-watcher 5초",
+        "props": [{"p":"payload","v":"","vt":"date"}],
+        "repeat": "5",
+        "crontab": "",
+        "once": true,
+        "onceDelay": "8",
+        "topic": "",
+        "x": 110,
+        "y": 800,
+        "wires": [["abort_watch_prep"]]
+    },
+    {
+        "id": "abort_watch_prep",
+        "type": "function",
+        "z": "REPLACE_WITH_TAB_ID",
+        "name": "abort-watcher pre-fetch",
+        "func": "// manualJobId 가 currentCycle 에 있으면 backend job status fetch\nconst cc = global.get('currentCycle') || {};\nif (!cc.manualJobId || !global.get('cycleInProgress')) {\n    node.status({ fill: 'grey', shape: 'ring', text: 'idle' });\n    return null;\n}\nconst apiKey = global.get('sensorApiKey') || 'smartfarm-sensor-key';\nmsg.url = `https://api.smartgreen.kr/internal/nutrient/manual-jobs/${cc.manualJobId}`;\nmsg.method = 'GET';\nmsg.headers = { 'x-api-key': apiKey };\nreturn msg;",
+        "outputs": 1,
+        "noerr": 0,
+        "x": 300,
+        "y": 800,
+        "wires": [["abort_watch_http"]]
+    },
+    {
+        "id": "abort_watch_http",
+        "type": "http request",
+        "z": "REPLACE_WITH_TAB_ID",
+        "name": "GET job status",
+        "method": "use",
+        "ret": "obj",
+        "paytoqs": "ignore",
+        "url": "",
+        "tls": "",
+        "persist": false,
+        "proxy": "",
+        "insecureHTTPParser": false,
+        "authType": "",
+        "senderr": false,
+        "headers": [],
+        "x": 490,
+        "y": 800,
+        "wires": [["abort_watch_check"]]
+    },
+    {
+        "id": "abort_watch_check",
+        "type": "function",
+        "z": "REPLACE_WITH_TAB_ID",
+        "name": "abort-watcher check",
+        "func": "// 응답 검사 — status='aborted' 또는 'cancelled' 면 flow.manualAbortFlag 세팅\nconst resp = msg.payload || {};\nif (!resp.success || !resp.data) {\n    node.status({ fill: 'yellow', shape: 'ring', text: '응답 오류' });\n    return null;\n}\nconst status = resp.data.status;\nif (status === 'aborted' || status === 'cancelled') {\n    flow.set('manualAbortFlag', true);\n    node.warn(`abort signal: job=${resp.data.id.slice(0,8)} status=${status}`);\n    node.status({ fill: 'red', shape: 'dot', text: `🛑 ${status}` });\n} else {\n    node.status({ fill: 'green', shape: 'dot', text: `${status}` });\n}\nreturn null;",
+        "outputs": 1,
+        "noerr": 0,
+        "x": 690,
+        "y": 800,
+        "wires": [[]]
+    }
+]

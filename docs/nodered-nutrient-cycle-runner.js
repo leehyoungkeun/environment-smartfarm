@@ -86,8 +86,22 @@ const dosingChannels = tanks.slice(0, 6).map((t, i) => {
     };
 });
 
+// 중단 신호 체크 — abort-watcher 가 flow.set('manualAbortFlag', true) 또는 safetyStop
+function shouldStop() {
+    if (global.get('safetyStop')) return true;
+    if (flow.get('manualAbortFlag')) {
+        node.warn('manual abort 감지 — cleanup 진입');
+        return true;
+    }
+    return false;
+}
+
+// cycle 시작 시 abort flag reset (이전 cycle 잔재 제거)
+flow.set('manualAbortFlag', null);
+
 // 도싱 실행 함수
 function runDosing() {
+    if (shouldStop()) return cleanup();
     updateCycle({ phase: 'dosing' });
     dosingChannels.forEach((d, i) => {
         if (d.volumeMl <= 0) return;
@@ -103,7 +117,7 @@ function runDosing() {
 
 // === Phase 2: 교반 — hw.mixerOnSec 설정값 사용 ===
 function runMixing() {
-    if (global.get('safetyStop')) return cleanup();
+    if (shouldStop()) return cleanup();
     updateCycle({ phase: 'mixing' });
     const agitatorCh = hw.agitatorCh ?? 15;  // 32CH default
     sendRelay(agitatorCh, true, '교반기 ON');
@@ -116,7 +130,7 @@ function runMixing() {
 
 // === Phase 3: EC/pH 안정화 확인 (10초) ===
 function runStabilization() {
-    if (global.get('safetyStop')) return cleanup();
+    if (shouldStop()) return cleanup();
     updateCycle({ phase: 'stabilizing' });
     setTimeout(() => {
         const lastTel = global.get('lastTelemetry');
@@ -128,7 +142,7 @@ function runStabilization() {
 
 // === Phase 4: 관수 (메인펌프 + 밸브 순차) ===
 function runIrrigation() {
-    if (global.get('safetyStop')) return cleanup();
+    if (shouldStop()) return cleanup();
     updateCycle({ phase: 'irrigating' });
     const mainPumpCh = hw.mainPumpCh ?? 14;  // 32CH default
     global.set('mainPumpOn', true);
@@ -142,7 +156,7 @@ function runIrrigation() {
         : Array.from({ length: valveCount }, (_, i) => i);
     let k = 0;
     const runNext = () => {
-        if (k >= targetIndices.length || global.get('safetyStop')) {
+        if (k >= targetIndices.length || shouldStop()) {
             global.set('mainPumpOn', false);
             sendRelay(mainPumpCh, false, '메인 펌프 OFF');
             return cleanup();
@@ -182,11 +196,13 @@ function cleanup() {
         runtimeMin: Math.floor((Date.now() - new Date(startedAt).getTime()) / 60000),
     });
 
-    // 수동 작업이면 status 업데이트 — safetyStop 면 aborted, 정상이면 completed
+    // 수동 작업이면 status 업데이트 — abort(manual or safety)면 aborted, 정상 완료면 completed
     if (manualJobId) {
-        const finalStatus = global.get('safetyStop') ? 'aborted' : 'completed';
+        const aborted = global.get('safetyStop') || flow.get('manualAbortFlag');
+        const finalStatus = aborted ? 'aborted' : 'completed';
         sendBackend('PUT', `/manual-jobs/${manualJobId}/status`, { status: finalStatus });
     }
+    flow.set('manualAbortFlag', null);
 
     global.set('cycleInProgress', false);
     global.set('lastCycleAt', Date.now());

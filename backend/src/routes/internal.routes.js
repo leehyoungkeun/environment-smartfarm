@@ -391,12 +391,23 @@ router.post("/control-log", async (req, res) => {
 // 양액 관리 — RPi Node-RED 전용 (Phase 3)
 // /internal/nutrient/* — authenticateApiKey 적용 (req.farmId 자동 설정)
 // 사용자 UI 는 /api/nutrient/* (JWT) 별도 사용
+//
+// 보안: req.farmId 가 apiKey 와 1:1 매핑이어야 함.
+// query string / body 의 farmId 는 무시 (이전 fallback 은 다농장 사칭 가능 → 제거).
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+function requireFarmId(req, res) {
+  if (!req.farmId) {
+    res.status(401).json({ success: false, error: "apiKey 의 farmId 매핑 누락" });
+    return null;
+  }
+  return req.farmId;
+}
 
 // 설정 조회 (탱크/밸브/경보/하드웨어)
 router.get("/nutrient/config", async (req, res) => {
   try {
-    const farmId = req.farmId || req.query.farmId || DEFAULT_FARM_ID;
+    const farmId = requireFarmId(req, res); if (!farmId) return;
     let cfg = await prisma.nutrientConfig.findUnique({ where: { farmId } });
     if (!cfg) cfg = { farmId, tanks: [], valveCount: 0, alerts: {}, hardware: {} };
     res.json({ success: true, data: cfg });
@@ -409,7 +420,7 @@ router.get("/nutrient/config", async (req, res) => {
 // 시나리오 조회 (active 만 필요해도 전체 반환 — RPi 가 find(active) 처리)
 router.get("/nutrient/scenarios", async (req, res) => {
   try {
-    const farmId = req.farmId || req.query.farmId || DEFAULT_FARM_ID;
+    const farmId = requireFarmId(req, res); if (!farmId) return;
     const rows = await prisma.nutrientScenario.findMany({
       where: { farmId },
       orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
@@ -423,7 +434,7 @@ router.get("/nutrient/scenarios", async (req, res) => {
 // 운영 상태 조회 (mode 등)
 router.get("/nutrient/state", async (req, res) => {
   try {
-    const farmId = req.farmId || req.query.farmId || DEFAULT_FARM_ID;
+    const farmId = requireFarmId(req, res); if (!farmId) return;
     let st = await prisma.nutrientState.findUnique({ where: { farmId } });
     if (!st) st = await prisma.nutrientState.create({ data: { farmId } });
     res.json({ success: true, data: st });
@@ -435,7 +446,7 @@ router.get("/nutrient/state", async (req, res) => {
 // telemetry 업로드 (EC/pH/currentCycle/solarAccumulated)
 router.put("/nutrient/state/telemetry", async (req, res) => {
   try {
-    const farmId = req.farmId || req.body?.farmId || DEFAULT_FARM_ID;
+    const farmId = requireFarmId(req, res); if (!farmId) return;
     const b = req.body || {};
     const data = { updatedAt: new Date() };
     if (b.ecCurrent !== undefined) data.ecCurrent = b.ecCurrent;
@@ -454,7 +465,7 @@ router.put("/nutrient/state/telemetry", async (req, res) => {
 // 경보 생성 (RPi 에서 한계 초과 발견 시)
 router.post("/nutrient/alerts", async (req, res) => {
   try {
-    const farmId = req.farmId || req.body?.farmId || DEFAULT_FARM_ID;
+    const farmId = requireFarmId(req, res); if (!farmId) return;
     const b = req.body || {};
     if (!b.type && !b.alertType) {
       return res.status(400).json({ success: false, error: "alertType 필수" });
@@ -479,7 +490,7 @@ router.post("/nutrient/alerts", async (req, res) => {
 // 누적 카운터 증가 (RPi 가 사이클 완료 시)
 router.post("/nutrient/counters/increment", async (req, res) => {
   try {
-    const farmId = req.farmId || req.body?.farmId || DEFAULT_FARM_ID;
+    const farmId = requireFarmId(req, res); if (!farmId) return;
     const b = req.body || {};
     // ensure row
     let c = await prisma.nutrientCounter.findUnique({ where: { farmId } });

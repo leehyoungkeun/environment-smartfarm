@@ -55,18 +55,18 @@ const phMode = global.get('phDosingMode') || 'normal_acid';
 const isFast = ecMode.startsWith('fast') || phMode.startsWith('fast');
 const boost = isFast ? 2.0 : 1.0;  // 빠른 모드면 2배 도싱
 
-// 도싱 펌프 채널 (Unit-Id 3 채널 0~5)
+// 도싱 펌프 채널 (32CH 통합: 채널 8~13, t.modbusReg 우선)
 const dosingChannels = tanks.slice(0, 6).map((t, i) => {
     const ratio = dosingRatio[t.id] || 0;
-    // 산/알칼리 모드 필터링
-    const isAcid = t.id === '산' || t.id === 'acid';
-    const isAlkali = t.id === 'F' || t.id === 'alkali';
+    // 산/알칼리 모드 필터링 — id 표기 한글·영문·약어 모두 수용
+    const isAcid   = t.id === '산' || t.id === 'acid'   || t.id === 'AC';
+    const isAlkali = t.id === 'F' || t.id === 'alkali' || t.id === 'AL';
     let effectiveRatio = ratio;
-    if (acidAlkaliMode === 'acid' && isAlkali) effectiveRatio = 0;
-    if (acidAlkaliMode === 'alkali' && isAcid) effectiveRatio = 0;
+    if (acidAlkaliMode === 'acid'   && isAlkali) effectiveRatio = 0;
+    if (acidAlkaliMode === 'alkali' && isAcid)   effectiveRatio = 0;
     const volumeMl = BASE_VOLUME_ML * effectiveRatio / 100 * boost;
     return {
-        channel: t.modbusReg ?? i,
+        channel: t.modbusReg ?? (8 + i),  // 32CH default: 8~13
         label: t.id,
         ratio: effectiveRatio,
         volumeMl,
@@ -93,10 +93,11 @@ function runDosing() {
 function runMixing() {
     if (global.get('safetyStop')) return cleanup();
     updateCycle({ phase: 'mixing' });
-    sendRelay(7, true, '교반기 ON'); // 채널 7 = 교반기
+    const agitatorCh = hw.agitatorCh ?? 15;  // 32CH default
+    sendRelay(agitatorCh, true, '교반기 ON');
     const mixSec = hw.mixerOnSec ?? 30;
     setTimeout(() => {
-        sendRelay(7, false, `교반기 OFF (${mixSec}s)`);
+        sendRelay(agitatorCh, false, `교반기 OFF (${mixSec}s)`);
         runStabilization();
     }, mixSec * 1000);
 }
@@ -117,19 +118,22 @@ function runStabilization() {
 function runIrrigation() {
     if (global.get('safetyStop')) return cleanup();
     updateCycle({ phase: 'irrigating' });
+    const mainPumpCh = hw.mainPumpCh ?? 14;  // 32CH default
     global.set('mainPumpOn', true);
-    sendRelay(6, true, '메인 펌프 ON');
+    sendRelay(mainPumpCh, true, '메인 펌프 ON');
 
     const valves = scenario.valves || [];
+    const valveChannels = hw.valves || [];  // [{ id, name, ch }, ...]
     let i = 0;
     const runNext = () => {
         if (i >= valveCount || global.get('safetyStop')) {
             global.set('mainPumpOn', false);
-            sendRelay(6, false, '메인 펌프 OFF');
+            sendRelay(mainPumpCh, false, '메인 펌프 OFF');
             return cleanup();
         }
         const v = valves[i] || { duration: 600, volume: 150 };
-        const channel = 8 + i; // 채널 8~21 = 밸브 1~14
+        // 32CH default: 밸브 V1~V14 → 채널 16~29
+        const channel = valveChannels[i]?.ch ?? (16 + i);
 
         updateCycle({ phase: 'irrigating', valveIdx: i + 1, suppliedL: (i + 1) * (v.volume / 1000) });
         sendRelay(channel, true, `밸브 ${i+1} ON (${v.duration}s)`);
@@ -175,7 +179,7 @@ function sendRelay(channel, on, label) {
         payload: {
             value: on,
             fc: 5,           // FC5 = Write Single Coil
-            unitid: 3,       // Unit-Id 3 = 24CH 양액 릴레이
+            unitid: 3,       // Unit-Id 3 = 32CH 통합 릴레이 (환경 0~7 + 양액 8~30)
             address: channel,
             quantity: 1,
         },

@@ -3,26 +3,35 @@
 > RPi 1호 (192.168.219.111) Node-RED 에 추가될 양액 자동 제어 플로우.
 > Phase 3.1 = 하드웨어 도착 전 골격. 시뮬레이터로 전체 흐름 검증 → 도착 후 실 센서 노드 활성화.
 
-## 운영 알파 + 시스템 검토 반영 BOM (~₩175만)
+## 운영 알파 + 시스템 검토 반영 BOM (~₩180만)
 - **RS-485 버스**:
   - Unit-Id 1: XY-MD02 온습도 (기존)
-  - Unit-Id 2: Waveshare 8CH 릴레이 (기존)
-  - **Unit-Id 3: 24CH Modbus 릴레이 (신규)** — 도싱 6 + 밸브 14 + 메인펌프 + 교반기 = 22채널 + 여유 2
+  - ~~Unit-Id 2: Waveshare 8CH 릴레이~~ — **32CH 로 통합 (deprecate)**
+  - **Unit-Id 3: Waveshare 32CH Modbus 릴레이 (신규, ≈₩13만)** — 환경 8 + 양액 22 = 30 채널 사용 + 여유 2
   - **Unit-Id 4: Modbus EC 트랜스미터 (신규)**
 - **USB**: Atlas EZO-pH (Carrier Board, /dev/ttyACM0 또는 /dev/ttyUSB1)
 - **GPIO**: 비상정지 (BCM 17, 풀업), 누액 감지 (BCM 27)
-- **플로트 스위치**: 24CH 릴레이의 dry contact 입력 또는 GPIO 22~28
+- **플로트 스위치**: 32CH 릴레이의 dry contact 입력 또는 GPIO 22~28
 
-## 채널 매핑 (Unit-Id 3, 24CH 릴레이)
+## 채널 매핑 (Unit-Id 3, Waveshare 32CH 릴레이)
 
-| 채널 | 용도 | 매핑 |
-|---|---|---|
-| 0~5 | 도싱 펌프 A·B·C·D·산·알칼리 | nutrient_configs.tanks[i].modbusReg |
-| 6 | 메인 송수 펌프 | 고정 |
-| 7 | 교반기 | 고정 |
-| 8~21 | 관수 밸브 1~14 | nutrient_configs.valveCount 까지 |
-| 22 | 원수 보충 솔레노이드 | 고정 |
-| 23 | 예비 | — |
+환경 + 양액 통합 — 단일 모듈로 모든 제어. 32CH 도입 결정 (2026-05-21).
+
+| 채널 | 영역 | 용도 | 매핑 |
+|---|---|---|---|
+| 0~7 | 환경 | 측창·팬·그늘막·LED·창문 등 (기존 매핑 유지) | device_positions / configs |
+| 8~13 | 양액 도싱 | 펌프 A·B·C·D·산·알칼리 | nutrient_configs.tanks[i].modbusReg |
+| 14 | 양액 본체 | 메인 송수 펌프 | nutrient_configs.hardware.mainPumpCh |
+| 15 | 양액 본체 | 교반기 | nutrient_configs.hardware.agitatorCh |
+| 16~29 | 양액 관수 | 관수 밸브 V1~V14 | nutrient_configs.hardware.valves[i].ch |
+| 30 | 양액 보조 | 원수 보충 솔레노이드 | nutrient_configs.hardware.rawSolenoidCh |
+| 31 | 예비 | — | nutrient_configs.hardware.spareCh |
+
+### 마이그레이션 (Phase 2 — 32CH 도착 후)
+- 기존 Waveshare 8CH (Unit-Id 2) → 다른 농장으로 이전 또는 보관
+- 32CH 신규 모듈 Unit-Id 3 으로 설정
+- 환경 채널 0~7 — 기존 매핑 그대로 유지 (코드 변경 0)
+- NodeRed function 2 의 양액 매핑은 신규 채널 8~30 으로 추가
 
 ## 플로우 구조 (탭 1개 = `양액 자동제어`)
 

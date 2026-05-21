@@ -115,17 +115,19 @@ if (!global.get('nutrientSimulator')) {
 const criticalHit = triggered.find(t => t.severity === 'critical');
 
 if (criticalHit) {
-    // 모든 릴레이 OFF (24CH = Unit-Id 3, 채널 0~23 모두 OFF)
+    // 양액 채널만 OFF (32CH 통합: 환경 0~7 유지, 양액 8~31 차단)
+    // 환경 채널을 끄면 측창·팬·LED 등 정상 운영 중단 → 양액만 분리 차단
     global.set('safetyStop', true);
     global.set('emergencyReason', criticalHit.type);
 
     // modbus-flex-write 호환: FC15 = Write Multiple Coils
+    // address=8, quantity=24 → 채널 8~31 (양액 24채널) 모두 OFF
     const offCmd = {
         payload: {
             value: Array(24).fill(false),
             fc: 15,
             unitid: 3,
-            address: 0,
+            address: 8,
             quantity: 24,
         },
         reason: criticalHit.message,

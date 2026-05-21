@@ -74,8 +74,17 @@ if (scenario.irrigationMode === 'solar') {
     if ((state.solarAccumulated || 0) >= (scenario.solarThreshold || 100)) {
         shouldTrigger = true;
         reason = `solar ${state.solarAccumulated}/${scenario.solarThreshold} W/m²`;
-        // 트리거 후 적산 리셋
+        // 트리거 후 적산 리셋 — global + backend DB 둘 다.
+        // 이전: global.set 만 호출 → 다음 telemetry fetch 까지 옛 값 유지되어 즉시 재트리거 가능.
         global.set('solarAccumulated', 0);
+        // backend telemetry PUT 으로 DB 도 0 으로 동기화
+        const apiKey = global.get('sensorApiKey') || 'smartfarm-sensor-key';
+        node.send([null, null, {
+            url: `https://api.smartgreen.kr/internal/nutrient/state/telemetry`,
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey },
+            payload: { solarAccumulated: 0 },
+        }]);
     }
 } else if (scenario.irrigationMode === 'timer') {
     if (!inTimeRange(scenario.timerStart, scenario.timerEnd)) {

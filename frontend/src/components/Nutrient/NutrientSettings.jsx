@@ -1,14 +1,15 @@
 import { useEffect, useState } from 'react';
 import * as nutrientApi from '../../services/nutrientApi';
 
-// 초기값 — backend 의 DEFAULT_ALERT_THRESHOLDS / DEFAULT_HARDWARE 와 동일
+// 초기값 — nutrient-flow-design.md 의 6 탱크 BOM 과 일치
+// Realtime 다이어그램 의 TANK_DEFAULTS 와도 동일 (id·이름 정렬)
 const DEFAULT_TANKS = [
-  { id: 'A', label: '질소·칼슘', level: 80, capacity: 200, modbusReg: 0 },
-  { id: 'B', label: '인·칼륨·마그', level: 75, capacity: 200, modbusReg: 1 },
-  { id: 'C', label: '미량원소', level: 65, capacity: 100, modbusReg: 2 },
-  { id: 'D', label: '보조영양', level: 50, capacity: 100, modbusReg: 3 },
-  { id: '산', label: 'pH 하강', level: 90, capacity: 50, modbusReg: 4 },
-  { id: 'F', label: '알칼리 (pH 상승)', level: 85, capacity: 50, modbusReg: 5 },
+  { id: 'A',  label: '질산칼슘',     level: 80, capacity: 25, modbusReg: 0 },
+  { id: 'B',  label: '다비료 NPK',   level: 75, capacity: 25, modbusReg: 1 },
+  { id: 'C',  label: '미량요소',     level: 65, capacity: 25, modbusReg: 2 },
+  { id: 'D',  label: '황산마그네슘', level: 50, capacity: 25, modbusReg: 3 },
+  { id: 'AC', label: '산 HNO₃',      level: 90, capacity: 10, modbusReg: 4 },
+  { id: 'AL', label: '알칼리 KOH',   level: 85, capacity: 10, modbusReg: 5 },
 ];
 
 const DEFAULT_ALERTS = {
@@ -38,7 +39,7 @@ const DEFAULT_HW = {
 
 export default function NutrientSettings({ farmId }) {
   const [open, setOpen] = useState({
-    tanks: true, valves: false, alerts: false, hw: false,
+    tanks: true, valves: false, channels: false, alerts: false, hw: false,
     calibration: false, alertHistory: false, counters: false,
   });
   const toggle = (k) => setOpen(o => ({ ...o, [k]: !o[k] }));
@@ -111,6 +112,16 @@ export default function NutrientSettings({ farmId }) {
       <Section title="🚿 관수 밸브" subtitle={`${config.valveCount}구역 · 최대 24개`}
                open={open.valves} onToggle={() => toggle('valves')} saving={savingSection === 'valveCount'}>
         <ValvesEditor count={config.valveCount} onSave={(n) => saveSection('valveCount', n)} />
+      </Section>
+
+      <Section title="🔌 릴레이 채널 매핑" subtitle="Waveshare 32CH · 환경 0~7 + 양액 8~30"
+               open={open.channels} onToggle={() => toggle('channels')} saving={savingSection === 'hardware'}>
+        <RelayChannelMap
+          tanks={config.tanks}
+          valveCount={config.valveCount}
+          hardware={config.hardware}
+          onSaveHardware={(h) => saveSection('hardware', h)}
+        />
       </Section>
 
       {/* 3. 경보 한계값 */}
@@ -431,6 +442,121 @@ const ThresholdRow = ({ level, desc, value, step, onChange, color }) => (
 // ─────────────────────────────────────────
 // 하드웨어 편집
 // ─────────────────────────────────────────
+// ─────────────────────────────────────────
+// 🔌 릴레이 채널 매핑 — 32CH 통합 view
+// 환경 (0~7) + 양액 도싱 (8~13) + 메인펌프 (14) + 교반기 (15)
+//   + 밸브 (16~29) + 원수솔레노이드 (30) + 예비 (31)
+// ─────────────────────────────────────────
+const RelayChannelMap = ({ tanks, valveCount, hardware, onSaveHardware }) => {
+  const [hw, setHw] = useState(hardware || {});
+  useEffect(() => { setHw(hardware || {}); }, [hardware]);
+  const dirty = JSON.stringify(hw) !== JSON.stringify(hardware || {});
+
+  // 32 channels 일람 — 채널마다 무엇이 할당되어 있는지 계산
+  const slots = Array.from({ length: 32 }, (_, ch) => {
+    // 0~7: env
+    if (ch < 8) return { ch, zone: 'env', label: '환경 출력', note: '장치 관리에서 매핑', editable: false };
+    // 8~13: dosing tanks (tanks[i].modbusReg 기준)
+    const tank = (tanks || []).find(t => Number(t.modbusReg) === ch);
+    if (tank) return { ch, zone: 'dosing', label: tank.label || tank.name || `탱크 ${tank.id}`, note: '도싱 펌프', editable: false };
+    // 14: main pump
+    if (ch === (hw.mainPumpCh ?? 14)) return { ch, zone: 'main', label: '메인 송수 펌프', note: 'hardware.mainPumpCh', editable: true, field: 'mainPumpCh' };
+    // 15: agitator
+    if (ch === (hw.agitatorCh ?? 15)) return { ch, zone: 'agit', label: '교반기', note: 'hardware.agitatorCh', editable: true, field: 'agitatorCh' };
+    // 16~29: valves
+    const valves = hw.valves || [];
+    const valve = valves.find(v => Number(v.ch) === ch);
+    if (valve) return { ch, zone: 'valve', label: valve.name || `V${valve.id}`, note: '관수 밸브', editable: false };
+    // 30: raw water
+    if (ch === (hw.rawSolenoidCh ?? 30)) return { ch, zone: 'raw', label: '원수 보충 솔레노이드', note: 'hardware.rawSolenoidCh', editable: true, field: 'rawSolenoidCh' };
+    // 31: spare
+    return { ch, zone: 'spare', label: '예비', note: '', editable: false };
+  });
+
+  const zoneColor = {
+    env: { bg: '#f1f5f9', fg: '#475569', border: '#cbd5e1' },
+    dosing: { bg: '#ecfeff', fg: '#0e7490', border: '#67e8f9' },
+    main: { bg: '#fef3c7', fg: '#92400e', border: '#fcd34d' },
+    agit: { bg: '#fef3c7', fg: '#92400e', border: '#fcd34d' },
+    valve: { bg: '#dbeafe', fg: '#1e40af', border: '#93c5fd' },
+    raw: { bg: '#e0f2fe', fg: '#0369a1', border: '#7dd3fc' },
+    spare: { bg: '#f8fafc', fg: '#94a3b8', border: '#e2e8f0' },
+  };
+
+  // 밸브 채널 일괄 편집
+  const valves = hw.valves && hw.valves.length ? hw.valves
+    : Array.from({ length: valveCount || 14 }, (_, i) => ({ id: i + 1, name: `V${i + 1}`, ch: 16 + i }));
+  const setValveCh = (idx, ch) => {
+    const next = [...valves];
+    next[idx] = { ...next[idx], ch };
+    setHw({ ...hw, valves: next });
+  };
+
+  return (
+    <div className="space-y-3">
+      <div style={{ fontSize: 14, color: '#64748b', padding: 10, background: '#fef3c7', borderRadius: 6 }}>
+        💡 단일 32CH 릴레이로 환경(0~7) + 양액(8~30) 통합 제어. 환경 채널은 [장치 관리] 에서 매핑.
+        양액 도싱(8~13) 은 [도싱 탱크] 의 modbusReg, 밸브(16~29) 는 아래에서 직접 편집.
+      </div>
+
+      {/* 32 channel grid */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(8, 1fr)', gap: 6 }}>
+        {slots.map((s) => {
+          const c = zoneColor[s.zone];
+          return (
+            <div key={s.ch} style={{
+              padding: '8px 6px', background: c.bg, border: `1px solid ${c.border}`,
+              borderRadius: 6, textAlign: 'center', minHeight: 64,
+            }}>
+              <div style={{ fontFamily: 'ui-monospace, SF Mono, monospace',
+                            fontSize: 11, fontWeight: 700, color: c.fg, opacity: 0.7 }}>
+                CH{String(s.ch).padStart(2, '0')}
+              </div>
+              <div style={{ fontSize: 11.5, fontWeight: 700, color: c.fg,
+                            marginTop: 3, lineHeight: 1.2 }}>
+                {s.label}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      {/* 편집 가능 특수 채널 */}
+      <div style={{ fontSize: 14, fontWeight: 800, color: '#0f172a', marginTop: 4 }}>⚙️ 본체·보조 채널</div>
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        <NumIn label="메인 송수 펌프" value={hw.mainPumpCh ?? 14}
+               onChange={(v) => setHw({ ...hw, mainPumpCh: v })} />
+        <NumIn label="교반기" value={hw.agitatorCh ?? 15}
+               onChange={(v) => setHw({ ...hw, agitatorCh: v })} />
+        <NumIn label="원수 보충 솔레노이드" value={hw.rawSolenoidCh ?? 30}
+               onChange={(v) => setHw({ ...hw, rawSolenoidCh: v })} />
+        <NumIn label="예비" value={hw.spareCh ?? 31}
+               onChange={(v) => setHw({ ...hw, spareCh: v })} />
+      </div>
+
+      {/* 밸브 채널 일괄 편집 */}
+      <div style={{ fontSize: 14, fontWeight: 800, color: '#0f172a', marginTop: 4 }}>🚿 밸브 채널 (V1~V{valves.length})</div>
+      <div className="grid grid-cols-3 md:grid-cols-7 gap-2">
+        {valves.map((v, i) => (
+          <div key={v.id}>
+            <div style={{ fontSize: 12, fontWeight: 700, color: '#475569', marginBottom: 2 }}>{v.name}</div>
+            <input type="number" value={v.ch ?? ''} min="0" max="31"
+              onChange={(e) => setValveCh(i, parseInt(e.target.value) || 0)}
+              style={{ width: '100%', padding: '4px 8px', fontSize: 14, fontWeight: 800, color: '#1e40af',
+                       border: '1px solid #cbd5e1', borderRadius: 6, outline: 'none' }} />
+          </div>
+        ))}
+      </div>
+
+      <button onClick={() => onSaveHardware(hw)} disabled={!dirty} style={{
+        width: '100%', padding: 10, borderRadius: 8, border: 'none',
+        background: dirty ? '#0891b2' : '#cbd5e1', color: '#fff',
+        fontSize: 15, fontWeight: 800, cursor: dirty ? 'pointer' : 'not-allowed',
+      }}>{dirty ? '변경사항 저장' : '저장됨'}</button>
+    </div>
+  );
+};
+
 const HardwareEditor = ({ hardware: initial, onSave }) => {
   const [hw, setHw] = useState(initial);
   const dirty = JSON.stringify(hw) !== JSON.stringify(initial);

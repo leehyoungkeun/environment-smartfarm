@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import NutrientRealtime from './NutrientRealtime';
 import NutrientScenarios from './NutrientScenarios';
 import NutrientSettings from './NutrientSettings';
@@ -29,7 +29,9 @@ export default function NutrientPanel({ farmId }) {
   const [alerts] = useState([]); // sticky 경보 배너 (Phase 3 RPi telemetry 연동 후 활성)
   const [env] = useState(MOCK_ENV);
 
-  // 초기 mode 로드 (DB → state)
+  // 초기 mode 1회 로드 (이후 외부 변경은 Realtime 의 state polling 에서 detectExternalModeChange 로 알림)
+  // 이전: 별도 5초 polling → Realtime 과 동일 endpoint 중복 호출. dedup 위해 polling 제거.
+  const pendingModeUntilRef = useRef(0);
   useEffect(() => {
     let cancelled = false;
     nutrientApi.getState(farmId)
@@ -39,13 +41,18 @@ export default function NutrientPanel({ farmId }) {
   }, [farmId]);
 
   // mode 변경 → API 호출 (optimistic update + 실패 시 복원)
-  const handleModeChange = async (newMode) => {
+  // Realtime callback (외부 변경 감지) 도 동일 함수로 들어옴 — pendingModeUntilRef 가 3초 race-guard
+  const handleModeChange = async (newMode, opts = {}) => {
+    if (newMode === mode) return;
     const prev = mode;
     setMode(newMode);
+    if (opts.external) return;  // Realtime 의 외부 변경 통보 — API 호출 X
+    pendingModeUntilRef.current = Date.now() + 3000;
     try {
       await nutrientApi.setMode(farmId, newMode);
     } catch (e) {
       setMode(prev);
+      pendingModeUntilRef.current = 0;
       alert(`모드 변경 실패: ${e.response?.data?.error || e.message}`);
     }
   };
@@ -85,12 +92,21 @@ export default function NutrientPanel({ farmId }) {
         <ModeSelector mode={mode} onChange={handleModeChange} info={modeInfo} />
       </div>
 
-      {/* 외부 환경 row — 양액 자동화의 핵심 트리거 데이터 */}
+      {/* 외부 환경 row — 양액 자동화의 핵심 트리거 데이터
+          ⚠️ 현재 MOCK_ENV 고정값. 실 sensor API 연결은 Phase 2 작업 (todo) */}
       <div style={{
         background: '#fff', borderRadius: 12, padding: '8px 12px',
-        marginBottom: 12, border: '1px solid #e2e8f0',
+        marginBottom: 12, border: '1px solid #fbbf24',
         display: 'flex', alignItems: 'center', gap: 8, overflowX: 'auto',
+        position: 'relative',
       }}>
+        <span style={{
+          position: 'absolute', top: -8, left: 12,
+          padding: '1px 8px', borderRadius: 8,
+          background: '#fef3c7', color: '#92400e',
+          fontSize: 10, fontWeight: 800, letterSpacing: '0.05em',
+          border: '1px solid #fbbf24',
+        }}>DEMO · 실 sensor 미연결</span>
         <EnvChip icon="🌡️" label="외부" value={env.outTemp} unit="°C" color="#dc2626" />
         <EnvChip icon="💧" label="외습" value={env.outHumid} unit="%" color="#0891b2" />
         <Divider />

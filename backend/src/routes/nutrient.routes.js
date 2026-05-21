@@ -15,12 +15,19 @@ const router = express.Router();
 // ─────────────────────────────────────────────────────────────────
 
 const DEFAULT_ALERT_THRESHOLDS = {
-  ecUpper: 4.0, ecLower: 0.2, ecCritical: 0.1,
-  phUpper: 8.0, phLower: 4.5, phCritical: 6.5,
+  // 정상 경계 (밖이면 warning)
+  ecUpper: 4.0, ecLower: 0.2,
+  phUpper: 8.0, phLower: 4.5,
+  // critical 경계 (밖이면 즉시 정지). 이전: phCritical 단일 (의미 모호 — 6.5 미달은 흔함).
+  // 분리: phLowerCritical/phUpperCritical, ec 도 동일하게 분리.
+  ecLowerCritical: 0.1, ecUpperCritical: 5.0,
+  phLowerCritical: 3.0, phUpperCritical: 9.5,
   // 정밀도·다량공급·최소일사량 (운영 안정성)
   ecHysteresis: 0.1, phHysteresis: 0.1,
   ecDeviation: 0.5, phDeviation: 0.5,
   minSolarWm2: 50,
+  // 하위 호환 (기존 ecCritical/phCritical 참조 코드용 — deprecated, 새 코드는 사용 X)
+  ecCritical: 0.1, phCritical: 3.0,
 };
 
 const DEFAULT_HARDWARE = {
@@ -31,6 +38,10 @@ const DEFAULT_HARDWARE = {
   acidAlkaliMode: 'both',
   rawTempTarget: 18, outsideTempTarget: 22,
   flowUnit: 'L',
+  // 32CH 통합 릴레이 채널 매핑 (환경 0~7 + 양액 8~30)
+  relayModule: 'Waveshare 32CH',
+  mainPumpCh: 14, agitatorCh: 15, rawSolenoidCh: 30, spareCh: 31,
+  valves: Array.from({ length: 14 }, (_, i) => ({ id: i + 1, name: `V${i + 1}`, ch: 16 + i })),
 };
 
 async function getOrCreateConfig(farmId) {
@@ -133,6 +144,9 @@ router.put("/:farmId/scenarios/:id", async (req, res) => {
     ];
     const data = {};
     for (const f of fields) if (req.body[f] !== undefined) data[f] = req.body[f];
+
+    // enabled=false 면 active 도 자동 해제 — 비활성화된 시나리오가 active 로 남아 트리거 평가 모호해지는 race 방지
+    if (data.enabled === false) data.active = false;
 
     const row = await prisma.nutrientScenario.update({
       where: { id },
@@ -260,24 +274,9 @@ router.put("/:farmId/state/mode", async (req, res) => {
   }
 });
 
-// RPi 가 1-사이클·EC·pH·일사량 갱신 (내부용 — 향후 API Key 인증 추가 검토)
-router.put("/:farmId/state/telemetry", async (req, res) => {
-  try {
-    const { farmId } = req.params;
-    const b = req.body || {};
-    const data = { updatedAt: new Date() };
-    if (b.currentCycle !== undefined) data.currentCycle = b.currentCycle;
-    if (b.ecCurrent !== undefined) data.ecCurrent = b.ecCurrent;
-    if (b.phCurrent !== undefined) data.phCurrent = b.phCurrent;
-    if (b.solarAccumulated !== undefined) data.solarAccumulated = b.solarAccumulated;
-    const st = await prisma.nutrientState.upsert({
-      where: { farmId }, update: data, create: { farmId, ...data },
-    });
-    res.json({ success: true, data: st });
-  } catch (e) {
-    res.status(400).json({ success: false, error: e.message });
-  }
-});
+// telemetry 업로드는 /internal/nutrient/state/telemetry (apiKey) 만 허용.
+// 농장주 JWT 로 EC/pH/사이클 임의 주입 차단 — 가짜값으로 안전 인터락 트리거 방지.
+// 이전: PUT /:farmId/state/telemetry 가 JWT 만 통과하면 쓰기 가능 → 보안 위험으로 제거 (2026-05-21).
 
 // ─────────────────────────────────────────────────────────────────
 // 4. 경보 이력

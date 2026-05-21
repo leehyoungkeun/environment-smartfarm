@@ -415,8 +415,31 @@ export default function NutrientRealtime({ farmId, mode, onModeChange }) {
                   onValveClick={mode === 'manual' ? toggleValve : undefined} />
               </div>
             </div>
-            <CompactStatus tanks={tanks} valves={valves} phaseInfo={phaseInfo}
-              activeValveIdx={activeValveIdx} mode={mode} lowTanks={lowTanks} />
+            {/* 모바일 — desktop 과 동일 정보 (LiveStats + Today) stack */}
+            <div style={{ marginTop: 12, display: 'flex', flexDirection: 'column', gap: 10 }}>
+              <LiveStatsPanel ec={ec} ph={ph} ecTarget={ecTarget} phTarget={phTarget}
+                phaseInfo={phaseInfo} mode={mode}
+                drain={state?.drain} env={state?.env} />
+              <TodayPanel
+                todayCycles={state?.todayCycles}
+                todaySuppliedL={state?.todaySuppliedL}
+                todayDrainedL={state?.todayDrainedL}
+                drainFlow={state?.drain?.flowLpm}
+                lastCycleEndedAt={state?.lastCycleEndedAt}
+                nextTrigger={state?.nextTrigger}
+                irrigating={irrigating}
+                suppliedL={phaseInfo?.suppliedL}
+                now={now} />
+              {lowTanks.length > 0 && (
+                <div style={{
+                  padding: '12px 14px', borderRadius: 8,
+                  background: '#fef2f2', border: `1px solid ${T.danger}33`,
+                  fontSize: 14, color: T.danger, fontFamily: MONO,
+                }}>
+                  LOW : {lowTanks.map(t => `${t.name} ${t.level}%`).join(' · ')}
+                </div>
+              )}
+            </div>
           </div>
         </>
       )}

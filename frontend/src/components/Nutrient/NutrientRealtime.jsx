@@ -965,7 +965,7 @@ const ManualPalette = ({
   const isQueue = subMode === 'queue';
   const hasSchedule = !isQueue && !!scheduleCustom;
   const canTrigger = count > 0 && !critical && (isQueue || hasSchedule);
-  const valveLabel = count === 0 ? '밸브 클릭으로 선택'
+  const valveLabel = count === 0 ? ''
     : 'V' + [...selectedValves].sort((a, b) => a - b).slice(0, 6).join(', V')
       + (count > 6 ? ` 외 ${count - 6}` : '');
 

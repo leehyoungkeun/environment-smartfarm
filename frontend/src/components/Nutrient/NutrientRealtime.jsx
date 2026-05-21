@@ -1011,6 +1011,30 @@ const ManualPalette = ({
             <input type="datetime-local" value={scheduleCustom}
                    onChange={(e) => onScheduleCustomChange(e.target.value)}
                    style={mpInput} />
+            {/* quick preset chips — 현재 시각 + N분 */}
+            <div style={{ display: 'flex', gap: 4, marginTop: 4, flexWrap: 'wrap' }}>
+              {[
+                { label: '+5분',  min: 5 },
+                { label: '+10분', min: 10 },
+                { label: '+30분', min: 30 },
+                { label: '+1시간', min: 60 },
+              ].map(q => (
+                <button key={q.min}
+                  onClick={() => {
+                    // datetime-local 의 value 는 YYYY-MM-DDTHH:mm (로컬 타임존)
+                    const d = new Date(Date.now() + q.min * 60000);
+                    const pad = (n) => String(n).padStart(2, '0');
+                    const v = `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+                    onScheduleCustomChange(v);
+                  }}
+                  style={{
+                    padding: '2px 8px', borderRadius: 6,
+                    border: '1px solid #fbbf24', background: '#fff',
+                    color: '#92400e', fontSize: 11, fontWeight: 700,
+                    cursor: 'pointer', fontFamily: SANS,
+                  }}>{q.label}</button>
+              ))}
+            </div>
           </div>
         )}
 

@@ -1701,7 +1701,11 @@ const Schematic = ({ tanks, valves, ec, ph, mode,
           const stroke = active ? '#22d3ee' : directOn ? '#a78bfa' : selected ? '#22d3ee' : irrigating ? '#06b6d4' : 'rgba(148,163,184,0.45)';
           return (
             <g key={v.id ?? i}
-               style={interactive ? { cursor: 'pointer' } : undefined}
+               style={interactive ? {
+                 cursor: 'pointer',
+                 // direct 모드 + OFF 일 때만 미세 펄스 (클릭 가능 단서)
+                 animation: (isDirect && !directOn) ? 'sd-direct-hint 1.8s ease-in-out infinite' : 'none',
+               } : undefined}
                onClick={handleClick}>
               <circle cx={cx} cy={manifoldY} r="3"
                       fill={active ? '#fb923c' : directOn ? '#a78bfa' : selected ? '#22d3ee' : irrigating ? '#f97316' : '#0f172a'}
@@ -1736,8 +1740,13 @@ const Schematic = ({ tanks, valves, ec, ph, mode,
 };
 
 // direct 모드 시: directOn (보라색) — active (cycle 자동, T.acc 청록) 보다 우선
+// onClick 있고 OFF 일 때 미세 펄스 (클릭 가능 단서)
 const DosingPump = ({ cx, cy, active, directOn, onClick }) => (
-  <g style={onClick ? { cursor: 'pointer' } : undefined} onClick={onClick}>
+  <g style={onClick ? {
+    cursor: 'pointer',
+    animation: directOn ? 'none' : 'sd-direct-hint 1.8s ease-in-out infinite',
+    transformOrigin: `${cx}px ${cy}px`,
+  } : undefined} onClick={onClick}>
     <circle cx={cx} cy={cy} r="9"
       fill={directOn ? '#7c3aed' : active ? T.acc : T.card}
       stroke={directOn ? '#a78bfa' : active ? T.acc : T.bd} strokeWidth="1" />
@@ -1749,7 +1758,11 @@ const DosingPump = ({ cx, cy, active, directOn, onClick }) => (
 );
 
 const Agitator = ({ cx, cy, active, directOn, onClick }) => (
-  <g style={onClick ? { cursor: 'pointer' } : undefined} onClick={onClick}>
+  <g style={onClick ? {
+    cursor: 'pointer',
+    animation: directOn ? 'none' : 'sd-direct-hint 1.8s ease-in-out infinite',
+    transformOrigin: `${cx}px ${cy}px`,
+  } : undefined} onClick={onClick}>
     <circle cx={cx} cy={cy} r="9"
       fill={directOn ? '#7c3aed' : active ? T.acc : T.card}
       stroke={directOn ? '#a78bfa' : active ? T.acc : T.bd} strokeWidth="1" />
@@ -1761,7 +1774,11 @@ const Agitator = ({ cx, cy, active, directOn, onClick }) => (
 );
 
 const MainPump = ({ cx, cy, active, directOn, onClick }) => (
-  <g style={onClick ? { cursor: 'pointer' } : undefined} onClick={onClick}>
+  <g style={onClick ? {
+    cursor: 'pointer',
+    animation: directOn ? 'none' : 'sd-direct-hint 1.8s ease-in-out infinite',
+    transformOrigin: `${cx}px ${cy}px`,
+  } : undefined} onClick={onClick}>
     <circle cx={cx} cy={cy} r="14"
       fill={directOn ? '#7c3aed' : active ? T.acc : T.card}
       stroke={directOn ? '#a78bfa' : active ? T.acc : T.bd} strokeWidth="1.2" />
@@ -2055,4 +2072,5 @@ const KEYFRAMES = `
 @keyframes sd-flash   { 0%, 100% { background-color: transparent; } 50% { background-color: rgba(220, 38, 38, 0.07); } }
 @keyframes sd-spin    { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
 @keyframes sd-emergency { 0%, 100% { box-shadow: inset 0 0 0 1px rgba(220,38,38,0.4); } 50% { box-shadow: inset 0 0 0 3px rgba(220,38,38,0.55); } }
+@keyframes sd-direct-hint { 0%, 100% { opacity: 1; } 50% { opacity: 0.6; } }
 `;

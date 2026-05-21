@@ -347,6 +347,23 @@ class MqttService extends EventEmitter {
     return true;
   }
 
+  // 양액 직접 제어 — channel 단위 raw ON/OFF (direct mode)
+  // RPi NR mqtt-in 노드가 받아서 Modbus FC5 (single coil write) 발사
+  publishNutrientDirectRelay(farmId, channel, on) {
+    if (!this.client || !this.connected) {
+      logger.warn("MQTT 미연결 — direct-relay publish 불가");
+      return false;
+    }
+    const topic = `smartfarm/${farmId}/nutrient/direct-relay`;
+    const message = JSON.stringify({
+      farmId, channel, on,
+      timestamp: new Date().toISOString(),
+    });
+    this.client.publish(topic, message, { qos: 1 });
+    logger.info(`📤 MQTT direct-relay 발행: ${topic} CH${channel}=${on ? "ON" : "OFF"}`);
+    return true;
+  }
+
   // 양액 수동 작업 즉시 trigger — RPi NR 가 polling 대기 안 하고 즉시 dispatch
   // payload 는 hint 만 (jobId). RPi 는 received 시 standard pending fetch 시작.
   publishNutrientManualTrigger(farmId, jobId) {

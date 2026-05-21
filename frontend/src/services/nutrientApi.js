@@ -66,3 +66,7 @@ export const startManualQueue = (farmId) =>
   axios.post(`${base(farmId)}/cycle/manual-start`).then(r => r.data.data);
 export const pauseManualQueue = (farmId) =>
   axios.post(`${base(farmId)}/cycle/manual-pause`).then(r => r.data.data);
+
+// 직접 제어 (mode='direct') — 단일 채널 raw ON/OFF
+export const sendDirectRelay = (farmId, channel, on) =>
+  axios.post(`${base(farmId)}/direct/relay`, { channel, on }).then(r => r.data.data);

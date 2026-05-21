@@ -22,6 +22,7 @@ const PHASE_PLAN = [
 const MODES = {
   auto:      { label: '자동', long: '자동운행', c: '#16a34a' },
   manual:    { label: '수동', long: '수동',     c: '#d97706' },
+  direct:    { label: '직접', long: '직접 제어', c: '#7c3aed' },
   paused:    { label: '정지', long: '일시정지', c: '#2563eb' },
   emergency: { label: '비상', long: '비상정지', c: '#dc2626' },
 };
@@ -47,9 +48,10 @@ const Ico = {
   Pause: ({ s = 10 }) => <svg width={s} height={s} viewBox="0 0 12 12" fill="currentColor"><rect x="3" y="2.5" width="2" height="7" rx="0.5"/><rect x="7" y="2.5" width="2" height="7" rx="0.5"/></svg>,
   Stop:  ({ s = 10 }) => <svg width={s} height={s} viewBox="0 0 12 12" fill="currentColor"><rect x="2.5" y="2.5" width="7" height="7" rx="1"/></svg>,
   Hand:  ({ s = 10 }) => <svg width={s} height={s} viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"><path d="M5 7 V3.5 M7 7 V2.5 M9 7 V3.5 M3 7 Q3 10.5 6 10.5 Q9.5 10.5 10 8 V6.5"/></svg>,
+  Direct:({ s = 10 }) => <svg width={s} height={s} viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"><path d="M2 6 H10 M6 3 L9 6 L6 9"/></svg>,
   Bell:  ({ s = 10 }) => <svg width={s} height={s} viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"><path d="M6 1.5 V2.5 M3 5.5 Q3 3 6 3 Q9 3 9 5.5 V7.5 L10 9 H2 L3 7.5 Z M5 10 Q5 11 6 11 Q7 11 7 10"/></svg>,
 };
-const MODE_ICON = { auto: Ico.Play, manual: Ico.Hand, paused: Ico.Pause, emergency: Ico.Stop };
+const MODE_ICON = { auto: Ico.Play, manual: Ico.Hand, direct: Ico.Direct, paused: Ico.Pause, emergency: Ico.Stop };
 
 const kicker = { fontSize: 11.5, fontWeight: 700, color: T.fg3, letterSpacing: '0.14em', textTransform: 'uppercase' };
 
@@ -59,6 +61,10 @@ export default function NutrientRealtime({ farmId, mode, onModeChange }) {
   const [scenarios, setScenarios] = useState([]);
   const [alerts, setAlerts] = useState([]);
   const [now, setNow] = useState(Date.now());
+
+  // 직접 제어 — 채널별 ON/OFF 로컬 캐시 (낙관적 업데이트)
+  // 진짜 상태는 RPi global.directRelayStatus 인데 backend 에 sync 안 됨 (D5 후속) — 우선 로컬만.
+  const [directRelayStatus, setDirectRelayStatus] = useState({});
 
   // 수동 모드 — 1회 공급 작업 만들기
   const [selectedValves, setSelectedValves] = useState(new Set());
@@ -199,6 +205,25 @@ export default function NutrientRealtime({ farmId, mode, onModeChange }) {
       return next;
     });
   };
+
+  // 직접 제어 — channel 토글 (mode='direct' 일 때만 호출됨)
+  const toggleDirectRelay = async (channel) => {
+    const wasOn = !!directRelayStatus[channel];
+    const next = !wasOn;
+    // 낙관적 업데이트
+    setDirectRelayStatus(prev => ({ ...prev, [channel]: next }));
+    try {
+      await nutrientApi.sendDirectRelay(farmId, channel, next);
+    } catch (e) {
+      setDirectRelayStatus(prev => ({ ...prev, [channel]: wasOn }));
+      alert(`직접 제어 실패: ${e.response?.data?.error || e.message}`);
+    }
+  };
+
+  // mode 가 direct 아니면 로컬 캐시 reset
+  useEffect(() => {
+    if (mode !== 'direct') setDirectRelayStatus({});
+  }, [mode]);
 
   const refreshManualJobs = async () => {
     try {
@@ -387,7 +412,10 @@ export default function NutrientRealtime({ farmId, mode, onModeChange }) {
               activeValveIdx={activeValveIdx}
               rawWaterLevel={state?.rawWater?.level}
               selectedValves={selectedValves}
-              onValveClick={toggleValve} />
+              onValveClick={toggleValve}
+              hardware={config?.hardware}
+              directRelayStatus={directRelayStatus}
+              onDirectRelay={toggleDirectRelay} />
             <TodayPanel
               todayCycles={state?.todayCycles}
               todaySuppliedL={state?.todaySuppliedL}
@@ -412,7 +440,10 @@ export default function NutrientRealtime({ farmId, mode, onModeChange }) {
                   activeValveIdx={activeValveIdx}
                   rawWaterLevel={state?.rawWater?.level}
                   selectedValves={selectedValves}
-                  onValveClick={mode === 'manual' ? toggleValve : undefined} />
+                  onValveClick={mode === 'manual' ? toggleValve : undefined}
+                  hardware={config?.hardware}
+                  directRelayStatus={directRelayStatus}
+                  onDirectRelay={toggleDirectRelay} />
               </div>
             </div>
             {/* 모바일 — desktop 과 동일 정보 (LiveStats + Today) stack */}
@@ -1299,7 +1330,16 @@ const ManualQueueModal = ({ jobs, onCancel, onClose }) => {
 
 const Schematic = ({ tanks, valves, ec, ph, mode,
   dosingActive, mixingActive, stabilizing, irrigating, activeValveIdx, rawWaterLevel,
-  selectedValves, onValveClick }) => {
+  selectedValves, onValveClick,
+  hardware, directRelayStatus, onDirectRelay }) => {
+  // 직접 제어 모드 시 각 컴포넌트 클릭 toggle. selectedValves 인터랙션과 분리.
+  const isDirect = mode === 'direct';
+  const ds = directRelayStatus || {};
+  const hw = hardware || {};
+  // 채널 매핑 (32CH 통합 — config 우선, 없으면 default)
+  const mainPumpCh = hw.mainPumpCh ?? 14;
+  const agitatorCh = hw.agitatorCh ?? 15;
+  const rawSolenoidCh = hw.rawSolenoidCh ?? 30;
   const W = 760, H = 540;
   const isEmergency = mode === 'emergency';
   const isPaused = mode === 'paused';
@@ -1556,7 +1596,9 @@ const Schematic = ({ tanks, valves, ec, ph, mode,
                 <text x={cx} y={tankY + tankH + 14} textAnchor="middle"
                   fontSize="13" fontWeight="700" fill="#fca5a5" letterSpacing="1.2" fontFamily={SANS}>부족</text>
               )}
-              <DosingPump cx={cx} cy={pumpY} active={active} />
+              <DosingPump cx={cx} cy={pumpY} active={active}
+                directOn={isDirect && !!ds[t.modbusReg ?? (8 + i)]}
+                onClick={isDirect ? () => onDirectRelay?.(t.modbusReg ?? (8 + i)) : undefined} />
               <FlowLine x1={cx} y1={pumpY + 8} x2={mixerCx} y2={mixerY} active={active} />
             </g>
           );
@@ -1577,7 +1619,9 @@ const Schematic = ({ tanks, valves, ec, ph, mode,
                 fill="rgba(148,163,184,0.22)" />
           <line x1={mixerCx - mixerW / 2 + 8} y1={mixerY + 6} x2={mixerCx + mixerW / 2 - 8} y2={mixerY + 6}
                 stroke="rgba(148,163,184,0.35)" strokeWidth="0.6" />
-          <Agitator cx={mixerCx} cy={mixerY + 20} active={mixingActive} />
+          <Agitator cx={mixerCx} cy={mixerY + 20} active={mixingActive}
+            directOn={isDirect && !!ds[agitatorCh]}
+            onClick={isDirect ? () => onDirectRelay?.(agitatorCh) : undefined} />
           <text x={mixerCx} y={mixerY + 48} textAnchor="middle"
             fontSize="14" fontWeight="700" fill="#ffffff" letterSpacing="1.5" fontFamily={SANS}>혼합 탱크</text>
           <line x1={mixerCx - mixerW / 2 + 12} y1={mixerY + 54} x2={mixerCx + mixerW / 2 - 12} y2={mixerY + 54}
@@ -1608,7 +1652,9 @@ const Schematic = ({ tanks, valves, ec, ph, mode,
 
         <FlowLine x1={mixerCx} y1={mixerBot} x2={mixerCx} y2={mainPumpY - 14} active={irrigating} thick />
 
-        <MainPump cx={mixerCx} cy={mainPumpY} active={irrigating} />
+        <MainPump cx={mixerCx} cy={mainPumpY} active={irrigating}
+          directOn={isDirect && !!ds[mainPumpCh]}
+          onClick={isDirect ? () => onDirectRelay?.(mainPumpCh) : undefined} />
         <text x={mixerCx + 28} y={mainPumpY - 5} fontSize="14" fontWeight="700"
           fill="#e2e8f0" letterSpacing="1.4" fontFamily={SANS}>메인 펌프</text>
         <text x={mixerCx + 28} y={mainPumpY + 13} fontSize="14" fontWeight="600"
@@ -1642,28 +1688,34 @@ const Schematic = ({ tanks, valves, ec, ph, mode,
           const active = activeValveIdx === (v.id ?? i + 1);
           const isManual = mode === 'manual';
           const selected = isManual && selectedValves?.has(v.id ?? i + 1);
-          const stroke = selected ? '#22d3ee' : active ? '#22d3ee' : irrigating ? '#06b6d4' : 'rgba(148,163,184,0.45)';
+          // direct 모드 — 채널 ON/OFF 표시
+          const valveCh = v.ch ?? (16 + i);
+          const directOn = isDirect && !!ds[valveCh];
+          const interactive = isManual || isDirect;
+          const handleClick = isDirect
+            ? () => onDirectRelay?.(valveCh)
+            : isManual ? () => onValveClick?.(v.id ?? i + 1) : undefined;
+          // 시각 우선순위: active(주황) > directOn(보라) > selected(청록)
+          const stroke = active ? '#22d3ee' : directOn ? '#a78bfa' : selected ? '#22d3ee' : irrigating ? '#06b6d4' : 'rgba(148,163,184,0.45)';
           return (
             <g key={v.id ?? i}
-               style={isManual ? { cursor: 'pointer' } : undefined}
-               onClick={isManual ? () => onValveClick?.(v.id ?? i + 1) : undefined}>
-              {/* T-junction node at manifold */}
+               style={interactive ? { cursor: 'pointer' } : undefined}
+               onClick={handleClick}>
               <circle cx={cx} cy={manifoldY} r="3"
-                      fill={active ? '#fb923c' : selected ? '#22d3ee' : irrigating ? '#f97316' : '#0f172a'}
-                      stroke={active ? '#fb923c' : selected ? '#22d3ee' : irrigating ? '#f97316' : 'rgba(148,163,184,0.70)'} strokeWidth="1" />
+                      fill={active ? '#fb923c' : directOn ? '#a78bfa' : selected ? '#22d3ee' : irrigating ? '#f97316' : '#0f172a'}
+                      stroke={active ? '#fb923c' : directOn ? '#a78bfa' : selected ? '#22d3ee' : irrigating ? '#f97316' : 'rgba(148,163,184,0.70)'} strokeWidth="1" />
               <line x1={cx} y1={manifoldY + 3} x2={cx} y2={valveY}
-                stroke={stroke} strokeWidth={active || selected ? 2 : 1} />
+                stroke={stroke} strokeWidth={active || directOn || selected ? 2 : 1} />
               <rect x={cx - 18} y={valveY} width="36" height="24" rx="3"
-                fill={active ? '#f97316' : selected ? 'rgba(34,211,238,0.18)' : 'url(#sd-steel)'}
-                stroke={active ? '#fb923c' : selected ? '#22d3ee' : 'rgba(148,163,184,0.70)'}
-                strokeWidth={active ? 2.5 : selected ? 2 : 1.2}
+                fill={active ? '#f97316' : directOn ? '#7c3aed' : selected ? 'rgba(34,211,238,0.18)' : 'url(#sd-steel)'}
+                stroke={active ? '#fb923c' : directOn ? '#a78bfa' : selected ? '#22d3ee' : 'rgba(148,163,184,0.70)'}
+                strokeWidth={active || directOn ? 2.5 : selected ? 2 : 1.2}
                 filter={active ? "url(#sd-glow-orange)" : undefined} />
               <text x={cx} y={valveY + 17} textAnchor="middle" fontSize="14" fontWeight="700"
-                fill={active ? '#fff' : selected ? '#22d3ee' : '#cbd5e1'} fontFamily={MONO}>
+                fill={active || directOn ? '#fff' : selected ? '#22d3ee' : '#cbd5e1'} fontFamily={MONO}>
                 {truncate(v.name || `V${i + 1}`, 4)}
               </text>
-              {/* selected check mark — manual 모드 */}
-              {selected && !active && (
+              {selected && !active && !directOn && (
                 <text x={cx + 14} y={valveY - 2} textAnchor="middle" fontSize="11" fontWeight="900"
                       fill="#22d3ee" fontFamily={SANS}>●</text>
               )}
@@ -1681,38 +1733,42 @@ const Schematic = ({ tanks, valves, ec, ph, mode,
   );
 };
 
-const DosingPump = ({ cx, cy, active }) => (
-  <g>
-    <circle cx={cx} cy={cy} r="9" fill={active ? T.acc : T.card}
-      stroke={active ? T.acc : T.bd} strokeWidth="1" />
-    <g style={{ transformOrigin: `${cx}px ${cy}px`, animation: active ? 'sd-spin 1.4s linear infinite' : 'none' }}>
-      <line x1={cx - 5} y1={cy} x2={cx + 5} y2={cy} stroke={active ? '#fff' : T.fg3} strokeWidth="1.2" strokeLinecap="round" />
-      <line x1={cx} y1={cy - 5} x2={cx} y2={cy + 5} stroke={active ? '#fff' : T.fg3} strokeWidth="1.2" strokeLinecap="round" />
+// direct 모드 시: directOn (보라색) — active (cycle 자동, T.acc 청록) 보다 우선
+const DosingPump = ({ cx, cy, active, directOn, onClick }) => (
+  <g style={onClick ? { cursor: 'pointer' } : undefined} onClick={onClick}>
+    <circle cx={cx} cy={cy} r="9"
+      fill={directOn ? '#7c3aed' : active ? T.acc : T.card}
+      stroke={directOn ? '#a78bfa' : active ? T.acc : T.bd} strokeWidth="1" />
+    <g style={{ transformOrigin: `${cx}px ${cy}px`, animation: (active || directOn) ? 'sd-spin 1.4s linear infinite' : 'none' }}>
+      <line x1={cx - 5} y1={cy} x2={cx + 5} y2={cy} stroke={(active || directOn) ? '#fff' : T.fg3} strokeWidth="1.2" strokeLinecap="round" />
+      <line x1={cx} y1={cy - 5} x2={cx} y2={cy + 5} stroke={(active || directOn) ? '#fff' : T.fg3} strokeWidth="1.2" strokeLinecap="round" />
     </g>
   </g>
 );
 
-const Agitator = ({ cx, cy, active }) => (
-  <g>
-    <circle cx={cx} cy={cy} r="9" fill={active ? T.acc : T.card}
-      stroke={active ? T.acc : T.bd} strokeWidth="1" />
-    <g style={{ transformOrigin: `${cx}px ${cy}px`, animation: active ? 'sd-spin 0.7s linear infinite' : 'none' }}>
-      <line x1={cx - 6} y1={cy} x2={cx + 6} y2={cy} stroke={active ? '#fff' : T.fg3} strokeWidth="1.4" strokeLinecap="round" />
-      <line x1={cx} y1={cy - 6} x2={cx} y2={cy + 6} stroke={active ? '#fff' : T.fg3} strokeWidth="1.4" strokeLinecap="round" />
+const Agitator = ({ cx, cy, active, directOn, onClick }) => (
+  <g style={onClick ? { cursor: 'pointer' } : undefined} onClick={onClick}>
+    <circle cx={cx} cy={cy} r="9"
+      fill={directOn ? '#7c3aed' : active ? T.acc : T.card}
+      stroke={directOn ? '#a78bfa' : active ? T.acc : T.bd} strokeWidth="1" />
+    <g style={{ transformOrigin: `${cx}px ${cy}px`, animation: (active || directOn) ? 'sd-spin 0.7s linear infinite' : 'none' }}>
+      <line x1={cx - 6} y1={cy} x2={cx + 6} y2={cy} stroke={(active || directOn) ? '#fff' : T.fg3} strokeWidth="1.4" strokeLinecap="round" />
+      <line x1={cx} y1={cy - 6} x2={cx} y2={cy + 6} stroke={(active || directOn) ? '#fff' : T.fg3} strokeWidth="1.4" strokeLinecap="round" />
     </g>
   </g>
 );
 
-const MainPump = ({ cx, cy, active }) => (
-  <g>
-    <circle cx={cx} cy={cy} r="14" fill={active ? T.acc : T.card}
-      stroke={active ? T.acc : T.bd} strokeWidth="1.2" />
-    <g style={{ transformOrigin: `${cx}px ${cy}px`, animation: active ? 'sd-spin 1.1s linear infinite' : 'none' }}>
-      <circle cx={cx} cy={cy} r="3" fill={active ? '#fff' : T.fg3} />
-      <path d={`M ${cx} ${cy - 11} L ${cx - 3} ${cy - 3} L ${cx + 3} ${cy - 3} Z`} fill={active ? '#fff' : T.fg3} />
-      <path d={`M ${cx} ${cy + 11} L ${cx - 3} ${cy + 3} L ${cx + 3} ${cy + 3} Z`} fill={active ? '#fff' : T.fg3} />
-      <path d={`M ${cx - 11} ${cy} L ${cx - 3} ${cy - 3} L ${cx - 3} ${cy + 3} Z`} fill={active ? '#fff' : T.fg3} />
-      <path d={`M ${cx + 11} ${cy} L ${cx + 3} ${cy - 3} L ${cx + 3} ${cy + 3} Z`} fill={active ? '#fff' : T.fg3} />
+const MainPump = ({ cx, cy, active, directOn, onClick }) => (
+  <g style={onClick ? { cursor: 'pointer' } : undefined} onClick={onClick}>
+    <circle cx={cx} cy={cy} r="14"
+      fill={directOn ? '#7c3aed' : active ? T.acc : T.card}
+      stroke={directOn ? '#a78bfa' : active ? T.acc : T.bd} strokeWidth="1.2" />
+    <g style={{ transformOrigin: `${cx}px ${cy}px`, animation: (active || directOn) ? 'sd-spin 1.1s linear infinite' : 'none' }}>
+      <circle cx={cx} cy={cy} r="3" fill={(active || directOn) ? '#fff' : T.fg3} />
+      <path d={`M ${cx} ${cy - 11} L ${cx - 3} ${cy - 3} L ${cx + 3} ${cy - 3} Z`} fill={(active || directOn) ? '#fff' : T.fg3} />
+      <path d={`M ${cx} ${cy + 11} L ${cx - 3} ${cy + 3} L ${cx + 3} ${cy + 3} Z`} fill={(active || directOn) ? '#fff' : T.fg3} />
+      <path d={`M ${cx - 11} ${cy} L ${cx - 3} ${cy - 3} L ${cx - 3} ${cy + 3} Z`} fill={(active || directOn) ? '#fff' : T.fg3} />
+      <path d={`M ${cx + 11} ${cy} L ${cx + 3} ${cy - 3} L ${cx + 3} ${cy + 3} Z`} fill={(active || directOn) ? '#fff' : T.fg3} />
     </g>
   </g>
 );

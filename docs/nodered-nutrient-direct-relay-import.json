@@ -1,0 +1,31 @@
+[
+    {
+        "id": "direct_relay_mqtt_in",
+        "type": "mqtt in",
+        "z": "REPLACE_WITH_TAB_ID",
+        "name": "direct-relay 수신",
+        "topic": "smartfarm/farm_0001/nutrient/direct-relay",
+        "qos": "1",
+        "datatype": "json",
+        "broker": "REPLACE_WITH_BROKER_ID",
+        "nl": false,
+        "rap": false,
+        "rh": 0,
+        "inputs": 0,
+        "x": 110,
+        "y": 840,
+        "wires": [["direct_relay_handler"]]
+    },
+    {
+        "id": "direct_relay_handler",
+        "type": "function",
+        "z": "REPLACE_WITH_TAB_ID",
+        "name": "direct-relay handler",
+        "func": "// 양액 직접 제어 — MQTT payload { channel, on } → Modbus FC5 single coil\n// 안전 인터락: safetyStop 활성 시 거부.\n// dead-man timer: ON 시 5분 후 자동 OFF 예약.\n\nconst payload = msg.payload || {};\nconst { channel, on } = payload;\n\nif (typeof channel !== 'number' || channel < 0 || channel > 31) {\n    node.warn('direct-relay: 잘못된 channel ' + channel);\n    return null;\n}\nif (typeof on !== 'boolean') {\n    node.warn('direct-relay: 잘못된 on ' + on);\n    return null;\n}\n\n// 안전 인터락 — direct 제어도 안전 stop 적용\nif (global.get('safetyStop')) {\n    node.warn(`direct-relay 거부: safetyStop 활성 (CH${channel} ${on ? 'ON' : 'OFF'})`);\n    node.status({ fill: 'red', shape: 'ring', text: '안전 정지 — 거부' });\n    return null;\n}\n\n// 사이클 진행 중이면 거부 (자동/수동 cycle 과 충돌 방지)\nif (global.get('cycleInProgress')) {\n    node.warn(`direct-relay 거부: 사이클 진행 중 (CH${channel} ${on ? 'ON' : 'OFF'})`);\n    node.status({ fill: 'yellow', shape: 'ring', text: '사이클 중 — 거부' });\n    return null;\n}\n\n// dead-man timer — 5분 후 자동 OFF (해당 채널만)\nconst timers = global.get('directRelayTimers') || {};\nif (timers[channel]) {\n    clearTimeout(timers[channel]);\n    delete timers[channel];\n}\nif (on) {\n    timers[channel] = setTimeout(() => {\n        node.warn(`dead-man timer: CH${channel} 5분 경과 자동 OFF`);\n        node.send([{\n            payload: {\n                value: false,\n                fc: 5, unitid: 3,\n                address: channel,\n                quantity: 1,\n            },\n            label: `[dead-man] CH${channel} OFF`,\n        }, null]);\n        // relayStatus 갱신\n        const status = global.get('directRelayStatus') || {};\n        status[channel] = false;\n        global.set('directRelayStatus', status);\n        const t = global.get('directRelayTimers') || {};\n        delete t[channel];\n        global.set('directRelayTimers', t);\n    }, 5 * 60 * 1000);\n}\nglobal.set('directRelayTimers', timers);\n\n// relayStatus 갱신 (UI 가 추후 사용)\nconst status = global.get('directRelayStatus') || {};\nstatus[channel] = on;\nglobal.set('directRelayStatus', status);\n\nnode.status({ fill: on ? 'green' : 'grey', shape: 'dot', text: `CH${channel} ${on ? 'ON' : 'OFF'}` });\nnode.log(`direct-relay: CH${channel} ${on ? 'ON' : 'OFF'}` + (on ? ' (5분 후 자동 OFF)' : ''));\n\n// modbus-flex-write 호환\nreturn {\n    payload: {\n        value: on,\n        fc: 5,        // FC5 = Write Single Coil\n        unitid: 3,    // Unit-Id 3 = 32CH 통합 릴레이\n        address: channel,\n        quantity: 1,\n    },\n    label: `direct CH${channel} ${on ? 'ON' : 'OFF'}`,\n};",
+        "outputs": 1,
+        "noerr": 0,
+        "x": 320,
+        "y": 840,
+        "wires": [[]]
+    }
+]

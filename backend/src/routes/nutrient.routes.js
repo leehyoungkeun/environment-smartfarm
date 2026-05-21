@@ -258,7 +258,7 @@ router.put("/:farmId/state/mode", async (req, res) => {
   try {
     const { farmId } = req.params;
     const { mode } = req.body;
-    const allowed = ["auto", "manual", "paused", "emergency"];
+    const allowed = ["auto", "manual", "direct", "paused", "emergency"];
     if (!allowed.includes(mode)) {
       return res.status(400).json({ success: false, error: `mode 는 ${allowed.join("|")} 중 하나` });
     }
@@ -577,6 +577,51 @@ router.post("/:farmId/cycle/manual-pause", async (req, res) => {
     });
     res.json({ success: true, data: { demoted: r.count } });
   } catch (e) {
+    res.status(400).json({ success: false, error: e.message });
+  }
+});
+
+// ─────────────────────────────────────────────────────────────────
+// 8. 직접 제어 (direct mode) — 채널 단위 raw ON/OFF
+// ─────────────────────────────────────────────────────────────────
+
+router.post("/:farmId/direct/relay", async (req, res) => {
+  try {
+    const { farmId } = req.params;
+    const { channel, on } = req.body || {};
+    if (typeof channel !== "number" || channel < 0 || channel > 31) {
+      return res.status(400).json({ success: false, error: "channel 은 0~31" });
+    }
+    if (typeof on !== "boolean") {
+      return res.status(400).json({ success: false, error: "on 은 boolean" });
+    }
+
+    // mode='direct' 일 때만 허용
+    const state = await prisma.nutrientState.findUnique({ where: { farmId } });
+    if (state?.mode !== "direct") {
+      return res.status(400).json({ success: false, error: `direct mode 가 아닙니다 (현재: ${state?.mode})` });
+    }
+
+    // 진행 중 cycle 이 있으면 충돌 — 직접 제어 거부
+    // (NR 의 cycleInProgress 는 우리가 알 수 없으나, currentCycle.phase 로 추정)
+    if (state?.currentCycle?.phase && state.currentCycle.phase !== "done") {
+      return res.status(409).json({ success: false, error: "사이클 진행 중 — direct 제어 불가" });
+    }
+
+    // MQTT publish — RPi NR 즉시 dispatch
+    try {
+      const mqttService = (await import("../services/mqttClient.js")).default;
+      if (!mqttService.isConnected?.()) {
+        return res.status(503).json({ success: false, error: "MQTT 미연결" });
+      }
+      mqttService.publishNutrientDirectRelay(farmId, channel, on);
+    } catch (e) {
+      return res.status(500).json({ success: false, error: e.message });
+    }
+
+    res.json({ success: true, data: { channel, on, publishedAt: new Date() } });
+  } catch (e) {
+    logger.error("direct/relay:", e);
     res.status(400).json({ success: false, error: e.message });
   }
 });

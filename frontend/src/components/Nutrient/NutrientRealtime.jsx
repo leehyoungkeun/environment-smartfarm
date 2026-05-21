@@ -1025,13 +1025,10 @@ const ManualPalette = ({
       </div>
 
       <div style={{
-        display: 'grid',
-        // auto-fit 으로 좁은 화면 자동 wrap (mobile 1 column → desktop 4~5 column)
-        gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))',
-        gap: 10, alignItems: 'end',
+        display: 'flex', gap: 10, alignItems: 'end', flexWrap: 'wrap',
       }}>
         {/* 프로그램 */}
-        <div>
+        <div style={{ flex: '1 1 160px', minWidth: 140 }}>
           <div style={mpLabel}>프로그램</div>
           <select value={scenarioId || ''} onChange={(e) => onScenarioChange(e.target.value || null)}
                   style={mpInput}>
@@ -1072,15 +1069,8 @@ const ManualPalette = ({
             maxWidth: 180, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
           }}>{valveLabel}</div>
         </div>
-      </div>
 
-      {/* 액션 버튼 row — 모드별 1~3 버튼 한 줄 정렬 */}
-      <div style={{
-        display: 'flex', gap: 8, marginTop: 10, paddingTop: 8,
-        borderTop: '1px dashed #fbbf24', alignItems: 'center',
-        justifyContent: 'flex-end', flexWrap: 'wrap',
-      }}>
-        {/* 추가/등록 — 모드 공통 */}
+        {/* 액션 버튼 — 같은 row 우측 */}
         <button onClick={onTrigger} disabled={!canTrigger}
           title={!canTrigger
             ? (critical ? '비상정지 해제 필요'

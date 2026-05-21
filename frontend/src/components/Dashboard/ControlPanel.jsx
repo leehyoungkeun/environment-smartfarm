@@ -1344,7 +1344,7 @@ const ControlPanel = ({ farmId, houseId, houseConfig }) => {
   }
 
   return (
-    <div className="glass-card p-4 md:p-5">
+    <div>
       <div className="flex gap-3 mb-4" style={{background:'#f8fafc',padding:'12px',borderRadius:16,border:'1px solid #e2e8f0'}}>
           <button onClick={confirmEmergencyStop}
             disabled={anyModbusBusy}

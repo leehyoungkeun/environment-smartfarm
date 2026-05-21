@@ -503,10 +503,23 @@ router.post("/:farmId/cycle/manual-trigger", async (req, res) => {
         valves: b.valves,
         volumeML: b.volumeML ?? null,
         scheduleAt,
-        status: scheduleAt ? "pending" : "pending", // pending 으로 시작, RPi 가 picking → running
+        status: "pending",
         createdBy: req.user?.id || null,
       },
     });
+
+    // 즉시 실행 (예약 X) 일 때만 MQTT push — RPi NR 가 polling 대기 없이 즉시 dispatch
+    if (!scheduleAt) {
+      try {
+        const mqttService = (await import("../services/mqttClient.js")).default;
+        if (mqttService.isConnected?.()) {
+          mqttService.publishNutrientManualTrigger(farmId, row.id);
+        }
+      } catch (e) {
+        logger.warn("manual-trigger MQTT publish 실패 (polling fallback):", e.message);
+      }
+    }
+
     res.status(201).json({ success: true, data: row });
   } catch (e) {
     logger.error("manual-trigger:", e);

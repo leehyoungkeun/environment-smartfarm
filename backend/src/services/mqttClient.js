@@ -347,6 +347,23 @@ class MqttService extends EventEmitter {
     return true;
   }
 
+  // 양액 수동 작업 즉시 trigger — RPi NR 가 polling 대기 안 하고 즉시 dispatch
+  // payload 는 hint 만 (jobId). RPi 는 received 시 standard pending fetch 시작.
+  publishNutrientManualTrigger(farmId, jobId) {
+    if (!this.client || !this.connected) {
+      logger.warn("MQTT 미연결 — manual-trigger publish 불가 (60s polling fallback)");
+      return false;
+    }
+    const topic = `smartfarm/${farmId}/nutrient/manual-trigger`;
+    const message = JSON.stringify({
+      farmId, jobId,
+      timestamp: new Date().toISOString(),
+    });
+    this.client.publish(topic, message, { qos: 1 });
+    logger.info(`📤 MQTT manual-trigger 발행: ${topic} job=${jobId.slice(0, 8)}`);
+    return true;
+  }
+
   // 캐시된 릴레이 상태 조회
   getRelayStatus(farmId) {
     return this.latestRelayStatus[farmId] || null;

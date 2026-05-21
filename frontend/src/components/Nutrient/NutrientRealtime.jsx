@@ -66,6 +66,9 @@ export default function NutrientRealtime({ farmId, mode, onModeChange }) {
   const [manualVolumeML, setManualVolumeML] = useState('');
   const [manualScheduleAt, setManualScheduleAt] = useState('now');
   const [manualScheduleCustom, setManualScheduleCustom] = useState('');
+  // F2: 예약 큐 (로컬 prototype — backend 없음, 페이지 리로드 시 사라짐)
+  const [manualJobs, setManualJobs] = useState([]);
+  const [queueOpen, setQueueOpen] = useState(false);
 
   useEffect(() => {
     let c = false;
@@ -199,26 +202,51 @@ export default function NutrientRealtime({ farmId, mode, onModeChange }) {
   const handleManualTrigger = () => {
     if (selectedValves.size === 0) return;
     const scenario = scenarios.find(s => s.id === manualScenarioId);
-    const payload = {
+    const scheduleAt = manualScheduleAt === 'now' ? null
+      : manualScheduleAt === 'custom' ? manualScheduleCustom
+      : new Date(Date.now() + parseInt(manualScheduleAt, 10) * 60000).toISOString();
+    // 24시간 이내 검증
+    if (scheduleAt && new Date(scheduleAt) - Date.now() > 24 * 60 * 60 * 1000) {
+      alert('예약은 24시간 이내만 가능합니다.');
+      return;
+    }
+    const job = {
+      id: `manual-${Date.now()}`,
       scenarioId: manualScenarioId,
-      scenarioName: scenario?.name,
+      scenarioName: scenario?.name || '미지정',
+      programNum: Math.max(0, scenarios.findIndex(s => s.id === manualScenarioId)) + 1,
       valves: [...selectedValves].sort((a, b) => a - b),
       volumeML: manualVolumeML ? parseInt(manualVolumeML, 10) : null,
-      scheduleAt: manualScheduleAt === 'now' ? null
-        : manualScheduleAt === 'custom' ? manualScheduleCustom
-        : new Date(Date.now() + parseInt(manualScheduleAt, 10) * 60000).toISOString(),
+      scheduleAt,
+      status: scheduleAt ? 'pending' : 'running',
+      createdAt: new Date().toISOString(),
     };
-    // F1 prototype: backend 없음. console + alert.
-    console.log('[manual-trigger:F1 prototype]', payload);
-    alert(
-      `[프로토타입] 수동 공급 작업\n\n` +
-      `프로그램: ${payload.scenarioName || '미지정'}\n` +
-      `밸브: V${payload.valves.join(', V')}\n` +
-      `공급량: ${payload.volumeML ?? '시나리오 기본'} mL\n` +
-      `시점: ${payload.scheduleAt || '즉시'}\n\n` +
-      `* backend endpoint 미구현 — 실제 동작 X (F1 prototype)`
-    );
+    setManualJobs(prev => [...prev, job]);
+    // F1/F2 prototype: backend 없음. 즉시 실행은 시각화만, 예약은 큐 적재만.
+    console.log('[manual-trigger:F2 prototype]', job);
+    // 선택 초기화 (다음 작업 만들기 쉽게)
+    setSelectedValves(new Set());
+    setManualVolumeML('');
   };
+
+  const cancelManualJob = (id) => {
+    setManualJobs(prev => prev.map(j => j.id === id
+      ? { ...j, status: 'cancelled', cancelledAt: new Date().toISOString() }
+      : j));
+  };
+
+  const abortRunningJob = () => {
+    if (!window.confirm('진행 중인 수동 공급을 중단할까요?\n모든 양액 릴레이가 OFF 됩니다.')) return;
+    setManualJobs(prev => prev.map(j => j.status === 'running'
+      ? { ...j, status: 'aborted', endedAt: new Date().toISOString() }
+      : j));
+    // 실제 구현 시: POST /api/nutrient/:farmId/cycle/abort
+    console.log('[manual-abort:F2 prototype]');
+  };
+
+  // 큐에서 running 작업 (1개만 동시 진행 가정)
+  const runningJob = manualJobs.find(j => j.status === 'running');
+  const pendingJobs = manualJobs.filter(j => j.status === 'pending');
 
   const dosingActive = phaseInfo?.phaseKey === 'dosing'    && !isPaused && !isEmergency;
   const mixingActive = phaseInfo?.phaseKey === 'mixing'    && !isPaused && !isEmergency;
@@ -255,7 +283,7 @@ export default function NutrientRealtime({ farmId, mode, onModeChange }) {
               phaseInfo={phaseInfo} mode={mode}
               drain={state?.drain} env={state?.env} />
             <div>
-              {mode === 'manual' && (
+              {mode === 'manual' && !runningJob && (
                 <ManualPalette
                   scenarios={scenarios}
                   valves={valves}
@@ -271,6 +299,18 @@ export default function NutrientRealtime({ farmId, mode, onModeChange }) {
                   onTrigger={handleManualTrigger}
                   alerts={alerts}
                   tanks={tanks}
+                  queueCount={pendingJobs.length}
+                  onOpenQueue={() => setQueueOpen(true)}
+                />
+              )}
+              {runningJob && (
+                <ManualRunningCard job={runningJob} phaseInfo={phaseInfo} onAbort={abortRunningJob} />
+              )}
+              {queueOpen && (
+                <ManualQueueModal
+                  jobs={pendingJobs}
+                  onCancel={cancelManualJob}
+                  onClose={() => setQueueOpen(false)}
                 />
               )}
               <Schematic tanks={tanks} valves={valves} ec={ec} ph={ph} mode={mode}
@@ -833,6 +873,7 @@ const ManualPalette = ({
   scheduleAt, onScheduleAtChange,
   scheduleCustom, onScheduleCustomChange,
   onTrigger, alerts, tanks,
+  queueCount, onOpenQueue,
 }) => {
   const scenario = scenarios.find(s => s.id === scenarioId);
   const count = selectedValves?.size ?? 0;
@@ -853,9 +894,16 @@ const ManualPalette = ({
         <span style={{ fontSize: 13, fontWeight: 800, color: '#92400e', letterSpacing: '0.04em' }}>
           ✋ 수동 공급
         </span>
-        <span style={{ fontSize: 11, color: '#a16207' }}>
+        <span style={{ fontSize: 11, color: '#a16207', flex: 1 }}>
           자동 운전 중지됨 — 아래 팔레트에서 1회 공급 작업 만들기
         </span>
+        {queueCount > 0 && (
+          <button onClick={onOpenQueue} style={{
+            padding: '3px 10px', borderRadius: 999, border: '1px solid #fbbf24',
+            background: '#fff', color: '#92400e', fontSize: 11, fontWeight: 700,
+            cursor: 'pointer', fontFamily: MONO,
+          }}>📅 예약 큐 ({queueCount})</button>
+        )}
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: '1.5fr 0.8fr 1fr auto auto', gap: 10, alignItems: 'end' }}>
@@ -945,6 +993,127 @@ const mpInput = {
   color: '#0b1220', border: '1px solid #fbbf24', borderRadius: 6,
   outline: 'none', background: '#fff',
   fontFamily: SANS,
+};
+
+// ─────────────────────────────────────────
+// 진행 중인 수동 cycle 카드 — 팔레트 자리에 표시 (running 1개만 가정)
+// ─────────────────────────────────────────
+const ManualRunningCard = ({ job, phaseInfo, onAbort }) => {
+  const valveLabel = 'V' + job.valves.slice(0, 6).join(', V') + (job.valves.length > 6 ? ` 외 ${job.valves.length - 6}` : '');
+  const progress = phaseInfo?.progress ? Math.round(phaseInfo.progress * 100) : 0;
+  return (
+    <div style={{
+      marginBottom: 10, padding: '12px 14px', borderRadius: 12,
+      background: '#ecfeff', border: '1.5px solid #06b6d4',
+      boxShadow: '0 2px 8px rgba(6,182,212,0.12)',
+      display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap',
+    }}>
+      <div style={{
+        width: 10, height: 10, borderRadius: '50%', background: '#06b6d4',
+        animation: 'sd-pulse 0.9s infinite', flexShrink: 0,
+      }} />
+      <div style={{ flex: 1, minWidth: 200 }}>
+        <div style={{ fontSize: 13, fontWeight: 800, color: '#0e7490', letterSpacing: '0.04em' }}>
+          🔵 수동 공급 진행 중
+        </div>
+        <div style={{ fontSize: 12, color: '#0b1220', fontWeight: 600, marginTop: 3, fontFamily: MONO }}>
+          P-{String(job.programNum).padStart(2, '0')} · {job.scenarioName} · {valveLabel}
+          {job.volumeML ? ` · ${job.volumeML} mL` : ''}
+        </div>
+        {phaseInfo && (
+          <div style={{ marginTop: 6, display: 'flex', alignItems: 'center', gap: 8 }}>
+            <span style={{ fontSize: 11, color: '#475569', fontWeight: 600 }}>
+              {phaseInfo.label} {progress}% · {Math.floor(phaseInfo.remaining / 60)}:{String(phaseInfo.remaining % 60).padStart(2, '0')} 남음
+            </span>
+            <div style={{ flex: 1, height: 4, background: '#cffafe', borderRadius: 2, overflow: 'hidden' }}>
+              <div style={{ width: `${progress}%`, height: '100%', background: '#06b6d4', transition: 'width 0.3s' }} />
+            </div>
+          </div>
+        )}
+      </div>
+      <button onClick={onAbort} style={{
+        padding: '8px 14px', borderRadius: 8, border: '1.5px solid #dc2626',
+        background: '#fff', color: '#dc2626', fontSize: 13, fontWeight: 800,
+        cursor: 'pointer', whiteSpace: 'nowrap',
+      }}>⏸ 중단</button>
+    </div>
+  );
+};
+
+// ─────────────────────────────────────────
+// 예약 큐 모달 — pending 작업 시간 순 + 취소
+// ─────────────────────────────────────────
+const ManualQueueModal = ({ jobs, onCancel, onClose }) => {
+  const sorted = [...jobs].sort((a, b) =>
+    new Date(a.scheduleAt).getTime() - new Date(b.scheduleAt).getTime());
+  const fmt = (iso) => {
+    const d = new Date(iso);
+    const today = new Date();
+    const sameDay = d.toDateString() === today.toDateString();
+    const hh = String(d.getHours()).padStart(2, '0');
+    const mm = String(d.getMinutes()).padStart(2, '0');
+    return sameDay ? `오늘 ${hh}:${mm}` : `${d.getMonth() + 1}/${d.getDate()} ${hh}:${mm}`;
+  };
+  return (
+    <div onClick={onClose} style={{
+      position: 'fixed', inset: 0, background: 'rgba(11,18,32,0.50)',
+      display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 100,
+    }}>
+      <div onClick={(e) => e.stopPropagation()} style={{
+        background: '#fff', borderRadius: 14, padding: 0,
+        width: 'min(520px, 92vw)', maxHeight: '80vh', overflow: 'hidden',
+        boxShadow: '0 20px 60px rgba(11,18,32,0.30)',
+        display: 'flex', flexDirection: 'column',
+      }}>
+        <div style={{
+          padding: '14px 18px', borderBottom: '1px solid #e2e8f0',
+          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+        }}>
+          <span style={{ fontSize: 15, fontWeight: 800, color: '#0b1220' }}>
+            📅 예약된 수동 공급 ({sorted.length})
+          </span>
+          <button onClick={onClose} style={{
+            background: 'transparent', border: 'none', fontSize: 20,
+            color: '#94a3b8', cursor: 'pointer', padding: 0, lineHeight: 1,
+          }}>✕</button>
+        </div>
+        <div style={{ overflow: 'auto', padding: 8 }}>
+          {sorted.length === 0 && (
+            <div style={{ padding: 24, textAlign: 'center', color: '#94a3b8', fontSize: 13 }}>
+              예약된 작업 없음
+            </div>
+          )}
+          {sorted.map(j => (
+            <div key={j.id} style={{
+              padding: '10px 12px', borderRadius: 8, margin: '4px 0',
+              background: '#f8fafc', border: '1px solid #e2e8f0',
+              display: 'flex', alignItems: 'center', gap: 10,
+            }}>
+              <span style={{
+                padding: '4px 10px', borderRadius: 999, background: '#0891b2',
+                color: '#fff', fontSize: 11, fontWeight: 800, fontFamily: 'ui-monospace, monospace',
+                flexShrink: 0,
+              }}>{fmt(j.scheduleAt)}</span>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 13, fontWeight: 700, color: '#0b1220' }}>
+                  P-{String(j.programNum).padStart(2, '0')} {j.scenarioName}
+                </div>
+                <div style={{ fontSize: 11, color: '#64748b', fontFamily: 'ui-monospace, monospace', marginTop: 2 }}>
+                  V{j.valves.slice(0, 8).join(', V')}{j.valves.length > 8 ? ` 외 ${j.valves.length - 8}` : ''}
+                  {j.volumeML ? ` · ${j.volumeML} mL` : ' · 시나리오 기본'}
+                </div>
+              </div>
+              <button onClick={() => onCancel(j.id)} title="예약 취소" style={{
+                padding: '4px 10px', borderRadius: 6, border: '1px solid #fca5a5',
+                background: '#fff', color: '#dc2626', fontSize: 12, fontWeight: 700,
+                cursor: 'pointer',
+              }}>✕ 취소</button>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
 };
 
 const Schematic = ({ tanks, valves, ec, ph, mode,

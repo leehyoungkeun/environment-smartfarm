@@ -60,6 +60,13 @@ export default function NutrientRealtime({ farmId, mode, onModeChange }) {
   const [alerts, setAlerts] = useState([]);
   const [now, setNow] = useState(Date.now());
 
+  // 수동 모드 — 1회 공급 작업 만들기 (F1 prototype)
+  const [selectedValves, setSelectedValves] = useState(new Set());
+  const [manualScenarioId, setManualScenarioId] = useState(null);
+  const [manualVolumeML, setManualVolumeML] = useState('');
+  const [manualScheduleAt, setManualScheduleAt] = useState('now');
+  const [manualScheduleCustom, setManualScheduleCustom] = useState('');
+
   useEffect(() => {
     let c = false;
     const tick = async () => {
@@ -163,6 +170,56 @@ export default function NutrientRealtime({ farmId, mode, onModeChange }) {
     onModeChange?.(newMode);
   };
 
+  // 수동 모드 벗어나면 선택·입력 reset
+  useEffect(() => {
+    if (mode !== 'manual') {
+      setSelectedValves(new Set());
+      setManualVolumeML('');
+      setManualScheduleAt('now');
+      setManualScheduleCustom('');
+    }
+  }, [mode]);
+
+  // 활성 시나리오 자동 선택 (수동 진입 시 default)
+  useEffect(() => {
+    if (mode === 'manual' && !manualScenarioId && scenarios.length > 0) {
+      const active = scenarios.find(s => s.active) || scenarios[0];
+      setManualScenarioId(active?.id || null);
+    }
+  }, [mode, scenarios, manualScenarioId]);
+
+  const toggleValve = (id) => {
+    setSelectedValves(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
+
+  const handleManualTrigger = () => {
+    if (selectedValves.size === 0) return;
+    const scenario = scenarios.find(s => s.id === manualScenarioId);
+    const payload = {
+      scenarioId: manualScenarioId,
+      scenarioName: scenario?.name,
+      valves: [...selectedValves].sort((a, b) => a - b),
+      volumeML: manualVolumeML ? parseInt(manualVolumeML, 10) : null,
+      scheduleAt: manualScheduleAt === 'now' ? null
+        : manualScheduleAt === 'custom' ? manualScheduleCustom
+        : new Date(Date.now() + parseInt(manualScheduleAt, 10) * 60000).toISOString(),
+    };
+    // F1 prototype: backend 없음. console + alert.
+    console.log('[manual-trigger:F1 prototype]', payload);
+    alert(
+      `[프로토타입] 수동 공급 작업\n\n` +
+      `프로그램: ${payload.scenarioName || '미지정'}\n` +
+      `밸브: V${payload.valves.join(', V')}\n` +
+      `공급량: ${payload.volumeML ?? '시나리오 기본'} mL\n` +
+      `시점: ${payload.scheduleAt || '즉시'}\n\n` +
+      `* backend endpoint 미구현 — 실제 동작 X (F1 prototype)`
+    );
+  };
+
   const dosingActive = phaseInfo?.phaseKey === 'dosing'    && !isPaused && !isEmergency;
   const mixingActive = phaseInfo?.phaseKey === 'mixing'    && !isPaused && !isEmergency;
   const stabilizing  = phaseInfo?.phaseKey === 'stabilize' && !isPaused && !isEmergency;
@@ -197,11 +254,33 @@ export default function NutrientRealtime({ farmId, mode, onModeChange }) {
             <LiveStatsPanel ec={ec} ph={ph} ecTarget={ecTarget} phTarget={phTarget}
               phaseInfo={phaseInfo} mode={mode}
               drain={state?.drain} env={state?.env} />
-            <Schematic tanks={tanks} valves={valves} ec={ec} ph={ph} mode={mode}
-              dosingActive={dosingActive} mixingActive={mixingActive}
-              stabilizing={stabilizing} irrigating={irrigating}
-              activeValveIdx={activeValveIdx}
-              rawWaterLevel={state?.rawWater?.level} />
+            <div>
+              {mode === 'manual' && (
+                <ManualPalette
+                  scenarios={scenarios}
+                  valves={valves}
+                  selectedValves={selectedValves}
+                  scenarioId={manualScenarioId}
+                  onScenarioChange={setManualScenarioId}
+                  volumeML={manualVolumeML}
+                  onVolumeChange={setManualVolumeML}
+                  scheduleAt={manualScheduleAt}
+                  onScheduleAtChange={setManualScheduleAt}
+                  scheduleCustom={manualScheduleCustom}
+                  onScheduleCustomChange={setManualScheduleCustom}
+                  onTrigger={handleManualTrigger}
+                  alerts={alerts}
+                  tanks={tanks}
+                />
+              )}
+              <Schematic tanks={tanks} valves={valves} ec={ec} ph={ph} mode={mode}
+                dosingActive={dosingActive} mixingActive={mixingActive}
+                stabilizing={stabilizing} irrigating={irrigating}
+                activeValveIdx={activeValveIdx}
+                rawWaterLevel={state?.rawWater?.level}
+                selectedValves={selectedValves}
+                onValveClick={toggleValve} />
+            </div>
             <TodayPanel
               todayCycles={state?.todayCycles}
               todaySuppliedL={state?.todaySuppliedL}
@@ -744,8 +823,133 @@ const ZoneBadge = ({ x, y, num, label, active, accent = '#67e8f9' }) => {
   );
 };
 
+// ─────────────────────────────────────────
+// 수동 모드 팔레트 — 1회 공급 작업 만들기 (F1 prototype)
+// ─────────────────────────────────────────
+const ManualPalette = ({
+  scenarios, valves, selectedValves,
+  scenarioId, onScenarioChange,
+  volumeML, onVolumeChange,
+  scheduleAt, onScheduleAtChange,
+  scheduleCustom, onScheduleCustomChange,
+  onTrigger, alerts, tanks,
+}) => {
+  const scenario = scenarios.find(s => s.id === scenarioId);
+  const count = selectedValves?.size ?? 0;
+  const critical = (alerts || []).find(a => a.severity === 'critical');
+  const lowTanks = (tanks || []).filter(t => t.level !== null && t.level < 20);
+  const canTrigger = count > 0 && !critical;
+  const valveLabel = count === 0 ? '밸브 클릭으로 선택'
+    : 'V' + [...selectedValves].sort((a, b) => a - b).slice(0, 6).join(', V')
+      + (count > 6 ? ` 외 ${count - 6}` : '');
+
+  return (
+    <div style={{
+      marginBottom: 10, padding: '12px 14px', borderRadius: 12,
+      background: '#fffbeb', border: '1.5px solid #fbbf24',
+      boxShadow: '0 2px 8px rgba(217,119,6,0.08)',
+    }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+        <span style={{ fontSize: 13, fontWeight: 800, color: '#92400e', letterSpacing: '0.04em' }}>
+          ✋ 수동 공급
+        </span>
+        <span style={{ fontSize: 11, color: '#a16207' }}>
+          자동 운전 중지됨 — 아래 팔레트에서 1회 공급 작업 만들기
+        </span>
+      </div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: '1.5fr 0.8fr 1fr auto auto', gap: 10, alignItems: 'end' }}>
+        {/* 프로그램 */}
+        <div>
+          <div style={mpLabel}>프로그램</div>
+          <select value={scenarioId || ''} onChange={(e) => onScenarioChange(e.target.value || null)}
+                  style={mpInput}>
+            {scenarios.length === 0 && <option value="">시나리오 없음</option>}
+            {scenarios.map((s, i) => (
+              <option key={s.id} value={s.id}>
+                P-{String(i + 1).padStart(2, '0')} {s.name}{s.active ? ' (활성)' : ''}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        {/* 공급량 */}
+        <div>
+          <div style={mpLabel}>공급량 (mL)</div>
+          <input type="number" min="0" value={volumeML}
+                 placeholder={scenario ? '시나리오 기본' : '—'}
+                 onChange={(e) => onVolumeChange(e.target.value)}
+                 style={mpInput} />
+        </div>
+
+        {/* 시점 */}
+        <div>
+          <div style={mpLabel}>시점</div>
+          <select value={scheduleAt} onChange={(e) => onScheduleAtChange(e.target.value)} style={mpInput}>
+            <option value="now">지금</option>
+            <option value="5">5분 후</option>
+            <option value="15">15분 후</option>
+            <option value="30">30분 후</option>
+            <option value="60">1시간 후</option>
+            <option value="custom">시간 지정…</option>
+          </select>
+          {scheduleAt === 'custom' && (
+            <input type="datetime-local" value={scheduleCustom}
+                   onChange={(e) => onScheduleCustomChange(e.target.value)}
+                   style={{ ...mpInput, marginTop: 4 }} />
+          )}
+        </div>
+
+        {/* 선택 카운트 */}
+        <div style={{ minWidth: 130, padding: '0 4px' }}>
+          <div style={mpLabel}>선택 ({count})</div>
+          <div style={{
+            fontSize: 12, fontWeight: 600, color: count > 0 ? '#0e7490' : '#94a3b8',
+            fontFamily: count > 0 ? MONO : SANS, lineHeight: 1.3,
+            maxWidth: 180, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+          }}>{valveLabel}</div>
+        </div>
+
+        {/* 실행 버튼 */}
+        <button onClick={onTrigger} disabled={!canTrigger}
+                title={!canTrigger ? (critical ? '비상정지 해제 필요' : '밸브를 선택하세요') : ''}
+                style={{
+                  padding: '10px 16px', borderRadius: 8, border: 'none',
+                  background: canTrigger ? '#0891b2' : '#cbd5e1',
+                  color: '#fff', fontSize: 13, fontWeight: 800,
+                  cursor: canTrigger ? 'pointer' : 'not-allowed',
+                  whiteSpace: 'nowrap',
+                }}>
+          ▶ 공급 시작
+        </button>
+      </div>
+
+      {/* 가드 메시지 */}
+      {(critical || lowTanks.length > 0) && (
+        <div style={{ marginTop: 8, fontSize: 11, color: '#dc2626', display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+          {critical && <span>⚠ {critical.message}</span>}
+          {lowTanks.length > 0 && <span>⚠ 잔량 부족: {lowTanks.map(t => t.name).join(', ')}</span>}
+        </div>
+      )}
+    </div>
+  );
+};
+
+const mpLabel = {
+  fontSize: 10.5, fontWeight: 700, color: '#92400e',
+  letterSpacing: '0.06em', marginBottom: 3,
+  fontFamily: SANS,
+};
+const mpInput = {
+  width: '100%', padding: '6px 8px', fontSize: 13, fontWeight: 600,
+  color: '#0b1220', border: '1px solid #fbbf24', borderRadius: 6,
+  outline: 'none', background: '#fff',
+  fontFamily: SANS,
+};
+
 const Schematic = ({ tanks, valves, ec, ph, mode,
-  dosingActive, mixingActive, stabilizing, irrigating, activeValveIdx, rawWaterLevel }) => {
+  dosingActive, mixingActive, stabilizing, irrigating, activeValveIdx, rawWaterLevel,
+  selectedValves, onValveClick }) => {
   const W = 760, H = 540;
   const isEmergency = mode === 'emergency';
   const isPaused = mode === 'paused';
@@ -1085,23 +1289,33 @@ const Schematic = ({ tanks, valves, ec, ph, mode,
         ) : valves.map((v, i) => {
           const cx = valveCx(i);
           const active = activeValveIdx === (v.id ?? i + 1);
-          const stroke = active ? '#22d3ee' : irrigating ? '#06b6d4' : 'rgba(148,163,184,0.45)';
+          const isManual = mode === 'manual';
+          const selected = isManual && selectedValves?.has(v.id ?? i + 1);
+          const stroke = selected ? '#22d3ee' : active ? '#22d3ee' : irrigating ? '#06b6d4' : 'rgba(148,163,184,0.45)';
           return (
-            <g key={v.id ?? i}>
+            <g key={v.id ?? i}
+               style={isManual ? { cursor: 'pointer' } : undefined}
+               onClick={isManual ? () => onValveClick?.(v.id ?? i + 1) : undefined}>
               {/* T-junction node at manifold */}
               <circle cx={cx} cy={manifoldY} r="3"
-                      fill={active ? '#fb923c' : irrigating ? '#f97316' : '#0f172a'}
-                      stroke={active ? '#fb923c' : irrigating ? '#f97316' : 'rgba(148,163,184,0.70)'} strokeWidth="1" />
+                      fill={active ? '#fb923c' : selected ? '#22d3ee' : irrigating ? '#f97316' : '#0f172a'}
+                      stroke={active ? '#fb923c' : selected ? '#22d3ee' : irrigating ? '#f97316' : 'rgba(148,163,184,0.70)'} strokeWidth="1" />
               <line x1={cx} y1={manifoldY + 3} x2={cx} y2={valveY}
-                stroke={stroke} strokeWidth={active ? 2 : 1} />
+                stroke={stroke} strokeWidth={active || selected ? 2 : 1} />
               <rect x={cx - 18} y={valveY} width="36" height="24" rx="3"
-                fill={active ? '#f97316' : 'url(#sd-steel)'}
-                stroke={active ? '#fb923c' : 'rgba(148,163,184,0.70)'} strokeWidth={active ? 2.5 : 1.2}
+                fill={active ? '#f97316' : selected ? 'rgba(34,211,238,0.18)' : 'url(#sd-steel)'}
+                stroke={active ? '#fb923c' : selected ? '#22d3ee' : 'rgba(148,163,184,0.70)'}
+                strokeWidth={active ? 2.5 : selected ? 2 : 1.2}
                 filter={active ? "url(#sd-glow-orange)" : undefined} />
               <text x={cx} y={valveY + 17} textAnchor="middle" fontSize="14" fontWeight="700"
-                fill={active ? '#fff' : '#cbd5e1'} fontFamily={MONO}>
+                fill={active ? '#fff' : selected ? '#22d3ee' : '#cbd5e1'} fontFamily={MONO}>
                 {truncate(v.name || `V${i + 1}`, 4)}
               </text>
+              {/* selected check mark — manual 모드 */}
+              {selected && !active && (
+                <text x={cx + 14} y={valveY - 2} textAnchor="middle" fontSize="11" fontWeight="900"
+                      fill="#22d3ee" fontFamily={SANS}>●</text>
+              )}
               {active && (
                 <circle cx={cx} cy={valveY + 30} r="2.5" fill="#fb923c">
                   <animate attributeName="cy" values={`${valveY + 26};${valveY + 40}`} dur="0.9s" repeatCount="indefinite" />

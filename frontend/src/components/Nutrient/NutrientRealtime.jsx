@@ -1055,16 +1055,6 @@ const ManualPalette = ({
           </div>
         )}
 
-        {/* 선택 카운트 */}
-        <div style={{ minWidth: 130, padding: '0 4px' }}>
-          <div style={mpLabel}>선택 ({count})</div>
-          <div style={{
-            fontSize: 12, fontWeight: 600, color: count > 0 ? '#0e7490' : '#94a3b8',
-            fontFamily: count > 0 ? MONO : SANS, lineHeight: 1.3,
-            maxWidth: 180, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-          }}>{valveLabel}</div>
-        </div>
-
         {/* 액션 버튼 — 같은 row 우측 */}
         <button onClick={onTrigger} disabled={!canTrigger}
           title={!canTrigger

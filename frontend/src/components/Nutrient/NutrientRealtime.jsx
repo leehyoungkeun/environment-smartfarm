@@ -60,6 +60,9 @@ export default function NutrientRealtime({ farmId, mode, onModeChange }) {
   const [alerts, setAlerts] = useState([]);
   const [now, setNow] = useState(Date.now());
 
+  // 다이어그램 zoom (1x ~ 3x). 모바일 default 1.5x — 글씨 보기 편함.
+  const [diagramZoom, setDiagramZoom] = useState(1.5);
+
   // 수동 모드 — 1회 공급 작업 만들기
   const [selectedValves, setSelectedValves] = useState(new Set());
   const [manualScenarioId, setManualScenarioId] = useState(null);
@@ -400,15 +403,54 @@ export default function NutrientRealtime({ farmId, mode, onModeChange }) {
               now={now} />
           </div>
           <div className="md:hidden">
-            {/* 모바일 다이어그램 — viewport 폭에 맞춰 자동 scale (스크롤 X) */}
-            <div style={{ marginTop: 12 }}>
-              <Schematic tanks={tanks} valves={valves} ec={ec} ph={ph} mode={mode}
-                dosingActive={dosingActive} mixingActive={mixingActive}
-                stabilizing={stabilizing} irrigating={irrigating}
-                activeValveIdx={activeValveIdx}
-                rawWaterLevel={state?.rawWater?.level}
-                selectedValves={selectedValves}
-                onValveClick={mode === 'manual' ? toggleValve : undefined} />
+            {/* 모바일 다이어그램 — zoom controls + 스크롤 가능 */}
+            <div style={{ marginTop: 12, position: 'relative' }}>
+              {/* 우상단 zoom controls (overlay) */}
+              <div style={{
+                position: 'absolute', top: 8, right: 8, zIndex: 10,
+                display: 'flex', gap: 4, alignItems: 'center',
+                background: 'rgba(10,20,38,0.85)', borderRadius: 8,
+                padding: '4px 6px', border: '1px solid #1a2540',
+              }}>
+                <button onClick={() => setDiagramZoom(z => Math.max(1, +(z - 0.5).toFixed(1)))}
+                  disabled={diagramZoom <= 1}
+                  style={{
+                    width: 28, height: 28, borderRadius: 6, border: 'none',
+                    background: diagramZoom > 1 ? '#06b6d4' : '#334155',
+                    color: '#fff', fontSize: 16, fontWeight: 800,
+                    cursor: diagramZoom > 1 ? 'pointer' : 'not-allowed',
+                  }}>−</button>
+                <span style={{
+                  minWidth: 36, textAlign: 'center', color: '#fff',
+                  fontSize: 12, fontWeight: 700, fontFamily: MONO,
+                }}>{diagramZoom.toFixed(1)}x</span>
+                <button onClick={() => setDiagramZoom(z => Math.min(3, +(z + 0.5).toFixed(1)))}
+                  disabled={diagramZoom >= 3}
+                  style={{
+                    width: 28, height: 28, borderRadius: 6, border: 'none',
+                    background: diagramZoom < 3 ? '#06b6d4' : '#334155',
+                    color: '#fff', fontSize: 16, fontWeight: 800,
+                    cursor: diagramZoom < 3 ? 'pointer' : 'not-allowed',
+                  }}>+</button>
+              </div>
+              {/* 스크롤 컨테이너 */}
+              <div style={{
+                overflow: 'auto', WebkitOverflowScrolling: 'touch',
+                borderRadius: 14, maxHeight: '70vh',
+              }}>
+                <div style={{ width: 760 * diagramZoom, minWidth: 760 * diagramZoom }}>
+                  <Schematic tanks={tanks} valves={valves} ec={ec} ph={ph} mode={mode}
+                    dosingActive={dosingActive} mixingActive={mixingActive}
+                    stabilizing={stabilizing} irrigating={irrigating}
+                    activeValveIdx={activeValveIdx}
+                    rawWaterLevel={state?.rawWater?.level}
+                    selectedValves={selectedValves}
+                    onValveClick={mode === 'manual' ? toggleValve : undefined} />
+                </div>
+              </div>
+              <div style={{
+                fontSize: 10, color: T.fg3, textAlign: 'center', marginTop: 4,
+              }}>↕ ↔ 드래그·스와이프로 이동 · +/− 로 확대/축소</div>
             </div>
             <CompactStatus tanks={tanks} valves={valves} phaseInfo={phaseInfo}
               activeValveIdx={activeValveIdx} mode={mode} lowTanks={lowTanks} />

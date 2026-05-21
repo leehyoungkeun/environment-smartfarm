@@ -1004,37 +1004,13 @@ const ManualPalette = ({
                  style={mpInput} />
         </div>
 
-        {/* 시간 지정 — schedule 모드일 때만 */}
+        {/* 시간 지정 — schedule 모드일 때만 (chips 는 grid 아래 별도 행) */}
         {!isQueue && (
           <div>
             <div style={mpLabel}>실행 시각</div>
             <input type="datetime-local" value={scheduleCustom}
                    onChange={(e) => onScheduleCustomChange(e.target.value)}
                    style={mpInput} />
-            {/* quick preset chips — 현재 시각 + N분 */}
-            <div style={{ display: 'flex', gap: 4, marginTop: 4, flexWrap: 'wrap' }}>
-              {[
-                { label: '+5분',  min: 5 },
-                { label: '+10분', min: 10 },
-                { label: '+30분', min: 30 },
-                { label: '+1시간', min: 60 },
-              ].map(q => (
-                <button key={q.min}
-                  onClick={() => {
-                    // datetime-local 의 value 는 YYYY-MM-DDTHH:mm (로컬 타임존)
-                    const d = new Date(Date.now() + q.min * 60000);
-                    const pad = (n) => String(n).padStart(2, '0');
-                    const v = `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
-                    onScheduleCustomChange(v);
-                  }}
-                  style={{
-                    padding: '2px 8px', borderRadius: 6,
-                    border: '1px solid #fbbf24', background: '#fff',
-                    color: '#92400e', fontSize: 11, fontWeight: 700,
-                    cursor: 'pointer', fontFamily: SANS,
-                  }}>{q.label}</button>
-              ))}
-            </div>
           </div>
         )}
 
@@ -1065,6 +1041,40 @@ const ManualPalette = ({
           {isQueue ? '▶ 큐에 추가' : '📅 예약 등록'}
         </button>
       </div>
+
+      {/* schedule 모드 — quick preset chip (grid 아래 별도 행) */}
+      {!isQueue && (
+        <div style={{
+          display: 'flex', gap: 6, marginTop: 8, paddingLeft: 4,
+          alignItems: 'center', flexWrap: 'wrap',
+        }}>
+          <span style={{ fontSize: 11, fontWeight: 700, color: '#92400e', marginRight: 2 }}>
+            빠른 설정 →
+          </span>
+          {[
+            { label: '+5분',  min: 5 },
+            { label: '+10분', min: 10 },
+            { label: '+30분', min: 30 },
+            { label: '+1시간', min: 60 },
+          ].map(q => (
+            <button key={q.min}
+              onClick={() => {
+                // datetime-local: YYYY-MM-DDTHH:mm (로컬 타임존)
+                const d = new Date(Date.now() + q.min * 60000);
+                const pad = (n) => String(n).padStart(2, '0');
+                onScheduleCustomChange(
+                  `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
+                );
+              }}
+              style={{
+                padding: '3px 10px', borderRadius: 6,
+                border: '1px solid #fbbf24', background: '#fff',
+                color: '#92400e', fontSize: 11, fontWeight: 700,
+                cursor: 'pointer', fontFamily: SANS,
+              }}>{q.label}</button>
+          ))}
+        </div>
+      )}
 
       {/* 가드 메시지 */}
       {(critical || lowTanks.length > 0) && (

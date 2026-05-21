@@ -1067,53 +1067,57 @@ const ManualPalette = ({
             maxWidth: 180, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
           }}>{valveLabel}</div>
         </div>
-
-        {/* 실행 버튼 */}
-        <button onClick={onTrigger} disabled={!canTrigger}
-                title={!canTrigger
-                  ? (critical ? '비상정지 해제 필요'
-                    : count === 0 ? '밸브를 선택하세요'
-                    : !isQueue && !hasSchedule ? '실행 시각을 지정하세요'
-                    : '') : ''}
-                style={{
-                  padding: '10px 16px', borderRadius: 8, border: 'none',
-                  background: canTrigger ? '#0891b2' : '#cbd5e1',
-                  color: '#fff', fontSize: 13, fontWeight: 800,
-                  cursor: canTrigger ? 'pointer' : 'not-allowed',
-                  whiteSpace: 'nowrap',
-                }}>
-          {isQueue ? '▶ 큐에 추가' : '📅 예약 등록'}
-        </button>
       </div>
 
-      {/* 큐 순차 모드 — ▶ 시작 / ⏸ 일시정지 큰 버튼 (grid 아래) */}
-      {isQueue && (
-        <div style={{
-          display: 'flex', gap: 8, marginTop: 10, paddingTop: 8,
-          borderTop: '1px dashed #fbbf24', alignItems: 'center',
-          justifyContent: 'flex-end',
-        }}>
-          <button onClick={onPauseQueue}
-            disabled={!queueCount || queuedCount === queueCount}
-            title={queuedCount === queueCount ? '이미 모두 정지 상태' : '진행 중 또는 대기 중인 자동 실행 정지'}
-            style={{
-              padding: '8px 14px', borderRadius: 8, border: '1px solid #fbbf24',
-              background: '#fff', color: '#92400e', fontSize: 13, fontWeight: 800,
-              cursor: (!queueCount || queuedCount === queueCount) ? 'not-allowed' : 'pointer',
-              opacity: (!queueCount || queuedCount === queueCount) ? 0.45 : 1,
-            }}>⏸ 일시정지</button>
-          <button onClick={onStartQueue}
-            disabled={queuedCount === 0}
-            title={queuedCount === 0 ? '큐가 비어있습니다' : `${queuedCount} 건 순차 실행`}
-            style={{
-              padding: '10px 22px', borderRadius: 8, border: 'none',
-              background: queuedCount > 0 ? '#16a34a' : '#cbd5e1',
-              color: '#fff', fontSize: 14, fontWeight: 900,
-              cursor: queuedCount > 0 ? 'pointer' : 'not-allowed',
-              boxShadow: queuedCount > 0 ? '0 2px 8px rgba(22,163,74,0.30)' : 'none',
-            }}>▶ 시작 ({queuedCount})</button>
-        </div>
-      )}
+      {/* 액션 버튼 row — 모드별 1~3 버튼 한 줄 정렬 */}
+      <div style={{
+        display: 'flex', gap: 8, marginTop: 10, paddingTop: 8,
+        borderTop: '1px dashed #fbbf24', alignItems: 'center',
+        justifyContent: 'flex-end', flexWrap: 'wrap',
+      }}>
+        {/* 추가/등록 — 모드 공통 */}
+        <button onClick={onTrigger} disabled={!canTrigger}
+          title={!canTrigger
+            ? (critical ? '비상정지 해제 필요'
+              : count === 0 ? '밸브를 선택하세요'
+              : !isQueue && !hasSchedule ? '실행 시각을 지정하세요'
+              : '') : ''}
+          style={{
+            padding: '8px 14px', borderRadius: 8, border: 'none',
+            background: canTrigger ? '#0891b2' : '#cbd5e1',
+            color: '#fff', fontSize: 13, fontWeight: 800,
+            cursor: canTrigger ? 'pointer' : 'not-allowed',
+            whiteSpace: 'nowrap',
+          }}>
+          {isQueue ? '▶ 큐에 추가' : '📅 예약 등록'}
+        </button>
+        {/* 일시정지 + 시작 — 큐 순차 모드에서만 */}
+        {isQueue && (
+          <>
+            <button onClick={onPauseQueue}
+              disabled={!queueCount || queuedCount === queueCount}
+              title={queuedCount === queueCount ? '이미 모두 정지 상태' : '대기 중인 자동 실행 정지'}
+              style={{
+                padding: '8px 14px', borderRadius: 8, border: '1px solid #fbbf24',
+                background: '#fff', color: '#92400e', fontSize: 13, fontWeight: 800,
+                cursor: (!queueCount || queuedCount === queueCount) ? 'not-allowed' : 'pointer',
+                opacity: (!queueCount || queuedCount === queueCount) ? 0.45 : 1,
+                whiteSpace: 'nowrap',
+              }}>⏸ 일시정지</button>
+            <button onClick={onStartQueue}
+              disabled={queuedCount === 0}
+              title={queuedCount === 0 ? '큐가 비어있습니다' : `${queuedCount} 건 순차 실행`}
+              style={{
+                padding: '8px 18px', borderRadius: 8, border: 'none',
+                background: queuedCount > 0 ? '#16a34a' : '#cbd5e1',
+                color: '#fff', fontSize: 14, fontWeight: 900,
+                cursor: queuedCount > 0 ? 'pointer' : 'not-allowed',
+                boxShadow: queuedCount > 0 ? '0 2px 8px rgba(22,163,74,0.30)' : 'none',
+                whiteSpace: 'nowrap',
+              }}>▶ 시작 ({queuedCount})</button>
+          </>
+        )}
+      </div>
 
       {/* schedule 모드 — quick preset chip (grid 아래 별도 행) */}
       {!isQueue && (

@@ -60,11 +60,12 @@ export default function NutrientRealtime({ farmId, mode, onModeChange }) {
   const [alerts, setAlerts] = useState([]);
   const [now, setNow] = useState(Date.now());
 
-  // 수동 모드 — 1회 공급 작업 만들기 (F1 prototype)
+  // 수동 모드 — 1회 공급 작업 만들기
   const [selectedValves, setSelectedValves] = useState(new Set());
   const [manualScenarioId, setManualScenarioId] = useState(null);
   const [manualVolumeML, setManualVolumeML] = useState('');
-  const [manualScheduleAt, setManualScheduleAt] = useState('now');
+  // sub-mode: 'queue' (큐 순차 자동 실행) | 'schedule' (시간 지정 예약)
+  const [manualSubMode, setManualSubMode] = useState('queue');
   const [manualScheduleCustom, setManualScheduleCustom] = useState('');
   // 수동 작업 큐 — backend 동기화 (5초 polling)
   const [manualJobs, setManualJobs] = useState([]);
@@ -178,7 +179,7 @@ export default function NutrientRealtime({ farmId, mode, onModeChange }) {
     if (mode !== 'manual') {
       setSelectedValves(new Set());
       setManualVolumeML('');
-      setManualScheduleAt('now');
+      setManualSubMode('queue');
       setManualScheduleCustom('');
     }
   }, [mode]);
@@ -227,12 +228,22 @@ export default function NutrientRealtime({ farmId, mode, onModeChange }) {
   const handleManualTrigger = async () => {
     if (selectedValves.size === 0) return;
     const scenario = scenarios.find(s => s.id === manualScenarioId);
-    const scheduleAt = manualScheduleAt === 'now' ? null
-      : manualScheduleAt === 'custom' ? (manualScheduleCustom ? new Date(manualScheduleCustom).toISOString() : null)
-      : new Date(Date.now() + parseInt(manualScheduleAt, 10) * 60000).toISOString();
-    if (scheduleAt && new Date(scheduleAt) - Date.now() > 24 * 60 * 60 * 1000) {
-      alert('예약은 24시간 이내만 가능합니다.');
-      return;
+    let scheduleAt = null;
+    if (manualSubMode === 'schedule') {
+      if (!manualScheduleCustom) {
+        alert('시간을 지정하세요.');
+        return;
+      }
+      scheduleAt = new Date(manualScheduleCustom).toISOString();
+      const diff = new Date(scheduleAt) - Date.now();
+      if (diff > 24 * 60 * 60 * 1000) {
+        alert('예약은 24시간 이내만 가능합니다.');
+        return;
+      }
+      if (diff < -60 * 1000) {
+        alert('예약 시간은 미래여야 합니다.');
+        return;
+      }
     }
     const payload = {
       scenarioId: manualScenarioId,
@@ -246,6 +257,7 @@ export default function NutrientRealtime({ farmId, mode, onModeChange }) {
       await nutrientApi.triggerManualJob(farmId, payload);
       setSelectedValves(new Set());
       setManualVolumeML('');
+      if (manualSubMode === 'schedule') setManualScheduleCustom('');
       refreshManualJobs();
     } catch (e) {
       alert(`작업 등록 실패: ${e.response?.data?.error || e.message}`);
@@ -320,8 +332,8 @@ export default function NutrientRealtime({ farmId, mode, onModeChange }) {
                   onScenarioChange={setManualScenarioId}
                   volumeML={manualVolumeML}
                   onVolumeChange={setManualVolumeML}
-                  scheduleAt={manualScheduleAt}
-                  onScheduleAtChange={setManualScheduleAt}
+                  subMode={manualSubMode}
+                  onSubModeChange={setManualSubMode}
                   scheduleCustom={manualScheduleCustom}
                   onScheduleCustomChange={setManualScheduleCustom}
                   onTrigger={handleManualTrigger}
@@ -898,7 +910,7 @@ const ManualPalette = ({
   scenarios, valves, selectedValves,
   scenarioId, onScenarioChange,
   volumeML, onVolumeChange,
-  scheduleAt, onScheduleAtChange,
+  subMode, onSubModeChange,
   scheduleCustom, onScheduleCustomChange,
   onTrigger, alerts, tanks,
   queueCount, onOpenQueue,
@@ -907,7 +919,9 @@ const ManualPalette = ({
   const count = selectedValves?.size ?? 0;
   const critical = (alerts || []).find(a => a.severity === 'critical');
   const lowTanks = (tanks || []).filter(t => t.level !== null && t.level < 20);
-  const canTrigger = count > 0 && !critical;
+  const isQueue = subMode === 'queue';
+  const hasSchedule = !isQueue && !!scheduleCustom;
+  const canTrigger = count > 0 && !critical && (isQueue || hasSchedule);
   const valveLabel = count === 0 ? '밸브 클릭으로 선택'
     : 'V' + [...selectedValves].sort((a, b) => a - b).slice(0, 6).join(', V')
       + (count > 6 ? ` 외 ${count - 6}` : '');
@@ -918,12 +932,38 @@ const ManualPalette = ({
       background: '#fffbeb', border: '1.5px solid #fbbf24',
       boxShadow: '0 2px 8px rgba(217,119,6,0.08)',
     }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
         <span style={{ fontSize: 13, fontWeight: 800, color: '#92400e', letterSpacing: '0.04em' }}>
           ✋ 수동 공급
         </span>
+        {/* segmented sub-mode 토글 */}
+        <div style={{
+          display: 'inline-flex', borderRadius: 8, overflow: 'hidden',
+          border: '1px solid #fbbf24', background: '#fff',
+        }}>
+          {[
+            { key: 'queue',    label: '🔢 큐 순차',    hint: '추가 즉시 또는 이전 작업 완료 후 자동 실행' },
+            { key: 'schedule', label: '📅 시간 지정', hint: '지정한 시각에 실행 (24시간 이내)' },
+          ].map((m, i) => {
+            const active = subMode === m.key;
+            return (
+              <button key={m.key} onClick={() => onSubModeChange(m.key)}
+                title={m.hint}
+                style={{
+                  padding: '5px 12px', border: 'none', cursor: 'pointer',
+                  borderLeft: i > 0 ? '1px solid #fbbf24' : 'none',
+                  background: active ? '#f59e0b' : 'transparent',
+                  color: active ? '#fff' : '#92400e',
+                  fontSize: 12, fontWeight: 800,
+                  fontFamily: SANS,
+                  transition: 'background 0.12s, color 0.12s',
+                }}>{m.label}</button>
+            );
+          })}
+        </div>
         <span style={{ fontSize: 11, color: '#a16207', flex: 1 }}>
-          자동 운전 중지됨 — 아래 팔레트에서 1회 공급 작업 만들기
+          {isQueue ? '순차 큐 — 추가 즉시 또는 이전 작업 후 자동 실행'
+                   : '시간 지정 — 지정한 시각에 1회 실행 (24시간 이내)'}
         </span>
         {queueCount > 0 && (
           <button onClick={onOpenQueue} style={{
@@ -934,7 +974,13 @@ const ManualPalette = ({
         )}
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: '1.5fr 0.8fr 1fr auto auto', gap: 10, alignItems: 'end' }}>
+      <div style={{
+        display: 'grid',
+        gridTemplateColumns: isQueue
+          ? '1.5fr 0.8fr 1.2fr auto'
+          : '1.5fr 0.8fr 1.4fr 1.2fr auto',
+        gap: 10, alignItems: 'end',
+      }}>
         {/* 프로그램 */}
         <div>
           <div style={mpLabel}>프로그램</div>
@@ -958,23 +1004,15 @@ const ManualPalette = ({
                  style={mpInput} />
         </div>
 
-        {/* 시점 */}
-        <div>
-          <div style={mpLabel}>시점</div>
-          <select value={scheduleAt} onChange={(e) => onScheduleAtChange(e.target.value)} style={mpInput}>
-            <option value="now">지금</option>
-            <option value="5">5분 후</option>
-            <option value="15">15분 후</option>
-            <option value="30">30분 후</option>
-            <option value="60">1시간 후</option>
-            <option value="custom">시간 지정…</option>
-          </select>
-          {scheduleAt === 'custom' && (
+        {/* 시간 지정 — schedule 모드일 때만 */}
+        {!isQueue && (
+          <div>
+            <div style={mpLabel}>실행 시각</div>
             <input type="datetime-local" value={scheduleCustom}
                    onChange={(e) => onScheduleCustomChange(e.target.value)}
-                   style={{ ...mpInput, marginTop: 4 }} />
-          )}
-        </div>
+                   style={mpInput} />
+          </div>
+        )}
 
         {/* 선택 카운트 */}
         <div style={{ minWidth: 130, padding: '0 4px' }}>
@@ -988,7 +1026,11 @@ const ManualPalette = ({
 
         {/* 실행 버튼 */}
         <button onClick={onTrigger} disabled={!canTrigger}
-                title={!canTrigger ? (critical ? '비상정지 해제 필요' : '밸브를 선택하세요') : ''}
+                title={!canTrigger
+                  ? (critical ? '비상정지 해제 필요'
+                    : count === 0 ? '밸브를 선택하세요'
+                    : !isQueue && !hasSchedule ? '실행 시각을 지정하세요'
+                    : '') : ''}
                 style={{
                   padding: '10px 16px', borderRadius: 8, border: 'none',
                   background: canTrigger ? '#0891b2' : '#cbd5e1',
@@ -996,7 +1038,7 @@ const ManualPalette = ({
                   cursor: canTrigger ? 'pointer' : 'not-allowed',
                   whiteSpace: 'nowrap',
                 }}>
-          ▶ 공급 시작
+          {isQueue ? '▶ 큐에 추가' : '📅 예약 등록'}
         </button>
       </div>
 

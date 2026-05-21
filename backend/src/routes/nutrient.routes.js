@@ -470,7 +470,9 @@ router.post("/:farmId/counters/filter-change", async (req, res) => {
 // 7. 수동 1회 공급 작업 (manual mode 의 ad-hoc 큐)
 // ─────────────────────────────────────────────────────────────────
 
-const MANUAL_STATUSES = ["pending", "running", "completed", "aborted", "cancelled"];
+// queued = 큐에만 적재 (RPi 가 fetch 안 함). 사용자가 manual-start 누르면 pending 으로 promote.
+// pending = 즉시·예약 모두. RPi 가 fetch 해서 실행.
+const MANUAL_STATUSES = ["queued", "pending", "running", "completed", "aborted", "cancelled"];
 
 // 작업 생성 — 즉시 (scheduleAt null) 또는 24시간 이내 예약
 router.post("/:farmId/cycle/manual-trigger", async (req, res) => {
@@ -494,6 +496,11 @@ router.post("/:farmId/cycle/manual-trigger", async (req, res) => {
         return res.status(400).json({ success: false, error: "scheduleAt 은 미래여야" });
       }
     }
+    // 큐 순차 모드 (scheduleAt null + subMode=queue) — 'queued' 로만 적재, RPi 발사 X.
+    // 시간 지정 모드 (scheduleAt 미래) — 'pending' 으로 적재, RPi 가 scheduleAt 도래 시 자동 처리.
+    // 사용자가 별도 manual-start 호출해야 queued → pending 으로 promote.
+    const initialStatus = (!scheduleAt && b.subMode === "queue") ? "queued" : "pending";
+
     const row = await prisma.nutrientManualJob.create({
       data: {
         farmId,
@@ -503,13 +510,14 @@ router.post("/:farmId/cycle/manual-trigger", async (req, res) => {
         valves: b.valves,
         volumeML: b.volumeML ?? null,
         scheduleAt,
-        status: "pending",
+        status: initialStatus,
         createdBy: req.user?.id || null,
       },
     });
 
-    // 즉시 실행 (예약 X) 일 때만 MQTT push — RPi NR 가 polling 대기 없이 즉시 dispatch
-    if (!scheduleAt) {
+    // queued 는 push X (사용자가 ▶ 시작 누를 때까지 대기)
+    // 즉시 실행 가능한 pending (scheduleAt null + subMode != queue) 시만 MQTT push
+    if (!scheduleAt && initialStatus === "pending") {
       try {
         const mqttService = (await import("../services/mqttClient.js")).default;
         if (mqttService.isConnected?.()) {
@@ -523,6 +531,52 @@ router.post("/:farmId/cycle/manual-trigger", async (req, res) => {
     res.status(201).json({ success: true, data: row });
   } catch (e) {
     logger.error("manual-trigger:", e);
+    res.status(400).json({ success: false, error: e.message });
+  }
+});
+
+// 큐 시작 — 모든 queued → pending 으로 promote + MQTT push
+router.post("/:farmId/cycle/manual-start", async (req, res) => {
+  try {
+    const { farmId } = req.params;
+    const queued = await prisma.nutrientManualJob.findMany({
+      where: { farmId, status: "queued" },
+      orderBy: { createdAt: "asc" },
+    });
+    if (queued.length === 0) {
+      return res.status(400).json({ success: false, error: "큐에 작업이 없습니다" });
+    }
+    await prisma.nutrientManualJob.updateMany({
+      where: { farmId, status: "queued" },
+      data: { status: "pending" },
+    });
+    // MQTT push — RPi 즉시 dispatch (첫 작업 시작)
+    try {
+      const mqttService = (await import("../services/mqttClient.js")).default;
+      if (mqttService.isConnected?.()) {
+        mqttService.publishNutrientManualTrigger(farmId, queued[0].id);
+      }
+    } catch (e) {
+      logger.warn("manual-start MQTT publish 실패:", e.message);
+    }
+    res.json({ success: true, data: { promoted: queued.length } });
+  } catch (e) {
+    logger.error("manual-start:", e);
+    res.status(400).json({ success: false, error: e.message });
+  }
+});
+
+// 큐 일시정지 — 모든 pending (scheduleAt 없는 큐 항목) → queued 로 demote
+// 진행 중 cycle 은 건드리지 않음 (graceful)
+router.post("/:farmId/cycle/manual-pause", async (req, res) => {
+  try {
+    const { farmId } = req.params;
+    const r = await prisma.nutrientManualJob.updateMany({
+      where: { farmId, status: "pending", scheduleAt: null },
+      data: { status: "queued" },
+    });
+    res.json({ success: true, data: { demoted: r.count } });
+  } catch (e) {
     res.status(400).json({ success: false, error: e.message });
   }
 });

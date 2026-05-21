@@ -62,3 +62,7 @@ export const cancelManualJob = (farmId, id) =>
   axios.delete(`${base(farmId)}/cycle/manual-jobs/${id}`).then(r => r.data.data);
 export const abortManualJob = (farmId) =>
   axios.post(`${base(farmId)}/cycle/abort`).then(r => r.data.data);
+export const startManualQueue = (farmId) =>
+  axios.post(`${base(farmId)}/cycle/manual-start`).then(r => r.data.data);
+export const pauseManualQueue = (farmId) =>
+  axios.post(`${base(farmId)}/cycle/manual-pause`).then(r => r.data.data);

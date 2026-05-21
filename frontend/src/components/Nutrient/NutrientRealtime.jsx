@@ -203,19 +203,19 @@ export default function NutrientRealtime({ farmId, mode, onModeChange }) {
   const refreshManualJobs = async () => {
     try {
       const list = await nutrientApi.listManualJobs(farmId, {
-        status: ['pending', 'running'], limit: 50,
+        status: ['queued', 'pending', 'running'], limit: 50,
       });
       setManualJobs(list || []);
     } catch (e) { /* 다음 polling 회복 */ }
   };
 
-  // 5초 polling — 수동 작업 큐 동기화 (pending + running 만 적재)
+  // 5초 polling — 수동 작업 큐 동기화 (queued + pending + running)
   useEffect(() => {
     let c = false;
     const tick = async () => {
       try {
         const list = await nutrientApi.listManualJobs(farmId, {
-          status: ['pending', 'running'], limit: 50,
+          status: ['queued', 'pending', 'running'], limit: 50,
         });
         if (!c) setManualJobs(list || []);
       } catch {}
@@ -252,6 +252,7 @@ export default function NutrientRealtime({ farmId, mode, onModeChange }) {
       valves: [...selectedValves].sort((a, b) => a - b),
       volumeML: manualVolumeML ? parseInt(manualVolumeML, 10) : null,
       scheduleAt,
+      subMode: manualSubMode,  // 'queue' → status='queued' (▶ 시작 대기) / 'schedule' → 'pending'
     };
     try {
       await nutrientApi.triggerManualJob(farmId, payload);
@@ -285,8 +286,31 @@ export default function NutrientRealtime({ farmId, mode, onModeChange }) {
 
   // 큐에서 running 작업 (1개만 동시 진행 가정)
   const runningJob = manualJobs.find(j => j.status === 'running');
-  // pending 중 즉시(scheduleAt null) 항목도 큐에 표시 (RPi pick 전)
-  const pendingJobs = manualJobs.filter(j => j.status === 'pending' && j.scheduleAt);
+  // queued = ▶ 시작 대기 (큐 순차 모드로 만든 작업)
+  const queuedJobs = manualJobs.filter(j => j.status === 'queued');
+  // 시간 예약은 별도 (scheduleAt 있는 pending)
+  const scheduledJobs = manualJobs.filter(j => j.status === 'pending' && j.scheduleAt);
+  // 모달용 — queued + scheduled 둘 다 표시
+  const pendingJobs = [...queuedJobs, ...scheduledJobs];
+
+  const handleStartQueue = async () => {
+    if (queuedJobs.length === 0) return;
+    try {
+      await nutrientApi.startManualQueue(farmId);
+      refreshManualJobs();
+    } catch (e) {
+      alert(`시작 실패: ${e.response?.data?.error || e.message}`);
+    }
+  };
+
+  const handlePauseQueue = async () => {
+    try {
+      await nutrientApi.pauseManualQueue(farmId);
+      refreshManualJobs();
+    } catch (e) {
+      alert(`일시정지 실패: ${e.response?.data?.error || e.message}`);
+    }
+  };
 
   const dosingActive = phaseInfo?.phaseKey === 'dosing'    && !isPaused && !isEmergency;
   const mixingActive = phaseInfo?.phaseKey === 'mixing'    && !isPaused && !isEmergency;
@@ -340,7 +364,10 @@ export default function NutrientRealtime({ farmId, mode, onModeChange }) {
                   alerts={alerts}
                   tanks={tanks}
                   queueCount={pendingJobs.length}
+                  queuedCount={queuedJobs.length}
                   onOpenQueue={() => setQueueOpen(true)}
+                  onStartQueue={handleStartQueue}
+                  onPauseQueue={handlePauseQueue}
                 />
               )}
               {runningJob && (
@@ -913,7 +940,8 @@ const ManualPalette = ({
   subMode, onSubModeChange,
   scheduleCustom, onScheduleCustomChange,
   onTrigger, alerts, tanks,
-  queueCount, onOpenQueue,
+  queueCount, queuedCount, onOpenQueue,
+  onStartQueue, onPauseQueue,
 }) => {
   const scenario = scenarios.find(s => s.id === scenarioId);
   const count = selectedValves?.size ?? 0;
@@ -1041,6 +1069,37 @@ const ManualPalette = ({
           {isQueue ? '▶ 큐에 추가' : '📅 예약 등록'}
         </button>
       </div>
+
+      {/* 큐 순차 모드 — ▶ 시작 / ⏸ 일시정지 큰 버튼 (grid 아래) */}
+      {isQueue && (
+        <div style={{
+          display: 'flex', gap: 8, marginTop: 10, paddingTop: 8,
+          borderTop: '1px dashed #fbbf24', alignItems: 'center',
+        }}>
+          <span style={{ fontSize: 12, fontWeight: 700, color: '#92400e', flex: 1 }}>
+            🔢 큐: <strong>{queuedCount}</strong>건 대기 중 — 시작 누르면 순차 실행
+          </span>
+          <button onClick={onPauseQueue}
+            disabled={!queueCount || queuedCount === queueCount}
+            title={queuedCount === queueCount ? '이미 모두 정지 상태' : '진행 중 또는 대기 중인 자동 실행 정지'}
+            style={{
+              padding: '8px 14px', borderRadius: 8, border: '1px solid #fbbf24',
+              background: '#fff', color: '#92400e', fontSize: 13, fontWeight: 800,
+              cursor: (!queueCount || queuedCount === queueCount) ? 'not-allowed' : 'pointer',
+              opacity: (!queueCount || queuedCount === queueCount) ? 0.45 : 1,
+            }}>⏸ 일시정지</button>
+          <button onClick={onStartQueue}
+            disabled={queuedCount === 0}
+            title={queuedCount === 0 ? '큐가 비어있습니다' : `${queuedCount} 건 순차 실행`}
+            style={{
+              padding: '10px 22px', borderRadius: 8, border: 'none',
+              background: queuedCount > 0 ? '#16a34a' : '#cbd5e1',
+              color: '#fff', fontSize: 14, fontWeight: 900,
+              cursor: queuedCount > 0 ? 'pointer' : 'not-allowed',
+              boxShadow: queuedCount > 0 ? '0 2px 8px rgba(22,163,74,0.30)' : 'none',
+            }}>▶ 시작 ({queuedCount})</button>
+        </div>
+      )}
 
       {/* schedule 모드 — quick preset chip (grid 아래 별도 행) */}
       {!isQueue && (

@@ -1703,8 +1703,10 @@ const Schematic = ({ tanks, valves, ec, ph, mode,
             <g key={v.id ?? i}
                style={interactive ? {
                  cursor: 'pointer',
-                 // direct 모드 + OFF 일 때만 미세 펄스 (클릭 가능 단서)
+                 // direct 모드 + OFF 일 때만 미세 펄스 (자체 center 기준 scale)
                  animation: (isDirect && !directOn) ? 'sd-direct-hint 1.8s ease-in-out infinite' : 'none',
+                 transformOrigin: `${cx}px ${valveY + 12}px`,
+                 transformBox: 'view-box',
                } : undefined}
                onClick={handleClick}>
               <circle cx={cx} cy={manifoldY} r="3"
@@ -2073,7 +2075,15 @@ const KEYFRAMES = `
 @keyframes sd-spin    { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
 @keyframes sd-emergency { 0%, 100% { box-shadow: inset 0 0 0 1px rgba(220,38,38,0.4); } 50% { box-shadow: inset 0 0 0 3px rgba(220,38,38,0.55); } }
 @keyframes sd-direct-hint {
-  0%, 100% { opacity: 1; filter: drop-shadow(0 0 0 transparent); }
-  50%      { opacity: 0.75; filter: drop-shadow(0 0 3px rgba(167,139,250,0.85)); }
+  0%, 100% {
+    opacity: 1;
+    filter: drop-shadow(0 0 0 transparent);
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.85;
+    filter: drop-shadow(0 0 3px rgba(167,139,250,0.9));
+    transform: scale(1.05);
+  }
 }
 `;

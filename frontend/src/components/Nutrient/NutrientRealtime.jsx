@@ -970,7 +970,11 @@ const ManualPalette = ({
       background: '#fffbeb', border: '1.5px solid #fbbf24',
       boxShadow: '0 2px 8px rgba(217,119,6,0.08)',
     }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
+      {/* 헤더 row 1 — 제목 + segmented + 큐 pill (모바일에서 wrap) */}
+      <div style={{
+        display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6,
+        flexWrap: 'wrap',
+      }}>
         <span style={{ fontSize: 13, fontWeight: 800, color: '#92400e', letterSpacing: '0.04em' }}>
           ✋ 수동 공급
         </span>
@@ -988,28 +992,31 @@ const ManualPalette = ({
               <button key={m.key} onClick={() => onSubModeChange(m.key)}
                 title={m.hint}
                 style={{
-                  padding: '5px 12px', border: 'none', cursor: 'pointer',
+                  padding: '5px 10px', border: 'none', cursor: 'pointer',
                   borderLeft: i > 0 ? '1px solid #fbbf24' : 'none',
                   background: active ? '#f59e0b' : 'transparent',
                   color: active ? '#fff' : '#92400e',
                   fontSize: 12, fontWeight: 800,
-                  fontFamily: SANS,
+                  fontFamily: SANS, whiteSpace: 'nowrap',
                   transition: 'background 0.12s, color 0.12s',
                 }}>{m.label}</button>
             );
           })}
         </div>
-        <span style={{ fontSize: 11, color: '#a16207', flex: 1 }}>
-          {isQueue ? '순차 큐 — 추가 즉시 또는 이전 작업 후 자동 실행'
-                   : '시간 지정 — 지정한 시각에 1회 실행 (24시간 이내)'}
-        </span>
+        <div style={{ flex: 1 }} />
         {queueCount > 0 && (
           <button onClick={onOpenQueue} style={{
             padding: '3px 10px', borderRadius: 999, border: '1px solid #fbbf24',
             background: '#fff', color: '#92400e', fontSize: 11, fontWeight: 700,
-            cursor: 'pointer', fontFamily: MONO,
+            cursor: 'pointer', fontFamily: MONO, whiteSpace: 'nowrap',
           }}>📅 예약 큐 ({queueCount})</button>
         )}
+      </div>
+
+      {/* 헤더 row 2 — 안내 텍스트 (별도 row, 좁은 화면 친화) */}
+      <div style={{ fontSize: 11, color: '#a16207', marginBottom: 10, lineHeight: 1.3 }}>
+        {isQueue ? '순차 큐 — 추가 후 ▶ 시작 누르면 차례대로 자동 실행'
+                 : '시간 지정 — 지정한 시각에 1회 실행 (24시간 이내)'}
       </div>
 
       <div style={{

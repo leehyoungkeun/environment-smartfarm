@@ -1944,11 +1944,8 @@ const Alerts = ({ alerts }) => {
 const Footer = () => (
   <div style={{
     marginTop: 14, paddingTop: 12, borderTop: `1px solid ${T.hair}`,
-    display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+    display: 'flex', justifyContent: 'flex-end', alignItems: 'center',
   }}>
-    <div style={{ fontSize: 12, color: T.fg3, fontFamily: MONO, letterSpacing: '0.06em' }}>
-      엔지니어링 진단 · 별도 페이지 페이지에서 확인
-    </div>
     <div style={{ display: 'flex', gap: 8 }}>
       <button disabled title="Phase 3.2 이후 활성화" style={{
         padding: '8px 14px', borderRadius: 6, border: `1px solid ${T.bd}`,

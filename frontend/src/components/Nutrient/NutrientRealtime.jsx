@@ -1018,11 +1018,6 @@ const ManualPalette = ({
         )}
       </div>
 
-      {/* 헤더 row 2 — 안내 텍스트 (별도 row, 좁은 화면 친화) */}
-      <div style={{ fontSize: 11, color: '#a16207', marginBottom: 10, lineHeight: 1.3 }}>
-        {isQueue ? '순차 큐 — 추가 후 ▶ 시작 누르면 차례대로 자동 실행'
-                 : '시간 지정 — 지정한 시각에 1회 실행 (24시간 이내)'}
-      </div>
 
       <div style={{
         display: 'flex', gap: 10, alignItems: 'end', flexWrap: 'wrap',

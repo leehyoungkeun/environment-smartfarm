@@ -1091,10 +1091,8 @@ const ManualPalette = ({
         <div style={{
           display: 'flex', gap: 8, marginTop: 10, paddingTop: 8,
           borderTop: '1px dashed #fbbf24', alignItems: 'center',
+          justifyContent: 'flex-end',
         }}>
-          <span style={{ fontSize: 12, fontWeight: 700, color: '#92400e', flex: 1 }}>
-            🔢 큐: <strong>{queuedCount}</strong>건 대기 중 — 시작 누르면 순차 실행
-          </span>
           <button onClick={onPauseQueue}
             disabled={!queueCount || queuedCount === queueCount}
             title={queuedCount === queueCount ? '이미 모두 정지 상태' : '진행 중 또는 대기 중인 자동 실행 정지'}

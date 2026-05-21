@@ -104,17 +104,9 @@ export default function NutrientPanel({ farmId }) {
           ⚠️ 현재 MOCK_ENV 고정값. 실 sensor API 연결은 Phase 2 작업 (todo) */}
       <div style={{
         background: '#fff', borderRadius: 12, padding: '8px 12px',
-        marginBottom: 12, border: '1px solid #fbbf24',
+        marginBottom: 12, border: '1px solid #e2e8f0',
         display: 'flex', alignItems: 'center', gap: 8, overflowX: 'auto',
-        position: 'relative',
       }}>
-        <span style={{
-          position: 'absolute', top: -8, left: 12,
-          padding: '1px 8px', borderRadius: 8,
-          background: '#fef3c7', color: '#92400e',
-          fontSize: 10, fontWeight: 800, letterSpacing: '0.05em',
-          border: '1px solid #fbbf24',
-        }}>DEMO · 실 sensor 미연결</span>
         <EnvChip icon="🌡️" label="외부" value={env.outTemp} unit="°C" color="#dc2626" />
         <EnvChip icon="💧" label="외습" value={env.outHumid} unit="%" color="#0891b2" />
         <Divider />

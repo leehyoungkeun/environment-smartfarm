@@ -1540,7 +1540,9 @@ const Schematic = ({ tanks, valves, ec, ph, mode,
                     fontSize="13" fontWeight="700" fill="#fca5a5" letterSpacing="1.2" fontFamily={SANS}>부족</text>
                 )}
               </g>
-              <DosingPump cx={pumpCx} cy={pumpCy} active={active} />
+              <DosingPump cx={pumpCx} cy={pumpCy} active={active}
+                directOn={isDirect && !!ds[rawSolenoidCh]}
+                onClick={isDirect ? () => onDirectRelay?.(rawSolenoidCh) : undefined} />
               <text x={pumpCx} y={pumpCy + 24} textAnchor="middle" fontSize="11" fontWeight="700"
                 fill="#cbd5e1" letterSpacing="1.2" fontFamily={SANS}>원수 펌프</text>
               <FlowLine x1={rwx + rww} y1={pumpCy} x2={pumpCx - 9} y2={pumpCy} active={active} />

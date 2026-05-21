@@ -403,7 +403,7 @@ export default function NutrientRealtime({ farmId, mode, onModeChange }) {
             {/* 모바일 다이어그램 — 가로 스크롤로 좁은 화면 대응 */}
             <div style={{
               marginTop: 12, overflowX: 'auto', WebkitOverflowScrolling: 'touch',
-              border: `1px solid ${T.bd}`, borderRadius: 12,
+              borderRadius: 14,
             }}>
               <div style={{ minWidth: 560 /* 760 viewBox 의 ~74% */ }}>
                 <Schematic tanks={tanks} valves={valves} ec={ec} ph={ph} mode={mode}
@@ -1336,13 +1336,14 @@ const Schematic = ({ tanks, valves, ec, ph, mode,
 
   return (
     <div style={{
-      background: '#ffffff',
-      border: `1px solid ${T.bd}`, borderRadius: 14,
+      // SCADA 다크 stage 와 일치하도록 wrapper 도 navy 톤
+      background: '#0a1426',
+      border: '1px solid #1a2540', borderRadius: 14,
       padding: 14,
       position: 'relative', overflow: 'hidden',
       boxShadow: phaseActive
-        ? `0 8px 32px rgba(8,145,178,0.18), 0 0 0 1px ${T.acc}33, 0 0 36px ${T.acc}44`
-        : '0 6px 24px rgba(11,18,32,0.08), 0 1px 2px rgba(11,18,32,0.04)',
+        ? `0 8px 32px rgba(8,145,178,0.24), 0 0 0 1px ${T.acc}55, 0 0 36px ${T.acc}66`
+        : '0 6px 24px rgba(11,18,32,0.30), 0 1px 2px rgba(11,18,32,0.20)',
       filter: dim ? 'saturate(0.3) opacity(0.6)' : 'none',
       transition: 'box-shadow 0.3s, filter 0.25s',
     }}>

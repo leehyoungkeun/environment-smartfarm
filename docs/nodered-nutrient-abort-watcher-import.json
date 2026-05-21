@@ -51,7 +51,7 @@
         "type": "function",
         "z": "REPLACE_WITH_TAB_ID",
         "name": "abort-watcher check",
-        "func": "// 응답 검사 — status='aborted' 또는 'cancelled' 면 flow.manualAbortFlag 세팅\nconst resp = msg.payload || {};\nif (!resp.success || !resp.data) {\n    node.status({ fill: 'yellow', shape: 'ring', text: '응답 오류' });\n    return null;\n}\nconst status = resp.data.status;\nif (status === 'aborted' || status === 'cancelled') {\n    flow.set('manualAbortFlag', true);\n    node.warn(`abort signal: job=${resp.data.id.slice(0,8)} status=${status}`);\n    node.status({ fill: 'red', shape: 'dot', text: `🛑 ${status}` });\n} else {\n    node.status({ fill: 'green', shape: 'dot', text: `${status}` });\n}\nreturn null;",
+        "func": "// 응답 검사 — status='aborted' 또는 'cancelled' 면 flow.manualAbortFlag 세팅.\n// 단 fetched job.id 가 현재 cycle 의 manualJobId 와 일치할 때만 (stale 보호).\nconst resp = msg.payload || {};\nif (!resp.success || !resp.data) {\n    node.status({ fill: 'yellow', shape: 'ring', text: '응답 오류' });\n    return null;\n}\nconst job = resp.data;\nconst cc = global.get('currentCycle') || {};\nif (cc.manualJobId !== job.id) {\n    node.status({ fill: 'grey', shape: 'ring', text: 'stale id' });\n    return null;\n}\nconst status = job.status;\nif (status === 'aborted' || status === 'cancelled') {\n    flow.set('manualAbortFlag', true);\n    node.warn(`abort signal: job=${job.id.slice(0,8)} status=${status}`);\n    node.status({ fill: 'red', shape: 'dot', text: `🛑 ${status}` });\n} else {\n    node.status({ fill: 'green', shape: 'dot', text: `${status}` });\n}\nreturn null;",
         "outputs": 1,
         "noerr": 0,
         "x": 690,

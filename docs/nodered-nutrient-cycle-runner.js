@@ -99,6 +99,10 @@ function shouldStop() {
 // cycle 시작 시 abort flag reset (이전 cycle 잔재 제거)
 flow.set('manualAbortFlag', null);
 
+// 시뮬레이터 모드일 때 시간 단축 (실 운영 50분/펌프 → 시뮬 1.5초/펌프)
+const isSim = !!global.get('nutrientSimulator');
+const simScale = isSim ? 0.0005 : 1.0;  // 1/2000 — 25L 펌프(50분) → 1.5초
+
 // 도싱 실행 함수
 function runDosing() {
     if (shouldStop()) return cleanup();
@@ -108,10 +112,10 @@ function runDosing() {
         // 펌프 ON
         sendRelay(d.channel, true, `도싱 ${d.label} ON`);
         // duration 후 OFF
-        setTimeout(() => sendRelay(d.channel, false, `도싱 ${d.label} OFF`), d.durationMs);
+        setTimeout(() => sendRelay(d.channel, false, `도싱 ${d.label} OFF`), d.durationMs * simScale);
     });
     // 모든 도싱 끝나면 다음 단계
-    const maxDuration = Math.max(...dosingChannels.map(d => d.durationMs), 0);
+    const maxDuration = Math.max(...dosingChannels.map(d => d.durationMs * simScale), 0);
     setTimeout(runMixing, maxDuration + 1000);
 }
 
@@ -121,7 +125,7 @@ function runMixing() {
     updateCycle({ phase: 'mixing' });
     const agitatorCh = hw.agitatorCh ?? 15;  // 32CH default
     sendRelay(agitatorCh, true, '교반기 ON');
-    const mixSec = hw.mixerOnSec ?? 30;
+    const mixSec = (hw.mixerOnSec ?? 30) * (isSim ? 0.1 : 1);  // sim: 30s → 3s
     setTimeout(() => {
         sendRelay(agitatorCh, false, `교반기 OFF (${mixSec}s)`);
         runStabilization();
@@ -132,12 +136,13 @@ function runMixing() {
 function runStabilization() {
     if (shouldStop()) return cleanup();
     updateCycle({ phase: 'stabilizing' });
+    const stabSec = 10 * (isSim ? 0.2 : 1);  // sim: 10s → 2s
     setTimeout(() => {
         const lastTel = global.get('lastTelemetry');
         // 안정화 체크 (실 운영: 표준편차 0.05 이하 등)
         node.log(`안정화 OK: EC ${lastTel?.ec}, pH ${lastTel?.ph}`);
         runIrrigation();
-    }, 10 * 1000);
+    }, stabSec * 1000);
 }
 
 // === Phase 4: 관수 (메인펌프 + 밸브 순차) ===
@@ -164,22 +169,31 @@ function runIrrigation() {
         const i = targetIndices[k];
         const v = valves[i] || { duration: 600, volume: 150 };
         const channel = valveChannels[i]?.ch ?? (16 + i);
+        const valveDur = v.duration * (isSim ? 0.01 : 1);  // sim: 600s → 6s/밸브
 
         updateCycle({ phase: 'irrigating', valveIdx: i + 1, suppliedL: (k + 1) * (v.volume / 1000) });
-        sendRelay(channel, true, `밸브 ${i+1} ON (${v.duration}s)`);
+        sendRelay(channel, true, `밸브 ${i+1} ON (${valveDur}s)`);
 
         setTimeout(() => {
             sendRelay(channel, false, `밸브 ${i+1} OFF`);
             k++;
             setTimeout(runNext, 500); // 밸브 전환 0.5s 갭
-        }, v.duration * 1000);
+        }, valveDur * 1000);
     };
     runNext();
 }
 
 // === Phase 5: 정리 ===
 function cleanup() {
-    updateCycle({ phase: 'done' });
+    // 상태 우선 정리 — 후속 abort-watcher polling 즉시 중단, 다음 cycle 발사 가능
+    // 이전: sendBackend 먼저 후 state clear → 네트워크 실패 시 state stale.
+    const aborted = global.get('safetyStop') || flow.get('manualAbortFlag');
+    global.set('cycleInProgress', false);
+    global.set('lastCycleAt', Date.now());
+    global.set('currentCycle', null);
+    flow.set('manualAbortFlag', null);
+
+    updateCycle({ phase: 'done' });  // 마지막 telemetry — UI 표시용 (currentCycle null 이지만 publisher 가 별도 처리)
 
     // 수동 작업이면 targetIndices 기준, 아니면 전체 valveCount 기준 누적
     const usedIndices = manualValves
@@ -188,25 +202,19 @@ function cleanup() {
     const totalSupplied = usedIndices.reduce((s, i) =>
         s + ((scenario.valves || [])[i]?.volume || 0), 0) / 1000;
 
-    // 누적 카운터 증가
+    // 누적 카운터 증가 (실패해도 state 는 이미 clear)
     sendBackend('POST', `/counters/increment`, {
-        doseL: BASE_VOLUME_ML / 1000, // 임시
+        doseL: BASE_VOLUME_ML / 1000,
         irrigationL: totalSupplied,
         cycles: 1,
         runtimeMin: Math.floor((Date.now() - new Date(startedAt).getTime()) / 60000),
     });
 
-    // 수동 작업이면 status 업데이트 — abort(manual or safety)면 aborted, 정상 완료면 completed
+    // 수동 작업이면 status 업데이트 — abort 면 aborted, 정상 완료면 completed
     if (manualJobId) {
-        const aborted = global.get('safetyStop') || flow.get('manualAbortFlag');
         const finalStatus = aborted ? 'aborted' : 'completed';
         sendBackend('PUT', `/manual-jobs/${manualJobId}/status`, { status: finalStatus });
     }
-    flow.set('manualAbortFlag', null);
-
-    global.set('cycleInProgress', false);
-    global.set('lastCycleAt', Date.now());
-    global.set('currentCycle', null);
 
     node.status({ fill: 'green', shape: 'dot', text: `✓ ${totalSupplied}L 공급 완료` });
 }

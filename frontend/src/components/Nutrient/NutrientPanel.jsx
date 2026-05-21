@@ -41,12 +41,16 @@ export default function NutrientPanel({ farmId }) {
   }, [farmId]);
 
   // mode 변경 → API 호출 (optimistic update + 실패 시 복원)
-  // Realtime callback (외부 변경 감지) 도 동일 함수로 들어옴 — pendingModeUntilRef 가 3초 race-guard
+  // Realtime callback (외부 변경 감지) 도 동일 함수로 들어옴.
+  // confirm 다이얼로그는 여기 단일 위치 — Panel ModeSelector + Realtime ModeSegment 양쪽 모두 적용.
   const handleModeChange = async (newMode, opts = {}) => {
     if (newMode === mode) return;
+    // 사용자 액션일 때만 emergency 확인 — 외부 자동 변경 (RPi GPIO 등) 은 confirm 우회
+    if (!opts.external && newMode === 'emergency'
+        && !window.confirm('비상정지하시겠습니까?\n모든 릴레이가 OFF 됩니다.')) return;
     const prev = mode;
     setMode(newMode);
-    if (opts.external) return;  // Realtime 의 외부 변경 통보 — API 호출 X
+    if (opts.external) return;  // 외부 변경 통보 — API 호출 X
     pendingModeUntilRef.current = Date.now() + 3000;
     try {
       await nutrientApi.setMode(farmId, newMode);

@@ -4,7 +4,7 @@
 // preview.html (다크 navy stage SVG) 버전 기반.
 // preview-only 인 window.__mockNutrientApi / STATE_POLL_MS=2000 만 production 값으로.
 
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import * as nutrientApi from '../../services/nutrientApi';
 
 
@@ -86,10 +86,15 @@ export default function NutrientRealtime({ farmId, mode, onModeChange }) {
   }, [farmId]);
 
   // 외부 mode 변경 감지 — Panel 에 알려 헤더 ModeSelector 동기화 (API 호출 X)
+  // 사용자 클릭 직후 optimistic update vs stale polling race 방지:
+  // state.mode 가 DB-side 에서 실제로 바뀐 경우 (이전 polling 결과와 다름) 에만 callback.
+  // 단순 "props.mode !== state.mode" 체크는 클릭 직후 polling stale 시간 동안 revert 유발.
+  const lastStateModeRef = useRef(null);
   useEffect(() => {
-    if (state?.mode && state.mode !== mode) {
-      onModeChange?.(state.mode, { external: true });
-    }
+    if (!state?.mode) return;
+    if (lastStateModeRef.current === state.mode) return;  // DB-side 변경 없음
+    lastStateModeRef.current = state.mode;
+    if (state.mode !== mode) onModeChange?.(state.mode, { external: true });
   }, [state?.mode, mode, onModeChange]);
 
   useEffect(() => {
@@ -154,7 +159,7 @@ export default function NutrientRealtime({ farmId, mode, onModeChange }) {
 
   const handleMode = (newMode) => {
     if (newMode === mode) return;
-    if (newMode === 'emergency' && !window.confirm('비상정지하시겠습니까?\n모든 릴레이가 OFF 됩니다.')) return;
+    // confirm 다이얼로그는 Panel.handleModeChange 에서 단일 처리 (중복 방지)
     onModeChange?.(newMode);
   };
 

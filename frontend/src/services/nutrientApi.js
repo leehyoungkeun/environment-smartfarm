@@ -48,3 +48,17 @@ export const resetCounter  = (farmId, target) =>
   axios.post(`${base(farmId)}/counters/reset`, { target }).then(r => r.data.data);
 export const recordFilterChange = (farmId) =>
   axios.post(`${base(farmId)}/counters/filter-change`).then(r => r.data.data);
+
+// 수동 1회 공급 작업
+export const triggerManualJob = (farmId, payload) =>
+  axios.post(`${base(farmId)}/cycle/manual-trigger`, payload).then(r => r.data.data);
+export const listManualJobs = (farmId, opts = {}) => {
+  const params = new URLSearchParams();
+  if (opts.status) params.set('status', Array.isArray(opts.status) ? opts.status.join(',') : opts.status);
+  if (opts.limit) params.set('limit', String(opts.limit));
+  return axios.get(`${base(farmId)}/cycle/manual-jobs?${params}`).then(r => r.data.data);
+};
+export const cancelManualJob = (farmId, id) =>
+  axios.delete(`${base(farmId)}/cycle/manual-jobs/${id}`).then(r => r.data.data);
+export const abortManualJob = (farmId) =>
+  axios.post(`${base(farmId)}/cycle/abort`).then(r => r.data.data);

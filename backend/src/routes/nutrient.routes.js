@@ -466,4 +466,113 @@ router.post("/:farmId/counters/filter-change", async (req, res) => {
   }
 });
 
+// ─────────────────────────────────────────────────────────────────
+// 7. 수동 1회 공급 작업 (manual mode 의 ad-hoc 큐)
+// ─────────────────────────────────────────────────────────────────
+
+const MANUAL_STATUSES = ["pending", "running", "completed", "aborted", "cancelled"];
+
+// 작업 생성 — 즉시 (scheduleAt null) 또는 24시간 이내 예약
+router.post("/:farmId/cycle/manual-trigger", async (req, res) => {
+  try {
+    const { farmId } = req.params;
+    const b = req.body || {};
+    if (!Array.isArray(b.valves) || b.valves.length === 0) {
+      return res.status(400).json({ success: false, error: "valves 1개 이상 필수" });
+    }
+    let scheduleAt = null;
+    if (b.scheduleAt) {
+      scheduleAt = new Date(b.scheduleAt);
+      if (isNaN(scheduleAt.getTime())) {
+        return res.status(400).json({ success: false, error: "scheduleAt 형식 오류" });
+      }
+      const diff = scheduleAt.getTime() - Date.now();
+      if (diff > 24 * 60 * 60 * 1000) {
+        return res.status(400).json({ success: false, error: "예약은 24시간 이내만 가능" });
+      }
+      if (diff < -60 * 1000) {
+        return res.status(400).json({ success: false, error: "scheduleAt 은 미래여야" });
+      }
+    }
+    const row = await prisma.nutrientManualJob.create({
+      data: {
+        farmId,
+        scenarioId: b.scenarioId || null,
+        scenarioName: b.scenarioName || null,
+        programNum: b.programNum ?? null,
+        valves: b.valves,
+        volumeML: b.volumeML ?? null,
+        scheduleAt,
+        status: scheduleAt ? "pending" : "pending", // pending 으로 시작, RPi 가 picking → running
+        createdBy: req.user?.id || null,
+      },
+    });
+    res.status(201).json({ success: true, data: row });
+  } catch (e) {
+    logger.error("manual-trigger:", e);
+    res.status(400).json({ success: false, error: e.message });
+  }
+});
+
+// 목록 조회 (status 필터, 최근 createdAt 순)
+router.get("/:farmId/cycle/manual-jobs", async (req, res) => {
+  try {
+    const { farmId } = req.params;
+    const { status, limit = 50 } = req.query;
+    const where = { farmId };
+    if (status) {
+      const list = String(status).split(",").filter(s => MANUAL_STATUSES.includes(s));
+      if (list.length) where.status = { in: list };
+    }
+    const rows = await prisma.nutrientManualJob.findMany({
+      where,
+      orderBy: [{ scheduleAt: "asc" }, { createdAt: "desc" }],
+      take: Math.min(parseInt(limit) || 50, 200),
+    });
+    res.json({ success: true, data: rows });
+  } catch (e) {
+    logger.error("manual-jobs list:", e);
+    res.status(500).json({ success: false, error: e.message });
+  }
+});
+
+// 예약 작업 취소 (pending 만)
+router.delete("/:farmId/cycle/manual-jobs/:id", async (req, res) => {
+  try {
+    const { farmId, id } = req.params;
+    const existing = await prisma.nutrientManualJob.findUnique({ where: { id } });
+    if (!existing || existing.farmId !== farmId) {
+      return res.status(404).json({ success: false, error: "작업 없음" });
+    }
+    if (existing.status !== "pending") {
+      return res.status(400).json({ success: false, error: `${existing.status} 상태는 취소 불가` });
+    }
+    const row = await prisma.nutrientManualJob.update({
+      where: { id },
+      data: { status: "cancelled", cancelledAt: new Date() },
+    });
+    res.json({ success: true, data: row });
+  } catch (e) {
+    res.status(400).json({ success: false, error: e.message });
+  }
+});
+
+// 진행 중 작업 중단 (running → aborted)
+router.post("/:farmId/cycle/abort", async (req, res) => {
+  try {
+    const { farmId } = req.params;
+    const running = await prisma.nutrientManualJob.findFirst({
+      where: { farmId, status: "running" },
+    });
+    if (!running) return res.status(404).json({ success: false, error: "진행 중 작업 없음" });
+    const row = await prisma.nutrientManualJob.update({
+      where: { id: running.id },
+      data: { status: "aborted", endedAt: new Date() },
+    });
+    res.json({ success: true, data: row });
+  } catch (e) {
+    res.status(400).json({ success: false, error: e.message });
+  }
+});
+
 export default router;

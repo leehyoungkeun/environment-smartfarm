@@ -66,7 +66,7 @@ export default function NutrientRealtime({ farmId, mode, onModeChange }) {
   const [manualVolumeML, setManualVolumeML] = useState('');
   const [manualScheduleAt, setManualScheduleAt] = useState('now');
   const [manualScheduleCustom, setManualScheduleCustom] = useState('');
-  // F2: 예약 큐 (로컬 prototype — backend 없음, 페이지 리로드 시 사라짐)
+  // 수동 작업 큐 — backend 동기화 (5초 polling)
   const [manualJobs, setManualJobs] = useState([]);
   const [queueOpen, setQueueOpen] = useState(false);
 
@@ -199,54 +199,82 @@ export default function NutrientRealtime({ farmId, mode, onModeChange }) {
     });
   };
 
-  const handleManualTrigger = () => {
+  const refreshManualJobs = async () => {
+    try {
+      const list = await nutrientApi.listManualJobs(farmId, {
+        status: ['pending', 'running'], limit: 50,
+      });
+      setManualJobs(list || []);
+    } catch (e) { /* 다음 polling 회복 */ }
+  };
+
+  // 5초 polling — 수동 작업 큐 동기화 (pending + running 만 적재)
+  useEffect(() => {
+    let c = false;
+    const tick = async () => {
+      try {
+        const list = await nutrientApi.listManualJobs(farmId, {
+          status: ['pending', 'running'], limit: 50,
+        });
+        if (!c) setManualJobs(list || []);
+      } catch {}
+    };
+    tick();
+    const id = setInterval(tick, 5000);
+    return () => { c = true; clearInterval(id); };
+  }, [farmId]);
+
+  const handleManualTrigger = async () => {
     if (selectedValves.size === 0) return;
     const scenario = scenarios.find(s => s.id === manualScenarioId);
     const scheduleAt = manualScheduleAt === 'now' ? null
-      : manualScheduleAt === 'custom' ? manualScheduleCustom
+      : manualScheduleAt === 'custom' ? (manualScheduleCustom ? new Date(manualScheduleCustom).toISOString() : null)
       : new Date(Date.now() + parseInt(manualScheduleAt, 10) * 60000).toISOString();
-    // 24시간 이내 검증
     if (scheduleAt && new Date(scheduleAt) - Date.now() > 24 * 60 * 60 * 1000) {
       alert('예약은 24시간 이내만 가능합니다.');
       return;
     }
-    const job = {
-      id: `manual-${Date.now()}`,
+    const payload = {
       scenarioId: manualScenarioId,
-      scenarioName: scenario?.name || '미지정',
-      programNum: Math.max(0, scenarios.findIndex(s => s.id === manualScenarioId)) + 1,
+      scenarioName: scenario?.name || null,
+      programNum: Math.max(0, scenarios.findIndex(s => s.id === manualScenarioId)) + 1 || null,
       valves: [...selectedValves].sort((a, b) => a - b),
       volumeML: manualVolumeML ? parseInt(manualVolumeML, 10) : null,
       scheduleAt,
-      status: scheduleAt ? 'pending' : 'running',
-      createdAt: new Date().toISOString(),
     };
-    setManualJobs(prev => [...prev, job]);
-    // F1/F2 prototype: backend 없음. 즉시 실행은 시각화만, 예약은 큐 적재만.
-    console.log('[manual-trigger:F2 prototype]', job);
-    // 선택 초기화 (다음 작업 만들기 쉽게)
-    setSelectedValves(new Set());
-    setManualVolumeML('');
+    try {
+      await nutrientApi.triggerManualJob(farmId, payload);
+      setSelectedValves(new Set());
+      setManualVolumeML('');
+      refreshManualJobs();
+    } catch (e) {
+      alert(`작업 등록 실패: ${e.response?.data?.error || e.message}`);
+    }
   };
 
-  const cancelManualJob = (id) => {
-    setManualJobs(prev => prev.map(j => j.id === id
-      ? { ...j, status: 'cancelled', cancelledAt: new Date().toISOString() }
-      : j));
+  const cancelManualJob = async (id) => {
+    try {
+      await nutrientApi.cancelManualJob(farmId, id);
+      refreshManualJobs();
+    } catch (e) {
+      alert(`취소 실패: ${e.response?.data?.error || e.message}`);
+    }
   };
 
-  const abortRunningJob = () => {
+  const abortRunningJob = async () => {
     if (!window.confirm('진행 중인 수동 공급을 중단할까요?\n모든 양액 릴레이가 OFF 됩니다.')) return;
-    setManualJobs(prev => prev.map(j => j.status === 'running'
-      ? { ...j, status: 'aborted', endedAt: new Date().toISOString() }
-      : j));
-    // 실제 구현 시: POST /api/nutrient/:farmId/cycle/abort
-    console.log('[manual-abort:F2 prototype]');
+    try {
+      await nutrientApi.abortManualJob(farmId);
+      refreshManualJobs();
+    } catch (e) {
+      alert(`중단 실패: ${e.response?.data?.error || e.message}`);
+    }
   };
 
   // 큐에서 running 작업 (1개만 동시 진행 가정)
   const runningJob = manualJobs.find(j => j.status === 'running');
-  const pendingJobs = manualJobs.filter(j => j.status === 'pending');
+  // pending 중 즉시(scheduleAt null) 항목도 큐에 표시 (RPi pick 전)
+  const pendingJobs = manualJobs.filter(j => j.status === 'pending' && j.scheduleAt);
 
   const dosingActive = phaseInfo?.phaseKey === 'dosing'    && !isPaused && !isEmergency;
   const mixingActive = phaseInfo?.phaseKey === 'mixing'    && !isPaused && !isEmergency;

@@ -511,4 +511,46 @@ router.post("/nutrient/counters/increment", async (req, res) => {
   }
 });
 
+// 수동 작업 — pending + due (scheduleAt 도래 또는 null=즉시) 목록
+// RPi 가 1분 주기로 poll
+router.get("/nutrient/manual-jobs/pending", async (req, res) => {
+  try {
+    const farmId = requireFarmId(req, res); if (!farmId) return;
+    const rows = await prisma.nutrientManualJob.findMany({
+      where: {
+        farmId, status: "pending",
+        OR: [{ scheduleAt: null }, { scheduleAt: { lte: new Date() } }],
+      },
+      orderBy: [{ scheduleAt: "asc" }, { createdAt: "asc" }],
+    });
+    res.json({ success: true, data: rows });
+  } catch (e) {
+    res.status(500).json({ success: false, error: e.message });
+  }
+});
+
+// 작업 상태 업데이트 — RPi 가 running → completed/aborted 전환 시 호출
+router.put("/nutrient/manual-jobs/:id/status", async (req, res) => {
+  try {
+    const farmId = requireFarmId(req, res); if (!farmId) return;
+    const { id } = req.params;
+    const { status } = req.body || {};
+    const allowed = ["running", "completed", "aborted"];
+    if (!allowed.includes(status)) {
+      return res.status(400).json({ success: false, error: `status 는 ${allowed.join("|")}` });
+    }
+    const existing = await prisma.nutrientManualJob.findUnique({ where: { id } });
+    if (!existing || existing.farmId !== farmId) {
+      return res.status(404).json({ success: false, error: "작업 없음" });
+    }
+    const data = { status };
+    if (status === "running") data.startedAt = new Date();
+    if (status === "completed" || status === "aborted") data.endedAt = new Date();
+    const row = await prisma.nutrientManualJob.update({ where: { id }, data });
+    res.json({ success: true, data: row });
+  } catch (e) {
+    res.status(400).json({ success: false, error: e.message });
+  }
+});
+
 export default router;

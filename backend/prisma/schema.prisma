@@ -651,3 +651,27 @@ model nutrientState {
 
   @@map("nutrient_states")
 }
+
+// 수동 1회 공급 작업 — manual mode 의 ad-hoc 큐
+// 즉시 실행 (scheduleAt null) 또는 24시간 이내 예약
+model nutrientManualJob {
+  id           String    @id @default(dbgenerated("(gen_random_uuid())::text"))
+  farmId       String    @map("farm_id")
+  scenarioId   String?   @map("scenario_id")
+  scenarioName String?   @map("scenario_name")
+  programNum   Int?      @map("program_num")
+  valves       Json      @default("[]") // number[] — 밸브 id 배열
+  volumeML     Int?      @map("volume_ml") // null 이면 시나리오 default 사용
+  scheduleAt   DateTime? @map("schedule_at") @db.Timestamptz(6) // null = 즉시
+  status       String    @default("pending") // pending | running | completed | aborted | cancelled
+  startedAt    DateTime? @map("started_at") @db.Timestamptz(6)
+  endedAt      DateTime? @map("ended_at") @db.Timestamptz(6)
+  cancelledAt  DateTime? @map("cancelled_at") @db.Timestamptz(6)
+  createdBy    String?   @map("created_by")
+  createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt    DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@index([farmId, status])
+  @@index([farmId, scheduleAt])
+  @@map("nutrient_manual_jobs")
+}

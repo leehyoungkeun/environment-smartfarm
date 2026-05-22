@@ -1211,7 +1211,10 @@ const mpInput = {
 // 진행 중인 수동 cycle 카드 — 팔레트 자리에 표시 (running 1개만 가정)
 // ─────────────────────────────────────────
 const ManualRunningCard = ({ job, phaseInfo, onAbort }) => {
-  const valveLabel = 'V' + job.valves.slice(0, 6).join(', V') + (job.valves.length > 6 ? ` 외 ${job.valves.length - 6}` : '');
+  const valves = Array.isArray(job?.valves) ? job.valves : [];
+  const valveLabel = valves.length > 0
+    ? 'V' + valves.slice(0, 6).join(', V') + (valves.length > 6 ? ` 외 ${valves.length - 6}` : '')
+    : '—';
   const progress = phaseInfo?.progress ? Math.round(phaseInfo.progress * 100) : 0;
   return (
     <div style={{
@@ -1311,7 +1314,9 @@ const ManualQueueModal = ({ jobs, onCancel, onClose }) => {
                   P-{String(j.programNum).padStart(2, '0')} {j.scenarioName}
                 </div>
                 <div style={{ fontSize: 11, color: '#64748b', fontFamily: 'ui-monospace, monospace', marginTop: 2 }}>
-                  V{j.valves.slice(0, 8).join(', V')}{j.valves.length > 8 ? ` 외 ${j.valves.length - 8}` : ''}
+                  {Array.isArray(j.valves) && j.valves.length > 0
+                    ? <>V{j.valves.slice(0, 8).join(', V')}{j.valves.length > 8 ? ` 외 ${j.valves.length - 8}` : ''}</>
+                    : '—'}
                   {j.volumeML ? ` · ${j.volumeML} mL` : ' · 시나리오 기본'}
                 </div>
               </div>

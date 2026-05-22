@@ -50,13 +50,13 @@ PATCHED = """                        // Re-subscribe to stored topics — CHUNKE
                             __subscribeChunk(0);
                         }"""
 
-if ORIGINAL not in src:
-    print("ERROR: original code block not found — patch already applied or NR version differs", file=sys.stderr)
-    sys.exit(1)
-
 if PATCHED in src:
     print("ALREADY PATCHED — skipping", file=sys.stderr)
     sys.exit(0)
+
+if ORIGINAL not in src:
+    print("ERROR: neither original nor patched block found — NR version mismatch", file=sys.stderr)
+    sys.exit(1)
 
 new_src = src.replace(ORIGINAL, PATCHED, 1)
 with open(PATH, 'w', encoding='utf-8') as f:

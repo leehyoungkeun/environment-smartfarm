@@ -1,0 +1,16 @@
+[Unit]
+Description=SmartFarm Node-RED Patches (idempotent re-apply on boot)
+Documentation=https://github.com/lhk/smartfarm_environment
+After=network-online.target
+Before=pm2-lhk.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/bin/bash /home/lhk/smartfarm/scripts/nr-patches/ensure-nr-patches.sh
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

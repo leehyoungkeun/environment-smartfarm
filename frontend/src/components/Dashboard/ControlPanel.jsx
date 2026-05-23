@@ -1454,8 +1454,8 @@ const ControlPanel = ({ farmId, houseId, houseConfig }) => {
     closeDisabled: { background: '#e5e7eb', color: '#9ca3af', cursor: 'not-allowed' },
     onActive:      { background: `linear-gradient(135deg, ${from} 0%, ${to} 100%)`, color: '#fff', boxShadow: `0 4px 12px ${from}40` },
     onInactive:    { background: from, color: '#fff', boxShadow: `0 2px 8px ${from}35` },
-    offActive:     { background: '#64748b', color: '#fff', boxShadow: '0 2px 8px rgba(100,116,139,0.35)' },
-    offInactive:   { background: '#f8fafc', color: '#6b7280', borderColor: '#e2e8f0' },
+    offActive:     { background: 'linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%)', color: '#fff', boxShadow: '0 4px 12px rgba(29,78,216,0.40)' },
+    offInactive:   { background: '#1d4ed8', color: '#fff', boxShadow: '0 2px 8px rgba(29,78,216,0.35)' },
   });
 
   if (devices.length === 0) {

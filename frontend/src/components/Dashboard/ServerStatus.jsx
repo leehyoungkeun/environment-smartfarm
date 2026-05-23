@@ -116,7 +116,7 @@ const ServerStatus = () => {
   const modeLabel = farmLocal ? '팜로컬 운영' : systemMode.manualOverride ? '로컬 오프라인' : (isUsingRpi ? '로컬 운영' : (isConnected ? '온라인' : '연결 끊김'));
 
   return (
-    <div className="max-w-7xl mx-auto px-4 md:px-6 py-4 md:py-6 space-y-5">
+    <div className="max-w-7xl mx-auto px-2 md:px-6 py-4 md:py-6 space-y-5">
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-xl md:text-2xl font-bold text-gray-800 tracking-tight">서버 상태</h1>

@@ -457,7 +457,7 @@ const ConfigurationManager = ({ farmId = import.meta.env.VITE_FARM_ID || 'farm_0
 
   if (loading) {
     return (
-      <div className="max-w-7xl mx-auto px-4 md:px-6 py-6">
+      <div className="max-w-7xl mx-auto px-2 md:px-6 py-6">
         <div className="skeleton h-8 w-40 mb-6" />
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
           <div className="skeleton h-48 rounded-2xl" />
@@ -476,7 +476,7 @@ const ConfigurationManager = ({ farmId = import.meta.env.VITE_FARM_ID || 'farm_0
   ];
 
   return (
-    <div className="max-w-7xl mx-auto px-4 md:px-6 py-4 md:py-6">
+    <div className="max-w-7xl mx-auto px-2 md:px-6 py-4 md:py-6">
       {/* 헤더 */}
       <div className="hidden md:block mb-5 animate-fade-in-up">
         <h1 className="text-2xl font-bold text-gray-800 tracking-tight">설정 관리</h1>

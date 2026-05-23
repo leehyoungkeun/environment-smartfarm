@@ -125,7 +125,7 @@ const ControlPage = ({ farmId, isTouchPanel = false }) => {
 
   if (loading) {
     return (
-      <div className="max-w-7xl mx-auto px-4 md:px-6 py-6">
+      <div className="max-w-7xl mx-auto px-2 md:px-6 py-6">
         <div className="flex items-center justify-center py-20">
           <div className="w-10 h-10 border-2 border-blue-300 border-t-blue-600 rounded-full animate-spin" />
         </div>
@@ -135,7 +135,7 @@ const ControlPage = ({ farmId, isTouchPanel = false }) => {
 
   if (!config || !config.houses || config.houses.length === 0) {
     return (
-      <div className="max-w-7xl mx-auto px-4 md:px-6 py-6">
+      <div className="max-w-7xl mx-auto px-2 md:px-6 py-6">
         <div className="glass-card p-12 text-center">
           <div className="text-4xl mb-4 opacity-30">🎛️</div>
           <p className="text-gray-500 text-base">하우스가 없습니다. 설정에서 하우스를 추가하세요.</p>
@@ -145,7 +145,7 @@ const ControlPage = ({ farmId, isTouchPanel = false }) => {
   }
 
   return (
-    <div className={`max-w-7xl mx-auto px-4 md:px-6 ${isTouchPanel ? 'py-2' : 'py-4 md:py-6'} space-y-5`}>
+    <div className={`max-w-7xl mx-auto px-2 md:px-6 ${isTouchPanel ? 'py-2' : 'py-4 md:py-6'} space-y-5`}>
       {/* 하우스 선택 */}
       {isTouchPanel ? (
         <div style={{
@@ -663,7 +663,7 @@ function AppContent() {
       <main className="relative z-10 pb-8">
         {/* 선택된 농장 정보 배너 */}
         {selectedFarmInfo && currentPage !== 'farms' && !(isSystemWide && !selectedFarmId) && !isTouchPanel && (
-          <div className="max-w-7xl mx-auto px-4 md:px-6 pt-3 md:pt-4">
+          <div className="max-w-7xl mx-auto px-2 md:px-6 pt-3 md:pt-4">
             <div className="flex items-center gap-2 text-base flex-wrap">
               {isSystemWide && selectedFarmId && (
                 <span className="text-xs font-mono bg-gray-100 text-gray-500 px-2 py-0.5 rounded">{selectedFarmId}</span>
@@ -681,7 +681,7 @@ function AppContent() {
 
         {currentPage === 'dashboard' && (
           needsFarmSelect ? (
-            <div className="max-w-7xl mx-auto px-4 md:px-6 py-16 text-center">
+            <div className="max-w-7xl mx-auto px-2 md:px-6 py-16 text-center">
               <div className="text-5xl mb-4 opacity-50">🏠</div>
               <h2 className="text-xl font-bold text-gray-700 mb-2">농장을 선택해주세요</h2>
               <p className="text-gray-500 mb-6">상단의 농장 선택 드롭다운에서 조회할 농장을 선택하거나,<br />농장관리 페이지에서 농장을 관리할 수 있습니다.</p>
@@ -704,23 +704,23 @@ function AppContent() {
           <NutrientPanel farmId={farmId} />
         )}
         {currentPage === 'journal' && hasPermission('journal') && (
-          <div className="max-w-7xl mx-auto px-4 md:px-6 py-4 md:py-6">
+          <div className="max-w-7xl mx-auto px-2 md:px-6 py-4 md:py-6">
             <JournalManager farmId={farmId} />
           </div>
         )}
         {currentPage === 'report' && hasPermission('report') && (
-          <div className="max-w-7xl mx-auto px-4 md:px-6 py-4 md:py-6">
+          <div className="max-w-7xl mx-auto px-2 md:px-6 py-4 md:py-6">
             <ReportPage farmId={farmId} />
           </div>
         )}
         {currentPage === 'ai' && hasPermission('ai') && (
-          <div className="max-w-7xl mx-auto px-4 md:px-6 py-4 md:py-6">
+          <div className="max-w-7xl mx-auto px-2 md:px-6 py-4 md:py-6">
             <AIManager farmId={farmId} />
           </div>
         )}
         {/* FarmManager: display:none으로 숨김 — 언마운트 방지로 페이지/스크롤 상태 유지 */}
         {hasPermission('farms') && (
-          <div className="max-w-7xl mx-auto px-4 md:px-6 py-4 md:py-6" style={{ display: currentPage === 'farms' ? '' : 'none' }}>
+          <div className="max-w-7xl mx-auto px-2 md:px-6 py-4 md:py-6" style={{ display: currentPage === 'farms' ? '' : 'none' }}>
             <FarmManager onNavigateFarm={(farmId, farmInfo) => { selectFarm(farmId, farmInfo); setCurrentPage('dashboard'); }} />
           </div>
         )}

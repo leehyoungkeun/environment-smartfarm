@@ -71,7 +71,7 @@ export default function CCTVPanel({ farmId }) {
   if (loading) return <div className="px-4 py-4"><div className="skeleton h-96 rounded-2xl" /></div>;
 
   return (
-    <div className="max-w-7xl mx-auto px-4 md:px-6 py-4 md:py-6">
+    <div className="max-w-7xl mx-auto px-2 md:px-6 py-4 md:py-6">
       {/* 헤더 */}
       <div style={{ background: '#111827', borderRadius: 16, padding: '16px 24px', marginBottom: 16 }}
         className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2">

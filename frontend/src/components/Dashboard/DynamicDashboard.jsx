@@ -470,7 +470,7 @@ const DynamicDashboard = ({ farmId, isTouchPanel = false }) => {
     : isDisconnected ? 'disconnected' : 'online';
 
   return (
-    <div className="max-w-7xl mx-auto px-4 md:px-6 py-4 md:py-6 space-y-5">
+    <div className="max-w-7xl mx-auto px-2 md:px-6 py-4 md:py-6 space-y-5">
       {/* 헤더 — 터치패널에서는 컴팩트 파란 배경 */}
       {isTouchPanel ? (
         <div style={{

@@ -195,12 +195,12 @@ const SensorChart = ({ farmId, houseId, config, dataVersion }) => {
       </div>
 
       <div style={{padding:'16px'}}>
-        <div className="flex gap-2 mb-4 flex-wrap">
+        <div className="grid grid-cols-5 gap-1.5 mb-4">
           {TIME_RANGES.map(r => (
             <button key={r.value} onClick={() => setTimeRange(r.value)}
               style={timeRange === r.value
-                ? {background:'#7c3aed',color:'#fff',padding:'8px 16px',borderRadius:10,fontSize:13,fontWeight:800,border:'none',cursor:'pointer',boxShadow:'0 2px 8px rgba(124,58,237,0.35)',transition:'all 0.15s'}
-                : {background:'#f8fafc',color:'#64748b',padding:'8px 16px',borderRadius:10,fontSize:13,fontWeight:700,border:'2px solid #e2e8f0',cursor:'pointer',transition:'all 0.15s'}
+                ? {background:'#7c3aed',color:'#fff',padding:'8px 4px',borderRadius:10,fontSize:13,fontWeight:800,border:'none',cursor:'pointer',boxShadow:'0 2px 8px rgba(124,58,237,0.35)',transition:'all 0.15s',whiteSpace:'nowrap'}
+                : {background:'#f8fafc',color:'#64748b',padding:'8px 4px',borderRadius:10,fontSize:13,fontWeight:700,border:'2px solid #e2e8f0',cursor:'pointer',transition:'all 0.15s',whiteSpace:'nowrap'}
               }>
               {r.label}
             </button>

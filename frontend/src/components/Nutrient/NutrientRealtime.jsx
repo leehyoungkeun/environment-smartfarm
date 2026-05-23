@@ -365,6 +365,11 @@ export default function NutrientRealtime({ farmId, mode, onModeChange }) {
         </div>
       </header>
 
+      {/* 현재 단계 + progress bar — 헤더 직하 (모바일 가시성) */}
+      {mode === 'auto' && !runningJob && (
+        <PhaseProgressBar phaseInfo={phaseInfo} />
+      )}
+
       {!dataReady ? <LoadingPlaceholder /> : (
         <>
           {/* Manual UI — desktop + mobile 공통 노출 */}
@@ -475,7 +480,6 @@ export default function NutrientRealtime({ farmId, mode, onModeChange }) {
         </>
       )}
 
-      <PhaseTimeline phaseInfo={phaseInfo} dimmed={isManual || isPaused} />
       <Alerts alerts={alerts} />
       <Footer />
 
@@ -1893,97 +1897,58 @@ const CompactRow = ({ label, value, accent, live, alarm }) => (
   </div>
 );
 
-const PhaseTimeline = ({ phaseInfo, dimmed }) => {
+// 헤더 직하에 표시 — 현재 단계 + progress bar (모바일 가시성 우선)
+const PhaseProgressBar = ({ phaseInfo }) => {
   const cur = phaseInfo ? PHASE_PLAN.findIndex(p => p.key === phaseInfo.phaseKey) : -1;
+  const phase = cur >= 0 ? PHASE_PLAN[cur] : null;
+  const progress = phaseInfo?.progress ? Math.min(1, Math.max(0, phaseInfo.progress)) : 0;
   return (
     <section style={{
-      marginTop: 16,
+      marginTop: 10, marginBottom: 6,
       background: T.card, border: `1px solid ${T.bd}`, borderRadius: 10,
+      padding: '10px 14px',
       position: 'relative', overflow: 'hidden',
-      opacity: dimmed ? 0.45 : 1, transition: 'opacity 0.25s',
     }}>
       <div style={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: 3, background: T.acc }} />
-      <div style={{
-        padding: '10px 14px 8px 14px',
-        borderBottom: `1px solid ${T.hair}`,
-        display: 'flex', alignItems: 'baseline', justifyContent: 'space-between',
-      }}>
-        <span style={{ fontSize: 16, fontWeight: 700, color: T.fg }}>사이클 진행</span>
-        <span style={{ fontSize: 15, color: T.fg3, fontFamily: MONO }}>
-          {phaseInfo ? `${String(cur + 1).padStart(2, '0')} / ${String(PHASE_PLAN.length).padStart(2, '0')} 단계` : '사이클 대기'}
-        </span>
-      </div>
-
-      {/* vertical stack — desktop·mobile 통일 (좁은 화면 가시성) */}
-      <div style={{ padding: '12px 14px', display: 'flex', flexDirection: 'column', gap: 0 }}>
-        {PHASE_PLAN.map((p, i) => {
-          const past = cur > i, isCur = cur === i;
-          const c = isCur ? T.acc : past ? T.ok : T.fg4;
-          const nodeBg = isCur ? T.accBg : past ? '#f0fdf4' : T.card;
-          const isLast = i === PHASE_PLAN.length - 1;
-          return (
-            <div key={p.key} style={{
-              position: 'relative',
-              padding: isCur ? '10px 10px' : '6px 10px',
-              borderRadius: 8,
-              background: isCur ? T.accBg : 'transparent',
-              border: isCur ? `1px solid ${T.acc}33` : '1px solid transparent',
-            }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                {/* 노드 + connector 라인 */}
-                <div style={{ position: 'relative', width: 28, flexShrink: 0 }}>
-                  <div style={{
-                    width: 28, height: 28, borderRadius: 14,
-                    border: `1.5px solid ${c}`, background: nodeBg,
-                    display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    fontFamily: MONO, fontSize: 12, fontWeight: 700, color: c,
-                    animation: isCur ? 'sd-pulse 2s infinite' : 'none',
-                    position: 'relative', zIndex: 1,
-                  }}>{past ? '✓' : String(i + 1).padStart(2, '0')}</div>
-                  {/* vertical connector 선 */}
-                  {!isLast && (
-                    <div style={{
-                      position: 'absolute', left: '50%', top: 28, bottom: -8, width: 2,
-                      marginLeft: -1,
-                      background: cur > i ? T.ok : T.hair,
-                    }} />
-                  )}
-                </div>
-                {/* phase 라벨 */}
-                <div style={{
-                  fontSize: 14, fontWeight: isCur ? 800 : 600,
-                  color: isCur ? T.fg : past ? T.ok : T.fg3,
-                  letterSpacing: '0.04em', flex: 1,
-                  whiteSpace: 'nowrap',
-                }}>
-                  {p.short}
-                </div>
-                {/* 시간 정보 */}
-                <div style={{
-                  fontSize: 12, color: isCur ? T.acc : T.fg3, fontFamily: MONO,
-                  whiteSpace: 'nowrap',
-                }}>
-                  {isCur && phaseInfo
-                    ? <>{fmtMS(phaseInfo.elapsed)} · −{fmtMS(phaseInfo.remaining)}</>
-                    : past ? <>완료 · {p.duration}s</> : <>대기 · {p.duration}s</>}
-                </div>
-              </div>
-              {/* 진행률 bar — 현재 phase 만 */}
-              {isCur && phaseInfo && (
-                <div style={{
-                  marginTop: 6, marginLeft: 40,
-                  height: 4, background: T.hair, borderRadius: 2, overflow: 'hidden',
-                }}>
-                  <div style={{
-                    width: `${phaseInfo.progress * 100}%`, height: '100%',
-                    background: T.acc, transition: 'width 0.4s',
-                  }} />
-                </div>
-              )}
+      {phase ? (
+        <>
+          <div style={{
+            display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+            gap: 10, marginBottom: 8, flexWrap: 'wrap',
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
+              <span style={{
+                fontFamily: MONO, fontSize: 11, fontWeight: 700, color: T.acc,
+                padding: '3px 9px', borderRadius: 999, background: T.accBg,
+                border: `1px solid ${T.acc}33`,
+                animation: 'sd-pulse 2s infinite',
+                whiteSpace: 'nowrap',
+              }}>
+                {String(cur + 1).padStart(2, '0')} / {String(PHASE_PLAN.length).padStart(2, '0')}
+              </span>
+              <span style={{ fontSize: 17, fontWeight: 800, color: T.fg, letterSpacing: '0.02em' }}>
+                {phase.label}
+              </span>
             </div>
-          );
-        })}
-      </div>
+            <div style={{ fontFamily: MONO, fontSize: 13, color: T.fg3, whiteSpace: 'nowrap' }}>
+              {fmtMS(phaseInfo.elapsed)} <span style={{ color: T.fg4 }}>/</span> <span style={{ color: T.acc, fontWeight: 700 }}>−{fmtMS(phaseInfo.remaining)}</span>
+            </div>
+          </div>
+          <div style={{ height: 6, background: T.hair, borderRadius: 3, overflow: 'hidden' }}>
+            <div style={{
+              width: `${progress * 100}%`, height: '100%', background: T.acc,
+              transition: 'width 0.5s linear', borderRadius: 3,
+            }} />
+          </div>
+        </>
+      ) : (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <span style={{
+            width: 8, height: 8, borderRadius: 4, background: T.fg4,
+          }} />
+          <span style={{ fontSize: 14, fontWeight: 600, color: T.fg3 }}>사이클 대기 중</span>
+        </div>
+      )}
     </section>
   );
 };

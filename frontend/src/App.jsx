@@ -324,13 +324,13 @@ function AppContent() {
   const allNavItems = farmLocal
     ? [
         { id: 'dashboard', label: '대시보드', icon: '📊', permission: 'dashboard' },
-        { id: 'control', label: '제어', icon: '🎛️', permission: 'control' },
+        { id: 'control', label: '환경제어', icon: '🎛️', permission: 'control' },
         { id: 'settings', label: '설정', icon: '⚙️', permission: 'settings' },
       ]
     : [
         { id: 'farms', label: '농장관리', icon: '🏭', permission: 'farms' },
         { id: 'dashboard', label: '대시보드', icon: '📊', permission: 'dashboard' },
-        { id: 'control', label: '제어', icon: '🎛️', permission: 'control' },
+        { id: 'control', label: '환경제어', icon: '🎛️', permission: 'control' },
         { id: 'nutrient', label: '양액관리', icon: '💧', permission: 'control' },
         { id: 'cctv', label: 'CCTV', icon: '📹', permission: 'control' },
         { id: 'journal', label: '영농일지', icon: '📝', permission: 'journal' },

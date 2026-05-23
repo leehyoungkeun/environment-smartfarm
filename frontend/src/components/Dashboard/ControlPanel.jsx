@@ -81,6 +81,47 @@ const ControlPanel = ({ farmId, houseId, houseConfig }) => {
   bidirProgressRef.current = bidirProgress;
   const [conflictWarning, setConflictWarning] = useState(null); // { conflicts: [...] }
   const [toast, setToast] = useState(null); // { message, kind: 'warn'|'info' }
+
+  // ────────────────────────────────────────────────────────────────
+  // 자동 OFF 예약 — { deviceId: atMs (epoch ms) }. localStorage 캐시.
+  // MVP: 프론트엔드 setTimeout 기반. 브라우저 탭 닫으면 timer 손실 (추후 backend 영구화).
+  // ────────────────────────────────────────────────────────────────
+  const SCHEDULE_OFF_KEY = `scheduleOff_${farmId}_${houseId}`;
+  const [scheduleOff, setScheduleOff] = useState(() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem(SCHEDULE_OFF_KEY) || '{}');
+      const now = Date.now();
+      // 만료된 항목 제거 (페이지 다시 열었을 때 정리)
+      return Object.fromEntries(Object.entries(saved).filter(([, atMs]) => atMs > now));
+    } catch { return {}; }
+  });
+  const [pickerOpenFor, setPickerOpenFor] = useState(null); // deviceId or null
+  const [tickNow, setTickNow] = useState(Date.now()); // countdown 매초 갱신
+
+  // 1초마다 tick — countdown 표시 갱신
+  useEffect(() => {
+    const id = setInterval(() => setTickNow(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, []);
+
+  const setScheduleForDevice = useCallback((deviceId, delaySec) => {
+    const atMs = Date.now() + delaySec * 1000;
+    setScheduleOff(prev => {
+      const next = { ...prev, [deviceId]: atMs };
+      try { localStorage.setItem(SCHEDULE_OFF_KEY, JSON.stringify(next)); } catch {}
+      return next;
+    });
+    setPickerOpenFor(null);
+  }, [SCHEDULE_OFF_KEY]);
+
+  const cancelScheduleOff = useCallback((deviceId) => {
+    setScheduleOff(prev => {
+      const next = { ...prev };
+      delete next[deviceId];
+      try { localStorage.setItem(SCHEDULE_OFF_KEY, JSON.stringify(next)); } catch {}
+      return next;
+    });
+  }, [SCHEDULE_OFF_KEY]);
   const toastTimerRef = useRef(null);
   const showToast = useCallback((message, kind = 'warn') => {
     if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
@@ -1228,6 +1269,27 @@ const ControlPanel = ({ farmId, houseId, houseConfig }) => {
     setTimeout(() => { fetchRelayStatus(); startRelayPolling(); setBatchProgress(null); }, 3000);
   }, [handleControlWithRetry, stopRelayPolling, startRelayPolling, fetchRelayStatus, waitForModbusDone, controlHistory]);
 
+  // 자동 OFF 예약 — 만료된 항목 자동 실행 + cleanup
+  // (handleControlWithRetry 가 정의된 후 등록)
+  useEffect(() => {
+    if (Object.keys(scheduleOff).length === 0) return;
+    const checkExpiry = () => {
+      const now = Date.now();
+      Object.entries(scheduleOff).forEach(([deviceId, atMs]) => {
+        if (atMs <= now) {
+          handleControlWithRetry(deviceId, 'off');
+          cancelScheduleOff(deviceId);
+        }
+      });
+    };
+    // 즉시 1회 체크 + 다음 만료까지 setTimeout
+    checkExpiry();
+    const nextAtMs = Math.min(...Object.values(scheduleOff));
+    const waitMs = Math.max(500, nextAtMs - Date.now());
+    const id = setTimeout(checkExpiry, waitMs);
+    return () => clearTimeout(id);
+  }, [scheduleOff, handleControlWithRetry, cancelScheduleOff]);
+
   // 일괄 제어 확인 대화상자
   const confirmBatchControl = useCallback((deviceList, command) => {
     const COMMAND_LABELS = { open: '열기', close: '닫기', stop: '정지', on: 'ON', off: 'OFF' };
@@ -1345,6 +1407,16 @@ const ControlPanel = ({ farmId, houseId, houseConfig }) => {
 
   return (
     <div>
+      {/* 자동 OFF 예약 picker modal */}
+      {pickerOpenFor && (
+        <ScheduleOffPicker
+          deviceId={pickerOpenFor}
+          deviceName={Object.values(groupedDevices).flat().find(d => d.deviceId === pickerOpenFor)?.name}
+          onPick={(delaySec) => setScheduleForDevice(pickerOpenFor, delaySec)}
+          onClose={() => setPickerOpenFor(null)}
+        />
+      )}
+
       <div className="flex gap-3 mb-4" style={{background:'#f8fafc',padding:'12px',borderRadius:16,border:'1px solid #e2e8f0'}}>
           <button onClick={confirmEmergencyStop}
             disabled={anyModbusBusy}
@@ -1461,6 +1533,49 @@ const ControlPanel = ({ farmId, houseId, houseConfig }) => {
                             </span>
                             {isAuto ? '자동' : '수동'}
                           </button>
+                          {/* 자동 OFF 예약 — 수동 모드 + 토글형 (single) + 현재 ON 상태에서만 노출 */}
+                          {!isAuto && isToggleType && (state.status === 'on' || state.status === 'turning_on') && (() => {
+                            const atMs = scheduleOff[device.deviceId];
+                            const isScheduled = atMs && atMs > tickNow;
+                            const remainSec = isScheduled ? Math.floor((atMs - tickNow) / 1000) : 0;
+                            const fmtRemain = (sec) => {
+                              const h = Math.floor(sec / 3600);
+                              const m = Math.floor((sec % 3600) / 60);
+                              const s = sec % 60;
+                              return h > 0
+                                ? `${h}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`
+                                : `${m}:${String(s).padStart(2,'0')}`;
+                            };
+                            return isScheduled ? (
+                              <button
+                                onClick={() => cancelScheduleOff(device.deviceId)}
+                                title={`예약 취소 — ${new Date(atMs).toLocaleTimeString('ko-KR', {hour12:false})} 자동 OFF`}
+                                style={{
+                                  display:'flex',alignItems:'center',gap:5,
+                                  padding:'8px 12px',borderRadius:8,fontSize:12,fontWeight:700,minHeight:36,
+                                  border:'2px solid #fde68a',background:'#fef3c7',color:'#92400e',
+                                  cursor:'pointer',
+                                  fontFamily:'ui-monospace, monospace',
+                                }}>
+                                <span>⏱</span>
+                                <span style={{minWidth:48,textAlign:'center'}}>{fmtRemain(remainSec)}</span>
+                                <span style={{fontSize:13,marginLeft:2}}>✕</span>
+                              </button>
+                            ) : (
+                              <button
+                                onClick={() => setPickerOpenFor(device.deviceId)}
+                                title="자동 OFF 예약"
+                                style={{
+                                  display:'flex',alignItems:'center',gap:5,
+                                  padding:'8px 12px',borderRadius:8,fontSize:12,fontWeight:700,minHeight:36,
+                                  border:'2px solid #e2e8f0',background:'#f8fafc',color:'#6b7280',
+                                  cursor:'pointer',
+                                }}>
+                                <span>📅</span>
+                                예약
+                              </button>
+                            );
+                          })()}
                           {/* 상태 표시 */}
                           <div style={{display:'flex',alignItems:'center',gap:6,background:statusDisplay.animate ? `${statusDisplay.color}15` : state.status === 'error' ? '#fef2f2' : '#f8fafc',padding:'4px 12px',borderRadius:8,border:`2px solid ${state.status === 'error' ? '#fecaca' : statusDisplay.animate ? statusDisplay.color : '#e2e8f0'}`}}>
                             <span style={{width:8,height:8,borderRadius:'50%',background:statusDisplay.color,display:'inline-block',boxShadow:`0 0 6px ${statusDisplay.color}`}} className={statusDisplay.animate ? 'animate-pulse' : ''} />
@@ -1966,6 +2081,89 @@ const ControlHistoryModal = ({ logs, loading, total, page, houseConfig, controlH
           <span style={{fontSize:13,color:'#6b7280',fontWeight:600}}>{page} / {totalPages}</span>
           <button onClick={() => onPageChange(Math.min(totalPages, page + 1))} disabled={page >= totalPages}
             style={{padding:'6px 14px',borderRadius:8,border:'1px solid #e5e7eb',background:'#f9fafb',fontSize:13,cursor: page >= totalPages ? 'default' : 'pointer',opacity: page >= totalPages ? 0.3 : 1,color:'#4b5563'}}>다음 →</button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// ────────────────────────────────────────────────────────────────
+// 자동 OFF 예약 picker — preset (5분~4시간) + 분 직접 입력
+// MVP: 단순 모달. 종료 시각 지정 (e.g. 18:30) 은 추후 추가 가능.
+// ────────────────────────────────────────────────────────────────
+const SCHEDULE_OFF_PRESETS = [
+  { label: '5분',   sec: 5 * 60 },
+  { label: '15분',  sec: 15 * 60 },
+  { label: '30분',  sec: 30 * 60 },
+  { label: '1시간', sec: 60 * 60 },
+  { label: '2시간', sec: 120 * 60 },
+  { label: '4시간', sec: 240 * 60 },
+];
+const ScheduleOffPicker = ({ deviceId, deviceName, onPick, onClose }) => {
+  const [customMin, setCustomMin] = React.useState('');
+  const handleCustom = () => {
+    const min = parseInt(customMin, 10);
+    if (!min || min <= 0) return;
+    onPick(min * 60);
+  };
+  return (
+    <div onClick={onClose} style={{
+      position:'fixed',inset:0,background:'rgba(15,23,42,0.55)',
+      display:'flex',alignItems:'center',justifyContent:'center',
+      zIndex:1000,padding:16,
+    }}>
+      <div onClick={(e) => e.stopPropagation()} style={{
+        background:'#fff',borderRadius:16,maxWidth:380,width:'100%',
+        padding:'18px 18px 16px',boxShadow:'0 20px 60px rgba(0,0,0,0.25)',
+      }}>
+        <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:14}}>
+          <div>
+            <div style={{fontSize:16,fontWeight:800,color:'#0f172a'}}>🕒 자동 OFF 예약</div>
+            <div style={{fontSize:12,color:'#64748b',marginTop:2}}>
+              {deviceName || deviceId} — 선택한 시간 후 자동 종료
+            </div>
+          </div>
+          <button onClick={onClose} style={{
+            border:'none',background:'transparent',fontSize:22,color:'#94a3b8',
+            cursor:'pointer',lineHeight:1,padding:4,
+          }}>✕</button>
+        </div>
+
+        <div style={{display:'grid',gridTemplateColumns:'repeat(3, 1fr)',gap:8,marginBottom:14}}>
+          {SCHEDULE_OFF_PRESETS.map(p => (
+            <button key={p.sec} onClick={() => onPick(p.sec)} style={{
+              padding:'12px 8px',borderRadius:10,
+              border:'1.5px solid #d1d5db',background:'#f8fafc',
+              fontSize:14,fontWeight:700,color:'#1f2937',cursor:'pointer',
+              transition:'all 0.15s',
+            }}
+            onMouseEnter={(e) => { e.currentTarget.style.background = '#dbeafe'; e.currentTarget.style.borderColor = '#3b82f6'; e.currentTarget.style.color = '#1d4ed8'; }}
+            onMouseLeave={(e) => { e.currentTarget.style.background = '#f8fafc'; e.currentTarget.style.borderColor = '#d1d5db'; e.currentTarget.style.color = '#1f2937'; }}
+            >{p.label}</button>
+          ))}
+        </div>
+
+        <div style={{borderTop:'1px solid #e5e7eb',paddingTop:12}}>
+          <div style={{fontSize:12,color:'#6b7280',fontWeight:700,marginBottom:6}}>직접 입력 (분)</div>
+          <div style={{display:'flex',gap:6}}>
+            <input type="number" min="1" max="1440" value={customMin}
+              onChange={(e) => setCustomMin(e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Enter') handleCustom(); }}
+              placeholder="예: 90"
+              style={{
+                flex:1,padding:'10px 12px',borderRadius:10,
+                border:'1.5px solid #d1d5db',fontSize:14,fontWeight:600,
+                outline:'none',color:'#0f172a',
+              }} />
+            <button onClick={handleCustom}
+              disabled={!parseInt(customMin, 10) || parseInt(customMin, 10) <= 0}
+              style={{
+                padding:'10px 18px',borderRadius:10,border:'none',
+                background:(!parseInt(customMin, 10) || parseInt(customMin, 10) <= 0) ? '#e5e7eb' : '#2563eb',
+                color:(!parseInt(customMin, 10) || parseInt(customMin, 10) <= 0) ? '#9ca3af' : '#fff',
+                fontSize:14,fontWeight:800,cursor:(!parseInt(customMin, 10) || parseInt(customMin, 10) <= 0) ? 'not-allowed' : 'pointer',
+              }}>확인</button>
+          </div>
         </div>
       </div>
     </div>

@@ -505,7 +505,7 @@ const DynamicDashboard = ({ farmId, isTouchPanel = false }) => {
               : '0 4px 20px rgba(153,27,27,0.25)',
         transition:'background 0.5s, box-shadow 0.5s'
       }}>
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+        <div className="flex flex-row items-center justify-between gap-3">
           <div>
             <div style={{display:'flex',alignItems:'center',gap:10}}>
               <h1 style={{fontSize:24,fontWeight:900,color:'#fff',letterSpacing:'-0.02em'}}>

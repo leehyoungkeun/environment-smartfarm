@@ -1167,10 +1167,15 @@ const ControlPanel = ({ farmId, houseId, houseConfig }) => {
             //   verification 실패는 헤더 배지(timeout)로만 표시
             setControlStage(prev => ({ ...prev, [deviceId]: 'hw_check' }));
             try {
-              await fetchRelayStatus();
               const m = targetDevice?.modbus;
-              const coils = m ? relayCoilsRef.current[m.unitId || 1] : null;
+              // ★ WS 모드 우회 — fetchRelayStatus 는 WS 연결 시 early return 함
+              //   직접 HTTP getRelayStatus 호출하여 FC1 실제 읽기 수행
+              const unitId = m?.unitId || 1;
+              const res = m ? await getRelayStatus(unitId, 8) : null;
+              const coils = res?.success && res?.data?.coils ? res.data.coils : null;
               if (coils && m) {
+                // relayCoilsRef 도 갱신 (다른 device 의 polling 결과 캐시)
+                relayCoilsRef.current = { ...relayCoilsRef.current, [unitId]: coils };
                 const finalStatus = { open: 'open', close: 'closed', stop: 'idle', on: 'on', off: 'off' };
                 const expectedStatus = finalStatus[command];
                 let actualStatus;

@@ -158,7 +158,7 @@ export default function NutrientScenarios({ farmId }) {
 // ─────────────────────────────────────────
 const ScenarioCard = ({ scenario, index, isEditing, onEdit, onChange, onDelete, onActivate }) => {
   const s = scenario;
-  const modeLabel = { solar: '일사량 비례', timer: '작동 간격', schedule: '지정시각' };
+  const modeLabel = { solar: '일사량', timer: '간격', schedule: '시각' };
 
   return (
     <div style={{

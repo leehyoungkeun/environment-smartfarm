@@ -55,7 +55,7 @@ const MODE_ICON = { auto: Ico.Play, manual: Ico.Hand, direct: Ico.Direct, paused
 
 const kicker = { fontSize: 11.5, fontWeight: 700, color: T.fg3, letterSpacing: '0.14em', textTransform: 'uppercase' };
 
-export default function NutrientRealtime({ farmId, mode, onModeChange }) {
+export default function NutrientRealtime({ farmId, mode, onModeChange, onProgramChange }) {
   const [state, setState] = useState(null);
   const [config, setConfig] = useState(null);
   const [scenarios, setScenarios] = useState([]);
@@ -128,6 +128,15 @@ export default function NutrientRealtime({ farmId, mode, onModeChange }) {
   const activeScenarioIdx = scenarios.findIndex(s => s.active);
   const activeProgramNum = activeScenarioIdx >= 0 ? activeScenarioIdx + 1 : null;
   const activeProgramName = activeScenario?.name || null;
+
+  // 활성 program 변경 시 Panel 헤더에 알림 (ModeSegment 의 P-NN chip)
+  const lastProgramRef = useRef({ num: undefined, name: undefined });
+  useEffect(() => {
+    const prev = lastProgramRef.current;
+    if (prev.num === activeProgramNum && prev.name === activeProgramName) return;
+    lastProgramRef.current = { num: activeProgramNum, name: activeProgramName };
+    onProgramChange?.({ programNum: activeProgramNum, programName: activeProgramName });
+  }, [activeProgramNum, activeProgramName, onProgramChange]);
   const ecTarget = activeScenario?.ecTarget ?? null;
   const phTarget = activeScenario?.phTarget ?? null;
 

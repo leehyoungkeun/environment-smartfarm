@@ -27,8 +27,16 @@ const MOCK_ENV = {
 export default function NutrientPanel({ farmId }) {
   const [activeTab, setActiveTab] = useState('realtime');
   const [mode, setMode] = useState('paused');
+  const [programNum, setProgramNum] = useState(null);
+  const [programName, setProgramName] = useState(null);
   const [alerts] = useState([]); // sticky 경보 배너 (Phase 3 RPi telemetry 연동 후 활성)
   const [env] = useState(MOCK_ENV);
+
+  // Realtime 이 활성 program 정보를 헤더로 푸시 (state polling 결과)
+  const handleProgramChange = ({ programNum: n, programName: nm }) => {
+    setProgramNum(n);
+    setProgramName(nm);
+  };
 
   // 초기 mode 1회 로드 (이후 외부 변경은 Realtime 의 state polling 에서 detectExternalModeChange 로 알림)
   // 이전: 별도 5초 polling → Realtime 과 동일 endpoint 중복 호출. dedup 위해 polling 제거.
@@ -43,7 +51,7 @@ export default function NutrientPanel({ farmId }) {
 
   // mode 변경 → API 호출 (optimistic update + 실패 시 복원)
   // Realtime callback (외부 변경 감지) 도 동일 함수로 들어옴.
-  // confirm 다이얼로그는 여기 단일 위치 — Panel ModeSelector + Realtime ModeSegment 양쪽 모두 적용.
+  // confirm 다이얼로그는 여기 단일 위치 — Panel ModeSegment 가 호출.
   const handleModeChange = async (newMode, opts = {}) => {
     if (newMode === mode) return;
     // 사용자 액션일 때만 emergency 확인 — 외부 자동 변경 (RPi GPIO 등) 은 confirm 우회
@@ -65,7 +73,6 @@ export default function NutrientPanel({ farmId }) {
     }
   };
 
-  const modeInfo = MODES[mode];
   const tempDiff = env.outTemp - env.inTemp;
   const tempDiffWarn = Math.abs(tempDiff) > 5;
   const rainWarn = env.rainfall > 0;
@@ -97,7 +104,8 @@ export default function NutrientPanel({ farmId }) {
             <p style={{ color: '#cffafe', fontSize: 13, margin: '2px 0 0' }}>양액 자동 공급 시스템</p>
           </div>
         </div>
-        <ModeSelector mode={mode} onChange={handleModeChange} info={modeInfo} />
+        <ModeSegment mode={mode} onChange={handleModeChange}
+          programNum={programNum} programName={programName} />
       </div>
 
       {/* 외부 환경 row — 양액 자동화의 핵심 트리거 데이터
@@ -146,7 +154,7 @@ export default function NutrientPanel({ farmId }) {
       </div>
 
       {/* 컨텐츠 */}
-      {activeTab === 'realtime' && <NutrientRealtime farmId={farmId} mode={mode} onModeChange={handleModeChange} />}
+      {activeTab === 'realtime' && <NutrientRealtime farmId={farmId} mode={mode} onModeChange={handleModeChange} onProgramChange={handleProgramChange} />}
       {activeTab === 'scenarios' && <NutrientScenarios farmId={farmId} />}
       {activeTab === 'settings' && <NutrientSettings farmId={farmId} />}
 
@@ -185,42 +193,56 @@ const EnvChip = ({ icon, label, value, unit, color, warn }) => (
 );
 const Divider = () => <div style={{ width: 1, height: 16, background: '#e2e8f0', flexShrink: 0 }} />;
 
-const ModeSelector = ({ mode, onChange, info }) => {
-  const [open, setOpen] = useState(false);
-  return (
-    <div style={{ position: 'relative' }}>
-      <button
-        onClick={() => setOpen(o => !o)}
-        style={{
-          background: info.bg, color: info.color, border: 'none',
-          padding: '8px 16px', borderRadius: 24, fontSize: 15, fontWeight: 800, cursor: 'pointer',
-          display: 'flex', alignItems: 'center', gap: 8,
-          boxShadow: '0 2px 6px rgba(0,0,0,0.1)',
-        }}>
-        <span style={{ animation: mode === 'emergency' ? 'pulse 1s infinite' : 'none' }}>{info.icon}</span>
-        {info.label} ▾
-      </button>
-      {open && (
-        <div style={{
-          position: 'absolute', top: '110%', right: 0, zIndex: 50,
-          background: '#fff', borderRadius: 10, boxShadow: '0 8px 24px rgba(0,0,0,0.15)',
-          padding: 4, minWidth: 160,
-        }}>
-          {Object.entries(MODES).map(([key, m]) => (
-            <button
-              key={key}
-              onClick={() => { onChange(key); setOpen(false); }}
-              style={{
-                width: '100%', padding: '10px 12px', borderRadius: 6, border: 'none',
-                background: key === mode ? '#f1f5f9' : 'transparent',
-                fontSize: 15, fontWeight: 700, color: m.color, cursor: 'pointer',
-                display: 'flex', alignItems: 'center', gap: 8, textAlign: 'left',
-              }}>
-              <span>{m.icon}</span>{m.label}
-            </button>
-          ))}
-        </div>
-      )}
-    </div>
-  );
+// 짧은 라벨 — HydroControl 헤더 segmented control 폭 절약
+const SHORT_LABEL = {
+  auto: '자동', manual: '수동', direct: '직접', paused: '정지', emergency: '비상',
 };
+
+// 5모드 segmented control + 자동 모드일 때 P-NN chip 표시 (드롭다운 X, 한눈에 모두 보임)
+const ModeSegment = ({ mode, onChange, programNum, programName }) => (
+  <div role="group" aria-label="운영 모드" style={{
+    display: 'inline-flex', flexWrap: 'wrap',
+    background: 'rgba(255,255,255,0.16)',
+    borderRadius: 24, padding: 3, gap: 2,
+    border: '1px solid rgba(255,255,255,0.3)',
+  }}>
+    {Object.entries(MODES).map(([key, m]) => {
+      const active = mode === key;
+      const isAuto = key === 'auto';
+      const showProgram = isAuto && programNum != null;
+      const isEmer = key === 'emergency';
+      return (
+        <button key={key} onClick={() => onChange(key)}
+          title={showProgram && programName ? `P-${String(programNum).padStart(2, '0')} · ${programName}` : m.label}
+          style={{
+            display: 'flex', alignItems: 'center', gap: 5,
+            padding: '6px 11px', borderRadius: 22,
+            background: active ? m.bg : 'transparent',
+            color: active ? m.color : 'rgba(255,255,255,0.92)',
+            border: 'none', cursor: 'pointer',
+            fontSize: 13.5, fontWeight: 700, whiteSpace: 'nowrap',
+            transition: 'background 0.15s, color 0.15s, transform 0.15s',
+            boxShadow: active ? '0 2px 6px rgba(0,0,0,0.12)' : 'none',
+            transform: active ? 'scale(1)' : 'scale(1)',
+          }}
+          onMouseEnter={(e) => { if (!active) e.currentTarget.style.background = 'rgba(255,255,255,0.12)'; }}
+          onMouseLeave={(e) => { if (!active) e.currentTarget.style.background = 'transparent'; }}
+          >
+          {showProgram && (
+            <span style={{
+              fontFamily: 'ui-monospace, SF Mono, monospace', fontSize: 10.5, fontWeight: 800,
+              padding: '1px 6px', borderRadius: 4, letterSpacing: '0.04em',
+              background: active ? m.color + '1f' : 'rgba(255,255,255,0.22)',
+              color: active ? m.color : '#fff',
+            }}>P-{String(programNum).padStart(2, '0')}</span>
+          )}
+          <span style={{
+            display: 'inline-block',
+            animation: isEmer && active ? 'pulse 1s infinite' : 'none',
+          }}>{m.icon}</span>
+          <span>{SHORT_LABEL[key]}</span>
+        </button>
+      );
+    })}
+  </div>
+);

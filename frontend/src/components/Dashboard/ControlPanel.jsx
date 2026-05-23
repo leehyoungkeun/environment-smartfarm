@@ -62,7 +62,23 @@ const ControlPanel = ({ farmId, houseId, houseConfig }) => {
 
   const statesKey = `deviceStates_${farmId}_${houseId}`;
   const [deviceStates, setDeviceStates] = useState(() => {
-    try { return sanitizeDeviceStates(JSON.parse(localStorage.getItem(statesKey)) || {}); }
+    try {
+      const initial = sanitizeDeviceStates(JSON.parse(localStorage.getItem(statesKey)) || {});
+      // ★ mount 시 만료된 schedule-off 를 deviceStates 의 'off' 로 변환
+      // (web 닫힌 동안 NR 가 schedule-off OFF 발사한 device 는 frontend 도 OFF 로 인지)
+      // 제어 시 frontend 가 자기 명령 기억하듯, schedule-off 도 atMs 기반 추론.
+      try {
+        const schedKey = `scheduleOff_${farmId}_${houseId}`;
+        const sched = JSON.parse(localStorage.getItem(schedKey) || '{}');
+        const now = Date.now();
+        for (const [deviceId, atMs] of Object.entries(sched)) {
+          if (atMs <= now) {
+            initial[deviceId] = { ...(initial[deviceId] || {}), status: 'off', commandLock: false };
+          }
+        }
+      } catch {}
+      return initial;
+    }
     catch { return {}; }
   });
   const [controlHistory, setControlHistory] = useState([]);

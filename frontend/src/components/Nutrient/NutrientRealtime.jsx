@@ -365,9 +365,11 @@ export default function NutrientRealtime({ farmId, mode, onModeChange }) {
         </div>
       </header>
 
-      {/* 현재 단계 + progress bar — 헤더 직하 (모바일 가시성) */}
-      {mode === 'auto' && !runningJob && (
-        <PhaseProgressBar phaseInfo={phaseInfo} />
+      {/* 현재 단계 + progress bar — 헤더 직하 (모바일 가시성).
+          manual+runningJob 은 ManualRunningCard 가 phaseInfo 표시 → 중복 회피
+          나머지 (auto·paused·emergency·direct·manual idle) 는 모두 표시 */}
+      {!runningJob && (
+        <PhaseProgressBar phaseInfo={phaseInfo} mode={mode} />
       )}
 
       {!dataReady ? <LoadingPlaceholder /> : (
@@ -1898,10 +1900,21 @@ const CompactRow = ({ label, value, accent, live, alarm }) => (
 );
 
 // 헤더 직하에 표시 — 현재 단계 + progress bar (모바일 가시성 우선)
-const PhaseProgressBar = ({ phaseInfo }) => {
+const PhaseProgressBar = ({ phaseInfo, mode }) => {
   const cur = phaseInfo ? PHASE_PLAN.findIndex(p => p.key === phaseInfo.phaseKey) : -1;
   const phase = cur >= 0 ? PHASE_PLAN[cur] : null;
   const progress = phaseInfo?.progress ? Math.min(1, Math.max(0, phaseInfo.progress)) : 0;
+
+  // 모드별 표시 색·아이콘·메시지 (사이클 없을 때)
+  const idle = (() => {
+    if (mode === 'emergency') return { c: T.danger, dot: T.danger, msg: '비상정지 — 모든 릴레이 OFF', pulse: 'sd-blink 0.7s infinite' };
+    if (mode === 'paused')    return { c: T.info,   dot: T.info,   msg: '일시정지 — 사이클 대기',         pulse: 'none' };
+    if (mode === 'direct')    return { c: '#7c3aed',dot: '#7c3aed',msg: '직접 제어 — 다이어그램 클릭으로 ON/OFF', pulse: 'none' };
+    if (mode === 'manual')    return { c: T.warn,   dot: T.warn,   msg: '수동 모드 — 큐에서 시작 대기',     pulse: 'none' };
+    return { c: T.acc, dot: T.fg4, msg: '사이클 대기 중', pulse: 'none' };
+  })();
+  const stripeColor = phase ? T.acc : idle.c;
+
   return (
     <section style={{
       marginTop: 10, marginBottom: 6,
@@ -1909,7 +1922,7 @@ const PhaseProgressBar = ({ phaseInfo }) => {
       padding: '10px 14px',
       position: 'relative', overflow: 'hidden',
     }}>
-      <div style={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: 3, background: T.acc }} />
+      <div style={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: 3, background: stripeColor }} />
       {phase ? (
         <>
           <div style={{
@@ -1944,9 +1957,10 @@ const PhaseProgressBar = ({ phaseInfo }) => {
       ) : (
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
           <span style={{
-            width: 8, height: 8, borderRadius: 4, background: T.fg4,
+            width: 9, height: 9, borderRadius: 5, background: idle.dot,
+            animation: idle.pulse, flexShrink: 0,
           }} />
-          <span style={{ fontSize: 14, fontWeight: 600, color: T.fg3 }}>사이클 대기 중</span>
+          <span style={{ fontSize: 14, fontWeight: 700, color: idle.c }}>{idle.msg}</span>
         </div>
       )}
     </section>

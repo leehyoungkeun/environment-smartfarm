@@ -1654,31 +1654,37 @@ const Schematic = ({ tanks, valves, ec, ph, mode,
           const handleClick = isDirect
             ? () => onDirectRelay?.(valveCh)
             : isManual ? () => onValveClick?.(v.id ?? i + 1) : undefined;
-          // 시각 우선순위: active(주황) > directOn(보라) > selected(청록)
-          const stroke = active ? '#22d3ee' : directOn ? '#a78bfa' : selected ? '#22d3ee' : irrigating ? '#06b6d4' : 'rgba(148,163,184,0.45)';
+          // 시각 우선순위: active(주황) > directOn(노랑 켜짐) > selected(청록) > isDirect(노랑 테두리)
+          const YELLOW = '#fbbf24';        // 직접 모드 테두리
+          const YELLOW_FILL = '#eab308';   // 직접 모드 ON fill
+          const stroke = active ? '#22d3ee'
+                       : directOn ? YELLOW
+                       : selected ? '#22d3ee'
+                       : irrigating ? '#06b6d4'
+                       : isDirect ? YELLOW
+                       : 'rgba(148,163,184,0.45)';
           return (
             <g key={v.id ?? i}
                style={interactive ? {
                  cursor: 'pointer',
-                 // 선택 후 펄스 — direct ON (보라) 또는 manual selected (청록) 일 때만.
-                 // 선택 전 OFF 는 정적 (주의 분산 방지).
+                 // 선택 후 펄스 — direct ON 또는 manual selected 일 때만.
                  animation: (directOn || selected) ? 'sd-direct-hint 1.8s ease-in-out infinite' : 'none',
                  transformOrigin: `${cx}px ${valveY + 12}px`,
                  transformBox: 'view-box',
                } : undefined}
                onClick={handleClick}>
               <circle cx={cx} cy={manifoldY} r="3"
-                      fill={active ? '#fb923c' : directOn ? '#a78bfa' : selected ? '#22d3ee' : irrigating ? '#f97316' : '#0f172a'}
-                      stroke={active ? '#fb923c' : directOn ? '#a78bfa' : selected ? '#22d3ee' : irrigating ? '#f97316' : 'rgba(148,163,184,0.70)'} strokeWidth="1" />
+                      fill={active ? '#fb923c' : directOn ? YELLOW : selected ? '#22d3ee' : irrigating ? '#f97316' : isDirect ? YELLOW : '#0f172a'}
+                      stroke={active ? '#fb923c' : directOn ? YELLOW : selected ? '#22d3ee' : irrigating ? '#f97316' : isDirect ? YELLOW : 'rgba(148,163,184,0.70)'} strokeWidth="1" />
               <line x1={cx} y1={manifoldY + 3} x2={cx} y2={valveY}
-                stroke={stroke} strokeWidth={active || directOn || selected ? 2 : 1} />
+                stroke={stroke} strokeWidth={active || directOn || selected || isDirect ? 2 : 1} />
               <rect x={cx - 18} y={valveY} width="36" height="24" rx="3"
-                fill={active ? '#f97316' : directOn ? '#7c3aed' : selected ? 'rgba(34,211,238,0.18)' : 'url(#sd-steel)'}
-                stroke={active ? '#fb923c' : directOn ? '#a78bfa' : selected ? '#22d3ee' : 'rgba(148,163,184,0.70)'}
-                strokeWidth={active || directOn ? 2.5 : selected ? 2 : 1.2}
+                fill={active ? '#f97316' : directOn ? YELLOW_FILL : selected ? 'rgba(34,211,238,0.18)' : isDirect ? 'rgba(234,179,8,0.12)' : 'url(#sd-steel)'}
+                stroke={active ? '#fb923c' : directOn ? YELLOW : selected ? '#22d3ee' : isDirect ? YELLOW : 'rgba(148,163,184,0.70)'}
+                strokeWidth={active || directOn ? 2.5 : isDirect ? 2 : selected ? 2 : 1.2}
                 filter={active ? "url(#sd-glow-orange)" : undefined} />
               <text x={cx} y={valveY + 17} textAnchor="middle" fontSize="14" fontWeight="700"
-                fill={active || directOn ? '#fff' : selected ? '#22d3ee' : '#cbd5e1'} fontFamily={MONO}>
+                fill={active ? '#fff' : directOn ? '#0b1220' : selected ? '#22d3ee' : isDirect ? '#fde68a' : '#cbd5e1'} fontFamily={MONO}>
                 {truncate(v.name || `V${i + 1}`, 4)}
               </text>
               {selected && !active && !directOn && (
@@ -1701,56 +1707,73 @@ const Schematic = ({ tanks, valves, ec, ph, mode,
 
 // direct 모드 시: directOn (보라색) — active (cycle 자동, T.acc 청록) 보다 우선
 // onClick 있고 OFF 일 때 미세 펄스 (클릭 가능 단서)
-const DosingPump = ({ cx, cy, active, directOn, onClick }) => (
-  <g style={onClick ? {
-    cursor: 'pointer',
-    animation: directOn ? 'none' : 'sd-direct-hint 1.8s ease-in-out infinite',
-    transformOrigin: `${cx}px ${cy}px`,
-  } : undefined} onClick={onClick}>
-    <circle cx={cx} cy={cy} r="9"
-      fill={directOn ? '#7c3aed' : active ? T.acc : T.card}
-      stroke={directOn ? '#a78bfa' : active ? T.acc : T.bd} strokeWidth="1" />
-    <g style={{ transformOrigin: `${cx}px ${cy}px`, animation: (active || directOn) ? 'sd-spin 1.4s linear infinite' : 'none' }}>
-      <line x1={cx - 5} y1={cy} x2={cx + 5} y2={cy} stroke={(active || directOn) ? '#fff' : T.fg3} strokeWidth="1.2" strokeLinecap="round" />
-      <line x1={cx} y1={cy - 5} x2={cx} y2={cy + 5} stroke={(active || directOn) ? '#fff' : T.fg3} strokeWidth="1.2" strokeLinecap="round" />
+// direct 모드 (onClick 있을 때) — 노란 테두리. ON 시 노란 fill + 펄스.
+const DosingPump = ({ cx, cy, active, directOn, onClick }) => {
+  const isDir = !!onClick;
+  const YELLOW = '#fbbf24';
+  return (
+    <g style={onClick ? {
+      cursor: 'pointer',
+      animation: directOn ? 'sd-direct-hint 1.8s ease-in-out infinite' : 'none',
+      transformOrigin: `${cx}px ${cy}px`,
+    } : undefined} onClick={onClick}>
+      <circle cx={cx} cy={cy} r="9"
+        fill={directOn ? '#eab308' : isDir ? 'rgba(234,179,8,0.12)' : active ? T.acc : T.card}
+        stroke={directOn || isDir ? YELLOW : active ? T.acc : T.bd}
+        strokeWidth={isDir ? '2' : '1'} />
+      <g style={{ transformOrigin: `${cx}px ${cy}px`, animation: (active || directOn) ? 'sd-spin 1.4s linear infinite' : 'none' }}>
+        <line x1={cx - 5} y1={cy} x2={cx + 5} y2={cy} stroke={(active || directOn) ? '#fff' : isDir ? '#fde68a' : T.fg3} strokeWidth="1.3" strokeLinecap="round" />
+        <line x1={cx} y1={cy - 5} x2={cx} y2={cy + 5} stroke={(active || directOn) ? '#fff' : isDir ? '#fde68a' : T.fg3} strokeWidth="1.3" strokeLinecap="round" />
+      </g>
     </g>
-  </g>
-);
+  );
+};
 
-const Agitator = ({ cx, cy, active, directOn, onClick }) => (
-  <g style={onClick ? {
-    cursor: 'pointer',
-    animation: directOn ? 'none' : 'sd-direct-hint 1.8s ease-in-out infinite',
-    transformOrigin: `${cx}px ${cy}px`,
-  } : undefined} onClick={onClick}>
-    <circle cx={cx} cy={cy} r="9"
-      fill={directOn ? '#7c3aed' : active ? T.acc : T.card}
-      stroke={directOn ? '#a78bfa' : active ? T.acc : T.bd} strokeWidth="1" />
-    <g style={{ transformOrigin: `${cx}px ${cy}px`, animation: (active || directOn) ? 'sd-spin 0.7s linear infinite' : 'none' }}>
-      <line x1={cx - 6} y1={cy} x2={cx + 6} y2={cy} stroke={(active || directOn) ? '#fff' : T.fg3} strokeWidth="1.4" strokeLinecap="round" />
-      <line x1={cx} y1={cy - 6} x2={cx} y2={cy + 6} stroke={(active || directOn) ? '#fff' : T.fg3} strokeWidth="1.4" strokeLinecap="round" />
+const Agitator = ({ cx, cy, active, directOn, onClick }) => {
+  const isDir = !!onClick;
+  const YELLOW = '#fbbf24';
+  return (
+    <g style={onClick ? {
+      cursor: 'pointer',
+      animation: directOn ? 'sd-direct-hint 1.8s ease-in-out infinite' : 'none',
+      transformOrigin: `${cx}px ${cy}px`,
+    } : undefined} onClick={onClick}>
+      <circle cx={cx} cy={cy} r="9"
+        fill={directOn ? '#eab308' : isDir ? 'rgba(234,179,8,0.12)' : active ? T.acc : T.card}
+        stroke={directOn || isDir ? YELLOW : active ? T.acc : T.bd}
+        strokeWidth={isDir ? '2' : '1'} />
+      <g style={{ transformOrigin: `${cx}px ${cy}px`, animation: (active || directOn) ? 'sd-spin 0.7s linear infinite' : 'none' }}>
+        <line x1={cx - 6} y1={cy} x2={cx + 6} y2={cy} stroke={(active || directOn) ? '#fff' : isDir ? '#fde68a' : T.fg3} strokeWidth="1.5" strokeLinecap="round" />
+        <line x1={cx} y1={cy - 6} x2={cx} y2={cy + 6} stroke={(active || directOn) ? '#fff' : isDir ? '#fde68a' : T.fg3} strokeWidth="1.5" strokeLinecap="round" />
+      </g>
     </g>
-  </g>
-);
+  );
+};
 
-const MainPump = ({ cx, cy, active, directOn, onClick }) => (
-  <g style={onClick ? {
-    cursor: 'pointer',
-    animation: directOn ? 'none' : 'sd-direct-hint 1.8s ease-in-out infinite',
-    transformOrigin: `${cx}px ${cy}px`,
-  } : undefined} onClick={onClick}>
-    <circle cx={cx} cy={cy} r="14"
-      fill={directOn ? '#7c3aed' : active ? T.acc : T.card}
-      stroke={directOn ? '#a78bfa' : active ? T.acc : T.bd} strokeWidth="1.2" />
-    <g style={{ transformOrigin: `${cx}px ${cy}px`, animation: (active || directOn) ? 'sd-spin 1.1s linear infinite' : 'none' }}>
-      <circle cx={cx} cy={cy} r="3" fill={(active || directOn) ? '#fff' : T.fg3} />
-      <path d={`M ${cx} ${cy - 11} L ${cx - 3} ${cy - 3} L ${cx + 3} ${cy - 3} Z`} fill={(active || directOn) ? '#fff' : T.fg3} />
-      <path d={`M ${cx} ${cy + 11} L ${cx - 3} ${cy + 3} L ${cx + 3} ${cy + 3} Z`} fill={(active || directOn) ? '#fff' : T.fg3} />
-      <path d={`M ${cx - 11} ${cy} L ${cx - 3} ${cy - 3} L ${cx - 3} ${cy + 3} Z`} fill={(active || directOn) ? '#fff' : T.fg3} />
-      <path d={`M ${cx + 11} ${cy} L ${cx + 3} ${cy - 3} L ${cx + 3} ${cy + 3} Z`} fill={(active || directOn) ? '#fff' : T.fg3} />
+const MainPump = ({ cx, cy, active, directOn, onClick }) => {
+  const isDir = !!onClick;
+  const YELLOW = '#fbbf24';
+  const blade = (active || directOn) ? '#fff' : isDir ? '#fde68a' : T.fg3;
+  return (
+    <g style={onClick ? {
+      cursor: 'pointer',
+      animation: directOn ? 'sd-direct-hint 1.8s ease-in-out infinite' : 'none',
+      transformOrigin: `${cx}px ${cy}px`,
+    } : undefined} onClick={onClick}>
+      <circle cx={cx} cy={cy} r="14"
+        fill={directOn ? '#eab308' : isDir ? 'rgba(234,179,8,0.12)' : active ? T.acc : T.card}
+        stroke={directOn || isDir ? YELLOW : active ? T.acc : T.bd}
+        strokeWidth={isDir ? '2.2' : '1.2'} />
+      <g style={{ transformOrigin: `${cx}px ${cy}px`, animation: (active || directOn) ? 'sd-spin 1.1s linear infinite' : 'none' }}>
+        <circle cx={cx} cy={cy} r="3" fill={blade} />
+        <path d={`M ${cx} ${cy - 11} L ${cx - 3} ${cy - 3} L ${cx + 3} ${cy - 3} Z`} fill={blade} />
+        <path d={`M ${cx} ${cy + 11} L ${cx - 3} ${cy + 3} L ${cx + 3} ${cy + 3} Z`} fill={blade} />
+        <path d={`M ${cx - 11} ${cy} L ${cx - 3} ${cy - 3} L ${cx - 3} ${cy + 3} Z`} fill={blade} />
+        <path d={`M ${cx + 11} ${cy} L ${cx + 3} ${cy - 3} L ${cx + 3} ${cy + 3} Z`} fill={blade} />
+      </g>
     </g>
-  </g>
-);
+  );
+};
 
 const FlowLine = ({ x1, y1, x2, y2, active, thick }) => {
   const cy = (y1 + y2) / 2;

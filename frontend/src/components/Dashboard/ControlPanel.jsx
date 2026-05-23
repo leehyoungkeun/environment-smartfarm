@@ -1386,18 +1386,18 @@ const ControlPanel = ({ farmId, houseId, houseConfig }) => {
 
   const getStatusDisplay = (status) => {
     const map = {
-      opening:    { text: '열리는 중...', color: '#047857', animate: true },
-      closing:    { text: '닫히는 중...', color: '#1d4ed8', animate: true },
-      stopping:   { text: '정지 중...',  color: '#b45309', animate: true },
-      turning_on: { text: 'ON 전환중...', color: '#047857', animate: true },
-      turning_off:{ text: 'OFF 전환중...', color: '#6b7280', animate: true },
-      open:       { text: '열림', color: '#047857', animate: false },
-      closed:     { text: '닫힘', color: '#6b7280', animate: false },
-      on:         { text: 'ON', color: '#047857', animate: false },
-      off:        { text: 'OFF', color: '#6b7280', animate: false },
-      error:      { text: '오류', color: '#be123c', animate: false },
+      opening:    { text: '열리는 중', color: '#15803d', bg: '#dcfce7', animate: true },
+      closing:    { text: '닫히는 중', color: '#1d4ed8', bg: '#dbeafe', animate: true },
+      stopping:   { text: '정지 중',  color: '#b45309', bg: '#fef3c7', animate: true },
+      turning_on: { text: 'ON 전환',  color: '#15803d', bg: '#dcfce7', animate: true },
+      turning_off:{ text: 'OFF 전환', color: '#475569', bg: '#f1f5f9', animate: true },
+      open:       { text: '열림', color: '#15803d', bg: '#dcfce7', animate: false },
+      closed:     { text: '닫힘', color: '#1d4ed8', bg: '#dbeafe', animate: false },
+      on:         { text: 'ON',   color: '#15803d', bg: '#dcfce7', animate: false },
+      off:        { text: 'OFF',  color: '#475569', bg: '#f1f5f9', animate: false },
+      error:      { text: '오류', color: '#be123c', bg: '#fee2e2', animate: false },
     };
-    return map[status] || { text: '대기', color: '#6b7280', animate: false };
+    return map[status] || { text: '대기', color: '#d97706', bg: '#fef3c7', animate: false };
   };
 
   // type + controlType 합성 키로 그룹화 — 같은 type 안에 단방향·양방향 섞여도 카드 분리
@@ -1670,9 +1670,12 @@ const ControlPanel = ({ farmId, houseId, houseConfig }) => {
                             );
                           })()}
                           {/* 상태 표시 */}
-                          <div style={{display:'flex',alignItems:'center',gap:6,background:statusDisplay.animate ? `${statusDisplay.color}15` : state.status === 'error' ? '#fef2f2' : '#f8fafc',padding:'4px 12px',borderRadius:8,border:`2px solid ${state.status === 'error' ? '#fecaca' : statusDisplay.animate ? statusDisplay.color : '#e2e8f0'}`}}>
-                            <span style={{width:8,height:8,borderRadius:'50%',background:statusDisplay.color,display:'inline-block',boxShadow:`0 0 6px ${statusDisplay.color}`}} className={statusDisplay.animate ? 'animate-pulse' : ''} />
-                            <span style={{fontSize:13,fontWeight:700,color:statusDisplay.color}}>{statusDisplay.text}</span>
+                          <div style={{display:'flex',alignItems:'center',gap:6,
+                                       background: statusDisplay.bg || '#f1f5f9',
+                                       padding:'8px 12px', borderRadius:8, minHeight:36,
+                                       border:`2px solid ${statusDisplay.color}33`}}>
+                            <span style={{width:9,height:9,borderRadius:'50%',background:statusDisplay.color,display:'inline-block',boxShadow:`0 0 8px ${statusDisplay.color}88`}} className={statusDisplay.animate ? 'animate-pulse' : ''} />
+                            <span style={{fontSize:13,fontWeight:800,color:statusDisplay.color,letterSpacing:'0.02em'}}>{statusDisplay.text}</span>
                             {state.relayVerified && (
                               <span title="Modbus FC1 실제 확인" style={{fontSize:9,fontWeight:700,color:'#047857',background:'#dcfce7',padding:'1px 4px',borderRadius:4,marginLeft:2}}>HW</span>
                             )}

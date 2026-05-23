@@ -37,6 +37,8 @@ for (const key of keys) {
 
     const fireOff = () => {
         node.warn(`⏰ 예약 만료 (복구) → OFF: ${key}`);
+        const reqId = `sched-recov-${Date.now()}-${Math.random().toString(36).slice(2,6)}`;
+        const ts = new Date().toISOString();
         node.send({
             topic: `smartfarm/${houseId}/${deviceId}/control`,
             payload: {
@@ -44,9 +46,23 @@ for (const key of keys) {
                 window_id: deviceId,
                 command: 'off',
                 operator: 'schedule_off_timer_recovered',
-                request_id: `sched-recov-${Date.now()}-${Math.random().toString(36).slice(2,6)}`,
-                timestamp: new Date().toISOString(),
+                request_id: reqId,
+                timestamp: ts,
                 modbus: item.modbus || null,
+                duration: 0,
+            },
+            // downstream modbus mapper 호환 — msg.control pre-populate
+            control: {
+                houseId,
+                deviceId,
+                deviceType: item.deviceType || 'unknown',
+                command: 'off',
+                operator: 'schedule_off_timer_recovered',
+                requestId: reqId,
+                timestamp: ts,
+                modbus: item.modbus || null,
+                duration: 0,
+                raw: {},
             },
         });
         const s = global.get('scheduledOff') || {};

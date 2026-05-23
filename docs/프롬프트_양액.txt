@@ -1,0 +1,188 @@
+SmartFarm 양액 시스템 흐름도를 우리 프로젝트의 NutrientPanel 4번째 탭
+"시스템도" 에 그대로 import 해서 쓸 수 있는 React 컴포넌트로 만들어줘.
+세계 최고 수준의 흐름도 디자인 (Priva Connext, Hoogendoorn iSii,
+Netafim NetBeat 의 농장주용 dashboard 톤). 단순 박스+화살표 X.
+
+────────────────────────────────────────────────────────────
+[필독 ① — 농장주가 보는 화면이므로 엔지니어용 정보 모두 제거]
+────────────────────────────────────────────────────────────
+
+❌ 절대 표시 X (이전 시도에 다 있었음):
+- IP 주소 (192.168.219.111, 192.168.x.x)
+- 프로토콜 (Modbus RTU 9600, USB Serial, RS-485, ttyACM0)
+- GPIO 번호 (BCM 17, BCM 27, pull-up)
+- Unit-Id (Uid 1, Uid 3, Uid 4)
+- 채널 번호 (CH00, CH06, CH22)
+- backend API endpoint (PUT /api/nutrient/..., GET /api/...)
+- HTTP method 뱃지 (GET / PUT / POST)
+- 시스템 메트릭 (UPTIME, LOAD, CPU)
+- 기술 스택명 ("Node-RED", "Raspberry Pi", "Celery")
+- 화살표 옆 protocol·주기 주석 ("Modbus 9600 · 5초")
+
+✅ 농장주 언어로 대체:
+- "RS-485 Uid 1 (XY-MD02)" → "온습도 센서"
+- "USB Serial ttyACM0" → "산도 센서 (pH)"
+- "24CH Modbus 릴레이 Uid 3" → "릴레이 박스" 또는 박스 아이콘
+- "CH00" → 탱크 이름 그대로 ("질산칼슘", "다비료 NPK")
+- "BCM 17 비상정지" → "비상정지 스위치"
+- "BCM 27 누액" → "누액 감지 센서"
+- 화살표 주석 없이 (또는 "양액 공급" 같은 의미만)
+
+✅ 농장주가 알고 싶은 것 — 큼직하게:
+- 시스템 상태 (정상 / 운영 중 / 일시정지 / 비상정지)
+- EC·pH 가 목표치 안인가? 벗어났으면 얼마나?
+- 어느 탱크가 부족한가? (양만, 채널·주소 X)
+- 지금 어느 구역 (V1~V14) 에 물 주고 있나?
+- 다음 관수까지 얼마나? (phase timeline + 카운트다운)
+- 경보는 자연어 한글 ("질산칼슘 탱크 잔량 부족 — 15%")
+
+엔지니어용 디테일은 별도 진단 페이지에 있다는 가정.
+이 컴포넌트는 농장주 한 명만을 위한 것.
+
+────────────────────────────────────────────────────────────
+[필독 ② — 이전 시도 실패 원인 = 이번엔 절대 X]
+────────────────────────────────────────────────────────────
+
+❌ standalone HTML 용 (`const { useMemo } = React;`, `window.X = ...`)
+❌ 다크 테마 (#05070F) — 기존 NutrientPanel 은 라이트 테마
+❌ 1280×800 와이드 고정 비율 — 탭 안에 안 들어감
+❌ Tailwind utility 클래스 무분별 사용 — 기존은 inline style 우선
+❌ 자기만의 props shape — 어댑터 추가하게 만듦
+❌ mode 제어 버튼 누락 — 농장주가 조작 못 함
+
+────────────────────────────────────────────────────────────
+[목표 + 컴포넌트 시그니처]
+────────────────────────────────────────────────────────────
+
+NutrientRealtime.jsx 와 동일한 패턴:
+- props: { farmId, mode, onModeChange } (NutrientPanel 이 넘기는 것 그대로)
+- 컴포넌트 내부에서 nutrientApi.getState / getConfig / listAlerts 폴링
+- 5초 간격 (NutrientRealtime 와 동일)
+- 실패 시 silent (다음 polling 회복, 화면 깨지지 X)
+- ESM 형식:
+    import React, { useState, useEffect } from 'react';
+    import * as nutrientApi from '../../services/nutrientApi';
+    export default function NutrientSystemDiagram({ farmId, mode, onModeChange }) {...}
+
+────────────────────────────────────────────────────────────
+[필수 시각 요소]
+────────────────────────────────────────────────────────────
+
+1. 4-zone 색구분 (라이트 테마):
+   - 센서 — teal #0d9488
+   - 제어 코어 — amber #d97706
+   - 액추에이터 (펌프·밸브) — blue #2563eb
+   - 안전 (비상정지·누액) — red #dc2626
+   배경 #f8fafc 또는 흰색, NutrientPanel 헤더 #0891b2→#06b6d4 톤과 조화
+
+2. 5-phase timeline (하단):
+   ① 도싱 → ② 교반 → ③ 안정화 → ④ 관수 → ⑤ 정리
+   현재 phase highlight + 경과 시간 + 남은 시간 카운트다운
+
+3. 실제 구성 (농장주 언어로):
+   - 6개 원료 탱크 (질산칼슘, 다비료 NPK, 미량요소, 황산마그네슘, 산, 알칼리)
+   - 도싱 펌프 6개
+   - 믹싱 탱크 + 교반기
+   - 메인 송수 펌프
+   - 관수 밸브 14개 (V1~V14, 구역명 있으면 구역명)
+   - 비상정지 스위치
+   - 누액 감지 센서
+
+4. 활성 시 시각 효과:
+   - 도싱: 해당 펌프 펄스 + 진행률 bar
+   - 관수: 활성 밸브 highlight + 펌프 회전 애니메이션
+   - 비상정지/누액: 전체 빨간 overlay + 깜빡임
+   - 탱크 잔량 < 20% 일 때 빨간 경고 + 깜빡임
+
+5. EC·pH 큰 게이지 (NutrientRealtime 의 BigGauge 와 같은 톤):
+   - 현재값 / 목표값 / 차이 (색 인디케이터)
+   - 작은 sparkline (최근 1시간)
+
+────────────────────────────────────────────────────────────
+[필수 제어 기능 — 이전 시도에 빠졌음]
+────────────────────────────────────────────────────────────
+
+다이어그램 상단 또는 헤더 영역에 mode 제어 버튼 4개:
+  ▶ 자동운행 (auto)    · 녹색 #16a34a / #dcfce7
+  ✋ 수동 (manual)      · 주황 #d97706 / #fef3c7
+  ❚❚ 일시정지 (paused) · 파랑 #2563eb / #dbeafe
+  ● 비상정지 (emergency)· 빨강 #dc2626 / #fee2e2
+
+동작:
+- 현재 활성 mode 는 색 채워진 상태 + 펄스 (emergency 는 더 강하게)
+- 비활성 mode 는 outline 만
+- 클릭 시 nutrientApi.setMode(farmId, newMode) 호출
+- Optimistic update + 실패 시 이전 mode 로 복원
+  (NutrientPanel.jsx 의 handleModeChange 패턴 그대로)
+- 비상정지 클릭 시 confirm: "비상정지하시겠습니까?
+  모든 릴레이가 OFF 됩니다." → 확인해야만 호출
+- 부모에게 onModeChange(newMode) callback 호출
+  (NutrientPanel 의 ModeSelector 와 양방향 동기화)
+
+mode 별 다이어그램 시각 효과:
+- auto: 정상 (펄스·flow 애니메이션 정상)
+- manual: phase timeline dimmed (자동 트리거 OFF 단서)
+- paused: 모든 액추에이터 dimmed + "PAUSED" overlay (반투명 회색)
+- emergency: 빨간 overlay + 깜빡임 + 모든 릴레이 OFF 표시
+
+보조 동작 (옵션, 사이드):
+- 🔄 강제 사이클 시작 — disabled + tooltip "Phase 3.2 후 활성"
+- 🔧 캘리브레이션 — placeholder
+
+────────────────────────────────────────────────────────────
+[backend 응답 shape — 정확히 이것을 받음]
+────────────────────────────────────────────────────────────
+
+nutrientApi.getState(farmId) →
+  {
+    mode: 'auto'|'manual'|'paused'|'emergency',
+    ecCurrent: number, phCurrent: number, solarAccumulated: number,
+    currentCycle: {
+      phase: 'dosing'|'mixing'|'stabilize'|'irrigating'|'cleanup'|null,
+      startedAt: ISO string,
+      valveIdx: number(1~14)|null,
+      suppliedL: number,
+      // dosingProgress 는 아직 없음 — phase=dosing 일 때
+      // 균등 진행 가정 (elapsedSec / 42 * (1.8 - i*0.12) 식)
+    },
+    updatedAt: ISO string
+  }
+
+nutrientApi.getConfig(farmId) →
+  {
+    tanks: [{ id, name, modbusReg, ... }],   // 6개
+    valveCount: 14,
+  }
+
+nutrientApi.listAlerts(farmId, { resolved: false, limit: 5 }) →
+  [{ id, alertType, severity, message, occurredAt, resolved }]
+  // severity: 'info'|'warning'|'critical' → level 매핑
+
+[backend 에 없는 필드 처리]
+- flow / temp / humidity / tankLevels — Phase 3.2 후 추가 예정
+  지금은 "—" 로 표시 (값 미수신 = placeholder, 깨짐 X)
+- emergencyStop / leakDetected — mode==='emergency' 면 추정 (임시)
+
+────────────────────────────────────────────────────────────
+[기술 요구사항]
+────────────────────────────────────────────────────────────
+
+- React 함수형, hooks 만
+- inline style + 필요 시 <style> 태그로 keyframes
+- Tailwind 의존 X (CDN 없으면 깨짐)
+- SVG 기반 (확대 깨짐 X)
+- 사이즈: width 100%, aspectRatio 16/10 자연스럽게 탭 안에
+- 데스크탑 (md+) / 모바일 (md 미만) 분기
+  - 모바일: phase timeline + 핵심 4개 상태 + mode 버튼만
+- 데이터 미수신 시: "데이터 수신 대기" placeholder, 깨짐 X
+- useEffect cleanup 필수 (메모리 누수 X)
+
+────────────────────────────────────────────────────────────
+[작업 순서]
+────────────────────────────────────────────────────────────
+
+1. 먼저 컴포넌트 레이아웃을 ASCII 와이어프레임으로 제시
+   - 데스크탑 (md+) 16:10
+   - 모바일 컴팩트
+2. 내 확인 후 SVG + React 풀 코드
+3. 마지막에 NutrientPanel.jsx 에 4번째 탭 추가하는 한 줄 diff

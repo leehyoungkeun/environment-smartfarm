@@ -1,20 +1,22 @@
 // ============================================================
 // 자동 OFF 예약 — NR function 2 (MQTT 파싱 + Modbus 매핑) 보강
 //
-// 위치: 양액 자동제어 또는 제어 수신 탭의 function 2 노드
+// 위치: 'AWS IoT 제어 수신' 또는 '제어 수신' 탭의 function 2 노드 (MQTT 파서)
 // 적용 방법:
-//   1. 기존 function 2 코드를 백업
-//   2. 이 파일 내용을 function 2 노드에 붙여넣기 (NR 에디터)
-//   3. 출력: 1개 (기존과 동일 — modbus write 로 향함)
-//   4. Deploy
+//   1. NR 에디터에서 기존 function 2 노드 더블클릭 → '함수' 탭 열기
+//   2. 기존 코드 전체 백업 후 이 파일 내용으로 교체
+//   3. 출력: 1개 (기존과 동일)
+//   4. 우측 상단 '완료' → 'Deploy'
 //
 // 동작:
-//   - command === 'schedule-off' (with delay_sec): setTimeout 등록 + global 저장 → 만료 시 off 실행
+//   - command === 'schedule-off' (with delay_sec): setTimeout 등록 + global 저장 → 만료 시 'off' 메시지 송출
 //   - command === 'schedule-off-cancel': clearTimeout + global 삭제
-//   - 그 외 (on/off/open/close/stop): 기존 로직 그대로
+//   - 그 외 (on/off/open/close/stop): 기존 파싱 로직
 //
 // 영구화: global.set('scheduledOff', ...) 가 localfilesystem context 에 저장됨.
 // NR 재시작 시 별도 startup 노드 (nodered-schedule-off-startup.js) 가 timer 재등록.
+//
+// 중요: setTimeout 만료 시 msg.control + msg.payload 모두 설정 (downstream modbus mapper 호환).
 // ============================================================
 
 const topicParts = msg.topic ? msg.topic.split('/') : [];
@@ -26,6 +28,18 @@ const operator = payload.operator || 'unknown';
 const requestId = payload.request_id || '';
 const timestamp = payload.timestamp || new Date().toISOString();
 const delaySec = parseInt(payload.delay_sec, 10) || 0;
+
+// ──────── device 유형 판별 (재사용 helper) ────────
+const guessDeviceType = (id) => {
+    if (id.startsWith('window')) return 'window';
+    if (id.startsWith('fan')) return 'fan';
+    if (id.startsWith('heater')) return 'heater';
+    if (id.startsWith('cooler') || id.startsWith('aircon')) return 'aircon';
+    if (id.startsWith('valve')) return 'valve';
+    if (id.startsWith('pump')) return 'pump';
+    if (id.startsWith('light')) return 'light';
+    return 'unknown';
+};
 
 // ──────── 자동 OFF 예약 / 취소 분기 ────────
 if (command === 'schedule-off' || command === 'schedule-off-cancel') {
@@ -53,10 +67,12 @@ if (command === 'schedule-off' || command === 'schedule-off-cancel') {
 
     const atMs = Date.now() + delaySec * 1000;
     const offRequestId = `sched-${Date.now()}-${Math.random().toString(36).slice(2,8)}`;
+    const savedModbus = payload.modbus || null;
 
-    // setTimeout — 만료 시 'off' 명령으로 자기 자신에게 재전송 → 기존 Modbus 경로 타게 함
+    // setTimeout — 만료 시 msg.control + msg.payload 모두 설정해 downstream 통과
     const timerId = setTimeout(() => {
         node.warn(`⏰ 예약 만료 → OFF 실행: ${key}`);
+        const offTs = new Date().toISOString();
         node.send({
             topic: `smartfarm/${houseId}/${deviceId}/control`,
             payload: {
@@ -65,10 +81,25 @@ if (command === 'schedule-off' || command === 'schedule-off-cancel') {
                 command: 'off',
                 operator: 'schedule_off_timer',
                 request_id: offRequestId,
-                timestamp: new Date().toISOString(),
-                modbus: sched[key]?.modbus || payload.modbus || null,
+                timestamp: offTs,
+                modbus: savedModbus,
+                duration: 0,
+            },
+            // downstream modbus mapper 가 msg.control 을 참조하므로 pre-populate 필수
+            control: {
+                houseId,
+                deviceId,
+                deviceType: guessDeviceType(deviceId),
+                command: 'off',
+                operator: 'schedule_off_timer',
+                requestId: offRequestId,
+                timestamp: offTs,
+                modbus: savedModbus,
+                duration: 0,
+                raw: {},
             },
         });
+        // global cleanup
         const s = global.get('scheduledOff') || {};
         delete s[key];
         global.set('scheduledOff', s);
@@ -76,10 +107,11 @@ if (command === 'schedule-off' || command === 'schedule-off-cancel') {
 
     sched[key] = {
         atMs,
-        timerId,
+        timerId,                 // Timer 객체 — 같은 세션에서만 유효 (clearTimeout 용)
         deviceId,
         houseId,
-        modbus: payload.modbus || null,
+        deviceType: guessDeviceType(deviceId),
+        modbus: savedModbus,
         scheduledBy: operator,
         scheduledAt: timestamp,
     };
@@ -88,21 +120,11 @@ if (command === 'schedule-off' || command === 'schedule-off-cancel') {
     const min = Math.round(delaySec / 60);
     node.warn(`📅 예약 등록: ${key} — ${min}분 후 OFF (${new Date(atMs).toLocaleTimeString('ko-KR', { hour12: false })})`);
     node.status({ fill: 'yellow', shape: 'dot', text: `예약 ${key} ${min}분` });
-    return null;
+    return null;  // off 명령은 만료 시 별도 송출, 지금은 forward 안 함
 }
 
 // ──────── 그 외 명령 — 기존 파싱 로직 ────────
-// (이 부분은 기존 function 2 의 파싱 + msg.control 첨부 + 다음 노드 forward 그대로)
-// ─────────────────────────────────────────
-
-let deviceType = 'unknown';
-if (deviceId.startsWith('window')) deviceType = 'window';
-else if (deviceId.startsWith('fan')) deviceType = 'fan';
-else if (deviceId.startsWith('heater')) deviceType = 'heater';
-else if (deviceId.startsWith('cooler') || deviceId.startsWith('aircon')) deviceType = 'aircon';
-else if (deviceId.startsWith('valve')) deviceType = 'valve';
-else if (deviceId.startsWith('pump')) deviceType = 'pump';
-else if (deviceId.startsWith('light')) deviceType = 'light';
+const deviceType = guessDeviceType(deviceId);
 
 msg.control = {
     houseId,

@@ -790,21 +790,32 @@ const ControlPanel = ({ farmId, houseId, houseConfig }) => {
           if (m.moduleType === 'eletechsup') return;  // FC03 불가
           const uid = m.unitId || 1;
           if (uid !== unitId) return;
-          if (prev[d.deviceId]?.commandLock) return;
-          const currentState = prev[d.deviceId]?.status;
-          if (['opening', 'closing', 'stopping', 'turning_on', 'turning_off'].includes(currentState)) return;
           if (bidirProgressRef.current[d.deviceId]) return;
-
+          const isLocked = prev[d.deviceId]?.commandLock;
+          const currentState = prev[d.deviceId]?.status;
+          const isBusy = ['opening', 'closing', 'stopping', 'turning_on', 'turning_off'].includes(currentState);
+          // ★ commandLock / busy 중에도 expected 와 actual 매치 시 relayVerified 만은 갱신 허용
+          //   status 는 그대로 (낙관 update 유지) — 사용자 빠른 토글 시에도 HW 배지 표시
+          let chOn, ch2On, actualStatus, expectedStatus;
           if (m.controlType === 'bidir') {
-            const ch1On = !!coils[m.address];
-            const ch2On = !!coils[m.address2];
-            const status = ch1On ? 'open' : ch2On ? 'closed' : 'idle';
-            updated[d.deviceId] = { ...updated[d.deviceId], status, relayVerified: true };
+            chOn = !!coils[m.address];
+            ch2On = !!coils[m.address2];
+            actualStatus = chOn ? 'open' : ch2On ? 'closed' : 'idle';
+            expectedStatus = currentState;
           } else {
-            const chOn = !!coils[m.address];
-            const status = chOn ? 'on' : 'off';
-            updated[d.deviceId] = { ...updated[d.deviceId], status, relayVerified: true };
+            chOn = !!coils[m.address];
+            actualStatus = chOn ? 'on' : 'off';
+            expectedStatus = currentState;
           }
+          if (isLocked || isBusy) {
+            // status 안 건드림, actualStatus 가 낙관 status 와 매치하면 verified 만 갱신
+            if (actualStatus === expectedStatus) {
+              updated[d.deviceId] = { ...updated[d.deviceId], relayVerified: true };
+            }
+            return;
+          }
+          // 자유 갱신
+          updated[d.deviceId] = { ...updated[d.deviceId], status: actualStatus, relayVerified: true };
         });
         return updated;
       });

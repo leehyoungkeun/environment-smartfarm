@@ -6,17 +6,20 @@
 - NR 에디터 접속: `http://farm-0001:1880/node-red/` (또는 RPi IP)
 - 사용자 NR 에디터 캐시 충돌 방지 — 다른 PC/탭에서 동시 작업 금지
 
-## 단계 1 — function 2 (MQTT 파서) 코드 보강
+## 단계 1 — function 2 (Modbus 매핑) 코드 교체
 
-목적: `schedule-off` / `schedule-off-cancel` 명령 처리 분기 추가.
+목적: `schedule-off` / `schedule-off-cancel` 분기 추가. 기존 Modbus 로직은 그대로.
 
-1. NR 에디터에서 **'AWS IoT 제어 수신'** (또는 비슷한 이름) 탭 열기
-2. **function 2** 노드 더블클릭 (현재 코드: MQTT 파싱 + msg.control 첨부)
-3. **함수** 탭의 기존 코드를 **메모장 등에 백업**
-4. `docs/nodered-schedule-off-function.js` 의 전체 내용을 복사해 함수 코드에 붙여넣기
-5. **출력**: 1개 (변경 없음)
+**대상 노드**: NR 에디터 **'AWS IoT 제어 테스트'** 탭의 **'function 2'** 노드
+(id: `7500bc12ea12891e`, 현재 코드: 6190 chars)
+
+1. NR 에디터 → '**AWS IoT 제어 테스트**' 탭 열기
+2. **function 2** 노드 더블클릭
+3. **함수** 탭의 기존 코드 6190 chars 를 **메모장 등에 백업** (rollback 용)
+4. `docs/nodered-function2-with-schedule-off.js` 의 전체 내용 복사 → 붙여넣기
+   - 위 파일은 기존 Modbus 로직 그대로 + schedule-off 분기만 추가 (안전)
+5. **출력**: 1개 (Modbus Flex Write 연결 유지)
 6. 우측 상단 **완료**
-7. **로컬 제어** 탭 (`/api/control/local` 처리) 의 function 2 노드에도 동일 적용 (있는 경우)
 
 ## 단계 2 — 재시작 시 복구 노드 추가
 

@@ -1415,7 +1415,7 @@ const ControlPanel = ({ farmId, houseId, houseConfig }) => {
   const anyModbusBusy = Object.values(modbusStatus).some(s => s === 'verifying');
 
   // 대시보드 통일 스타일
-  const btnBase = { padding: '16px 0', borderRadius: '10px', fontSize: '16px', fontWeight: 800, transition: 'all 0.15s', cursor: 'pointer', textAlign: 'center', border: '2px solid transparent', letterSpacing: '-0.01em', minHeight: '52px' };
+  const btnBase = { padding: '16px 0', borderRadius: '10px', fontSize: '15px', fontWeight: 800, transition: 'all 0.15s', cursor: 'pointer', textAlign: 'center', border: '2px solid transparent', letterSpacing: '-0.01em', minHeight: '52px' };
 
   // 장치 유형별 컬러 테마 [from, to] — 대시보드 팔레트 기반
   const typeTheme = {

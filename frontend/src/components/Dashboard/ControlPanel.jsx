@@ -1579,7 +1579,7 @@ const ControlPanel = ({ farmId, houseId, houseConfig }) => {
               </span>
             </div>
 
-            <div style={{padding:'12px 8px'}}>
+            <div style={{padding:'16px'}}>
               {/* 개별 장치 제어 (위) */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 {devicesInGroup.map(device => {
@@ -1594,7 +1594,7 @@ const ControlPanel = ({ farmId, houseId, houseConfig }) => {
 
                   return (
                     <div key={device.deviceId}
-                      style={{padding:'2px 0',transition:'all 0.2s'}}>
+                      style={{padding:'4px 2px',transition:'all 0.2s'}}>
                       <div className="flex items-center justify-between mb-2 flex-wrap gap-1">
                         <span style={{fontSize:15,fontWeight:800,color:'#0f172a'}}>{device.name}</span>
                         <div className="flex items-center gap-1.5">
@@ -1799,7 +1799,7 @@ const ControlPanel = ({ farmId, houseId, houseConfig }) => {
                           />
                         </div>
                       ) : isToggleType ? (
-                        <div className="grid grid-cols-2 gap-1.5">
+                        <div className="grid grid-cols-2 gap-3">
                           <button onClick={() => handleControlWithRetry(device.deviceId, 'on')}
                             disabled={myModbusBusy || isProcessing || state.status === 'on'}
                             style={{...btnBase, ...(state.status === 'on' || state.status === 'turning_on' ? s.onActive : s.onInactive), ...(myModbusBusy || isProcessing || state.status === 'on' ? {opacity:0.4,cursor:'not-allowed'} : {})}}>
@@ -1812,7 +1812,7 @@ const ControlPanel = ({ farmId, houseId, houseConfig }) => {
                           </button>
                         </div>
                       ) : (
-                        <div className="grid grid-cols-3 gap-1.5">
+                        <div className="grid grid-cols-3 gap-2">
                           {(() => {
                             const prog = bidirProgress[device.deviceId];
                             const pos = bidirPosition[device.deviceId]; // 현재 열림 위치 (0~100%)

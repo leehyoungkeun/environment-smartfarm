@@ -82,66 +82,73 @@ if (_command === 'schedule-off' || _command === 'schedule-off-cancel') {
 
     // setTimeout — 만료 시 OFF 모드버스 페이로드 직접 송출
     const timerId = setTimeout(function () {
-        node.warn(`⏰ 예약 만료 → OFF: ${key}`);
+        try {
+            node.warn(`⏰ 예약 만료 → OFF: ${key}`);
 
-        const moduleType = savedModbus.moduleType || 'waveshare';
-        const unitId = savedModbus.unitId || 1;
-        const address = savedModbus.address;
-        const address2 = savedModbus.address2;
-        const controlType = savedModbus.controlType || 'single';
+            const moduleType = savedModbus.moduleType || 'waveshare';
+            const unitId = savedModbus.unitId || 1;
+            const address = savedModbus.address;
+            const address2 = savedModbus.address2;
+            const controlType = savedModbus.controlType || 'single';
 
-        let offPayload;
-        if (moduleType === 'eletechsup') {
-            // FC06: bidir 양쪽 0x0200, single 0x0200
-            offPayload = { fc: 6, unitid: unitId, address: address, quantity: 1, value: 0x0200 };
-        } else {
-            // Waveshare FC15
-            if (controlType === 'bidir') {
-                offPayload = { fc: 15, unitid: unitId, address: address, quantity: 2, value: [false, false] };
+            let offPayload;
+            if (moduleType === 'eletechsup') {
+                offPayload = { fc: 6, unitid: unitId, address: address, quantity: 1, value: 0x0200 };
             } else {
-                offPayload = { fc: 15, unitid: unitId, address: address, quantity: 1, value: [false] };
+                if (controlType === 'bidir') {
+                    offPayload = { fc: 15, unitid: unitId, address: address, quantity: 2, value: [false, false] };
+                } else {
+                    offPayload = { fc: 15, unitid: unitId, address: address, quantity: 1, value: [false] };
+                }
             }
+
+            // ─────── 시도 A: 새 메시지 직접 생성 (cloneMessage 없이) ───────
+            // 기존 setTimeout 콜백에서 cloneMessage(baseMsg) → node.send 한 것이 modbus-flex-write 에
+            // 도달 못 했음. 가설: 어떤 잔재 필드 충돌. 단순 새 객체로 시도.
+            const offMsg = {
+                topic: baseMsg.topic || `smartfarm/${_houseId}/${_deviceId}/control`,
+                payload: offPayload,
+                _isLastWrite: true,
+                _requestId: offReqId,
+                control: {
+                    houseId: _houseId,
+                    deviceId: _deviceId,
+                    command: 'off',
+                    operator: 'schedule_off_timer',
+                    requestId: offReqId,
+                    timestamp: new Date().toISOString(),
+                    modbus: savedModbus,
+                },
+            };
+
+            // DEBUG: offMsg 구조 확인 + node.send 호출 전후 로그
+            node.warn(`[DBG schedule-off] offMsg.payload=${JSON.stringify(offPayload)} topic=${offMsg.topic}`);
+
+            global.set('_pendingModbus', { requestId: offReqId, isLastWrite: true });
+            node.send(offMsg);
+            node.warn(`[DBG schedule-off] node.send() 완료 — Modbus 도달 대기`);
+
+            node.status({ fill: 'blue', shape: 'dot', text: `예약 OFF 실행 ${key}` });
+
+            // deviceStates 업데이트 — frontend polling 이 받는 상태 동기화
+            const dStates = global.get('deviceStates') || {};
+            if (controlType === 'bidir') {
+                dStates[_deviceId] = 'closed';
+                const dPositions = global.get('devicePositions') || {};
+                dPositions[_deviceId] = 0;
+                global.set('devicePositions', dPositions);
+            } else {
+                dStates[_deviceId] = 'off';
+            }
+            global.set('deviceStates', dStates);
+
+            // global cleanup
+            const s = global.get('scheduledOff') || {};
+            delete s[key];
+            global.set('scheduledOff', s);
+        } catch (e) {
+            node.error(`❌ schedule-off setTimeout 콜백 에러: ${e.message}\n${e.stack}`);
         }
-
-        // clone baseMsg → payload 만 OFF 로 교체 (topic 보존, _msgid 는 새로)
-        // _msgid 가 baseMsg 와 같으면 NR runtime 이 중복 메시지로 인식하여 downstream 으로 안 흐를 수 있음
-        const offMsg = RED.util.cloneMessage(baseMsg);
-        offMsg._msgid = RED.util.generateId();  // 새 ID 강제 생성 — modbus-flex-write 정상 인식
-        offMsg.payload = offPayload;
-        offMsg._isLastWrite = true;
-        offMsg._requestId = offReqId;
-        offMsg.control = {
-            houseId: _houseId,
-            deviceId: _deviceId,
-            command: 'off',
-            operator: 'schedule_off_timer',
-            requestId: offReqId,
-            timestamp: new Date().toISOString(),
-            modbus: savedModbus,
-        };
-
-        global.set('_pendingModbus', { requestId: offReqId, isLastWrite: true });
-        node.send(offMsg);
-        node.status({ fill: 'blue', shape: 'dot', text: `예약 OFF 실행 ${key}` });
-
-        // deviceStates 업데이트 — frontend polling 이 받는 상태 동기화
-        // (기존 '제어 실행 (릴레이)' 의 saveDeviceState 로직 미러)
-        const dStates = global.get('deviceStates') || {};
-        if (controlType === 'bidir') {
-            dStates[_deviceId] = 'closed';
-            // bidir 의 경우 devicePositions 도 0% 로 (완전 닫힘)
-            const dPositions = global.get('devicePositions') || {};
-            dPositions[_deviceId] = 0;
-            global.set('devicePositions', dPositions);
-        } else {
-            dStates[_deviceId] = 'off';
-        }
-        global.set('deviceStates', dStates);
-
-        // global cleanup
-        const s = global.get('scheduledOff') || {};
-        delete s[key];
-        global.set('scheduledOff', s);
     }, delaySec * 1000);
 
     sched[key] = {

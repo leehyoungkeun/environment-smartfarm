@@ -145,13 +145,13 @@ const ControlPage = ({ farmId, isTouchPanel = false }) => {
   }
 
   return (
-    <div className={`max-w-7xl mx-auto px-4 md:px-6 ${isTouchPanel ? 'py-2' : 'py-4 md:py-6'}`}>
+    <div className={`max-w-7xl mx-auto px-4 md:px-6 ${isTouchPanel ? 'py-2' : 'py-4 md:py-6'} space-y-5`}>
       {/* 하우스 선택 */}
       {isTouchPanel ? (
         <div style={{
-          background: 'linear-gradient(135deg, #1e40af 0%, #3b82f6 100%)',
+          background: 'linear-gradient(135deg, #c2410c 0%, #f97316 100%)',
           borderRadius: 12, padding: '4px 10px',
-          boxShadow: '0 2px 12px rgba(30,64,175,0.2)',
+          boxShadow: '0 2px 12px rgba(194,65,12,0.2)',
           marginBottom: 8,
         }}>
           <HouseTabScroller
@@ -162,14 +162,24 @@ const ControlPage = ({ farmId, isTouchPanel = false }) => {
           />
         </div>
       ) : (
-        <div className="mb-5">
-          <HouseTabScroller
-            houses={config.houses.map(h => ({ ...h, name: h.houseName || h.name }))}
-            selectedHouse={selectedHouse?.houseId}
-            onSelect={(id) => setSelectedHouse(config.houses.find(h => h.houseId === id))}
-            headerState="control"
-            theme="light"
-          />
+        <div className="animate-fade-in-up" style={{
+          background: 'linear-gradient(135deg, #c2410c 0%, #f97316 100%)',
+          borderRadius: 18, padding: '20px 24px',
+          boxShadow: '0 4px 20px rgba(194,65,12,0.25)',
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <h1 style={{ fontSize: 24, fontWeight: 900, color: '#fff', letterSpacing: '-0.02em', margin: 0 }}>
+              환경제어
+            </h1>
+          </div>
+          <div style={{ marginTop: 16 }}>
+            <HouseTabScroller
+              houses={config.houses.map(h => ({ ...h, name: h.houseName || h.name }))}
+              selectedHouse={selectedHouse?.houseId}
+              onSelect={(id) => setSelectedHouse(config.houses.find(h => h.houseId === id))}
+              headerState="control"
+            />
+          </div>
         </div>
       )}
 

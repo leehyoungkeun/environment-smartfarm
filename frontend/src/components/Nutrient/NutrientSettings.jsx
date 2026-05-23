@@ -203,32 +203,34 @@ const TanksEditor = ({ tanks: initial, onSave }) => {
       <div className="grid grid-cols-1 md:grid-cols-2 gap-2 mb-3">
         {tanks.map((t, i) => (
           <div key={i} style={{ padding: 10, background: '#f8fafc', borderRadius: 10, border: '1px solid #e2e8f0' }}>
-            <div className="flex justify-between items-start mb-2">
-              <div className="flex items-center gap-2">
-                <span style={{
-                  width: 32, height: 32, borderRadius: 8, background: '#0891b2', color: '#fff',
-                  fontSize: 16, fontWeight: 800, display: 'flex', alignItems: 'center', justifyContent: 'center',
-                }}>{t.id}</span>
-                <input
-                  value={t.label}
-                  onChange={(e) => updateTank(i, { label: e.target.value })}
-                  placeholder="이름 입력"
-                  className="tank-label-input"
-                  title="클릭해서 이름 수정"
-                  style={{
-                    fontSize: 16, fontWeight: 700, color: '#0f172a',
-                    border: 'none',
-                    borderBottom: '1px dashed #cbd5e1',
-                    background: 'transparent',
-                    outline: 'none',
-                    flex: 1,
-                    padding: '2px 4px',
-                    cursor: 'text',
-                  }}
-                />
-                <span style={{ fontSize: 13, color: '#94a3b8', marginLeft: 2 }}>✏️</span>
-              </div>
-              <button onClick={() => removeTank(i)} style={{ color: '#94a3b8', background: 'none', border: 'none', cursor: 'pointer' }}>✕</button>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8, flexWrap: 'nowrap' }}>
+              <span style={{
+                width: 28, height: 28, borderRadius: 8, background: '#0891b2', color: '#fff',
+                fontSize: 14, fontWeight: 800, display: 'flex', alignItems: 'center', justifyContent: 'center',
+                flexShrink: 0,
+              }}>{t.id}</span>
+              <input
+                value={t.label}
+                onChange={(e) => updateTank(i, { label: e.target.value })}
+                placeholder="이름 입력"
+                className="tank-label-input"
+                title="클릭해서 이름 수정"
+                style={{
+                  fontSize: 15, fontWeight: 700, color: '#0f172a',
+                  border: 'none',
+                  borderBottom: '1px dashed #cbd5e1',
+                  background: 'transparent',
+                  outline: 'none',
+                  flex: 1, minWidth: 0,
+                  padding: '2px 4px',
+                  cursor: 'text',
+                }}
+              />
+              <span style={{ fontSize: 12, color: '#94a3b8', flexShrink: 0 }}>✏️</span>
+              <button onClick={() => removeTank(i)} style={{
+                color: '#94a3b8', background: 'none', border: 'none', cursor: 'pointer',
+                fontSize: 16, padding: '2px 4px', flexShrink: 0,
+              }}>✕</button>
             </div>
             <div className="grid grid-cols-3 gap-2 text-xs">
               <div>

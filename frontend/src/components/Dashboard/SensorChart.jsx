@@ -194,7 +194,7 @@ const SensorChart = ({ farmId, houseId, config, dataVersion }) => {
         </button>
       </div>
 
-      <div style={{padding:'16px'}}>
+      <div style={{padding:'12px 4px'}}>
         <div className="grid grid-cols-5 gap-1.5 mb-4">
           {TIME_RANGES.map(r => (
             <button key={r.value} onClick={() => setTimeRange(r.value)}
@@ -288,7 +288,7 @@ const ChartContent = React.memo(({ chartData, selectedSensors, getSensorInfo, ti
   return (
     <>
       <ResponsiveContainer width="100%" height={Math.min(400, Math.max(250, window.innerHeight * 0.42))}>
-        <LineChart data={chartData} margin={{ left: -15, right: -15, top: 5, bottom: 0 }}>
+        <LineChart data={chartData} margin={{ left: 0, right: 0, top: 5, bottom: 0 }}>
           <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
           <XAxis
             dataKey="timestamp"

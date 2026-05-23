@@ -76,6 +76,10 @@ if (_command === 'schedule-off' || _command === 'schedule-off-cancel') {
     const atMs = Date.now() + delaySec * 1000;
     const offReqId = `sched-${Date.now()}-${Math.random().toString(36).slice(2,8)}`;
 
+    // 예약 등록 시점에 msg 전체 clone — setTimeout 콜백이 호출될 때 원본 msg 가 GC 되어
+    // topic/_msgid 등 필드 잃는 것 방지. modbus-flex-write 가 정상 인식하려면 필요.
+    const baseMsg = RED.util.cloneMessage(msg);
+
     // setTimeout — 만료 시 OFF 모드버스 페이로드 직접 송출
     const timerId = setTimeout(function () {
         node.warn(`⏰ 예약 만료 → OFF: ${key}`);
@@ -99,21 +103,23 @@ if (_command === 'schedule-off' || _command === 'schedule-off-cancel') {
             }
         }
 
+        // clone baseMsg → payload 만 OFF 로 교체 (topic / _msgid 등 보존)
+        const offMsg = RED.util.cloneMessage(baseMsg);
+        offMsg.payload = offPayload;
+        offMsg._isLastWrite = true;
+        offMsg._requestId = offReqId;
+        offMsg.control = {
+            houseId: _houseId,
+            deviceId: _deviceId,
+            command: 'off',
+            operator: 'schedule_off_timer',
+            requestId: offReqId,
+            timestamp: new Date().toISOString(),
+            modbus: savedModbus,
+        };
+
         global.set('_pendingModbus', { requestId: offReqId, isLastWrite: true });
-        node.send({
-            payload: offPayload,
-            _isLastWrite: true,
-            _requestId: offReqId,
-            control: {
-                houseId: _houseId,
-                deviceId: _deviceId,
-                command: 'off',
-                operator: 'schedule_off_timer',
-                requestId: offReqId,
-                timestamp: new Date().toISOString(),
-                modbus: savedModbus,
-            },
-        });
+        node.send(offMsg);
         node.status({ fill: 'blue', shape: 'dot', text: `예약 OFF 실행 ${key}` });
 
         // global cleanup

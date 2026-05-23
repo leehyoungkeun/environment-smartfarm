@@ -346,26 +346,26 @@ function AppContent() {
   const navGrid = (() => {
     if (farmLocal) return null; // farmLocal 만 1줄 레이아웃 (트랩 21: cloud 키오스크는 정상 2줄)
     if (isStaff) {
-      // 회사직원: 5열, row1=nav앞5개, row2=나머지nav+알림+관리자
-      const row1 = navItems.slice(0, 5);
+      // 회사직원: 6열, row1=nav앞6개, row2=나머지nav+알림+관리자
+      const row1 = navItems.slice(0, 6);
       const row2 = [
-        ...navItems.slice(5),
+        ...navItems.slice(6),
+        { id: '__alert__', type: 'alert' },
+        { id: '__user__', type: 'user' },
+      ];
+      return { row1, row2, columns: 6 };
+    } else {
+      // 농장사람: 5열, row1=로고+nav앞4개, row2=나머지nav+알림+관리자
+      const row1 = [
+        { id: '__logo__', type: 'logo' },
+        ...navItems.slice(0, 4),
+      ];
+      const row2 = [
+        ...navItems.slice(4),
         { id: '__alert__', type: 'alert' },
         { id: '__user__', type: 'user' },
       ];
       return { row1, row2, columns: 5 };
-    } else {
-      // 농장사람: 4열, row1=로고+nav앞3개, row2=나머지nav+알림+관리자
-      const row1 = [
-        { id: '__logo__', type: 'logo' },
-        ...navItems.slice(0, 3),
-      ];
-      const row2 = [
-        ...navItems.slice(3),
-        { id: '__alert__', type: 'alert' },
-        { id: '__user__', type: 'user' },
-      ];
-      return { row1, row2, columns: 4 };
     }
   })();
 

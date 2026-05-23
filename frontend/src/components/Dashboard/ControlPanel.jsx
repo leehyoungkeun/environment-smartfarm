@@ -757,6 +757,38 @@ const ControlPanel = ({ farmId, houseId, houseConfig }) => {
       startRelayPolling();
     }
 
+    // WS push 의 coils → deviceStates 매핑 (UI 즉시 sync)
+    // 기존 fetchRelayStatus 내부의 동일 로직 — WS 핸들러도 같은 처리 필요
+    // 이 로직 없으면 NR-side schedule-off 만료 후 web 재진입 시 UI 가 stale ON 유지
+    const applyCoilsToDeviceStates = (coils, unitId) => {
+      setDeviceStates(prev => {
+        const updated = { ...prev };
+        devices.forEach(d => {
+          const m = d.modbus;
+          if (!m || m.address == null) return;
+          if (m.moduleType === 'eletechsup') return;  // FC03 불가
+          const uid = m.unitId || 1;
+          if (uid !== unitId) return;
+          if (prev[d.deviceId]?.commandLock) return;
+          const currentState = prev[d.deviceId]?.status;
+          if (['opening', 'closing', 'stopping', 'turning_on', 'turning_off'].includes(currentState)) return;
+          if (bidirProgressRef.current[d.deviceId]) return;
+
+          if (m.controlType === 'bidir') {
+            const ch1On = !!coils[m.address];
+            const ch2On = !!coils[m.address2];
+            const status = ch1On ? 'open' : ch2On ? 'closed' : 'idle';
+            updated[d.deviceId] = { ...updated[d.deviceId], status, relayVerified: true };
+          } else {
+            const chOn = !!coils[m.address];
+            const status = chOn ? 'on' : 'off';
+            updated[d.deviceId] = { ...updated[d.deviceId], status, relayVerified: true };
+          }
+        });
+        return updated;
+      });
+    };
+
     const unsubRelay = wsService.subscribe('relay:status', (msg) => {
       if (msg.data) {
         const coils = msg.data.coils || msg.data;
@@ -764,6 +796,7 @@ const ControlPanel = ({ farmId, houseId, houseConfig }) => {
           const unitId = msg.data.unitId || 1;
           relayCoilsRef.current = { ...relayCoilsRef.current, [unitId]: coils };
           setRelayOnline(true);
+          applyCoilsToDeviceStates(coils, unitId);
         }
       }
     });
@@ -775,6 +808,7 @@ const ControlPanel = ({ farmId, houseId, houseConfig }) => {
           const unitId = msg.data.unitId || 1;
           relayCoilsRef.current = { ...relayCoilsRef.current, [unitId]: coils };
           setRelayOnline(true);
+          applyCoilsToDeviceStates(coils, unitId);
           setRelayMessage({ type: 'ok', text: '릴레이 조회 완료 (WS)' });
           setTimeout(() => setRelayMessage(null), 3000);
         }

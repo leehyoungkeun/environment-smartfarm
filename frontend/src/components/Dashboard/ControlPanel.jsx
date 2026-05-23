@@ -79,6 +79,10 @@ const ControlPanel = ({ farmId, houseId, houseConfig }) => {
   bidirPositionRef.current = bidirPosition;
   const bidirProgressRef = useRef(bidirProgress);
   bidirProgressRef.current = bidirProgress;
+  // devices 도 ref 로 보유 — WS subscribe handler 의 stale closure 방지
+  // (useEffect deps 에 devices 미포함 → 비동기 로드된 devices 가 handler 클로저에 안 들어옴)
+  const devicesRef = useRef(devices);
+  devicesRef.current = devices;
   const [conflictWarning, setConflictWarning] = useState(null); // { conflicts: [...] }
   const [toast, setToast] = useState(null); // { message, kind: 'warn'|'info' }
 
@@ -759,11 +763,12 @@ const ControlPanel = ({ farmId, houseId, houseConfig }) => {
 
     // WS push 의 coils → deviceStates 매핑 (UI 즉시 sync)
     // 기존 fetchRelayStatus 내부의 동일 로직 — WS 핸들러도 같은 처리 필요
-    // 이 로직 없으면 NR-side schedule-off 만료 후 web 재진입 시 UI 가 stale ON 유지
+    // ★ devicesRef.current 사용 — useEffect closure 의 stale devices 회피
     const applyCoilsToDeviceStates = (coils, unitId) => {
+      const currentDevices = devicesRef.current || [];
       setDeviceStates(prev => {
         const updated = { ...prev };
-        devices.forEach(d => {
+        currentDevices.forEach(d => {
           const m = d.modbus;
           if (!m || m.address == null) return;
           if (m.moduleType === 'eletechsup') return;  // FC03 불가

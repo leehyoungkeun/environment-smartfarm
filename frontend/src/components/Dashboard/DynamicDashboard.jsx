@@ -534,20 +534,9 @@ const DynamicDashboard = ({ farmId, isTouchPanel = false }) => {
                 {isFarmLocal ? '팜로컬 운영' : isChecking ? `연결 확인 중 (${downElapsed}초)` : headerState === 'online' ? '서버 연결' : headerState === 'manual' ? '로컬 운영' : '연결 끊김'}
               </span>
             </div>
-            <p style={{color:'rgba(255,255,255,0.7)',fontSize:13,marginTop:4}}>
-              {isFarmLocal
-                ? '독립 운영 모드 · 로컬 센서 데이터'
-                : isChecking
-                  ? '서버 연결을 확인하고 있습니다...'
-                  : headerState === 'online'
-                    ? '실시간 센서 모니터링'
-                    : headerState === 'manual'
-                      ? '로컬 데이터로 운영 중 · 서버 복구 시 자동 동기화'
-                      : '서버 연결이 끊겼습니다 · 로컬 운영으로 전환하세요'}
-            </p>
           </div>
           <div style={{textAlign:'right'}}>
-            <div style={{display:'flex',alignItems:'center',gap:8,justifyContent:'flex-end',marginBottom:6}}>
+            <div style={{display:'flex',alignItems:'center',gap:8,justifyContent:'flex-end'}}>
               {!isFarmLocal && <button
                 onClick={() => setManualMode(!systemMode.manualOverride)}
                 style={{
@@ -564,16 +553,6 @@ const DynamicDashboard = ({ farmId, isTouchPanel = false }) => {
                 {systemMode.manualOverride ? '🔄 클라우드 전환' : '🔧 로컬 전환'}
               </button>}
             </div>
-            <div style={{color:'rgba(255,255,255,0.8)',fontSize:15,fontWeight:700}}>
-              {new Date().toLocaleDateString('ko-KR', { year:'numeric', month:'long', day:'numeric', weekday:'short' })}
-            </div>
-            {lastUpdated && (
-              <div style={{color:'rgba(255,255,255,0.65)',fontSize:14,fontWeight:600,marginTop:3,display:'flex',alignItems:'center',gap:6,justifyContent:'flex-end'}}>
-                <span style={{width:10,height:10,borderRadius:'50%',background: isChecking ? '#fbbf24' : headerState === 'online' ? '#4ade80' : headerState === 'manual' ? '#fbbf24' : '#fca5a5',display:'inline-block',animation:'pulse 2s infinite',boxShadow: isChecking ? '0 0 8px #fbbf24' : headerState === 'online' ? '0 0 8px #4ade80' : headerState === 'manual' ? '0 0 8px #fbbf24' : '0 0 8px #fca5a5',flexShrink:0}}/>
-                {lastUpdated.toLocaleTimeString('ko-KR')} 업데이트
-                {systemMode.manualOverride && <span style={{fontSize:12,opacity:0.8}}> (로컬)</span>}
-              </div>
-            )}
           </div>
         </div>
 

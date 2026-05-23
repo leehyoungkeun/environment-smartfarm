@@ -1836,70 +1836,134 @@ const CompactRow = ({ label, value, accent, live, alarm }) => (
   </div>
 );
 
-// 헤더 직하에 표시 — 현재 단계 + progress bar (모바일 가시성 우선)
+// Phase 별 SVG 아이콘 + 활성 시 phase 의미 애니메이션
+const PhaseIcon = ({ phaseKey, active, c, size = 14 }) => {
+  const anim = !active ? 'none'
+    : phaseKey === 'dosing'     ? 'ph-drop 1.4s ease-in infinite'
+    : phaseKey === 'mixing'     ? 'ph-spin 2s linear infinite'
+    : phaseKey === 'stabilize'  ? 'ph-breathe 1.8s ease-in-out infinite'
+    : phaseKey === 'irrigating' ? 'ph-wave 1.4s ease-in-out infinite'
+    : phaseKey === 'cleanup'    ? 'ph-sweep 1.6s linear infinite'
+    : 'none';
+  const style = { width: size, height: size, color: c, animation: anim, flexShrink: 0 };
+  switch (phaseKey) {
+    case 'dosing':
+      return (<svg viewBox="0 0 24 24" style={style} fill="currentColor"><path d="M12 3c-3 6-6 9-6 13a6 6 0 0012 0c0-4-3-7-6-13z"/></svg>);
+    case 'mixing':
+      return (<svg viewBox="0 0 24 24" style={style} fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round"><path d="M12 4a8 8 0 11-8 8"/><path d="M12 2l3 3-3 3"/></svg>);
+    case 'stabilize':
+      return (<svg viewBox="0 0 24 24" style={style} fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="3.5" fill="currentColor"/></svg>);
+    case 'irrigating':
+      return (<svg viewBox="0 0 24 24" style={style} fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M3 8c2 0 2 2 4 2s2-2 4-2 2 2 4 2 2-2 4-2"/><path d="M3 14c2 0 2 2 4 2s2-2 4-2 2 2 4 2 2-2 4-2"/></svg>);
+    case 'cleanup':
+      return (<svg viewBox="0 0 24 24" style={style} fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M20 12a8 8 0 11-2.3-5.6"/><path d="M20 4v5h-5"/></svg>);
+    default:
+      return null;
+  }
+};
+
+// 헤더 직하 — 5단계 segment bar + phase 별 아이콘·애니메이션 (모바일 가시성)
 const PhaseProgressBar = ({ phaseInfo, mode }) => {
   const cur = phaseInfo ? PHASE_PLAN.findIndex(p => p.key === phaseInfo.phaseKey) : -1;
   const phase = cur >= 0 ? PHASE_PLAN[cur] : null;
   const progress = phaseInfo?.progress ? Math.min(1, Math.max(0, phaseInfo.progress)) : 0;
 
-  // 모드별 표시 색·아이콘·메시지 (사이클 없을 때)
   const idle = (() => {
-    if (mode === 'emergency') return { c: T.danger, dot: T.danger, msg: '비상정지 — 모든 릴레이 OFF', pulse: 'sd-blink 0.7s infinite' };
-    if (mode === 'paused')    return { c: T.info,   dot: T.info,   msg: '일시정지 — 사이클 대기',         pulse: 'none' };
-    if (mode === 'direct')    return { c: '#7c3aed',dot: '#7c3aed',msg: '직접 제어 — 다이어그램 클릭으로 ON/OFF', pulse: 'none' };
-    if (mode === 'manual')    return { c: T.warn,   dot: T.warn,   msg: '수동 모드 — 큐에서 시작 대기',     pulse: 'none' };
-    return { c: T.acc, dot: T.fg4, msg: '사이클 대기 중', pulse: 'none' };
+    if (mode === 'emergency') return { c: T.danger, msg: '비상정지',       pulse: 'sd-blink 0.7s infinite' };
+    if (mode === 'paused')    return { c: T.info,   msg: '일시정지',       pulse: 'none' };
+    if (mode === 'direct')    return { c: '#7c3aed',msg: '직접 제어',      pulse: 'none' };
+    if (mode === 'manual')    return { c: T.warn,   msg: '수동 — 큐 대기', pulse: 'none' };
+    return { c: T.fg3, msg: '사이클 대기', pulse: 'none' };
   })();
-  const stripeColor = phase ? T.acc : idle.c;
 
   return (
     <section style={{
       marginTop: 10, marginBottom: 6,
       background: T.card, border: `1px solid ${T.bd}`, borderRadius: 10,
-      padding: '10px 14px',
-      position: 'relative', overflow: 'hidden',
+      padding: '10px 10px 8px',
     }}>
-      <div style={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: 3, background: stripeColor }} />
-      {phase ? (
-        <>
-          <div style={{
-            display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-            gap: 10, marginBottom: 8, flexWrap: 'wrap',
-          }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
-              <span style={{
-                fontFamily: MONO, fontSize: 11, fontWeight: 700, color: T.acc,
-                padding: '3px 9px', borderRadius: 999, background: T.accBg,
-                border: `1px solid ${T.acc}33`,
-                animation: 'sd-pulse 2s infinite',
-                whiteSpace: 'nowrap',
+      {/* 5단계 segment row — 활성 segment 는 expand + halo + stripe flow */}
+      <div style={{ display: 'flex', gap: 4, alignItems: 'stretch' }}>
+        {PHASE_PLAN.map((p, i) => {
+          const isPast = phase && cur > i;
+          const isCur  = phase && cur === i;
+          const isFut  = !phase || cur < i;
+          const segFill = isPast ? 1 : isCur ? progress : 0;
+          const c       = isPast ? T.ok : isCur ? T.acc : T.fg4;
+          const bgBase  = isPast ? '#dcfce7' : isCur ? T.accBg : '#f1f5f9';
+          const border  = isCur ? `1.5px solid ${T.acc}` : `1px solid ${T.hair}`;
+          return (
+            <div key={p.key} style={{
+              flex: isCur ? 1.5 : 1, position: 'relative',
+              borderRadius: 7, overflow: 'hidden',
+              background: bgBase, border,
+              transform: isCur ? 'scale(1.04)' : 'scale(1)', transformOrigin: 'center',
+              transition: 'flex 0.4s ease, transform 0.25s ease',
+              animation: isCur ? 'seg-halo 1.8s ease-in-out infinite' : 'none',
+              zIndex: isCur ? 2 : 1, minWidth: 0, minHeight: 40,
+            }}>
+              {/* 진행률 fill — 활성은 대각선 stripe flow, 과거는 solid */}
+              {segFill > 0 && (
+                <div style={{
+                  position: 'absolute', left: 0, top: 0, bottom: 0,
+                  width: `${segFill * 100}%`,
+                  background: isCur
+                    ? `repeating-linear-gradient(45deg, ${c}3a 0 6px, ${c}1a 6px 12px)`
+                    : c,
+                  opacity: isCur ? 1 : 0.3,
+                  transition: 'width 0.5s linear',
+                  animation: isCur ? 'seg-stripes 0.8s linear infinite' : 'none',
+                  backgroundSize: '24px 24px',
+                }} />
+              )}
+              {/* 라벨 + 아이콘 */}
+              <div style={{
+                position: 'relative', height: '100%', minHeight: 40,
+                display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5,
+                fontSize: isCur ? 12.5 : 11.5, fontWeight: isCur ? 800 : 600,
+                color: isFut ? T.fg3 : c,
+                letterSpacing: '0.02em', whiteSpace: 'nowrap',
+                padding: '0 6px', overflow: 'hidden',
               }}>
-                {String(cur + 1).padStart(2, '0')} / {String(PHASE_PLAN.length).padStart(2, '0')}
-              </span>
-              <span style={{ fontSize: 17, fontWeight: 800, color: T.fg, letterSpacing: '0.02em' }}>
-                {phase.label}
-              </span>
+                {isPast ? (
+                  <span style={{ fontSize: 12, color: T.ok }}>✓</span>
+                ) : (
+                  <PhaseIcon phaseKey={p.key} active={isCur} c={c} size={isCur ? 15 : 12} />
+                )}
+                <span>{p.short}</span>
+              </div>
             </div>
-            <div style={{ fontFamily: MONO, fontSize: 13, color: T.fg3, whiteSpace: 'nowrap' }}>
+          );
+        })}
+      </div>
+      {/* 하단 정보 — 진행 중: 단계 + % + 시간, 대기 중: 모드 메시지 */}
+      <div style={{
+        marginTop: 7, display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+        fontSize: 11.5, fontFamily: MONO, gap: 8, minHeight: 14,
+      }}>
+        {phase ? (
+          <>
+            <span style={{ color: T.acc, fontWeight: 700 }}>
+              {String(cur + 1).padStart(2, '0')}/{String(PHASE_PLAN.length).padStart(2, '0')} {phase.label}
+              <span style={{ color: T.fg4, marginLeft: 6 }}>· {Math.round(progress * 100)}%</span>
+            </span>
+            <span style={{ color: T.fg3 }}>
               {fmtMS(phaseInfo.elapsed)} <span style={{ color: T.fg4 }}>/</span> <span style={{ color: T.acc, fontWeight: 700 }}>−{fmtMS(phaseInfo.remaining)}</span>
-            </div>
-          </div>
-          <div style={{ height: 6, background: T.hair, borderRadius: 3, overflow: 'hidden' }}>
-            <div style={{
-              width: `${progress * 100}%`, height: '100%', background: T.acc,
-              transition: 'width 0.5s linear', borderRadius: 3,
-            }} />
-          </div>
-        </>
-      ) : (
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          <span style={{
-            width: 9, height: 9, borderRadius: 5, background: idle.dot,
-            animation: idle.pulse, flexShrink: 0,
-          }} />
-          <span style={{ fontSize: 14, fontWeight: 700, color: idle.c }}>{idle.msg}</span>
-        </div>
-      )}
+            </span>
+          </>
+        ) : (
+          <>
+            <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <span style={{
+                width: 7, height: 7, borderRadius: 4, background: idle.c,
+                animation: idle.pulse,
+              }} />
+              <span style={{ color: idle.c, fontWeight: 700 }}>{idle.msg}</span>
+            </span>
+            <span style={{ color: T.fg4 }}>—</span>
+          </>
+        )}
+      </div>
     </section>
   );
 };
@@ -2006,5 +2070,26 @@ const KEYFRAMES = `
     filter: drop-shadow(0 0 3px rgba(167,139,250,0.9));
     transform: scale(1.05);
   }
+}
+/* Phase-specific icon animations */
+@keyframes ph-drop {
+  0%   { transform: translateY(-2px); opacity: 0.4; }
+  20%  { transform: translateY(0);    opacity: 1; }
+  60%  { transform: translateY(2px);  opacity: 1; }
+  100% { transform: translateY(4px);  opacity: 0; }
+}
+@keyframes ph-spin     { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+@keyframes ph-breathe  { 0%, 100% { transform: scale(1); opacity: 1; } 50% { transform: scale(1.18); opacity: 0.6; } }
+@keyframes ph-wave     { 0%, 100% { transform: translateX(-2px); } 50% { transform: translateX(2px); } }
+@keyframes ph-sweep    { 0% { transform: rotate(0); } 100% { transform: rotate(-360deg); } }
+/* Active segment glow halo */
+@keyframes seg-halo {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(8,145,178,0.5), inset 0 0 0 1px rgba(8,145,178,0.6); }
+  50%      { box-shadow: 0 0 0 5px rgba(8,145,178,0), inset 0 0 0 1px rgba(8,145,178,0.9); }
+}
+/* Stripe flow on active fill */
+@keyframes seg-stripes {
+  0%   { background-position: 0 0; }
+  100% { background-position: 24px 0; }
 }
 `;

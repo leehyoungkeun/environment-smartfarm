@@ -149,9 +149,9 @@ const ControlPage = ({ farmId, isTouchPanel = false }) => {
       {/* 하우스 선택 */}
       {isTouchPanel ? (
         <div style={{
-          background: 'linear-gradient(135deg, #c2410c 0%, #f97316 100%)',
+          background: 'linear-gradient(135deg, #f97316 0%, #fb923c 100%)',
           borderRadius: 12, padding: '4px 10px',
-          boxShadow: '0 2px 12px rgba(194,65,12,0.2)',
+          boxShadow: '0 2px 12px rgba(249,115,22,0.2)',
           marginBottom: 8,
         }}>
           <HouseTabScroller
@@ -163,9 +163,9 @@ const ControlPage = ({ farmId, isTouchPanel = false }) => {
         </div>
       ) : (
         <div className="animate-fade-in-up" style={{
-          background: 'linear-gradient(135deg, #c2410c 0%, #f97316 100%)',
+          background: 'linear-gradient(135deg, #f97316 0%, #fb923c 100%)',
           borderRadius: 18, padding: '20px 24px',
-          boxShadow: '0 4px 20px rgba(194,65,12,0.25)',
+          boxShadow: '0 4px 20px rgba(249,115,22,0.25)',
         }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
             <h1 style={{ fontSize: 24, fontWeight: 900, color: '#fff', letterSpacing: '-0.02em', margin: 0 }}>

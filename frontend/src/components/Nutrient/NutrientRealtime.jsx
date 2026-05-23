@@ -751,10 +751,13 @@ const LiveStatsPanel = ({ ec, ph, ecTarget, phTarget, phaseInfo, mode, drain, en
 
 const StatSection = ({ title, kicker: kickerLabel, accent, children }) => (
   <div style={{
-    background: T.card, border: `1px solid ${T.bd}`, borderRadius: 10,
-    position: 'relative', overflow: 'hidden',
+    background: T.card,
+    border: `1px solid ${accent}55`,
+    borderLeft: `4px solid ${accent}`,
+    borderRadius: 10,
+    overflow: 'hidden',
+    boxShadow: `0 1px 3px ${accent}1f`,
   }}>
-    <div style={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: 3, background: accent }} />
     <div style={{
       padding: '10px 14px 8px 14px',
       borderBottom: `1px solid ${T.hair}`,
@@ -877,17 +880,21 @@ const BigStatCard = ({ label, value, unit, target, diff, diffFmt, valueColor, ac
   const valueFontSize = small ? 17 : 26;
   return (
     <div style={{
-      background: T.card, border: `1px solid ${T.bd}`, borderRadius: 10,
-      padding: '12px 14px', position: 'relative', overflow: 'hidden',
+      background: T.card,
+      border: `1px solid ${accent}55`,
+      borderLeft: `4px solid ${accent}`,
+      borderRadius: 10,
+      padding: '12px 14px',
+      overflow: 'hidden',
+      boxShadow: `0 1px 3px ${accent}1f`,
     }}>
-      <div style={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: 3, background: accent }} />
-      <div style={{ marginLeft: 4, display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 6 }}>
+      <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 6 }}>
         <div style={{ ...kicker, fontSize: 11 }}>{label}</div>
         {live && <span style={{ width: 7, height: 7, borderRadius: 3.5, background: T.ok,
           animation: 'sd-blink 1.2s infinite' }} />}
       </div>
       <div style={{
-        marginTop: 5, marginLeft: 4, fontFamily: mono || /^-?\d/.test(value) ? MONO : SANS,
+        marginTop: 5, fontFamily: mono || /^-?\d/.test(value) ? MONO : SANS,
         fontSize: valueFontSize, fontWeight: 600, color: valueColor || T.fg, lineHeight: 1.05,
         letterSpacing: '-0.015em', display: 'flex', alignItems: 'baseline', gap: 5,
       }}>
@@ -895,7 +902,7 @@ const BigStatCard = ({ label, value, unit, target, diff, diffFmt, valueColor, ac
         {unit && <span style={{ fontSize: 12, color: T.fg3, fontWeight: 500 }}>{unit}</span>}
       </div>
       {(diff !== null && diff !== undefined) || target ? (
-        <div style={{ marginTop: 6, marginLeft: 4, display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+        <div style={{ marginTop: 6, display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
           {diff !== null && diff !== undefined && (
             <span style={{ fontFamily: MONO, fontSize: 12, fontWeight: 600, color: diffColor,
               background: diffColor + '14', borderRadius: 4, padding: '2px 6px' }}>

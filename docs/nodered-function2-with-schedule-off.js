@@ -103,8 +103,10 @@ if (_command === 'schedule-off' || _command === 'schedule-off-cancel') {
             }
         }
 
-        // clone baseMsg → payload 만 OFF 로 교체 (topic / _msgid 등 보존)
+        // clone baseMsg → payload 만 OFF 로 교체 (topic 보존, _msgid 는 새로)
+        // _msgid 가 baseMsg 와 같으면 NR runtime 이 중복 메시지로 인식하여 downstream 으로 안 흐를 수 있음
         const offMsg = RED.util.cloneMessage(baseMsg);
+        offMsg._msgid = RED.util.generateId();  // 새 ID 강제 생성 — modbus-flex-write 정상 인식
         offMsg.payload = offPayload;
         offMsg._isLastWrite = true;
         offMsg._requestId = offReqId;

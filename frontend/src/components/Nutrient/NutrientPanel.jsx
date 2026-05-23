@@ -196,9 +196,7 @@ const SHORT_LABEL = {
 const ModeSegment = ({ mode, onChange, programNum, programName }) => (
   <div role="group" aria-label="운영 모드" style={{
     display: 'flex', flexWrap: 'wrap', justifyContent: 'center',
-    background: 'rgba(255,255,255,0.16)',
-    borderRadius: 20, padding: 4, gap: 4,
-    border: '1px solid rgba(255,255,255,0.3)',
+    gap: 6,
   }}>
     {Object.entries(MODES).map(([key, m]) => {
       const active = mode === key;

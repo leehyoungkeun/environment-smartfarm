@@ -165,17 +165,18 @@ const ScenarioCard = ({ scenario, index, isEditing, onEdit, onChange, onDelete, 
       background: '#fff', borderRadius: 12, border: s.active ? '2px solid #16a34a' : '1px solid #e2e8f0',
       overflow: 'hidden', transition: 'all 0.2s',
     }}>
-      {/* 카드 헤더 */}
-      <div style={{ padding: '12px 14px', display: 'flex', alignItems: 'center', gap: 12 }}>
+      {/* 카드 헤더 — 한 줄 유지 (모바일 좁은 화면 대응: 작은 gap + 컴팩트 요소) */}
+      <div style={{ padding: '10px 12px', display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'nowrap' }}>
         <span style={{
-          padding: '4px 10px', borderRadius: 12, fontSize: 13, fontWeight: 800,
+          padding: '3px 8px', borderRadius: 10, fontSize: 12, fontWeight: 800,
           background: s.active ? '#dcfce7' : '#f1f5f9', color: s.active ? '#15803d' : '#64748b',
+          flexShrink: 0,
         }}>{index}번</span>
         <input
           value={s.name}
           onChange={(e) => onChange({ name: e.target.value })}
           style={{
-            flex: 1, fontSize: 17, fontWeight: 800, color: '#0f172a',
+            flex: 1, minWidth: 0, fontSize: 16, fontWeight: 800, color: '#0f172a',
             border: 'none', background: 'transparent', outline: 'none',
           }}
         />
@@ -186,17 +187,17 @@ const ScenarioCard = ({ scenario, index, isEditing, onEdit, onChange, onDelete, 
         />
         {!s.active && s.enabled && (
           <button onClick={onActivate} style={{
-            background: '#0891b2', color: '#fff', border: 'none', padding: '6px 12px',
-            borderRadius: 8, fontSize: 13, fontWeight: 800, cursor: 'pointer',
-          }}>활성화</button>
+            background: '#0891b2', color: '#fff', border: 'none', padding: '4px 8px',
+            borderRadius: 6, fontSize: 12, fontWeight: 800, cursor: 'pointer', flexShrink: 0,
+          }}>활성</button>
         )}
         {s.active && (
           <span style={{
-            padding: '4px 10px', borderRadius: 12, fontSize: 13, fontWeight: 800,
-            background: '#16a34a', color: '#fff',
-          }}>● 사용 중</span>
+            padding: '3px 8px', borderRadius: 10, fontSize: 12, fontWeight: 800,
+            background: '#16a34a', color: '#fff', flexShrink: 0, whiteSpace: 'nowrap',
+          }}>● 사용중</span>
         )}
-        <button onClick={onEdit} style={iconBtn}>{isEditing ? '⌃' : '⌄'}</button>
+        <button onClick={onEdit} style={{ ...iconBtn, width: 24, height: 24, fontSize: 14, flexShrink: 0 }}>{isEditing ? '⌃' : '⌄'}</button>
       </div>
 
       {/* 요약 정보 */}

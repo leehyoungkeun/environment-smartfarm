@@ -174,12 +174,6 @@ export default function NutrientRealtime({ farmId, mode, onModeChange }) {
   const isEmergency = mode === 'emergency', isPaused = mode === 'paused', isManual = mode === 'manual';
   const dataReady = state !== null && config !== null;
 
-  const handleMode = (newMode) => {
-    if (newMode === mode) return;
-    // confirm 다이얼로그는 Panel.handleModeChange 에서 단일 처리 (중복 방지)
-    onModeChange?.(newMode);
-  };
-
   // 수동 모드 벗어나면 선택·입력 reset
   useEffect(() => {
     if (mode !== 'manual') {
@@ -350,20 +344,8 @@ export default function NutrientRealtime({ farmId, mode, onModeChange }) {
       position: 'relative',
       fontFeatureSettings: '"tnum", "cv11"',
     }}>
-      <header style={{
-        display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between',
-        flexWrap: 'wrap', gap: 16, paddingBottom: 14, borderBottom: `1px solid ${T.hair}`, marginBottom: 16,
-      }}>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 8, minWidth: 360, flex: '1 1 360px' }}>
-          <div style={{
-            fontSize: 24, fontWeight: 600, color: T.fg, letterSpacing: '-0.01em',
-          }}>실시간 운영</div>
-        </div>
-        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 10 }}>
-          <ModeSegment mode={mode} onChange={handleMode}
-            programNum={activeProgramNum} programName={activeProgramName} />
-        </div>
-      </header>
+      {/* 헤더 (실시간 운영 + ModeSegment) 삭제 — NutrientPanel 의 HydroControl 헤더 +
+          ModeSelector 와 중복. 모드 전환은 상단 ModeSelector 에서. */}
 
       {/* 현재 단계 + progress bar — 헤더 직하 (모바일 가시성).
           manual+runningJob 은 ManualRunningCard 가 phaseInfo 표시 → 중복 회피
@@ -574,51 +556,6 @@ const PhaseInline = ({ phaseInfo, mode }) => {
     </span>
   );
 };
-
-const ModeSegment = ({ mode, onChange, programNum, programName }) => (
-  <div role="group" aria-label="운영 모드" style={{
-    display: 'inline-flex', background: T.card, borderRadius: 10,
-    border: `1px solid ${T.bd}`, overflow: 'hidden',
-    boxShadow: '0 1px 0 rgba(11,18,32,0.02)',
-  }}>
-    {Object.entries(MODES).map(([key, m], i) => {
-      const active = mode === key;
-      const isEmer = key === 'emergency';
-      const isAuto = key === 'auto';
-      const Icon = MODE_ICON[key];
-      const activeBg = isEmer ? '#fef2f2' : key === 'auto' ? '#f0fdf4' : key === 'manual' ? '#fffbeb' : '#eff6ff';
-      return (
-        <button key={key} onClick={() => onChange(key)}
-          title={isAuto && programName ? `P-${String(programNum).padStart(2, '0')} · ${programName}` : m.long}
-          style={{
-            display: 'flex', alignItems: 'center', gap: 6, padding: '8px 11px',
-            background: active ? activeBg : 'transparent', color: active ? m.c : T.fg2,
-            border: 'none', cursor: 'pointer',
-            borderLeft: i > 0 ? `1px solid ${T.bd}` : 'none',
-            fontFamily: SANS, fontSize: 13, fontWeight: 600,
-            transition: 'background 0.12s, color 0.12s, box-shadow 0.12s', position: 'relative',
-            boxShadow: active ? `inset 0 0 0 1px ${m.c}30, 0 0 14px ${m.c}33` : 'none',
-          }}>
-          {isAuto && programNum != null && (
-            <span style={{
-              fontFamily: MONO, fontSize: 10.5, fontWeight: 700,
-              padding: '2px 6px', borderRadius: 4, letterSpacing: '0.04em',
-              background: active ? m.c + '1f' : T.hair,
-              color: active ? m.c : T.fg2,
-            }}>P-{String(programNum).padStart(2, '0')}</span>
-          )}
-          <span style={{
-            display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-            width: 14, height: 14, color: active ? m.c : T.fg3,
-            animation: active && isEmer ? 'sd-pulse 0.9s infinite' : 'none',
-          }}><Icon s={12} /></span>
-          <span>{m.label}</span>
-          {active && <span style={{ position: 'absolute', left: 0, right: 0, bottom: 0, height: 2, background: m.c }} />}
-        </button>
-      );
-    })}
-  </div>
-);
 
 const KpiRow = ({ ec, ph, ecTarget, phTarget, phaseInfo, activeValveIdx,
                   valveCount, tankCount, lowTankCount, alertCount }) => {

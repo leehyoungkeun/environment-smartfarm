@@ -139,6 +139,7 @@ def lambda_handler(event, context):
     request_id = body.get('request_id', f"req-{int(datetime.datetime.now().timestamp())}")
     modbus = body.get('modbus', None)
     duration = body.get('duration', 0)
+    delay_sec = body.get('delay_sec', 0)  # 자동 OFF 예약 시간 (초) — schedule-off 명령용
 
     # ========================================
     # IoT 메시지 발행
@@ -157,6 +158,8 @@ def lambda_handler(event, context):
 
     if modbus is not None:
         control_msg["modbus"] = modbus
+    if delay_sec and delay_sec > 0:
+        control_msg["delay_sec"] = delay_sec
 
     print(f"Publishing to topic: {topic}")
     print(f"Message: {json.dumps(control_msg)}")

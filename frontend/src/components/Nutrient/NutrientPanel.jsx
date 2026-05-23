@@ -100,8 +100,8 @@ export default function NutrientPanel({ farmId }) {
         <div className="flex items-center gap-3">
           <span style={{ fontSize: 24 }}>💧</span>
           <div>
-            <h2 style={{ color: '#fff', fontSize: 20, fontWeight: 800, margin: 0 }}>HydroControl</h2>
-            <p style={{ color: '#cffafe', fontSize: 13, margin: '2px 0 0' }}>양액 자동 공급 시스템</p>
+            <h2 style={{ color: '#fff', fontSize: 20, fontWeight: 800, margin: 0 }}>양액 자동 공급</h2>
+            <p style={{ color: '#cffafe', fontSize: 13, margin: '2px 0 0' }}>실시간 모니터링 · 자동 제어</p>
           </div>
         </div>
         <ModeSegment mode={mode} onChange={handleModeChange}

@@ -535,12 +535,14 @@ const DynamicDashboard = ({ farmId, isTouchPanel = false }) => {
         </div>
 
         {/* 하우스 선택 탭 - 스크롤 가능 */}
-        <HouseTabScroller
-          houses={config.houses}
-          selectedHouse={selectedHouse}
-          onSelect={setSelectedHouse}
-          headerState={headerState}
-        />
+        <div style={{ marginTop: 16 }}>
+          <HouseTabScroller
+            houses={config.houses}
+            selectedHouse={selectedHouse}
+            onSelect={setSelectedHouse}
+            headerState={headerState}
+          />
+        </div>
       </div>
       )}
 

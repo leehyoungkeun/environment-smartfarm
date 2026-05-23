@@ -511,28 +511,6 @@ const DynamicDashboard = ({ farmId, isTouchPanel = false }) => {
               <h1 style={{fontSize:24,fontWeight:900,color:'#fff',letterSpacing:'-0.02em'}}>
                 대시보드
               </h1>
-              <span style={{
-                fontSize:12,fontWeight:800,
-                color:'#fff',
-                background: isChecking
-                  ? 'rgba(251,191,36,0.3)' : headerState === 'online'
-                    ? 'rgba(74,222,128,0.25)' : headerState === 'manual'
-                      ? 'rgba(255,255,255,0.2)' : 'rgba(255,100,100,0.3)',
-                padding:'4px 12px',borderRadius:8,
-                border:'1px solid rgba(255,255,255,0.3)',
-                display:'flex',alignItems:'center',gap:6
-              }}>
-                <span style={{
-                  width:8,height:8,borderRadius:'50%',display:'inline-block',
-                  background: isChecking ? '#fbbf24' : headerState === 'online' ? '#4ade80' : headerState === 'manual' ? '#fbbf24' : '#fca5a5',
-                  boxShadow: isChecking
-                    ? '0 0 6px #fbbf24' : headerState === 'online'
-                      ? '0 0 6px #4ade80' : headerState === 'manual'
-                        ? '0 0 6px #fbbf24' : '0 0 6px #fca5a5',
-                  animation: 'pulse 2s infinite'
-                }}/>
-                {isFarmLocal ? '팜로컬 운영' : isChecking ? `연결 확인 중 (${downElapsed}초)` : headerState === 'online' ? '서버 연결' : headerState === 'manual' ? '로컬 운영' : '연결 끊김'}
-              </span>
             </div>
           </div>
           <div style={{textAlign:'right'}}>

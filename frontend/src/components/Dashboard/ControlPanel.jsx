@@ -746,8 +746,9 @@ const ControlPanel = ({ farmId, houseId, houseConfig }) => {
     const apiBase = getApiBase();
     if (token && apiBase) {
       wsService.connect(apiBase, token);
-      // WS 연결 후 MQTT로 릴레이 조회
-      setTimeout(() => wsService.requestRelayStatus(farmId), 1500);
+      // WS 연결 후 MQTT 로 릴레이 조회 — 빠르게 (1500 → 300ms)
+      // 이유: schedule-off NR-side 만료 후 web 재진입 시 localStorage stale 'on' 표시 최소화
+      setTimeout(() => wsService.requestRelayStatus(farmId), 300);
     }
 
     // WS 미연결 시에만 HTTP 폴링 (로컬 모드)

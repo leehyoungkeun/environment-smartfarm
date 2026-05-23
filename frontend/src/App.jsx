@@ -164,7 +164,7 @@ const ControlPage = ({ farmId, isTouchPanel = false }) => {
       ) : (
         <div className="animate-fade-in-up" style={{
           background: 'linear-gradient(135deg, #059669 0%, #10b981 100%)',
-          borderRadius: 18, padding: '20px 24px',
+          borderRadius: 18, padding: '18px 12px',
           boxShadow: '0 4px 20px rgba(5,150,105,0.25)',
         }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>

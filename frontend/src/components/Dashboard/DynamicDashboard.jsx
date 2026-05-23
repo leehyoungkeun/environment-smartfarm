@@ -121,7 +121,7 @@ const HouseTabScroller = ({ houses, selectedHouse, onSelect, headerState, theme 
   });
 
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: theme === 'light' ? 16 : 0 }}>
+    <div style={{ display: 'flex', alignItems: 'center', gap: 2, marginTop: theme === 'light' ? 16 : 0 }}>
       <div onClick={() => scroll(-1)} style={chevronBox(canScrollLeft)}>
         <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
       </div>
@@ -495,7 +495,7 @@ const DynamicDashboard = ({ farmId, isTouchPanel = false }) => {
             : headerState === 'manual'
               ? 'linear-gradient(135deg, #b45309 0%, #d97706 100%)'
               : 'linear-gradient(135deg, #991b1b 0%, #dc2626 100%)',
-        borderRadius:18,padding:'20px 24px',
+        borderRadius:18,padding:'18px 12px',
         boxShadow: headerState === 'farm-local'
           ? '0 4px 20px rgba(5,150,105,0.25)'
           : headerState === 'online'

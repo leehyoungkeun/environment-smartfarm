@@ -1579,7 +1579,7 @@ const ControlPanel = ({ farmId, houseId, houseConfig }) => {
               </span>
             </div>
 
-            <div style={{padding:'16px'}}>
+            <div style={{padding:'12px 10px'}}>
               {/* 개별 장치 제어 (위) */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 {devicesInGroup.map(device => {
@@ -1812,7 +1812,7 @@ const ControlPanel = ({ farmId, houseId, houseConfig }) => {
                           </button>
                         </div>
                       ) : (
-                        <div className="grid grid-cols-3 gap-2">
+                        <div className="grid grid-cols-3 gap-1.5">
                           {(() => {
                             const prog = bidirProgress[device.deviceId];
                             const pos = bidirPosition[device.deviceId]; // 현재 열림 위치 (0~100%)

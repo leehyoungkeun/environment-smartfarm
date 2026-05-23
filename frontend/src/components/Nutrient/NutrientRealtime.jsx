@@ -1660,8 +1660,9 @@ const Schematic = ({ tanks, valves, ec, ph, mode,
             <g key={v.id ?? i}
                style={interactive ? {
                  cursor: 'pointer',
-                 // direct 모드 + OFF 일 때만 미세 펄스 (자체 center 기준 scale)
-                 animation: (isDirect && !directOn) ? 'sd-direct-hint 1.8s ease-in-out infinite' : 'none',
+                 // 선택 후 펄스 — direct ON (보라) 또는 manual selected (청록) 일 때만.
+                 // 선택 전 OFF 는 정적 (주의 분산 방지).
+                 animation: (directOn || selected) ? 'sd-direct-hint 1.8s ease-in-out infinite' : 'none',
                  transformOrigin: `${cx}px ${valveY + 12}px`,
                  transformBox: 'view-box',
                } : undefined}

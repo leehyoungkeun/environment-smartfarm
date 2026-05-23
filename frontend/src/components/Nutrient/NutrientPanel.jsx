@@ -195,9 +195,9 @@ const SHORT_LABEL = {
 // 5모드 segmented control + 자동 모드일 때 P-NN chip 표시 (드롭다운 X, 한눈에 모두 보임)
 const ModeSegment = ({ mode, onChange, programNum, programName }) => (
   <div role="group" aria-label="운영 모드" style={{
-    display: 'inline-flex', flexWrap: 'wrap',
+    display: 'flex', flexWrap: 'wrap', justifyContent: 'center',
     background: 'rgba(255,255,255,0.16)',
-    borderRadius: 24, padding: 3, gap: 2,
+    borderRadius: 20, padding: 4, gap: 4,
     border: '1px solid rgba(255,255,255,0.3)',
   }}>
     {Object.entries(MODES).map(([key, m]) => {
@@ -209,18 +209,18 @@ const ModeSegment = ({ mode, onChange, programNum, programName }) => (
         <button key={key} onClick={() => onChange(key)}
           title={showProgram && programName ? `P-${String(programNum).padStart(2, '0')} · ${programName}` : m.label}
           style={{
-            display: 'flex', alignItems: 'center', gap: 5,
-            padding: '6px 11px', borderRadius: 22,
-            background: active ? m.bg : 'transparent',
+            display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5,
+            padding: '6px 12px', borderRadius: 16,
+            background: active ? m.bg : 'rgba(255,255,255,0.08)',
             color: active ? m.color : 'rgba(255,255,255,0.92)',
-            border: 'none', cursor: 'pointer',
+            border: active ? `1.5px solid ${m.color}33` : '1.5px solid rgba(255,255,255,0.28)',
+            cursor: 'pointer',
             fontSize: 13.5, fontWeight: 700, whiteSpace: 'nowrap',
-            transition: 'background 0.15s, color 0.15s, transform 0.15s',
-            boxShadow: active ? '0 2px 6px rgba(0,0,0,0.12)' : 'none',
-            transform: active ? 'scale(1)' : 'scale(1)',
+            transition: 'background 0.15s, color 0.15s, border-color 0.15s',
+            boxShadow: active ? '0 2px 6px rgba(0,0,0,0.15)' : 'none',
           }}
-          onMouseEnter={(e) => { if (!active) e.currentTarget.style.background = 'rgba(255,255,255,0.12)'; }}
-          onMouseLeave={(e) => { if (!active) e.currentTarget.style.background = 'transparent'; }}
+          onMouseEnter={(e) => { if (!active) e.currentTarget.style.background = 'rgba(255,255,255,0.18)'; }}
+          onMouseLeave={(e) => { if (!active) e.currentTarget.style.background = 'rgba(255,255,255,0.08)'; }}
           >
           {showProgram && (
             <span style={{

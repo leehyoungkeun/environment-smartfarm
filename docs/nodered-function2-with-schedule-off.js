@@ -122,6 +122,20 @@ if (_command === 'schedule-off' || _command === 'schedule-off-cancel') {
         node.send(offMsg);
         node.status({ fill: 'blue', shape: 'dot', text: `예약 OFF 실행 ${key}` });
 
+        // deviceStates 업데이트 — frontend polling 이 받는 상태 동기화
+        // (기존 '제어 실행 (릴레이)' 의 saveDeviceState 로직 미러)
+        const dStates = global.get('deviceStates') || {};
+        if (controlType === 'bidir') {
+            dStates[_deviceId] = 'closed';
+            // bidir 의 경우 devicePositions 도 0% 로 (완전 닫힘)
+            const dPositions = global.get('devicePositions') || {};
+            dPositions[_deviceId] = 0;
+            global.set('devicePositions', dPositions);
+        } else {
+            dStates[_deviceId] = 'off';
+        }
+        global.set('deviceStates', dStates);
+
         // global cleanup
         const s = global.get('scheduledOff') || {};
         delete s[key];

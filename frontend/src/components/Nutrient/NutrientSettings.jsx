@@ -177,7 +177,7 @@ const Section = ({ title, subtitle, open, onToggle, saving, children }) => (
                      transform: open ? 'rotate(180deg)' : '' }}>▾</span>
     </button>
     {open && (
-      <div style={{ padding: 16, borderTop: '1px solid #e2e8f0' }}>{children}</div>
+      <div style={{ padding: '12px 8px', borderTop: '1px solid #e2e8f0' }}>{children}</div>
     )}
   </div>
 );
@@ -503,21 +503,22 @@ const RelayChannelMap = ({ tanks, valveCount, hardware, onSaveHardware }) => {
         양액 도싱(8~13) 은 [도싱 탱크] 의 modbusReg, 밸브(16~29) 는 아래에서 직접 편집.
       </div>
 
-      {/* 32 channel grid */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(8, 1fr)', gap: 6 }}>
+      {/* 32 channel grid — 모바일 정확히 8열 fit (좌우 여백 최소화) */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(8, 1fr)', gap: 3 }}>
         {slots.map((s) => {
           const c = zoneColor[s.zone];
           return (
             <div key={s.ch} style={{
-              padding: '8px 6px', background: c.bg, border: `1px solid ${c.border}`,
-              borderRadius: 6, textAlign: 'center', minHeight: 64,
+              padding: '5px 2px', background: c.bg, border: `1px solid ${c.border}`,
+              borderRadius: 5, textAlign: 'center', minHeight: 54,
+              minWidth: 0, overflow: 'hidden',
             }}>
               <div style={{ fontFamily: 'ui-monospace, SF Mono, monospace',
-                            fontSize: 11, fontWeight: 700, color: c.fg, opacity: 0.7 }}>
+                            fontSize: 10, fontWeight: 700, color: c.fg, opacity: 0.7 }}>
                 CH{String(s.ch).padStart(2, '0')}
               </div>
-              <div style={{ fontSize: 11.5, fontWeight: 700, color: c.fg,
-                            marginTop: 3, lineHeight: 1.2 }}>
+              <div style={{ fontSize: 10.5, fontWeight: 700, color: c.fg,
+                            marginTop: 2, lineHeight: 1.15, wordBreak: 'keep-all' }}>
                 {s.label}
               </div>
             </div>

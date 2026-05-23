@@ -57,9 +57,6 @@ export default function NutrientPanel({ farmId }) {
     // 사용자 액션일 때만 emergency 확인 — 외부 자동 변경 (RPi GPIO 등) 은 confirm 우회
     if (!opts.external && newMode === 'emergency'
         && !window.confirm('비상정지하시겠습니까?\n모든 릴레이가 OFF 됩니다.')) return;
-    // 직접 제어 모드 — 각 펌프·밸브 raw 제어. 위험성 알림.
-    if (!opts.external && newMode === 'direct'
-        && !window.confirm('직접 제어 모드로 전환하시겠습니까?\n\n각 펌프·밸브를 클릭으로 직접 ON/OFF 가능합니다.\n켜진 릴레이는 5분 후 자동 OFF 됩니다.')) return;
     const prev = mode;
     setMode(newMode);
     if (opts.external) return;  // 외부 변경 통보 — API 호출 X

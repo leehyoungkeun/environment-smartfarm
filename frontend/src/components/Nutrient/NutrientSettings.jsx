@@ -35,6 +35,8 @@ const DEFAULT_HW = {
   rawTempTarget: 18, outsideTempTarget: 22,
   // 유량 표시 단위
   flowUnit: 'L',
+  // 직접 제어 자동 OFF (초). 0 = 자동 OFF 없음 (사용자 명시 종료까지 ON 유지)
+  directAutoOffSec: 0,
 };
 
 export default function NutrientSettings({ farmId }) {
@@ -607,6 +609,22 @@ const HardwareEditor = ({ hardware: initial, onSave }) => {
         </div>
         <NumIn label="원수 온도 기준 (°C)" value={hw.rawTempTarget ?? 18} onChange={(v) => setHw({ ...hw, rawTempTarget: v })} />
         <NumIn label="외부 온도 기준 (°C)" value={hw.outsideTempTarget ?? 22} onChange={(v) => setHw({ ...hw, outsideTempTarget: v })} />
+      </div>
+
+      {/* 직접 제어 자동 OFF — 0 = 비활성 (사용자 명시 종료까지 ON) */}
+      <div style={{ fontSize: 14, fontWeight: 800, color: '#0f172a', marginTop: 4 }}>⚙ 직접 제어 안전</div>
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        <div>
+          <div style={{ fontSize: 14, fontWeight: 700, color: '#475569', marginBottom: 4 }}>자동 OFF 시간 (초)</div>
+          <input type="number" min="0" step="10"
+            value={hw.directAutoOffSec ?? 0}
+            onChange={(e) => setHw({ ...hw, directAutoOffSec: Math.max(0, parseInt(e.target.value) || 0) })}
+            style={{ width: '100%', padding: '6px 10px', fontSize: 15, fontWeight: 700, color: '#0891b2',
+                     border: '1px solid #cbd5e1', borderRadius: 8, outline: 'none', background: '#fff' }} />
+          <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 3 }}>
+            0 = 자동 OFF 없음 (수동 종료까지 ON 유지)
+          </div>
+        </div>
       </div>
 
       <button onClick={() => onSave(hw)} disabled={!dirty} style={{

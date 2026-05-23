@@ -42,6 +42,8 @@ const DEFAULT_HARDWARE = {
   relayModule: 'Waveshare 32CH',
   mainPumpCh: 14, agitatorCh: 15, rawSolenoidCh: 30, spareCh: 31,
   valves: Array.from({ length: 14 }, (_, i) => ({ id: i + 1, name: `V${i + 1}`, ch: 16 + i })),
+  // direct 모드 자동 OFF (초). 0 = 비활성 (사용자가 명시적으로 끌 때까지 ON)
+  directAutoOffSec: 0,
 };
 
 async function getOrCreateConfig(farmId) {
@@ -608,18 +610,22 @@ router.post("/:farmId/direct/relay", async (req, res) => {
       return res.status(409).json({ success: false, error: "사이클 진행 중 — direct 제어 불가" });
     }
 
+    // 설정의 directAutoOffSec — 0 이면 자동 OFF 없음
+    const cfg = await getOrCreateConfig(farmId);
+    const autoOffSec = Number(cfg?.hardware?.directAutoOffSec ?? 0) || 0;
+
     // MQTT publish — RPi NR 즉시 dispatch
     try {
       const mqttService = (await import("../services/mqttClient.js")).default;
       if (!mqttService.isConnected?.()) {
         return res.status(503).json({ success: false, error: "MQTT 미연결" });
       }
-      mqttService.publishNutrientDirectRelay(farmId, channel, on);
+      mqttService.publishNutrientDirectRelay(farmId, channel, on, autoOffSec);
     } catch (e) {
       return res.status(500).json({ success: false, error: e.message });
     }
 
-    res.json({ success: true, data: { channel, on, publishedAt: new Date() } });
+    res.json({ success: true, data: { channel, on, autoOffSec, publishedAt: new Date() } });
   } catch (e) {
     logger.error("direct/relay:", e);
     res.status(400).json({ success: false, error: e.message });

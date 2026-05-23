@@ -1412,13 +1412,25 @@ const ControlPanel = ({ farmId, houseId, houseConfig }) => {
         <ScheduleOffPicker
           deviceId={pickerOpenFor}
           deviceName={Object.values(groupedDevices).flat().find(d => d.deviceId === pickerOpenFor)?.name}
-          onPick={(delaySec) => setScheduleForDevice(pickerOpenFor, delaySec)}
+          onPick={(delaySec) => {
+            // 낙관적 UI + localStorage (브라우저 백업 — 데스크탑 탭 열어둘 때만)
+            setScheduleForDevice(pickerOpenFor, delaySec);
+            // NR 에 schedule-off 명령 전송 (NR function 2 가 setTimeout 등록 →
+            //   브라우저 닫아도 핸드폰 잠궈도 NR 가 자체적으로 OFF 실행)
+            const device = Object.values(groupedDevices).flat().find(d => d.deviceId === pickerOpenFor);
+            if (device) {
+              sendControlCommand(controlHouseId, pickerOpenFor, 'schedule-off', 'web_dashboard', {
+                farmId, originalHouseId: houseId,
+                deviceType: device.type || 'unknown',
+                deviceName: device.name || pickerOpenFor,
+                modbus: device.modbus,
+                delaySec,
+              }).catch(err => console.warn('schedule-off NR 전송 실패 — localStorage 만 동작:', err));
+            }
+          }}
           onClose={() => setPickerOpenFor(null)}
         />
       )}
-      {/* NOTE: NR 측 schedule-off 핸들러 적용 전까지는 frontend localStorage 타이머만 사용.
-          NR 가 'schedule-off' 명령을 인식하지 못해 'off' 즉시 실행되는 버그 회피.
-          NR 패치 적용 후 (docs/nodered-schedule-off-function.js) 이 영역에 sendControlCommand 추가. */}
 
       <div className="flex gap-3 mb-4" style={{background:'#f8fafc',padding:'12px',borderRadius:16,border:'1px solid #e2e8f0'}}>
           <button onClick={confirmEmergencyStop}
@@ -1551,7 +1563,13 @@ const ControlPanel = ({ farmId, houseId, houseConfig }) => {
                             };
                             return isScheduled ? (
                               <button
-                                onClick={() => cancelScheduleOff(device.deviceId)}
+                                onClick={() => {
+                                  cancelScheduleOff(device.deviceId);
+                                  // NR 측 timer 도 취소
+                                  sendControlCommand(controlHouseId, device.deviceId, 'schedule-off-cancel', 'web_dashboard', {
+                                    farmId, originalHouseId: houseId,
+                                  }).catch(() => {});
+                                }}
                                 title={`예약 취소 — ${new Date(atMs).toLocaleTimeString('ko-KR', {hour12:false})} 자동 OFF`}
                                 style={{
                                   display:'flex',alignItems:'center',gap:5,

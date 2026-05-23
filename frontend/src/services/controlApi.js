@@ -35,7 +35,7 @@ export const sendControlCommand = async (houseId, deviceId, command, operator = 
   // 팜로컬 모드 → RPi 로컬 제어 직접 사용 (현장 터치패널, 인터넷 없음)
   if (mode.isFarmLocal) {
     console.log(`🎮 팜로컬 제어: ${houseId}/${deviceId} ${command.toUpperCase()}`);
-    const result = await sendLocalControl(houseId, deviceId, command, operator);
+    const result = await sendLocalControl(houseId, deviceId, command, operator, meta);
 
     // PC 서버 온라인이면 이력 저장 (비동기)
     if (result.success && mode.serverOnline) {
@@ -60,7 +60,7 @@ export const sendControlCommand = async (houseId, deviceId, command, operator = 
 
   if (!result.success) {
     console.log(`⚠️ AWS 제어 실패, 로컬 폴백 시도...`);
-    const localResult = await sendLocalControl(houseId, deviceId, command, operator);
+    const localResult = await sendLocalControl(houseId, deviceId, command, operator, meta);
     if (localResult.success) {
       localResult.fallback = true; // 폴백으로 성공했음을 표시
       saveControlLog({
@@ -118,6 +118,8 @@ const sendAwsControl = async (houseId, deviceId, command, operator, meta = {}) =
     timestamp,
     modbus: meta.modbus || null,
     duration: meta.duration || 0,
+    // 자동 OFF 예약 — schedule-off 명령일 때 NR 가 setTimeout 등록
+    ...(meta.delaySec ? { delay_sec: meta.delaySec } : {}),
   };
 
   if (!AWS_CONTROL_ENDPOINT) {
@@ -169,7 +171,7 @@ const sendAwsControl = async (houseId, deviceId, command, operator, meta = {}) =
 /**
  * RPi 로컬 REST API를 통한 직접 제어
  */
-const sendLocalControl = async (houseId, deviceId, command, operator) => {
+const sendLocalControl = async (houseId, deviceId, command, operator, meta = {}) => {
   const timestamp = new Date().toISOString();
 
   try {
@@ -179,6 +181,8 @@ const sendLocalControl = async (houseId, deviceId, command, operator) => {
       device_id: deviceId,
       command: command.toLowerCase(),
       operator: operator || 'local_dashboard',
+      // 자동 OFF 예약 — schedule-off 명령일 때 사용
+      ...(meta.delaySec ? { delay_sec: meta.delaySec } : {}),
     }, {
       timeout: 5000,
       headers: { 'Content-Type': 'application/json' },

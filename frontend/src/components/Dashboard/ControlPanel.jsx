@@ -1412,7 +1412,22 @@ const ControlPanel = ({ farmId, houseId, houseConfig }) => {
         <ScheduleOffPicker
           deviceId={pickerOpenFor}
           deviceName={Object.values(groupedDevices).flat().find(d => d.deviceId === pickerOpenFor)?.name}
-          onPick={(delaySec) => setScheduleForDevice(pickerOpenFor, delaySec)}
+          onPick={(delaySec) => {
+            // 낙관적 UI + localStorage (브라우저 백업, 데스크톱 동작 보장)
+            setScheduleForDevice(pickerOpenFor, delaySec);
+            // NR 에 schedule-off 명령 전송 (NR 가 patched 됐다면 server-side timer 등록 →
+            // 모바일 앱 전환·화면 잠금·브라우저 종료에도 정확히 동작)
+            const device = Object.values(groupedDevices).flat().find(d => d.deviceId === pickerOpenFor);
+            if (device) {
+              sendControlCommand(controlHouseId, pickerOpenFor, 'schedule-off', 'web_dashboard', {
+                farmId, originalHouseId: houseId,
+                deviceType: device.type || 'unknown',
+                deviceName: device.name || pickerOpenFor,
+                modbus: device.modbus,
+                delaySec,
+              }).catch(err => console.warn('schedule-off NR 전송 실패 — localStorage 만 동작:', err));
+            }
+          }}
           onClose={() => setPickerOpenFor(null)}
         />
       )}
@@ -1548,7 +1563,12 @@ const ControlPanel = ({ farmId, houseId, houseConfig }) => {
                             };
                             return isScheduled ? (
                               <button
-                                onClick={() => cancelScheduleOff(device.deviceId)}
+                                onClick={() => {
+                                  cancelScheduleOff(device.deviceId);
+                                  sendControlCommand(controlHouseId, device.deviceId, 'schedule-off-cancel', 'web_dashboard', {
+                                    farmId, originalHouseId: houseId,
+                                  }).catch(() => {});
+                                }}
                                 title={`예약 취소 — ${new Date(atMs).toLocaleTimeString('ko-KR', {hour12:false})} 자동 OFF`}
                                 style={{
                                   display:'flex',alignItems:'center',gap:5,

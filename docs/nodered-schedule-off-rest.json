@@ -1,0 +1,44 @@
+[
+    {
+        "_comment": "자동 OFF 예약 상태 조회 REST endpoint — Frontend 가 polling 으로 UI 동기화",
+        "_install": "NR 에디터에서 import. http-in → function → http-response 3개 노드 추가.",
+        "_endpoint": "GET /api/schedule-off?farmId=...&houseId=...",
+        "_response": "{ success: true, data: [{ deviceId, atMs, houseId, scheduledBy }, ...] }"
+    },
+    {
+        "id": "schedoff_http_in",
+        "type": "http in",
+        "z": "REPLACE_WITH_TAB_ID",
+        "name": "GET /api/schedule-off",
+        "url": "/api/schedule-off",
+        "method": "get",
+        "upload": false,
+        "swaggerDoc": "",
+        "x": 110,
+        "y": 920,
+        "wires": [["schedoff_handler"]]
+    },
+    {
+        "id": "schedoff_handler",
+        "type": "function",
+        "z": "REPLACE_WITH_TAB_ID",
+        "name": "schedule-off list",
+        "func": "// query: ?farmId=farm_0001&houseId=house1 (optional 필터)\nconst farmIdFilter = msg.req.query.farmId;\nconst houseIdFilter = msg.req.query.houseId;\n\nconst sched = global.get('scheduledOff') || {};\nconst now = Date.now();\nconst list = [];\n\nfor (const key of Object.keys(sched)) {\n    const item = sched[key];\n    if (!item || item.atMs <= now) continue;  // 만료된 잔재 스킵\n    if (houseIdFilter && item.houseId !== houseIdFilter) continue;\n    list.push({\n        deviceId: item.deviceId,\n        houseId: item.houseId,\n        atMs: item.atMs,\n        remainSec: Math.max(0, Math.floor((item.atMs - now) / 1000)),\n        scheduledBy: item.scheduledBy || null,\n        scheduledAt: item.scheduledAt || null,\n    });\n}\n\nmsg.statusCode = 200;\nmsg.headers = { 'Content-Type': 'application/json' };\nmsg.payload = { success: true, data: list };\nreturn msg;",
+        "outputs": 1,
+        "noerr": 0,
+        "x": 320,
+        "y": 920,
+        "wires": [["schedoff_http_response"]]
+    },
+    {
+        "id": "schedoff_http_response",
+        "type": "http response",
+        "z": "REPLACE_WITH_TAB_ID",
+        "name": "",
+        "statusCode": "",
+        "headers": {},
+        "x": 540,
+        "y": 920,
+        "wires": []
+    }
+]

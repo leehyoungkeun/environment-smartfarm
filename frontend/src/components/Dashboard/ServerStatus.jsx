@@ -30,12 +30,17 @@ const ServerStatus = () => {
     const start = Date.now();
     try {
       // ping 요청으로 연결 확인 (Lambda에서 제어 실행 없이 pong 응답)
-      await axios.post(AWS_CONTROL_ENDPOINT, { command: 'ping' }, { timeout: 5000 });
+      // 보안: Lambda Authorizer 가 ping 도 검증 → Authorization 헤더 필요
+      const token = localStorage.getItem('accessToken');
+      await axios.post(AWS_CONTROL_ENDPOINT, { command: 'ping' }, {
+        timeout: 5000,
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
       setAwsStatus({ checked: true, connected: true, latency: Date.now() - start, error: null });
     } catch (err) {
       const elapsed = Date.now() - start;
       if (err.response) {
-        // HTTP 응답이 왔다 = AWS 엔드포인트 살아있음 (400, 403, 500 등)
+        // HTTP 응답이 왔다 = AWS 엔드포인트 살아있음 (400, 401, 403, 500 등)
         setAwsStatus({ checked: true, connected: true, latency: elapsed, error: null });
       } else {
         setAwsStatus({ checked: true, connected: false, latency: null, error: err.message });

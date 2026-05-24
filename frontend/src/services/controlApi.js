@@ -361,6 +361,10 @@ export const getRelayRegStatus = async (unitId = 2, register = 0, quantity = 1) 
  */
 export const warmupLambda = async () => {
   if (!AWS_CONTROL_ENDPOINT) return;
+  // 보안: Lambda Authorizer 가 모든 요청 검증 → ping 도 Authorization 헤더 필요
+  // token 없으면 warmup 안 함 (어차피 401 — 무의미)
+  const token = localStorage.getItem('accessToken');
+  if (!token) return;
   try {
     await axios.post(AWS_CONTROL_ENDPOINT, {
       command: 'ping',
@@ -368,7 +372,13 @@ export const warmupLambda = async () => {
       window_id: 'warmup',
       operator: 'warmup',
       request_id: 'warmup',
-    }, { timeout: 10000, headers: { 'Content-Type': 'application/json' } });
+    }, {
+      timeout: 10000,
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}`,
+      },
+    });
     console.log('🔥 Lambda 워밍업 완료');
   } catch (e) {
     // 워밍업 실패는 무시

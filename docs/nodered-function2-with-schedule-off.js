@@ -1,5 +1,5 @@
 // ============================================================
-// function 2 (AWS IoT 제어 테스트 탭) — 기존 Modbus 매핑 + schedule-off 분기
+// function 2 (AWS IoT 제어 테스트 탭) — schedule-off 전용 (100농장 표준화 Phase B)
 //
 // 위치: NR 에디터 "AWS IoT 제어 테스트" 탭의 "function 2" 노드 (id: 7500bc12ea12891e)
 // 적용 방법:
@@ -9,10 +9,14 @@
 //   4. 출력: 1개 (Modbus Flex Write 로 연결)
 //   5. 완료 → Deploy
 //
-// 신규 분기:
+// 역할:
 //   - command === 'schedule-off'         → setTimeout 등록, 만료 시 자동 OFF
 //   - command === 'schedule-off-cancel'  → clearTimeout + global 삭제
-//   - 그 외 (on/off/open/close/stop)     → 기존 Modbus 매핑 로직 그대로
+//   - 그 외 (on/off/open/close/stop)     → return null (새 5-seg 경로의 parse_control_command 가 처리)
+//
+// 변경 (2026-05-24): 일반 Modbus 매핑 로직 제거 → 새 5-seg 경로의 parse_control_command + execute_control
+//   이 단독 Modbus write 담당. function 2 는 schedule-off 전용. 옛 4-seg + 새 5-seg 양쪽 토픽
+//   동시 publish 시 Modbus 중복 동작 문제 해결.
 //
 // 영구화: global.scheduledOff (localfilesystem context — 디스크 저장됨)
 //   - NR 재시작 시 별도 startup 노드가 재등록 (docs/nodered-schedule-off-startup.js)
@@ -170,6 +174,14 @@ if (_command === 'schedule-off' || _command === 'schedule-off-cancel') {
 }
 // ────────────────────────────────────────────────────────────
 
+// ★ 100농장 표준화 (Phase B): 일반 제어 (on/off/open/close/stop) 는 새 5-seg 경로
+// (parse_control_command → execute_control) 가 처리한다. function 2 는 schedule-off
+// 전용이므로 일반 제어 명령은 여기서 drop. Modbus write 중복 동작 방지.
+node.status({ fill: 'grey', shape: 'ring', text: `일반 제어 skip (parse 가 처리)` });
+return null;
+
+/* ── 아래 Modbus 매핑 코드는 보존만 함 (참고용 dead code, 주석 처리) ──────────
+
 // ★ modbus 설정 캐시: 수동 제어 시 저장, 자동화 시 조회
 var cacheDevId = msg.payload.device_id || msg.payload.window_id || 'unknown';
 if (msg.payload.modbus) {
@@ -291,3 +303,5 @@ if (moduleType === 'eletechsup') {
     global.set('_pendingModbus', { requestId: reqId, isLastWrite: true });
     return msg;
 }
+
+*/ // ── dead code block 종료 ──

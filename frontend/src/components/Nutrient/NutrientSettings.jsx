@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import * as nutrientApi from '../../services/nutrientApi';
+import NutrientScenarios from './NutrientScenarios';
 
 // 초기값 — nutrient-flow-design.md 의 6 탱크 BOM 과 일치
 // Realtime 다이어그램 의 TANK_DEFAULTS 와도 동일 (id·이름 정렬)
@@ -41,7 +42,7 @@ const DEFAULT_HW = {
 
 export default function NutrientSettings({ farmId }) {
   const [open, setOpen] = useState({
-    tanks: true, valves: false, channels: false, alerts: false, hw: false,
+    scenarios: true, tanks: false, valves: false, channels: false, alerts: false, hw: false,
     calibration: false, alertHistory: false, counters: false,
   });
   const toggle = (k) => setOpen(o => ({ ...o, [k]: !o[k] }));
@@ -103,6 +104,12 @@ export default function NutrientSettings({ farmId }) {
           }}>✕</button>
         </div>
       )}
+
+      {/* 0. 시나리오 (레시피 편집) — 설정 최상단 */}
+      <Section title="🎯 시나리오" subtitle="레시피 편집 · EC/pH 목표 · 도싱 비율 · 관수 일정"
+               open={open.scenarios} onToggle={() => toggle('scenarios')}>
+        <NutrientScenarios farmId={farmId} />
+      </Section>
 
       {/* 1. 도싱 탱크 */}
       <Section title="💧 도싱 탱크" subtitle={`${config.tanks.length}개 사용 · 최대 10개`}

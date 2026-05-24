@@ -1,13 +1,11 @@
 import { useEffect, useRef, useState } from 'react';
 import NutrientRealtime from './NutrientRealtime';
-import NutrientScenarios from './NutrientScenarios';
 import NutrientSettings from './NutrientSettings';
 import * as nutrientApi from '../../services/nutrientApi';
 
 const TABS = [
   { id: 'realtime', label: '실시간', icon: '📊', desc: '운영·제어·흐름' },
-  { id: 'scenarios', label: '시나리오', icon: '🎯', desc: '레시피 편집' },
-  { id: 'settings', label: '설정', icon: '🔧', desc: '하드웨어·경보' },
+  { id: 'settings', label: '설정', icon: '🔧', desc: '시나리오·하드웨어·경보' },
 ];
 
 const MODES = {
@@ -29,13 +27,31 @@ export default function NutrientPanel({ farmId }) {
   const [mode, setMode] = useState('paused');
   const [programNum, setProgramNum] = useState(null);
   const [programName, setProgramName] = useState(null);
+  const [scenarios, setScenarios] = useState([]);
   const [alerts] = useState([]); // sticky 경보 배너 (Phase 3 RPi telemetry 연동 후 활성)
   const [env] = useState(MOCK_ENV);
+
+  const refetchScenarios = () => {
+    nutrientApi.listScenarios(farmId).then(setScenarios).catch(() => {});
+  };
+  useEffect(() => { refetchScenarios(); }, [farmId]);
 
   // Realtime 이 활성 program 정보를 헤더로 푸시 (state polling 결과)
   const handleProgramChange = ({ programNum: n, programName: nm }) => {
     setProgramNum(n);
     setProgramName(nm);
+    refetchScenarios();
+  };
+
+  const handleScenarioSelect = async (scenarioId) => {
+    if (!scenarioId) return;
+    try {
+      await nutrientApi.activateScenario(farmId, scenarioId);
+      refetchScenarios();
+      if (mode !== 'auto') handleModeChange('auto');
+    } catch (e) {
+      alert(`시나리오 활성화 실패: ${e.response?.data?.error || e.message}`);
+    }
   };
 
   // 초기 mode 1회 로드 (이후 외부 변경은 Realtime 의 state polling 에서 detectExternalModeChange 로 알림)
@@ -91,15 +107,54 @@ export default function NutrientPanel({ farmId }) {
       {/* 헤더 — 브랜드 + 모드 셀렉터 */}
       <div style={{
         background: 'linear-gradient(135deg, #0891b2 0%, #06b6d4 100%)',
-        borderRadius: 16, padding: '14px 20px', marginBottom: 8,
-        display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12,
+        borderRadius: 16, padding: '10px 14px 10px 18px', marginBottom: 8,
+        display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap',
       }}>
-        <div className="flex items-center gap-3">
-          <span style={{ fontSize: 24 }}>💧</span>
-          <h2 style={{ color: '#fff', fontSize: 20, fontWeight: 800, margin: 0 }}>양액자동공급시스템</h2>
+        <span style={{ fontSize: 22 }}>💧</span>
+        <h2 style={{ color: '#fff', fontSize: 18, fontWeight: 800, margin: 0, flex: 1 }}>양액자동공급시스템</h2>
+
+        {/* 우상단 액션 — 설정 토글 + 비상 */}
+        <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+          <button
+            onClick={() => setActiveTab(activeTab === 'settings' ? 'realtime' : 'settings')}
+            title={activeTab === 'settings' ? '실시간으로 돌아가기' : '설정 열기'}
+            style={{
+              display: 'flex', alignItems: 'center', gap: 5,
+              padding: '6px 12px', borderRadius: 14, cursor: 'pointer',
+              background: activeTab === 'settings' ? '#fff' : 'rgba(255,255,255,0.16)',
+              color: activeTab === 'settings' ? '#0891b2' : '#fff',
+              border: '1.5px solid rgba(255,255,255,0.4)',
+              fontSize: 13, fontWeight: 700, whiteSpace: 'nowrap',
+              transition: 'background 0.15s, color 0.15s',
+            }}
+            onMouseEnter={(e) => { if (activeTab !== 'settings') e.currentTarget.style.background = 'rgba(255,255,255,0.28)'; }}
+            onMouseLeave={(e) => { if (activeTab !== 'settings') e.currentTarget.style.background = 'rgba(255,255,255,0.16)'; }}
+          >
+            <span style={{ fontSize: 14 }}>{activeTab === 'settings' ? '←' : '🔧'}</span>
+            <span>{activeTab === 'settings' ? '실시간' : '설정'}</span>
+          </button>
+
+          <button
+            onClick={() => handleModeChange('emergency')}
+            title="비상정지 — 모든 양액 릴레이 OFF"
+            style={{
+              display: 'flex', alignItems: 'center', gap: 5,
+              padding: '6px 12px', borderRadius: 14, cursor: 'pointer',
+              background: mode === 'emergency' ? '#fee2e2' : '#dc2626',
+              color: mode === 'emergency' ? '#dc2626' : '#fff',
+              border: mode === 'emergency' ? '1.5px solid #fca5a5' : '1.5px solid #b91c1c',
+              fontSize: 13, fontWeight: 800, whiteSpace: 'nowrap',
+              transition: 'background 0.15s',
+              boxShadow: '0 1px 3px rgba(220,38,38,0.3)',
+              animation: mode === 'emergency' ? 'pulse 1s infinite' : 'none',
+            }}
+            onMouseEnter={(e) => { if (mode !== 'emergency') e.currentTarget.style.background = '#b91c1c'; }}
+            onMouseLeave={(e) => { if (mode !== 'emergency') e.currentTarget.style.background = '#dc2626'; }}
+          >
+            <span style={{ fontSize: 12 }}>●</span>
+            <span>비상</span>
+          </button>
         </div>
-        <ModeSegment mode={mode} onChange={handleModeChange}
-          programNum={programNum} programName={programName} />
       </div>
 
       {/* 외부 환경 row — 양액 자동화의 핵심 트리거 데이터
@@ -122,34 +177,20 @@ export default function NutrientPanel({ farmId }) {
         <EnvChip icon="☀️" label="일사량" value={env.solar} unit="W/m²" color="#d97706" />
       </div>
 
-      {/* 탭 네비게이션 */}
+      {/* 운영 모드 바 — 자동/시나리오/수동/직접/정지 (비상은 헤더로 이동) */}
       <div style={{
-        background: '#fff', borderRadius: 12, padding: 4,
+        background: '#fff', borderRadius: 12, padding: 8,
         marginBottom: 12, boxShadow: '0 1px 3px rgba(0,0,0,0.04)',
-        display: 'flex', gap: 4, border: '1px solid #e2e8f0',
+        border: '1px solid #e2e8f0',
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
       }}>
-        {TABS.map(tab => (
-          <button
-            key={tab.id}
-            onClick={() => setActiveTab(tab.id)}
-            style={{
-              flex: 1, padding: '10px 8px', borderRadius: 8, border: 'none',
-              fontSize: 15, fontWeight: 700, cursor: 'pointer',
-              background: activeTab === tab.id ? '#0891b2' : 'transparent',
-              color: activeTab === tab.id ? '#fff' : '#475569',
-              transition: 'all 0.2s',
-              display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2,
-            }}
-          >
-            <span style={{ fontSize: 18 }}>{tab.icon}</span>
-            <span>{tab.label}</span>
-          </button>
-        ))}
+        <ModeSegment mode={mode} onChange={handleModeChange}
+          programNum={programNum} programName={programName}
+          scenarios={scenarios} onScenarioSelect={handleScenarioSelect} />
       </div>
 
       {/* 컨텐츠 */}
       {activeTab === 'realtime' && <NutrientRealtime farmId={farmId} mode={mode} onModeChange={handleModeChange} onProgramChange={handleProgramChange} />}
-      {activeTab === 'scenarios' && <NutrientScenarios farmId={farmId} />}
       {activeTab === 'settings' && <NutrientSettings farmId={farmId} />}
 
       <style>{`
@@ -192,49 +233,66 @@ const SHORT_LABEL = {
   auto: '자동', manual: '수동', direct: '직접', paused: '정지', emergency: '비상',
 };
 
-// 5모드 segmented control + 자동 모드일 때 P-NN chip 표시 (드롭다운 X, 한눈에 모두 보임)
-const ModeSegment = ({ mode, onChange, programNum, programName }) => (
-  <div role="group" aria-label="운영 모드" style={{
-    display: 'flex', flexWrap: 'wrap', justifyContent: 'center',
-    gap: 6, width: '100%',
-  }}>
-    {Object.entries(MODES).map(([key, m]) => {
-      const active = mode === key;
-      const isAuto = key === 'auto';
-      const showProgram = isAuto && programNum != null;
-      const isEmer = key === 'emergency';
-      return (
-        <button key={key} onClick={() => onChange(key)}
-          title={showProgram && programName ? `P-${String(programNum).padStart(2, '0')} · ${programName}` : m.label}
-          style={{
-            display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5,
-            padding: '6px 12px', borderRadius: 16,
-            background: active ? m.bg : 'rgba(255,255,255,0.08)',
-            color: active ? m.color : 'rgba(255,255,255,0.92)',
-            border: active ? `1.5px solid ${m.color}33` : '1.5px solid rgba(255,255,255,0.28)',
-            cursor: 'pointer',
-            fontSize: 13.5, fontWeight: 700, whiteSpace: 'nowrap',
-            transition: 'background 0.15s, color 0.15s, border-color 0.15s',
-            boxShadow: active ? '0 2px 6px rgba(0,0,0,0.15)' : 'none',
-          }}
-          onMouseEnter={(e) => { if (!active) e.currentTarget.style.background = 'rgba(255,255,255,0.18)'; }}
-          onMouseLeave={(e) => { if (!active) e.currentTarget.style.background = 'rgba(255,255,255,0.08)'; }}
-          >
-          {showProgram && (
-            <span style={{
-              fontFamily: 'ui-monospace, SF Mono, monospace', fontSize: 10.5, fontWeight: 800,
-              padding: '1px 6px', borderRadius: 4, letterSpacing: '0.04em',
-              background: active ? m.color + '1f' : 'rgba(255,255,255,0.22)',
-              color: active ? m.color : '#fff',
-            }}>P-{String(programNum).padStart(2, '0')}</span>
-          )}
-          <span style={{
-            display: 'inline-block',
-            animation: isEmer && active ? 'pulse 1s infinite' : 'none',
-          }}>{m.icon}</span>
-          <span>{SHORT_LABEL[key]}</span>
-        </button>
-      );
-    })}
-  </div>
-);
+// 5모드 segmented control — 흰 배경 컴팩트, 1줄 (모바일 wrap)
+const ModeSegment = ({ mode, onChange, programNum, programName, scenarios = [], onScenarioSelect }) => {
+  const activeScenario = scenarios.find(s => s.active);
+  const renderBtn = (key) => {
+    const m = MODES[key];
+    const active = mode === key;
+    const isEmer = key === 'emergency';
+    return (
+      <button key={key} onClick={() => onChange(key)} title={m.label}
+        style={{
+          display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5,
+          padding: '6px 11px', borderRadius: 14,
+          background: active ? m.bg : '#fff',
+          color: active ? m.color : '#64748b',
+          border: active ? `1.5px solid ${m.color}66` : '1.5px solid #e2e8f0',
+          cursor: 'pointer',
+          fontSize: 13, fontWeight: 700, whiteSpace: 'nowrap',
+          transition: 'background 0.15s, color 0.15s, border-color 0.15s',
+          boxShadow: active ? `0 1px 3px ${m.color}22` : 'none',
+        }}
+        onMouseEnter={(e) => { if (!active) { e.currentTarget.style.background = '#f8fafc'; e.currentTarget.style.borderColor = '#cbd5e1'; } }}
+        onMouseLeave={(e) => { if (!active) { e.currentTarget.style.background = '#fff'; e.currentTarget.style.borderColor = '#e2e8f0'; } }}
+      >
+        <span style={{
+          display: 'inline-block',
+          animation: isEmer && active ? 'pulse 1s infinite' : 'none',
+        }}>{m.icon}</span>
+        <span>{SHORT_LABEL[key]}</span>
+      </button>
+    );
+  };
+
+  return (
+    <div role="group" aria-label="운영 모드" style={{
+      display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', justifyContent: 'center',
+    }}>
+      {renderBtn('auto')}
+      <select
+        value={activeScenario?.id || ''}
+        onChange={(e) => onScenarioSelect && onScenarioSelect(e.target.value)}
+        title={programName ? `P-${String(programNum).padStart(2, '0')} · ${programName}` : '시나리오 선택'}
+        style={{
+          padding: '6px 10px', borderRadius: 14,
+          background: '#f1f5f9', color: '#0f172a',
+          border: '1.5px solid #e2e8f0',
+          fontSize: 13, fontWeight: 700, cursor: 'pointer',
+          minWidth: 150, maxWidth: 220,
+          opacity: scenarios.length === 0 ? 0.55 : 1,
+        }}
+        disabled={scenarios.length === 0}
+      >
+        {scenarios.length === 0 && <option value="">시나리오 없음</option>}
+        {scenarios.length > 0 && !activeScenario && <option value="">시나리오 선택…</option>}
+        {scenarios.map((s, i) => (
+          <option key={s.id} value={s.id}>
+            P-{String(i + 1).padStart(2, '0')} · {s.name}
+          </option>
+        ))}
+      </select>
+      {['manual', 'direct', 'paused'].map(renderBtn)}
+    </div>
+  );
+};

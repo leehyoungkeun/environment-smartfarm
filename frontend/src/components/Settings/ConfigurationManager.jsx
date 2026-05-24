@@ -2344,6 +2344,8 @@ const RelayModuleManager = ({ farmId }) => {
             ? { unitId: module.unitId, moduleType: 'eletechsup', controlType: 'single', address: ch + 1 }
             : { unitId: module.unitId, moduleType: 'waveshare', controlType: 'single', address: ch };
           const res = await axiosBase.post(AWS_ENDPOINT, {
+            // 100농장 표준화: farm_id 포함 → Lambda 가 새 5-seg 토픽도 publish → 농장 격리 보장
+            farm_id: farmId,
             house_id: 'house1', window_id: deviceId,
             command: on ? 'on' : 'off',
             operator: 'channel_test',

@@ -120,6 +120,9 @@ const sendAwsControl = async (houseId, deviceId, command, operator, meta = {}) =
     duration: meta.duration || 0,
     // 자동 OFF 예약 — schedule-off 명령일 때 NR 가 setTimeout 등록
     ...(meta.delaySec ? { delay_sec: meta.delaySec } : {}),
+    // 100농장 표준화: farm_id 추가 → Lambda 가 새 토픽 smartfarm/{farm_id}/{house_id}/{window_id}/control 도 publish
+    // (옛 토픽 smartfarm/{house_id}/{window_id}/control 도 호환 유지)
+    ...(meta.farmId ? { farm_id: meta.farmId } : {}),
   };
 
   if (!AWS_CONTROL_ENDPOINT) {

@@ -16,8 +16,8 @@ axios.interceptors.request.use((config) => {
 // RPi → PC 설정 동기화 (백그라운드, fire & forget)
 // LAN 모드 (RPi 직접 접근 가능) 에서만 동작 — 외부 환경에서는 NOOP
 // (외부 환경에선 backend 가 RPi MQTT subscribe 로 sync 처리해야 — 별도)
-// x-api-key 헤더로 인증 → JWT 없는 팜로컬 모드에서도 동작
-const SYNC_API_KEY = import.meta.env.VITE_SENSOR_API_KEY;
+// 인증: JWT (사용자 token) 사용 — frontend 에 API key 노출 X (보안)
+//   backend authenticateApiKey 가 JWT 폴백 지원하므로 그대로 동작
 function syncConfigToPC(farmId) {
   const rpiUrl = getRpiApiBase();
   const pcUrl = getPcApiBase();
@@ -29,12 +29,12 @@ function syncConfigToPC(farmId) {
     return;
   }
 
-  axiosBase.get(`${rpiUrl}/config/farm/${farmId}`, { timeout: 5000 })
+  axios.get(`${rpiUrl}/config/farm/${farmId}`, { timeout: 5000 })
     .then(res => {
       if (res?.data?.success && Array.isArray(res.data.data) && res.data.data.length > 0) {
-        return axiosBase.post(`${pcUrl}/config/${farmId}/sync`,
+        return axios.post(`${pcUrl}/config/${farmId}/sync`,
           { configs: res.data.data },
-          { timeout: 10000, headers: { 'x-api-key': SYNC_API_KEY } }
+          { timeout: 10000 }
         );
       }
     })
@@ -1859,10 +1859,10 @@ const SystemSettings = ({ farmId }) => {
   };
 
   // RPi 동기화 상태 폴링 (15초, 즉시 1회 실행)
+  // 인증: JWT (axios interceptor 가 자동 Authorization 헤더 추가) — frontend API key 노출 X
   useEffect(() => {
     if (retentionLoading) return;
     let cancelled = false;
-    const apiKeyHeader = { 'x-api-key': import.meta.env.VITE_SENSOR_API_KEY || 'smartfarm-sensor-key' };
     const poll = async () => {
       try {
         const pcUrl = getApiBase();
@@ -1870,12 +1870,12 @@ const SystemSettings = ({ farmId }) => {
         let res;
         try {
           res = await axios.get(`${pcUrl}/config/system-settings/${farmId}`, {
-            timeout: 5000, headers: apiKeyHeader,
+            timeout: 5000,
           });
         } catch {
           if (rpiUrl !== pcUrl) {
-            res = await axiosBase.get(`${rpiUrl}/config/system-settings/${farmId}`, {
-              timeout: 5000, headers: apiKeyHeader,
+            res = await axios.get(`${rpiUrl}/config/system-settings/${farmId}`, {
+              timeout: 5000,
             });
           } else throw new Error('unreachable');
         }

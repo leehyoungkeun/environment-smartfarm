@@ -1320,11 +1320,18 @@ const ControlPanel = ({ farmId, houseId, houseConfig }) => {
 
   const [batchProgress, setBatchProgress] = useState(null); // { current, total, deviceName, done }
 
-  // 전체 제어: 순차 실행 + Modbus 완료 확인 + 진행 상태 표시
+  // 그룹 제어: 순차 실행 + Modbus 완료 확인 + 진행 상태 표시
   const handleBatchControl = useCallback(async (deviceList, command) => {
     batchModeRef.current = true;
     stopRelayPolling();
     const COMMAND_LABELS_BATCH = { open: '열기', close: '닫기', stop: '정지', on: 'ON', off: 'OFF' };
+    // 클라우드 모드 감지 — handleControl 의 분기 조건과 동일
+    // 로컬/팜로컬/오프라인: handleControl 이 waitForModbusDone 으로 modbus 완료까지 대기 → 추가 delay 불필요
+    // 클라우드: Lambda 응답(~200ms) 만에 다음 device 로 넘어가서 NR 큐에 명령이 한꺼번에 쌓임 → 진행률이 실제 동작보다 빨라짐
+    const mode = getSystemMode();
+    const isLocalHost = ['localhost', '127.0.0.1'].includes(window.location.hostname);
+    const isCloudMode = !isLocalHost && !mode.isFarmLocal && mode.mode !== 'offline';
+    const CLOUD_PER_DEVICE_DELAY_MS = 1500;
     for (let i = 0; i < deviceList.length; i++) {
       const dev = deviceList[i];
       const devName = dev.name || dev.deviceId;
@@ -1334,6 +1341,11 @@ const ControlPanel = ({ farmId, houseId, houseConfig }) => {
       const reqId = result?.requestId;
       if (reqId) {
         setBatchProgress(prev => ({ ...prev, done: true, waiting: false, modbusOk: true }));
+      }
+      // 클라우드 모드는 handleControl 의 AWS 분기가 modbus 완료 대기 없이 끝나므로
+      // 마지막 device 가 아니면 RS-485 직렬 큐 처리 추정 시간만큼 대기 후 다음 명령 송신
+      if (isCloudMode && i < deviceList.length - 1) {
+        await new Promise(r => setTimeout(r, CLOUD_PER_DEVICE_DELAY_MS));
       }
     }
     setBatchProgress({ current: deviceList.length, total: deviceList.length, done: true, command: COMMAND_LABELS_BATCH[command] || command, complete: true });
@@ -1368,8 +1380,8 @@ const ControlPanel = ({ farmId, houseId, houseConfig }) => {
     const cmdLabel = COMMAND_LABELS[command] || command;
     const deviceNames = deviceList.map(d => d.name || d.deviceId).join(', ');
     setConfirmAction({
-      title: `전체 ${cmdLabel} 실행`,
-      message: `수동 ${deviceList.length}대(${deviceNames})에 전체 ${cmdLabel}을 실행합니다.\n계속하시겠습니까?`,
+      title: `그룹 ${cmdLabel} 실행`,
+      message: `수동 ${deviceList.length}대(${deviceNames})에 그룹 ${cmdLabel}을 실행합니다.\n계속하시겠습니까?`,
       onConfirm: () => { setConfirmAction(null); handleBatchControl(deviceList, command); },
     });
   }, [handleBatchControl]);
@@ -1858,7 +1870,7 @@ const ControlPanel = ({ farmId, houseId, houseConfig }) => {
                 })}
               </div>
 
-              {/* 전체 제어 (아래) - 수동 모드 장치만 대상 */}
+              {/* 그룹 제어 (아래) - 수동 모드 장치만 대상 */}
               {devicesInGroup.length >= 2 && (() => {
                 const manualDevices = devicesInGroup.filter(d => getDeviceMode(d.deviceId) !== 'auto');
                 const allAuto = manualDevices.length === 0;
@@ -1867,7 +1879,7 @@ const ControlPanel = ({ farmId, houseId, houseConfig }) => {
                   <div style={{fontSize:13,fontWeight:700,color:'#374151',marginBottom:10,display:'flex',alignItems:'center',justifyContent:'space-between'}}>
                     <div className="flex items-center gap-1.5">
                       <span style={{width:4,height:14,background:accent,borderRadius:2,display:'inline-block'}}/>
-                      전체제어
+                      그룹제어
                     </div>
                     {manualDevices.length < devicesInGroup.length && (
                       <span style={{fontSize:11,color:'#9ca3af',fontWeight:600}}>수동 {manualDevices.length}대만 적용</span>
@@ -1878,12 +1890,12 @@ const ControlPanel = ({ farmId, houseId, houseConfig }) => {
                       <button onClick={() => confirmBatchControl(manualDevices, 'on')}
                         disabled={anyModbusBusy || allAuto}
                         style={{...btnBase,flex:1,background: (anyModbusBusy || allAuto) ? '#e5e7eb' : accent,color: (anyModbusBusy || allAuto) ? '#9ca3af' : '#fff',boxShadow: (anyModbusBusy || allAuto) ? 'none' : `0 2px 8px ${accent}35`, cursor: (anyModbusBusy || allAuto) ? 'not-allowed' : 'pointer'}}>
-                        전체 ON
+                        그룹 ON
                       </button>
                       <button onClick={() => confirmBatchControl(manualDevices, 'off')}
                         disabled={anyModbusBusy || allAuto}
                         style={{...btnBase,flex:1,background: (anyModbusBusy || allAuto) ? '#e5e7eb' : '#64748b',color: (anyModbusBusy || allAuto) ? '#9ca3af' : '#fff',boxShadow: (anyModbusBusy || allAuto) ? 'none' : '0 2px 8px rgba(100,116,139,0.35)', cursor: (anyModbusBusy || allAuto) ? 'not-allowed' : 'pointer'}}>
-                        전체 OFF
+                        그룹 OFF
                       </button>
                     </div>
                   ) : (
@@ -1891,17 +1903,17 @@ const ControlPanel = ({ farmId, houseId, houseConfig }) => {
                       <button onClick={() => confirmBatchControl(manualDevices, 'open')}
                         disabled={anyModbusBusy || allAuto}
                         style={{...btnBase,flex:1,background: (anyModbusBusy || allAuto) ? '#e5e7eb' : accent,color: (anyModbusBusy || allAuto) ? '#9ca3af' : '#fff',boxShadow: (anyModbusBusy || allAuto) ? 'none' : `0 2px 8px ${accent}35`, cursor: (anyModbusBusy || allAuto) ? 'not-allowed' : 'pointer'}}>
-                        ▲ 전체 열기
+                        ▲ 그룹 열기
                       </button>
                       <button onClick={() => confirmBatchControl(manualDevices, 'stop')}
                         disabled={anyModbusBusy || allAuto}
                         style={{...btnBase,flex:1,background: (anyModbusBusy || allAuto) ? '#e5e7eb' : '#d97706',color: (anyModbusBusy || allAuto) ? '#9ca3af' : '#fff',boxShadow: (anyModbusBusy || allAuto) ? 'none' : '0 2px 8px rgba(217,119,6,0.35)', cursor: (anyModbusBusy || allAuto) ? 'not-allowed' : 'pointer'}}>
-                        ■ 전체 정지
+                        ■ 그룹 정지
                       </button>
                       <button onClick={() => confirmBatchControl(manualDevices, 'close')}
                         disabled={anyModbusBusy || allAuto}
                         style={{...btnBase,flex:1,background: (anyModbusBusy || allAuto) ? '#e5e7eb' : theme[1],color: (anyModbusBusy || allAuto) ? '#9ca3af' : '#fff',boxShadow: (anyModbusBusy || allAuto) ? 'none' : `0 2px 8px ${theme[1]}35`, cursor: (anyModbusBusy || allAuto) ? 'not-allowed' : 'pointer'}}>
-                        ▼ 전체 닫기
+                        ▼ 그룹 닫기
                       </button>
                     </div>
                   )}
@@ -1922,7 +1934,7 @@ const ControlPanel = ({ farmId, houseId, houseConfig }) => {
           <div style={{ flex: 1 }}>
             <div style={{ fontSize: 14, fontWeight: 700, color: batchProgress.complete ? '#047857' : '#1d4ed8' }}>
               {batchProgress.complete
-                ? `전체 ${batchProgress.command} 완료 (${batchProgress.total}개)`
+                ? `그룹 ${batchProgress.command} 완료 (${batchProgress.total}개)`
                 : `${batchProgress.command} 진행 중... (${batchProgress.current}/${batchProgress.total})`
               }
             </div>
@@ -2357,7 +2369,7 @@ const SensorGauge = ({ condition, value }) => {
   );
 };
 
-/** 자동화 발동 ETA 카운트다운 칩 (조건 충족 시 다음 평가까지 / 쿨다운 남은 시간) */
+/** 자동화 동작 ETA 카운트다운 칩 (조건 충족 시 다음 평가까지 / 쿨다운 남은 시간) */
 const AutomationEtaChip = ({ rule, isMet, lastSensorTs, bidirPosition = {} }) => {
   const [now, setNow] = React.useState(Date.now());
   React.useEffect(() => {
@@ -2410,7 +2422,7 @@ const AutomationEtaChip = ({ rule, isMet, lastSensorTs, bidirPosition = {} }) =>
       whiteSpace:'nowrap',
       animation: finalRemain <= 5 && finalRemain > 0 ? 'pulse 1s ease-in-out infinite' : 'none',
     }}>
-      {isCooldown ? `⏳ 쿨다운 ${fmt(finalRemain)}` : finalRemain > 0 ? `⏱ ${fmt(finalRemain)} 후 발동` : '🚀 곧 발동'}
+      {isCooldown ? `⏳ 쿨다운 ${fmt(finalRemain)}` : finalRemain > 0 ? `⏱ ${fmt(finalRemain)} 후 동작` : '🚀 곧 동작'}
     </span>
   );
 };

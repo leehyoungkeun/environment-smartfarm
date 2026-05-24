@@ -140,21 +140,41 @@ def lambda_handler(event, context):
     modbus = body.get('modbus', None)
     duration = body.get('duration', 0)
     delay_sec = body.get('delay_sec', 0)  # 자동 OFF 예약 시간 (초) — schedule-off 명령용
-    farm_id = body.get('farm_id', None)  # 100농장 표준화 — 필수 (Phase B 이후)
 
     # ========================================
-    # farm_id 필수 검증 (Phase B 이후 옛 4-seg 토픽 publish 안 함)
+    # 보안: Authorizer 가 검증한 farmId 우선 사용 (호환 모드)
+    # Phase 1: Authorizer 미적용 → body.farm_id 사용 (옛 동작 유지)
+    # Phase 2: Authorizer 적용 → context.farmId 사용 + body 와 일치 검증
     # ========================================
-    if not farm_id:
-        return {
-            'statusCode': 400,
-            'headers': cors_headers,
-            'body': json.dumps({
-                'success': False,
-                'error': 'farm_id 는 필수입니다 (100농장 표준화 Phase B)',
-                'message': '클라이언트가 farm_id 를 함께 보내야 합니다.'
-            })
-        }
+    auth_context = event.get('requestContext', {}).get('authorizer', {})
+    verified_farm_id = auth_context.get('farmId') if auth_context else None
+    body_farm_id = body.get('farm_id')
+
+    if verified_farm_id:
+        # Authorizer 적용됨 (Phase 2) — token 의 farmId 우선
+        if body_farm_id and body_farm_id != verified_farm_id:
+            return {
+                'statusCode': 403,
+                'headers': cors_headers,
+                'body': json.dumps({
+                    'success': False,
+                    'error': f'농장 권한 없음 — token={verified_farm_id}, body={body_farm_id}',
+                    'message': '다른 농장 ID 로 요청할 수 없습니다.'
+                })
+            }
+        farm_id = verified_farm_id
+    else:
+        # Authorizer 미적용 (Phase 1, 호환 모드) — body.farm_id 사용
+        farm_id = body_farm_id
+        if not farm_id:
+            return {
+                'statusCode': 400,
+                'headers': cors_headers,
+                'body': json.dumps({
+                    'success': False,
+                    'error': 'farm_id 필수 (Phase B)',
+                })
+            }
 
     # ========================================
     # IoT 메시지 발행 (farmId-prefix 새 5-seg 토픽만)

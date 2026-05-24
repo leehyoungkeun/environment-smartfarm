@@ -131,9 +131,14 @@ const sendAwsControl = async (houseId, deviceId, command, operator, meta = {}) =
 
   for (let attempt = 1; attempt <= RETRY_ATTEMPTS; attempt++) {
     try {
+      // 보안: Lambda Authorizer 가 JWT 검증 → token 의 farmId 와 payload.farm_id 일치 검증
+      const token = localStorage.getItem('accessToken');
       const response = await axios.post(AWS_CONTROL_ENDPOINT, payload, {
         timeout: TIMEOUT,
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
       });
 
       const data = typeof response.data === 'string' ? JSON.parse(response.data) : response.data;

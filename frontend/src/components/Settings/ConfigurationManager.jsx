@@ -2343,6 +2343,7 @@ const RelayModuleManager = ({ farmId }) => {
           const modbus = module.moduleType === 'eletechsup'
             ? { unitId: module.unitId, moduleType: 'eletechsup', controlType: 'single', address: ch + 1 }
             : { unitId: module.unitId, moduleType: 'waveshare', controlType: 'single', address: ch };
+          const token = localStorage.getItem('accessToken');
           const res = await axiosBase.post(AWS_ENDPOINT, {
             // 100농장 표준화: farm_id 포함 → Lambda 가 새 5-seg 토픽도 publish → 농장 격리 보장
             farm_id: farmId,
@@ -2351,7 +2352,11 @@ const RelayModuleManager = ({ farmId }) => {
             operator: 'channel_test',
             request_id: `chtest-${Date.now()}-${ch}`,
             modbus: modbus,
-          }, { timeout: 8000 });
+          }, {
+            timeout: 8000,
+            // 보안: Lambda Authorizer 가 JWT 검증
+            headers: token ? { Authorization: `Bearer ${token}` } : {},
+          });
           const data = typeof res.data === 'string' ? JSON.parse(res.data) : res.data;
           const body = data.body ? (typeof data.body === 'string' ? JSON.parse(data.body) : data.body) : data;
           return body.success === true;

@@ -1,30 +1,35 @@
 // ============================================================
-// AWS API Gateway Authorizer Lambda — JWT 검증
+// AWS API Gateway HTTP API Authorizer Lambda — JWT 검증 (ESM)
+//
+// ⚠️ HTTP API (v2) 용 — Simple response format 사용
+// REST API 의 policyDocument 와 다름
 //
 // 적용:
-//   1. AWS Lambda Console → 함수 생성 → Node.js 22.x
-//   2. 함수명: smartfarm-jwt-authorizer
-//   3. 이 파일 내용 그대로 복사 (index.mjs 또는 index.js)
-//   4. 환경변수 추가: JWT_SECRET = backend/.env 의 JWT_SECRET 동일 값
-//   5. 배포 (Deploy)
-//   6. API Gateway → SmartFarm API → Authorizers → Create:
+//   1. AWS Lambda Console → smartfarm-jwt-authorizer
+//   2. Code → 이 파일 내용으로 교체 → Deploy
+//   3. 환경변수: JWT_SECRET (이미 설정됨)
+//   4. API Gateway → farmControl_API → Authorization → Authorizer 관리:
+//      - Create Lambda authorizer
 //      - Name: smartfarm-jwt
-//      - Type: Lambda
+//      - Authorizer source: $request.header.Authorization
 //      - Lambda function: smartfarm-jwt-authorizer
-//      - Token source (Header name): Authorization
-//      - Authorization caching: 5분 (300초)
-//   7. /control method → Method Request → Authorization: smartfarm-jwt
-//   8. API 배포 (Actions → Deploy API → prod)
+//      - Response mode: Simple
+//      - Authorizer caching: 5분 (300초)
+//      - Identity sources: $request.header.Authorization
+//   5. Routes → POST /control → Attach authorizer (smartfarm-jwt)
+//   6. Auto deploy → 적용
 //
 // 동작:
-//   - Authorization: Bearer <JWT> 헤더 검증
-//   - 외부 의존성 없이 Node.js crypto 모듈로 HMAC-SHA256 검증
-//   - 검증 성공 시 context 에 farmId/userId/role 전달 → 메인 Lambda 가 사용
+//   - event.headers.authorization 검증 (HTTP API 2.0)
+//   - 검증 성공: { isAuthorized: true, context: { farmId, userId, ... } }
+//   - 검증 실패: { isAuthorized: false }
+//   - 메인 Lambda 가 event.requestContext.authorizer.lambda.farmId 로 사용
 //
-// Backend 다운 시: token 유효 기간 동안 자체 검증 OK (Backend 호출 X)
+// JWT_SECRET 1개로 모든 농장의 모든 token 검증 (stateless)
+// Backend 다운 시에도 token 유효 기간 동안 자체 검증 OK
 // ============================================================
 
-const crypto = require('crypto');
+import crypto from 'node:crypto';
 
 const JWT_SECRET = process.env.JWT_SECRET;
 if (!JWT_SECRET) {
@@ -65,32 +70,21 @@ function verifyJWT(token) {
     return payload;
 }
 
-function generatePolicy(principalId, effect, methodArn, context = {}) {
-    return {
-        principalId,
-        policyDocument: {
-            Version: '2012-10-17',
-            Statement: [
-                {
-                    Action: 'execute-api:Invoke',
-                    Effect: effect,
-                    Resource: methodArn,
-                },
-            ],
-        },
-        context,
-    };
-}
-
-exports.handler = async (event) => {
+export const handler = async (event) => {
     console.log('Authorizer event:', JSON.stringify(event));
 
-    const authHeader = event.authorizationToken || event.headers?.Authorization || '';
+    // HTTP API 2.0: event.headers.authorization (소문자)
+    // REST API 호환: event.authorizationToken 도 fallback
+    const authHeader =
+        event.headers?.authorization ||
+        event.headers?.Authorization ||
+        event.authorizationToken ||
+        '';
     const token = authHeader.replace(/^Bearer\s+/i, '').trim();
 
     if (!token) {
         console.error('No token in Authorization header');
-        throw new Error('Unauthorized');
+        return { isAuthorized: false };
     }
 
     let payload;
@@ -98,11 +92,11 @@ exports.handler = async (event) => {
         payload = verifyJWT(token);
     } catch (e) {
         console.error('JWT verify failed:', e.message);
-        throw new Error('Unauthorized');
+        return { isAuthorized: false };
     }
 
-    // context 는 메인 Lambda 의 event.requestContext.authorizer 로 전달됨
-    // (값은 string 만 허용 — number/boolean 은 string 으로 변환)
+    // context 는 메인 Lambda 의 event.requestContext.authorizer.lambda.* 로 전달됨
+    // (HTTP API 2.0 simple response format)
     const context = {
         farmId: String(payload.farmId || ''),
         userId: String(payload.id || ''),
@@ -111,5 +105,8 @@ exports.handler = async (event) => {
     };
 
     console.log('Authorized:', context);
-    return generatePolicy(context.userId || 'unknown', 'Allow', event.methodArn, context);
+    return {
+        isAuthorized: true,
+        context,
+    };
 };

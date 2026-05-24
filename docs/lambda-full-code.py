@@ -145,8 +145,15 @@ def lambda_handler(event, context):
     # 보안: Authorizer 가 검증한 farmId 우선 사용 (호환 모드)
     # Phase 1: Authorizer 미적용 → body.farm_id 사용 (옛 동작 유지)
     # Phase 2: Authorizer 적용 → context.farmId 사용 + body 와 일치 검증
+    #
+    # HTTP API 2.0: event.requestContext.authorizer.lambda.* (Simple response)
+    # REST API: event.requestContext.authorizer.* (TOKEN type)
+    # 둘 다 처리
     # ========================================
-    auth_context = event.get('requestContext', {}).get('authorizer', {})
+    auth_context = event.get('requestContext', {}).get('authorizer', {}) or {}
+    # HTTP API 2.0 Simple format → .lambda 안에 context
+    if 'lambda' in auth_context:
+        auth_context = auth_context['lambda']
     verified_farm_id = auth_context.get('farmId') if auth_context else None
     body_farm_id = body.get('farm_id')
 

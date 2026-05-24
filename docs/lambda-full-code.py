@@ -140,19 +140,31 @@ def lambda_handler(event, context):
     modbus = body.get('modbus', None)
     duration = body.get('duration', 0)
     delay_sec = body.get('delay_sec', 0)  # 자동 OFF 예약 시간 (초) — schedule-off 명령용
-    farm_id = body.get('farm_id', None)  # 100농장 표준화 — 있으면 farmId-prefix 새 토픽도 publish
+    farm_id = body.get('farm_id', None)  # 100농장 표준화 — 필수 (Phase B 이후)
 
     # ========================================
-    # IoT 메시지 발행
+    # farm_id 필수 검증 (Phase B 이후 옛 4-seg 토픽 publish 안 함)
     # ========================================
-    # 옛 토픽 (legacy, 100농장 호환 유지)
-    legacy_topic = f"smartfarm/{house_id}/{window_id}/control"
-    # 새 토픽 (farmId prefix, 농장 격리 보장) — farm_id 있을 때만
-    new_topic = f"smartfarm/{farm_id}/{house_id}/{window_id}/control" if farm_id else None
+    if not farm_id:
+        return {
+            'statusCode': 400,
+            'headers': cors_headers,
+            'body': json.dumps({
+                'success': False,
+                'error': 'farm_id 는 필수입니다 (100농장 표준화 Phase B)',
+                'message': '클라이언트가 farm_id 를 함께 보내야 합니다.'
+            })
+        }
+
+    # ========================================
+    # IoT 메시지 발행 (farmId-prefix 새 5-seg 토픽만)
+    # ========================================
+    topic = f"smartfarm/{farm_id}/{house_id}/{window_id}/control"
 
     control_msg = {
         "command": command,
         "timestamp": timestamp,
+        "farm_id": farm_id,
         "house_id": house_id,
         "window_id": window_id,
         "operator": operator,
@@ -160,33 +172,21 @@ def lambda_handler(event, context):
         "duration": duration
     }
 
-    if farm_id:
-        control_msg["farm_id"] = farm_id
     if modbus is not None:
         control_msg["modbus"] = modbus
     if delay_sec and delay_sec > 0:
         control_msg["delay_sec"] = delay_sec
 
-    print(f"Publishing to legacy topic: {legacy_topic}" + (f" + new topic: {new_topic}" if new_topic else ""))
+    print(f"Publishing to topic: {topic}")
     print(f"Message: {json.dumps(control_msg)}")
 
     try:
-        # 옛 토픽 publish (호환)
         response = client.publish(
-            topic=legacy_topic,
+            topic=topic,
             qos=1,
             retain=False,
             payload=json.dumps(control_msg)
         )
-
-        # 새 토픽 publish (farm_id 있을 때만)
-        if new_topic:
-            client.publish(
-                topic=new_topic,
-                qos=1,
-                retain=False,
-                payload=json.dumps(control_msg)
-            )
 
         print(f"Publish successful: {response}")
 
@@ -195,9 +195,8 @@ def lambda_handler(event, context):
             'headers': cors_headers,
             'body': json.dumps({
                 'success': True,
-                'message': f"Topic: {legacy_topic}" + (f" + {new_topic}" if new_topic else "") + " 로 메시지 전송 성공",
-                'topic': legacy_topic,
-                'new_topic': new_topic,
+                'message': f"Topic: {topic} 로 메시지 전송 성공",
+                'topic': topic,
                 'command': command,
                 'farm_id': farm_id,
                 'house_id': house_id,

@@ -15,10 +15,9 @@ const CERTS_DIR = path.resolve(__dirname, "../../certs");
 const BROKER_URL = process.env.MQTT_BROKER_URL || "mqtts://a2ybxz5mrpnfww-ats.iot.ap-northeast-2.amazonaws.com:8883";
 const CLIENT_ID = process.env.MQTT_CLIENT_ID || `smartfarm-backend-${Date.now()}`;
 
-// 구독 토픽
+// 구독 토픽 (100농장 표준화 Phase B: 옛 4-seg response 제거, farmId-prefix 만 유지)
 const TOPICS = [
-  "smartfarm/+/+/response",         // 제어 실행 응답 (legacy: smartfarm/{houseId}/{deviceId}/response)
-  "smartfarm/+/+/+/response",       // 제어 실행 응답 (new: smartfarm/{farmId}/{houseId}/{deviceId}/response) — 100농장 표준화
+  "smartfarm/+/+/+/response",       // 제어 실행 응답 (smartfarm/{farmId}/{houseId}/{deviceId}/response)
   "smartfarm/+/relay/status",       // 릴레이 상태 업데이트
   "smartfarm/+/relay/response",     // 릴레이 조회 응답
   "smartfarm/+/sensor/status",      // 센서 상태 업데이트 (sensor:query 응답)
@@ -116,16 +115,11 @@ class MqttService extends EventEmitter {
           const farmId = parts[1];
           this._saveDevicePosition(farmId, payload);
         } else if (topic.match(/^smartfarm\/[^/]+\/[^/]+\/[^/]+\/response$/)) {
-          // 제어 실행 응답 (new: smartfarm/{farmId}/{houseId}/{deviceId}/response) — 100농장 표준화
+          // 제어 실행 응답 (smartfarm/{farmId}/{houseId}/{deviceId}/response) — 100농장 표준화
           const farmId = parts[1];
           const houseId = parts[2];
           const deviceId = parts[3];
           this.emit("control:response", { farmId, houseId, deviceId, data: payload, topic });
-        } else if (topic.match(/^smartfarm\/[^/]+\/[^/]+\/response$/)) {
-          // 제어 실행 응답 (legacy: smartfarm/{houseId}/{deviceId}/response)
-          const houseId = parts[1];
-          const deviceId = parts[2];
-          this.emit("control:response", { houseId, deviceId, data: payload, topic });
         }
       } catch (e) {
         logger.warn("MQTT 메시지 파싱 실패:", e.message);

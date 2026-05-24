@@ -1594,7 +1594,7 @@ const ControlPanel = ({ farmId, houseId, houseConfig }) => {
 
                   return (
                     <div key={device.deviceId}
-                      style={{padding:'4px 2px',transition:'all 0.2s'}}>
+                      style={{background: isAuto ? '#f0fdf4' : '#f8fafc',border:`2px solid ${isAuto ? '#bbf7d0' : '#e2e8f0'}`,borderRadius:12,padding:'10px 12px',transition:'all 0.2s'}}>
                       <div className="flex items-center justify-between mb-2 flex-wrap gap-1">
                         <span style={{fontSize:15,fontWeight:800,color:'#0f172a'}}>{device.name}</span>
                         <div className="flex items-center gap-1.5">

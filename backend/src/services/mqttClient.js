@@ -182,7 +182,7 @@ class MqttService extends EventEmitter {
     }
   }
 
-  // 릴레이 상태 캐시
+  // 릴레이 상태 캐시 — 메모리 + DB persistence (양산 표준 sync 구조)
   _cacheRelayStatus(farmId, payload) {
     if (!this.latestRelayStatus[farmId]) {
       this.latestRelayStatus[farmId] = {};
@@ -192,6 +192,18 @@ class MqttService extends EventEmitter {
       ...payload,
       receivedAt: new Date().toISOString(),
     };
+
+    // DB UPSERT — frontend mount GET 시 즉시 복원 + backend 재시작 견고
+    // unitId + coils 명시된 경우만 저장 (NR 응답 포맷 fan-out 방지)
+    if (payload.unitId != null && payload.coils) {
+      pool.query(
+        `INSERT INTO relay_status (farm_id, unit_id, module_type, coils, updated_at)
+         VALUES ($1, $2, $3, $4, NOW())
+         ON CONFLICT (farm_id, unit_id) DO UPDATE
+         SET module_type = $3, coils = $4, updated_at = NOW()`,
+        [farmId, payload.unitId, payload.moduleType || 'waveshare', JSON.stringify(payload.coils)]
+      ).catch((e) => logger.warn(`relay_status UPSERT 실패: ${e.message}`));
+    }
   }
 
   // 릴레이 조회 요청 발행

@@ -63,11 +63,6 @@ router.post("/:farmId", async (req, res) => {
         startedAt: startedAt || null,
       });
     } catch (e) { /* WS broadcast 실패는 무시 */ }
-
-    // MQTT publish 임시 비활성화 — AWS IoT 정책에 'smartfarm/+/device-positions' (hyphen) 토픽 미허용 추정
-    // 새 토픽 publish 시도 시 AWS 가 connection 거부 → RPi MQTT 매 15초 끊김 회귀
-    // RPi 동기화는 5분 주기 backend fetch (automationActive 반영 함수) fallback
-    // TODO: AWS IoT 정책에 토픽 추가 후 재활성화
   } catch (error) {
     res.status(500).json({ success: false, error: error.message });
   }

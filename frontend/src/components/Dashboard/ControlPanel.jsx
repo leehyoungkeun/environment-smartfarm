@@ -562,6 +562,56 @@ const ControlPanel = ({ farmId, houseId, houseConfig }) => {
     syncPositions();
   }, [farmId, houseId]);
 
+  // 마운트 시 backend DB 의 릴레이 상태 즉시 복원 (NR publish → mqttClient 가 DB UPSERT 한 영구 저장)
+  // device-positions 와 동일 패턴. NR HW polling 트리거 없이 마지막 상태 즉시 UI 반영.
+  useEffect(() => {
+    const syncRelayStatus = async () => {
+      try {
+        const API = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3000/api';
+        const token = localStorage.getItem('accessToken');
+        const res = await axios.get(`${API}/relay-status/${farmId}`, {
+          headers: { Authorization: `Bearer ${token}` },
+          timeout: 3000,
+        });
+        if (!res.data?.success || !res.data.data) return;
+
+        const dbCoils = {};
+        Object.entries(res.data.data).forEach(([uid, info]) => {
+          dbCoils[parseInt(uid)] = info.coils;
+        });
+        relayCoilsRef.current = { ...relayCoilsRef.current, ...dbCoils };
+
+        // fetchRelayStatus 와 동일 매핑 로직
+        setDeviceStates(prev => {
+          const updated = { ...prev };
+          devices.forEach(d => {
+            const m = d.modbus;
+            if (!m || m.address == null) return;
+            if (m.moduleType === 'eletechsup') return;
+            const uid = m.unitId || 1;
+            const coils = dbCoils[uid];
+            if (!coils) return;
+            if (prev[d.deviceId]?.commandLock) return;
+            if (bidirProgressRef.current[d.deviceId]) return;
+
+            if (m.controlType === 'bidir') {
+              const ch1On = !!coils[m.address];
+              const ch2On = !!coils[m.address2];
+              const status = ch1On ? 'open' : ch2On ? 'closed' : 'idle';
+              updated[d.deviceId] = { ...updated[d.deviceId], status, relayVerified: true };
+            } else {
+              const chOn = !!coils[m.address];
+              const status = chOn ? 'on' : 'off';
+              updated[d.deviceId] = { ...updated[d.deviceId], status, relayVerified: true };
+            }
+          });
+          return updated;
+        });
+      } catch {}
+    };
+    syncRelayStatus();
+  }, [farmId, houseId, devices.length]);
+
   // 가벼운 position 동기화 polling (15초) — 자동화·외부 명령으로 backend·RPi 가 변경한 결과 frontend 반영
   // 진행 중 동작(progress timer)은 건드리지 않음 → frontend 진행률 표시 유지
   useEffect(() => {

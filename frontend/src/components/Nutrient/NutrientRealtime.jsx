@@ -1090,8 +1090,8 @@ const ManualPalette = ({
           border: '1px solid #fbbf24', background: '#fff',
         }}>
           {[
-            { key: 'queue',    label: '🔢 큐 순차',    hint: '추가 즉시 또는 이전 작업 완료 후 자동 실행' },
-            { key: 'schedule', label: '📅 시간 지정', hint: '지정한 시각에 실행 (24시간 이내)' },
+            { key: 'queue',    label: '🔢 큐 순차',         hint: '추가 즉시 또는 이전 작업 완료 후 자동 실행' },
+            { key: 'schedule', label: '📅 슬롯시간지정', hint: '지정한 시각에 실행 (24시간 이내)' },
           ].map((m, i) => {
             const active = subMode === m.key;
             return (

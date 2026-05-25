@@ -513,7 +513,8 @@ const GroupCard = ({ group, members, unassigned, valveData, onChange, onDelete, 
 };
 
 // 구역 표 — 구역 # / 품목 (datalist 자유입력) / 식재수 / 제외 (또는 그룹 배정)
-const VALVE_GRID = '44px minmax(0, 1fr) minmax(0, 1fr) 96px';
+// 품목 컬럼 가장 넓게 (2fr), 식재수/그룹 좁게
+const VALVE_GRID = '40px minmax(0, 2fr) 88px 72px';
 const ValveRowTable = ({ valveIdxs, valveData, color, onValveInfo, onRemove, onAssign, groups, showAssignSelect }) => (
   <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
     <div style={{ display: 'grid', gridTemplateColumns: VALVE_GRID, gap: 6,
@@ -537,11 +538,19 @@ const ValveRowTable = ({ valveIdxs, valveData, color, onValveInfo, onRemove, onA
             <span style={{ fontSize: 11, color: '#94a3b8', flexShrink: 0 }}>주</span>
           </div>
           {showAssignSelect ? (
-            <select defaultValue="" onChange={(e) => { if (e.target.value) onAssign(idx, e.target.value); }}
-                    style={{ width: '100%', padding: '4px 6px', borderRadius: 6, border: '1px solid #cbd5e1', fontSize: 11, fontWeight: 700, color: '#475569', cursor: 'pointer' }}>
-              <option value="">↗ 그룹</option>
-              {groups.map(g => <option key={g.id} value={g.id}>{g.name}</option>)}
-            </select>
+            (groups || []).length === 0 ? (
+              <span title="먼저 위에서 + 새 그룹 추가"
+                    style={{ width: '100%', padding: '4px 6px', borderRadius: 6, border: '1px dashed #cbd5e1', background: '#f8fafc', color: '#94a3b8',
+                             fontSize: 10.5, fontWeight: 700, textAlign: 'center', cursor: 'help' }}>
+                그룹 없음
+              </span>
+            ) : (
+              <select defaultValue="" onChange={(e) => { if (e.target.value) onAssign(idx, e.target.value); }}
+                      style={{ width: '100%', padding: '4px 6px', borderRadius: 6, border: '1px solid #cbd5e1', fontSize: 11, fontWeight: 700, color: '#475569', cursor: 'pointer' }}>
+                <option value="">↗ 선택</option>
+                {groups.map(g => <option key={g.id} value={g.id}>{g.name}</option>)}
+              </select>
+            )
           ) : (
             <button onClick={() => onRemove(idx)} title="구역을 그룹에서 제외 (품목·식재수는 보존)"
                     style={{ width: '100%', padding: '4px 8px', borderRadius: 6, border: '1px solid #e2e8f0', background: '#fff', color: '#94a3b8',
@@ -618,7 +627,7 @@ const AutoScheduleEditor = ({ schedule: initial, scenarios = [], onSave }) => {
           const num = indexOf(item.scenarioId);
           const numLabel = num >= 0 ? `P-${String(num + 1).padStart(2, '0')}` : '?';
           return (
-            <div key={i} style={{
+            <div key={i} className="auto-sched-row" style={{
               display: 'grid',
               gridTemplateColumns: '40px 30px minmax(0, 1fr) 100px 60px 36px',
               gap: 6, alignItems: 'center',
@@ -654,8 +663,8 @@ const AutoScheduleEditor = ({ schedule: initial, scenarios = [], onSave }) => {
                        style={{ width: 44, padding: '4px 6px', borderRadius: 6, border: '1px solid #cbd5e1', fontSize: 13, fontWeight: 700, textAlign: 'right' }} />
                 <span style={{ fontSize: 11.5, color: '#94a3b8' }}>회</span>
               </div>
-              {/* 시나리오 미리보기 — EC/pH 작은 chip */}
-              <div style={{ fontSize: 10.5, color: '#94a3b8', fontWeight: 600, whiteSpace: 'nowrap' }}>
+              {/* 시나리오 미리보기 — EC/pH 작은 chip (모바일 hide) */}
+              <div className="auto-sched-preview" style={{ fontSize: 10.5, color: '#94a3b8', fontWeight: 600, whiteSpace: 'nowrap' }}>
                 {sc ? `EC ${sc.ecTarget} · pH ${sc.phTarget}` : ''}
               </div>
               {/* 삭제 */}
@@ -689,6 +698,15 @@ const AutoScheduleEditor = ({ schedule: initial, scenarios = [], onSave }) => {
         background: dirty ? '#0891b2' : '#cbd5e1', color: '#fff',
         fontSize: 15, fontWeight: 800, cursor: dirty ? 'pointer' : 'not-allowed',
       }}>{dirty ? '변경사항 저장' : '저장됨'}</button>
+
+      <style>{`
+        @media (max-width: 600px) {
+          .auto-sched-row {
+            grid-template-columns: 32px 24px 1fr 80px 32px !important;
+          }
+          .auto-sched-preview { display: none !important; }
+        }
+      `}</style>
     </div>
   );
 };

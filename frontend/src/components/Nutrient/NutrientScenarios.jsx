@@ -306,7 +306,7 @@ const EditForm = ({ scenario, onSave, onDelete, valveConfig }) => {
 
   return (
     <div>
-      <div style={{ display: 'flex', gap: 6, marginBottom: 14, alignItems: 'center', flexWrap: 'wrap' }}>
+      <div className="scenario-section-tabs" style={{ display: 'flex', gap: 6, marginBottom: 14, alignItems: 'center', flexWrap: 'wrap' }}>
         {SECTIONS.map(sec => (
           <button key={sec.id} onClick={() => setSection(sec.id)} style={{
             padding: '8px 16px', borderRadius: 6, fontSize: 14, fontWeight: 700,
@@ -393,7 +393,7 @@ const IrrigationSection = ({ s, onChange }) => (
         <RadioCard active={s.irrigationMode === 'timer'} onClick={() => onChange({ irrigationMode: 'timer' })}
                    icon="⏱️" label="작동 간격" desc="일정 간격 자동" />
         <RadioCard active={s.irrigationMode === 'schedule'} onClick={() => onChange({ irrigationMode: 'schedule' })}
-                   icon="📅" label="지정시각" desc="14슬롯 시간 지정" />
+                   icon="📅" label="지정시각" desc="슬롯시간지정" />
       </div>
     </div>
     {s.irrigationMode === 'solar' && (
@@ -560,14 +560,14 @@ const ZoneSelector = ({ groupBuckets, unassignedAll, cfgValveOf, selectedSet, on
     if (g.memberIdxs.length === 0) return null;
     const allOn = g.memberIdxs.every(idx => selectedSet.has(idx));
     return (
-      <div key={g.id || 'unassigned'} style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', padding: '6px 0' }}>
-        <label style={{ display: 'flex', alignItems: 'center', gap: 5, cursor: 'pointer', minWidth: 160 }}>
+      <div key={g.id || 'unassigned'} className="zone-sel-group" style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', padding: '6px 0' }}>
+        <label className="zone-sel-label" style={{ display: 'flex', alignItems: 'center', gap: 5, cursor: 'pointer', minWidth: 160 }}>
           <input type="checkbox" checked={allOn} onChange={() => onToggleGroupAll(g.memberIdxs, !allOn)}
                  style={{ width: 16, height: 16, accentColor: color }} />
           <span style={{ fontSize: 13.5, fontWeight: 800, color }}>{icon} {name}</span>
           <span style={{ fontSize: 11, color: '#94a3b8' }}>({g.memberIdxs.length})</span>
         </label>
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+        <div className="zone-sel-chips" style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
           {g.memberIdxs.map(idx => {
             const on = selectedSet.has(idx);
             const cfg = cfgValveOf(idx);
@@ -597,6 +597,24 @@ const ZoneSelector = ({ groupBuckets, unassignedAll, cfgValveOf, selectedSet, on
           '#64748b', '미배정', '📭'
         )}
       </div>
+      <style>{`
+        @media (max-width: 600px) {
+          .zone-sel-group { flex-direction: column !important; align-items: flex-start !important; gap: 4px !important; }
+          .zone-sel-label { min-width: 0 !important; width: 100%; }
+          .zone-sel-chips { width: 100%; padding-left: 22px; }
+          .scenario-section-tabs {
+            flex-wrap: nowrap !important;
+            gap: 3px !important;
+          }
+          .scenario-section-tabs > button {
+            flex: 1 1 0 !important;
+            min-width: 0 !important;
+            padding: 6px 4px !important;
+            font-size: 12 !important;
+            white-space: nowrap;
+          }
+        }
+      `}</style>
     </div>
   );
 };
@@ -713,11 +731,11 @@ const RadioCard = ({ active, onClick, icon, label, desc }) => (
   <button onClick={onClick} style={{
     padding: 10, borderRadius: 8, border: `1.5px solid ${active ? '#0891b2' : '#e2e8f0'}`,
     background: active ? '#f0f9ff' : '#fff', cursor: 'pointer', textAlign: 'left',
-    display: 'flex', flexDirection: 'column', gap: 4,
+    display: 'flex', flexDirection: 'column', gap: 4, minWidth: 0,
   }}>
     <span style={{ fontSize: 18 }}>{icon}</span>
-    <span style={{ fontSize: 14, fontWeight: 800, color: active ? '#0891b2' : '#0f172a' }}>{label}</span>
-    <span style={{ fontSize: 12, color: '#64748b' }}>{desc}</span>
+    <span style={{ fontSize: 14, fontWeight: 800, color: active ? '#0891b2' : '#0f172a', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{label}</span>
+    <span style={{ fontSize: 12, color: '#64748b', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{desc}</span>
   </button>
 );
 

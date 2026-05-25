@@ -110,11 +110,17 @@ export default function NutrientPanel({ farmId }) {
       {/* 헤더 — 브랜드 + 모드 셀렉터 */}
       <div style={{
         background: 'linear-gradient(135deg, #0891b2 0%, #06b6d4 100%)',
-        borderRadius: 16, padding: '10px 14px 10px 18px', marginBottom: 8,
-        display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap',
+        borderRadius: 16, padding: '10px 14px',
+        marginBottom: 8,
+        display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'nowrap',
       }}>
-        <span style={{ fontSize: 22 }}>💧</span>
-        <h2 style={{ color: '#fff', fontSize: 18, fontWeight: 800, margin: 0, flex: 1 }}>양액자동공급시스템</h2>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flex: 1, minWidth: 0 }}>
+          <span style={{ fontSize: 22, flexShrink: 0 }}>💧</span>
+          <h2 style={{
+            color: '#fff', fontSize: 17, fontWeight: 800, margin: 0,
+            whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+          }}>양액자동공급시스템</h2>
+        </div>
 
         {/* 우상단 액션 — 설정 토글 + 비상 */}
         <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
@@ -122,18 +128,19 @@ export default function NutrientPanel({ farmId }) {
             onClick={() => setActiveTab(activeTab === 'settings' ? 'realtime' : 'settings')}
             title={activeTab === 'settings' ? '실시간으로 돌아가기' : '설정 열기'}
             style={{
-              display: 'flex', alignItems: 'center', gap: 5,
-              padding: '6px 12px', borderRadius: 14, cursor: 'pointer',
+              display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5,
+              padding: '6px 14px', borderRadius: 14, cursor: 'pointer',
               background: activeTab === 'settings' ? '#fff' : 'rgba(255,255,255,0.16)',
               color: activeTab === 'settings' ? '#0891b2' : '#fff',
               border: '1.5px solid rgba(255,255,255,0.4)',
-              fontSize: 13, fontWeight: 700, whiteSpace: 'nowrap',
+              fontSize: 13, fontWeight: 800, whiteSpace: 'nowrap',
+              minWidth: 78, height: 32,
               transition: 'background 0.15s, color 0.15s',
             }}
             onMouseEnter={(e) => { if (activeTab !== 'settings') e.currentTarget.style.background = 'rgba(255,255,255,0.28)'; }}
             onMouseLeave={(e) => { if (activeTab !== 'settings') e.currentTarget.style.background = 'rgba(255,255,255,0.16)'; }}
           >
-            <span style={{ fontSize: 14 }}>{activeTab === 'settings' ? '←' : '🔧'}</span>
+            <span style={{ fontSize: 13 }}>{activeTab === 'settings' ? '←' : '🔧'}</span>
             <span>{activeTab === 'settings' ? '실시간' : '설정'}</span>
           </button>
 
@@ -141,12 +148,13 @@ export default function NutrientPanel({ farmId }) {
             onClick={() => handleModeChange('emergency')}
             title="비상정지 — 모든 양액 릴레이 OFF"
             style={{
-              display: 'flex', alignItems: 'center', gap: 5,
-              padding: '6px 12px', borderRadius: 14, cursor: 'pointer',
+              display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5,
+              padding: '6px 14px', borderRadius: 14, cursor: 'pointer',
               background: mode === 'emergency' ? '#fee2e2' : '#dc2626',
               color: mode === 'emergency' ? '#dc2626' : '#fff',
               border: mode === 'emergency' ? '1.5px solid #fca5a5' : '1.5px solid #b91c1c',
               fontSize: 13, fontWeight: 800, whiteSpace: 'nowrap',
+              minWidth: 78, height: 32,
               transition: 'background 0.15s',
               boxShadow: '0 1px 3px rgba(220,38,38,0.3)',
               animation: mode === 'emergency' ? 'pulse 1s infinite' : 'none',
@@ -154,7 +162,7 @@ export default function NutrientPanel({ farmId }) {
             onMouseEnter={(e) => { if (mode !== 'emergency') e.currentTarget.style.background = '#b91c1c'; }}
             onMouseLeave={(e) => { if (mode !== 'emergency') e.currentTarget.style.background = '#dc2626'; }}
           >
-            <span style={{ fontSize: 12 }}>●</span>
+            <span style={{ fontSize: 13 }}>●</span>
             <span>비상</span>
           </button>
         </div>
@@ -210,6 +218,19 @@ export default function NutrientPanel({ farmId }) {
         @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
         @keyframes wave { 0%, 100% { transform: translateX(0); } 50% { transform: translateX(-3px); } }
         @keyframes seg-stripes { from { background-position: 0 0; } to { background-position: 24px 0; } }
+
+        /* 모바일에서 다른 모드 전환 버튼 (수동/직접/정지 등) 좌우 꽉 차게 */
+        @media (max-width: 768px) {
+          .nutrient-other-modes {
+            width: 100% !important;
+            flex-wrap: nowrap !important;
+          }
+          .nutrient-other-modes > button {
+            flex: 1 1 0 !important;
+            min-width: 0 !important;
+            justify-content: center !important;
+          }
+        }
 
         /* 도싱 탱크 이름 input — 수정 가능 시각 단서 */
         .tank-label-input:hover {
@@ -373,8 +394,8 @@ const ActiveModeCard = ({ mode, onChange, autoStatus, manualStatus, phaseInfo, s
 
         <div style={{ flex: 1 }} />
 
-        {/* 다른 모드 전환 */}
-        <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+        {/* 다른 모드 전환 — 모바일에서 좌우 꽉 차게 */}
+        <div className="nutrient-other-modes" style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
           {otherModes.map(k => <DimModeBtn key={k} mode={k} onChange={onChange} />)}
         </div>
       </div>
@@ -411,7 +432,7 @@ const AutoBody = ({ autoStatus, scenarios, onScenarioSelect, accent }) => {
         title={currentScenario ? `P-${String(currentProgramNum).padStart(2,'0')} · ${currentScenario.name}` : '시나리오'}
         style={cardSelect}>
         {scenarios.map((s, i) => (
-          <option key={s.id} value={s.id}>P-{String(i+1).padStart(2,'0')} · {s.name}</option>
+          <option key={s.id} value={s.id}>{s.name}</option>
         ))}
       </select>
       <span style={{ ...cardChip, border: `1px solid ${accent}55`, color: accent }}>
@@ -437,7 +458,7 @@ const ManualBody = ({ manualStatus, scenarios, onScenarioSelect, accent }) => {
         title="시나리오 선택 — 추가 작업의 기본 설정"
         style={cardSelect}>
         {scenarios.map((s, i) => (
-          <option key={s.id} value={s.id}>P-{String(i+1).padStart(2,'0')} · {s.name}</option>
+          <option key={s.id} value={s.id}>{s.name}</option>
         ))}
       </select>
       {ms.runningJob ? (

@@ -485,10 +485,12 @@ export default function NutrientRealtime({ farmId, mode, onModeChange, onProgram
               todaySuppliedL={state?.todaySuppliedL}
               todayDrainedL={state?.todayDrainedL}
               drainFlow={state?.drain?.flowLpm}
+              supplyFlow={state?.supply?.flowLpm}
               lastCycleEndedAt={state?.lastCycleEndedAt}
               nextTrigger={state?.nextTrigger}
               irrigating={irrigating}
               suppliedL={phaseInfo?.suppliedL}
+              phaseInfo={phaseInfo}
               now={now} />
           </div>
           <div className="md:hidden">
@@ -887,7 +889,7 @@ const EnvRow = ({ label, lhs, rhs, warn }) => (
 // ─────────────────────────────────────────────────────────
 // RIGHT · TODAY  (사이클 / 누적공급량 / 퇴수유량 / 마지막 / 다음 트리거)
 // ─────────────────────────────────────────────────────────
-const TodayPanel = ({ todayCycles, todaySuppliedL, todayDrainedL, drainFlow, lastCycleEndedAt, nextTrigger, irrigating, suppliedL, now }) => {
+const TodayPanel = ({ todayCycles, todaySuppliedL, todayDrainedL, drainFlow, supplyFlow, lastCycleEndedAt, nextTrigger, irrigating, suppliedL, phaseInfo, now }) => {
   const sinceLast = lastCycleEndedAt
     ? Math.max(0, Math.floor((now - new Date(lastCycleEndedAt).getTime()) / 60000))
     : null;
@@ -909,6 +911,20 @@ const TodayPanel = ({ todayCycles, todaySuppliedL, todayDrainedL, drainFlow, las
         value={todayCycles != null ? String(todayCycles) : '—'} unit="회"
         target={todayCycles ? '완료' : '대기 중'}
         accent={T.ok} />
+      <BigStatCard
+        label="현재 유량"
+        value={(() => {
+          if (supplyFlow != null) return supplyFlow.toFixed(2);
+          // telemetry 미연결 시 phaseInfo.elapsed + suppliedL 추정
+          if (irrigating && phaseInfo?.elapsed >= 5 && suppliedL) {
+            return ((suppliedL / phaseInfo.elapsed) * 60).toFixed(2);
+          }
+          return '—';
+        })()}
+        unit="L/min"
+        target={irrigating ? '관수 중' : '대기 중'}
+        accent="#0891b2"
+        live={irrigating} />
       <BigStatCard
         label="오늘 누적 공급량"
         value={todaySuppliedL != null ? String(todaySuppliedL) : '—'} unit="L"

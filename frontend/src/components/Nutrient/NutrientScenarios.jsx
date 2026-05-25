@@ -605,13 +605,16 @@ const ZoneSelector = ({ groupBuckets, unassignedAll, cfgValveOf, selectedSet, on
           .scenario-section-tabs {
             flex-wrap: nowrap !important;
             gap: 3px !important;
+            overflow-x: auto;
           }
           .scenario-section-tabs > button {
             flex: 1 1 0 !important;
             min-width: 0 !important;
-            padding: 6px 4px !important;
-            font-size: 12 !important;
-            white-space: nowrap;
+            padding: 6px 3px !important;
+            font-size: 11.5px !important;
+            white-space: nowrap !important;
+            overflow: hidden;
+            text-overflow: ellipsis;
           }
         }
       `}</style>

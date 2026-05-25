@@ -276,24 +276,40 @@ router.put("/:farmId/state/mode", async (req, res) => {
     const update = { mode, updatedAt: new Date() };
 
     // auto 진입 시 — autoSchedule 의 첫 활성 item 의 시나리오 activate + autoQueue 초기화
+    // 존재하지 않는 scenarioId (삭제됨) 는 건너뜀
     if (mode === "auto") {
       const cfg = await prisma.nutrientConfig.findUnique({ where: { farmId } });
       const sched = cfg?.autoSchedule || { items: [], loop: true };
-      const firstEnabledIdx = (sched.items || []).findIndex(it => it.enabled);
-      if (firstEnabledIdx >= 0) {
-        const firstItem = sched.items[firstEnabledIdx];
-        // 모든 시나리오 active=false 후 첫 item 의 시나리오만 active=true
-        if (firstItem.scenarioId) {
-          await prisma.nutrientScenario.updateMany({
-            where: { farmId, active: true }, data: { active: false },
-          });
-          await prisma.nutrientScenario.update({
-            where: { id: firstItem.scenarioId }, data: { active: true },
-          });
-          update.activeScenarioId = firstItem.scenarioId;
+      const items = Array.isArray(sched.items) ? sched.items : [];
+
+      // 유효한 첫 활성 item (시나리오 존재 확인)
+      let firstEnabledIdx = -1;
+      let firstItem = null;
+      for (let i = 0; i < items.length; i++) {
+        if (!items[i].enabled || !items[i].scenarioId) continue;
+        const exists = await prisma.nutrientScenario.findFirst({
+          where: { id: items[i].scenarioId, farmId }, select: { id: true },
+        });
+        if (exists) {
+          firstEnabledIdx = i;
+          firstItem = items[i];
+          break;
         }
+      }
+
+      if (firstItem) {
+        // updateMany 사용 — 매치 없어도 에러 안 남
+        await prisma.nutrientScenario.updateMany({
+          where: { farmId, active: true }, data: { active: false },
+        });
+        await prisma.nutrientScenario.updateMany({
+          where: { id: firstItem.scenarioId, farmId }, data: { active: true },
+        });
+        update.activeScenarioId = firstItem.scenarioId;
         update.autoQueue = { itemIdx: firstEnabledIdx, repeatDone: 0, startedAt: new Date().toISOString() };
-        logger.info(`🔄 auto 모드 진입: ${farmId} → 큐 첫 item activate (scenario=${firstItem.scenarioId})`);
+        logger.info(`🔄 auto 모드 진입: ${farmId} → 큐 [${firstEnabledIdx}] scenario=${firstItem.scenarioId} activate`);
+      } else if (items.length > 0) {
+        logger.warn(`⚠️ auto 모드 진입: ${farmId} → autoSchedule 의 활성 시나리오 없음 (삭제됐거나 모두 비활성)`);
       }
     }
 

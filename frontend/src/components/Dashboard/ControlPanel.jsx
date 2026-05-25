@@ -1455,8 +1455,8 @@ const ControlPanel = ({ farmId, houseId, houseConfig }) => {
       turning_off:{ text: 'OFF 전환', color: '#475569', bg: '#f1f5f9', animate: true },
       open:       { text: '열림', color: '#15803d', bg: '#dcfce7', animate: false },
       closed:     { text: '닫힘', color: '#1d4ed8', bg: '#dbeafe', animate: false },
-      on:         { text: 'ON',   color: '#15803d', bg: '#dcfce7', animate: false },
-      off:        { text: 'OFF',  color: '#475569', bg: '#f1f5f9', animate: false },
+      on:         { text: '동작중', color: '#15803d', bg: '#dcfce7', animate: false },
+      off:        { text: '꺼짐',   color: '#b91c1c', bg: '#fee2e2', animate: false },
       error:      { text: '오류', color: '#be123c', bg: '#fee2e2', animate: false },
     };
     return map[status] || { text: '대기', color: '#d97706', bg: '#fef3c7', animate: false };

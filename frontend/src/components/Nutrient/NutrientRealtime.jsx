@@ -55,7 +55,7 @@ const MODE_ICON = { auto: Ico.Play, manual: Ico.Hand, direct: Ico.Direct, paused
 
 const kicker = { fontSize: 11.5, fontWeight: 700, color: T.fg3, letterSpacing: '0.14em', textTransform: 'uppercase' };
 
-export default function NutrientRealtime({ farmId, mode, onModeChange, onProgramChange, onPhaseChange, onAutoStatusChange }) {
+export default function NutrientRealtime({ farmId, mode, onModeChange, onProgramChange, onPhaseChange, onAutoStatusChange, onManualStatusChange }) {
   const [state, setState] = useState(null);
   const [config, setConfig] = useState(null);
   const [scenarios, setScenarios] = useState([]);
@@ -379,6 +379,15 @@ export default function NutrientRealtime({ farmId, mode, onModeChange, onProgram
   // 모달용 — queued + scheduled 둘 다 표시
   const pendingJobs = [...queuedJobs, ...scheduledJobs];
 
+  // 수동 모드 상태 → Panel push (ModeSegment 의 수동 카드용)
+  useEffect(() => {
+    if (mode !== 'manual') { onManualStatusChange?.(null); return; }
+    onManualStatusChange?.({
+      runningJob, queuedCount: queuedJobs.length,
+      scheduledCount: scheduledJobs.length, totalCount: manualJobs.length,
+    });
+  }, [mode, manualJobs.length, runningJob?.id, queuedJobs.length, scheduledJobs.length, onManualStatusChange]);
+
   const handleStartQueue = async () => {
     if (queuedJobs.length === 0) return;
     try {
@@ -414,11 +423,9 @@ export default function NutrientRealtime({ farmId, mode, onModeChange, onProgram
       {/* 헤더 (실시간 운영 + ModeSegment) 삭제 — NutrientPanel 의 HydroControl 헤더 +
           ModeSelector 와 중복. 모드 전환은 상단 ModeSelector 에서. */}
 
-      {/* 현재 단계 + progress bar — 헤더 직하 (모바일 가시성).
-          manual+runningJob 은 ManualRunningCard 가 phaseInfo 표시 → 중복 회피
-          자동 모드는 NutrientPanel 의 ModeSegment 가 CyclePhaseGraphic 으로 표시 → 항상 hide
-          나머지 (paused·emergency·direct·manual idle) 는 모두 표시 */}
-      {!runningJob && mode !== 'auto' && (
+      {/* 현재 단계 + progress bar — 자동/수동/직접 모드는 ActiveModeCard 가 표시 → hide
+          paused/emergency 만 표시 */}
+      {!runningJob && (mode === 'paused' || mode === 'emergency') && (
         <PhaseProgressBar phaseInfo={phaseInfo} mode={mode} />
       )}
 
@@ -1043,8 +1050,17 @@ const ManualPalette = ({
 
   return (
     <div style={{
-      marginBottom: 10, padding: '12px 14px', borderRadius: 12,
-      background: '#fffbeb', border: '1.5px solid #fbbf24',
+      // 외부 흰 wrapper — NutrientPanel 의 모드바 wrapper 와 시각적 연결 (하나의 흰 카드처럼)
+      background: '#fff', padding: 8, marginBottom: 12,
+      borderRadius: '0 0 12px 12px',
+      border: '1px solid #e2e8f0', borderTop: 'none',
+      boxShadow: '0 1px 3px rgba(0,0,0,0.04)',
+    }}>
+    <div style={{
+      // 내부 주황 body — ActiveModeCard (위 주황 카드) 와 같은 gradient
+      padding: '10px 14px', borderRadius: 8,
+      background: 'linear-gradient(135deg, #fef3c7 0%, #fef9c3 100%)',
+      border: '1.5px solid #d9770655',
       boxShadow: '0 2px 8px rgba(217,119,6,0.08)',
     }}>
       {/* 헤더 row 1 — segmented + 큐 pill (모바일에서 wrap) */}
@@ -1209,6 +1225,7 @@ const ManualPalette = ({
           {lowTanks.length > 0 && <span>⚠ 잔량 부족: {lowTanks.map(t => t.name).join(', ')}</span>}
         </div>
       )}
+    </div>
     </div>
   );
 };

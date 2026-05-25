@@ -46,7 +46,14 @@ export default function NutrientSettings({ farmId }) {
     calibration: false, alertHistory: false, counters: false,
   });
   const [scenariosList, setScenariosList] = useState([]);
-  useEffect(() => { nutrientApi.listScenarios(farmId).then(setScenariosList).catch(() => {}); }, [farmId]);
+  // 시나리오 편집 즉시 반영 — 5초 polling (다른 섹션의 시나리오 변경도 자동 갱신)
+  useEffect(() => {
+    let cancelled = false;
+    const tick = () => nutrientApi.listScenarios(farmId).then(r => { if (!cancelled) setScenariosList(r); }).catch(() => {});
+    tick();
+    const id = setInterval(tick, 5000);
+    return () => { cancelled = true; clearInterval(id); };
+  }, [farmId]);
   const toggle = (k) => setOpen(o => ({ ...o, [k]: !o[k] }));
 
   const [config, setConfig] = useState(null);

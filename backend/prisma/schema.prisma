@@ -575,14 +575,15 @@ model nutrientScenario {
 // 도싱 탱크 / 관수 밸브 / 하드웨어 설정 / 경보 한계 — 농장 1개당 1 row (JSONB)
 // 양액 시스템 자체가 농장 단위라 별 row 분리하지 않고 단일 row 로 관리
 model nutrientConfig {
-  farmId      String   @id @map("farm_id")
-  tanks       Json     @default("[]") // [{id, label, level, capacity, modbusReg}, ...]
-  valveCount  Int      @default(0) @map("valve_count")
-  valveGroups Json     @default("[]") @map("valve_groups") // [{id, name, supplyLevel, color}, ...]
-  valves      Json     @default("[]") // [{idx, groupId, crop, plantCount}, ...] — 구역별 상세
-  alerts      Json     @default("{}") // {ecUpper, ecLower, ecCritical, phUpper, phLower, phCritical}
-  hardware    Json     @default("{}") // {modbusUnit, ecSensorAddr, phSensorAddr, flowSensorAddr, pumpResponse, dosingPulseUnit}
-  updatedAt   DateTime @default(now()) @map("updated_at")
+  farmId       String   @id @map("farm_id")
+  tanks        Json     @default("[]") // [{id, label, level, capacity, modbusReg}, ...]
+  valveCount   Int      @default(0) @map("valve_count")
+  valveGroups  Json     @default("[]") @map("valve_groups") // [{id, name, supplyLevel, color}, ...]
+  valves       Json     @default("[]") // [{idx, groupId, crop, plantCount}, ...] — 구역별 상세
+  alerts       Json     @default("{}") // {ecUpper, ecLower, ecCritical, phUpper, phLower, phCritical}
+  hardware     Json     @default("{}") // {modbusUnit, ecSensorAddr, phSensorAddr, flowSensorAddr, pumpResponse, dosingPulseUnit}
+  autoSchedule Json     @default("{\"items\":[],\"loop\":true}") @map("auto_schedule") // {items:[{scenarioId, repeat, enabled}], loop}
+  updatedAt    DateTime @default(now()) @map("updated_at")
 
   @@map("nutrient_configs")
 }
@@ -646,6 +647,7 @@ model nutrientState {
   mode             String   @default("paused") // 'auto' | 'manual' | 'paused' | 'emergency'
   activeScenarioId String?  @map("active_scenario_id")
   currentCycle     Json     @default("{}") @map("current_cycle") // {startedAt, expectedEndAt, suppliedL, ecAvg, phAvg, valveIdx}
+  autoQueue        Json     @default("{}") @map("auto_queue") // {itemIdx, repeatDone, startedAt} — autoSchedule 진행 상태
   ecCurrent        Float?   @map("ec_current")
   phCurrent        Float?   @map("ph_current")
   solarAccumulated Float    @default(0) @map("solar_accumulated")

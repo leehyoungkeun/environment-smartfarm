@@ -42,9 +42,11 @@ const DEFAULT_HW = {
 
 export default function NutrientSettings({ farmId }) {
   const [open, setOpen] = useState({
-    scenarios: true, tanks: false, valves: false, channels: false, alerts: false, hw: false,
+    scenarios: true, autoSchedule: false, tanks: false, valves: false, channels: false, alerts: false, hw: false,
     calibration: false, alertHistory: false, counters: false,
   });
+  const [scenariosList, setScenariosList] = useState([]);
+  useEffect(() => { nutrientApi.listScenarios(farmId).then(setScenariosList).catch(() => {}); }, [farmId]);
   const toggle = (k) => setOpen(o => ({ ...o, [k]: !o[k] }));
 
   const [config, setConfig] = useState(null);
@@ -66,6 +68,7 @@ export default function NutrientSettings({ farmId }) {
           valves: cfg.valves || [],                    // [{idx, groupId}]
           alerts: { ...DEFAULT_ALERTS, ...(cfg.alerts || {}) },
           hardware: { ...DEFAULT_HW, ...(cfg.hardware || {}) },
+          autoSchedule: cfg.autoSchedule || { items: [], loop: true },
         });
       } catch (e) {
         if (!cancelled) setError(e.response?.data?.error || e.message);
@@ -111,6 +114,18 @@ export default function NutrientSettings({ farmId }) {
       <Section title="🎯 시나리오" subtitle="레시피 편집 · EC/pH 목표 · 도싱 비율 · 관수 일정"
                open={open.scenarios} onToggle={() => toggle('scenarios')}>
         <NutrientScenarios farmId={farmId} />
+      </Section>
+
+      {/* 0-1. 자동 실행 스케줄 (시나리오 큐 순차 실행) */}
+      <Section title="🔄 자동 실행 스케줄"
+               subtitle={`자동 모드 시 ${config.autoSchedule.items.length}개 시나리오 순차 실행`}
+               open={open.autoSchedule} onToggle={() => toggle('autoSchedule')}
+               saving={savingSection === 'autoSchedule'}>
+        <AutoScheduleEditor
+          schedule={config.autoSchedule}
+          scenarios={scenariosList}
+          onSave={(s) => saveSection('autoSchedule', s)}
+        />
       </Section>
 
       {/* 1. 도싱 탱크 */}
@@ -534,6 +549,150 @@ const ValveRowTable = ({ valveIdxs, valveData, color, onValveInfo, onRemove, onA
     </datalist>
   </div>
 );
+
+// ─────────────────────────────────────────
+// AutoScheduleEditor — 자동 모드 시나리오 큐 (플레이리스트 + 반복 횟수)
+// items: [{ scenarioId, repeat, enabled }], loop: boolean
+// 큐 완료 시 loop 면 처음부터, 아니면 종료
+// ─────────────────────────────────────────
+const AutoScheduleEditor = ({ schedule: initial, scenarios = [], onSave }) => {
+  const [sched, setSched] = useState(initial || { items: [], loop: true });
+  useEffect(() => { setSched(initial || { items: [], loop: true }); }, [initial]);
+  const dirty = JSON.stringify(sched) !== JSON.stringify(initial || { items: [], loop: true });
+
+  const scOf = (id) => scenarios.find(s => s.id === id);
+  const indexOf = (id) => scenarios.findIndex(s => s.id === id);
+
+  const update = (patch) => setSched(s => ({ ...s, ...patch }));
+  const updateItem = (i, patch) => setSched(s => ({
+    ...s, items: s.items.map((it, idx) => idx === i ? { ...it, ...patch } : it),
+  }));
+  const addItem = () => {
+    const firstId = scenarios[0]?.id || '';
+    setSched(s => ({ ...s, items: [...s.items, { scenarioId: firstId, repeat: 1, enabled: true }] }));
+  };
+  const removeItem = (i) => setSched(s => ({ ...s, items: s.items.filter((_, idx) => idx !== i) }));
+  const moveItem = (i, dir) => {
+    const j = i + dir;
+    if (j < 0 || j >= sched.items.length) return;
+    setSched(s => {
+      const arr = [...s.items];
+      [arr[i], arr[j]] = [arr[j], arr[i]];
+      return { ...s, items: arr };
+    });
+  };
+
+  // 총 실행 횟수 (활성 항목 × 반복) — 시각화
+  const totalCycles = sched.items.filter(it => it.enabled).reduce((a, it) => a + (it.repeat || 1), 0);
+
+  if (scenarios.length === 0) {
+    return <div style={{ padding: 16, color: '#94a3b8', textAlign: 'center', fontSize: 13 }}>
+      먼저 위의 🎯 시나리오 섹션에서 시나리오를 1개 이상 만드세요
+    </div>;
+  }
+
+  return (
+    <div>
+      {/* 안내 */}
+      <div style={{ fontSize: 13, color: '#475569', marginBottom: 10, padding: 10, background: '#f0f9ff', borderRadius: 8, border: '1px solid #bae6fd' }}>
+        자동 모드 시 위에서 아래로 순서대로 실행. 각 시나리오는 반복 횟수만큼 실행 후 다음으로.
+        <strong style={{ color: '#0c4a6e' }}> 활성 항목 {sched.items.filter(it => it.enabled).length}개 · 총 {totalCycles}회 사이클</strong>
+      </div>
+
+      {/* 큐 항목 목록 */}
+      <div className="space-y-2 mb-3">
+        {sched.items.length === 0 && (
+          <div style={{ padding: 16, color: '#94a3b8', textAlign: 'center', fontSize: 13, background: '#f8fafc', borderRadius: 8 }}>
+            큐가 비어있습니다 — 아래 + 버튼으로 시나리오 추가
+          </div>
+        )}
+        {sched.items.map((item, i) => {
+          const sc = scOf(item.scenarioId);
+          const num = indexOf(item.scenarioId);
+          const numLabel = num >= 0 ? `P-${String(num + 1).padStart(2, '0')}` : '?';
+          return (
+            <div key={i} style={{
+              display: 'grid',
+              gridTemplateColumns: '40px 30px minmax(0, 1fr) 100px 60px 36px',
+              gap: 6, alignItems: 'center',
+              padding: 10, background: item.enabled ? '#fff' : '#f8fafc',
+              border: `1.5px solid ${item.enabled ? '#cbd5e1' : '#e2e8f0'}`,
+              borderRadius: 10, opacity: item.enabled ? 1 : 0.55,
+            }}>
+              {/* 순서 + 이동 화살표 */}
+              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+                <button onClick={() => moveItem(i, -1)} disabled={i === 0}
+                        style={miniArrow(i === 0)}>▲</button>
+                <span style={{ fontSize: 13, fontWeight: 800, color: '#0891b2' }}>{i + 1}</span>
+                <button onClick={() => moveItem(i, +1)} disabled={i === sched.items.length - 1}
+                        style={miniArrow(i === sched.items.length - 1)}>▼</button>
+              </div>
+              {/* 활성 토글 */}
+              <input type="checkbox" checked={item.enabled} onChange={(e) => updateItem(i, { enabled: e.target.checked })}
+                     title="활성/비활성 (비활성 시 큐에서 건너뜀)"
+                     style={{ width: 18, height: 18, cursor: 'pointer', accentColor: '#0891b2' }} />
+              {/* 시나리오 선택 */}
+              <select value={item.scenarioId} onChange={(e) => updateItem(i, { scenarioId: e.target.value })}
+                      style={{ padding: '5px 8px', borderRadius: 6, border: '1px solid #cbd5e1',
+                               fontSize: 13, fontWeight: 700, minWidth: 0, width: '100%' }}>
+                {scenarios.map((s, idx) => (
+                  <option key={s.id} value={s.id}>P-{String(idx + 1).padStart(2, '0')} · {s.name}</option>
+                ))}
+              </select>
+              {/* 반복 횟수 */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                <span style={{ fontSize: 11.5, color: '#64748b' }}>반복</span>
+                <input type="number" min="1" max="20" value={item.repeat || 1}
+                       onChange={(e) => updateItem(i, { repeat: Math.max(1, parseInt(e.target.value) || 1) })}
+                       style={{ width: 44, padding: '4px 6px', borderRadius: 6, border: '1px solid #cbd5e1', fontSize: 13, fontWeight: 700, textAlign: 'right' }} />
+                <span style={{ fontSize: 11.5, color: '#94a3b8' }}>회</span>
+              </div>
+              {/* 시나리오 미리보기 — EC/pH 작은 chip */}
+              <div style={{ fontSize: 10.5, color: '#94a3b8', fontWeight: 600, whiteSpace: 'nowrap' }}>
+                {sc ? `EC ${sc.ecTarget} · pH ${sc.phTarget}` : ''}
+              </div>
+              {/* 삭제 */}
+              <button onClick={() => removeItem(i)} title="이 항목 삭제"
+                      style={{ width: 30, height: 30, borderRadius: 6, border: '1px solid #fecaca', background: '#fef2f2', color: '#dc2626', cursor: 'pointer', fontSize: 13 }}>×</button>
+            </div>
+          );
+        })}
+      </div>
+
+      {/* 추가 버튼 */}
+      <button onClick={addItem} style={{
+        width: '100%', padding: 10, borderRadius: 8, border: '1.5px dashed #94a3b8',
+        background: 'transparent', color: '#475569', fontSize: 14, fontWeight: 700, cursor: 'pointer', marginBottom: 12,
+      }}>+ 시나리오 추가</button>
+
+      {/* 루프 옵션 */}
+      <label style={{ display: 'flex', alignItems: 'center', gap: 8, padding: 10, background: '#f8fafc', borderRadius: 8, cursor: 'pointer', marginBottom: 10 }}>
+        <input type="checkbox" checked={sched.loop} onChange={(e) => update({ loop: e.target.checked })}
+               style={{ width: 18, height: 18, accentColor: '#0891b2' }} />
+        <span style={{ fontSize: 13.5, fontWeight: 700, color: '#475569' }}>
+          🔁 큐 끝나면 처음부터 다시 반복
+        </span>
+        <span style={{ fontSize: 12, color: '#94a3b8' }}>
+          (해제 시 1회 실행 후 자동으로 일시정지)
+        </span>
+      </label>
+
+      <button onClick={() => onSave(sched)} disabled={!dirty} style={{
+        width: '100%', padding: 10, borderRadius: 8, border: 'none',
+        background: dirty ? '#0891b2' : '#cbd5e1', color: '#fff',
+        fontSize: 15, fontWeight: 800, cursor: dirty ? 'pointer' : 'not-allowed',
+      }}>{dirty ? '변경사항 저장' : '저장됨'}</button>
+    </div>
+  );
+};
+
+const miniArrow = (disabled) => ({
+  width: 18, height: 14, padding: 0, borderRadius: 3,
+  border: 'none', background: 'transparent',
+  color: disabled ? '#cbd5e1' : '#64748b',
+  cursor: disabled ? 'not-allowed' : 'pointer',
+  fontSize: 9, lineHeight: 1,
+});
 
 // ─────────────────────────────────────────
 // 경보 한계값 편집 + 시각화

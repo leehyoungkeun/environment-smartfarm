@@ -229,7 +229,7 @@ router.put("/:farmId/config", async (req, res) => {
   try {
     const { farmId } = req.params;
     await getOrCreateConfig(farmId); // ensure exists
-    const fields = ["tanks", "valveCount", "valveGroups", "valves", "alerts", "hardware"];
+    const fields = ["tanks", "valveCount", "valveGroups", "valves", "alerts", "hardware", "autoSchedule"];
     const data = {};
     for (const f of fields) if (req.body[f] !== undefined) data[f] = req.body[f];
     data.updatedAt = new Date();
@@ -264,10 +264,33 @@ router.put("/:farmId/state/mode", async (req, res) => {
     if (!allowed.includes(mode)) {
       return res.status(400).json({ success: false, error: `mode 는 ${allowed.join("|")} 중 하나` });
     }
+
+    const update = { mode, updatedAt: new Date() };
+
+    // auto 진입 시 — autoSchedule 의 첫 활성 item 의 시나리오 activate + autoQueue 초기화
+    if (mode === "auto") {
+      const cfg = await prisma.nutrientConfig.findUnique({ where: { farmId } });
+      const sched = cfg?.autoSchedule || { items: [], loop: true };
+      const firstEnabledIdx = (sched.items || []).findIndex(it => it.enabled);
+      if (firstEnabledIdx >= 0) {
+        const firstItem = sched.items[firstEnabledIdx];
+        // 모든 시나리오 active=false 후 첫 item 의 시나리오만 active=true
+        if (firstItem.scenarioId) {
+          await prisma.nutrientScenario.updateMany({
+            where: { farmId, active: true }, data: { active: false },
+          });
+          await prisma.nutrientScenario.update({
+            where: { id: firstItem.scenarioId }, data: { active: true },
+          });
+          update.activeScenarioId = firstItem.scenarioId;
+        }
+        update.autoQueue = { itemIdx: firstEnabledIdx, repeatDone: 0, startedAt: new Date().toISOString() };
+        logger.info(`🔄 auto 모드 진입: ${farmId} → 큐 첫 item activate (scenario=${firstItem.scenarioId})`);
+      }
+    }
+
     const st = await prisma.nutrientState.upsert({
-      where: { farmId },
-      update: { mode, updatedAt: new Date() },
-      create: { farmId, mode },
+      where: { farmId }, update, create: { farmId, ...update },
     });
     res.json({ success: true, data: st });
   } catch (e) {

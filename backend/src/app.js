@@ -49,6 +49,7 @@ import { startMaintenanceAlertScheduler } from "./schedulers/maintenanceAlert.js
 import { startOfflineAlertScheduler } from "./schedulers/offlineAlert.js";
 import { startTrashCleanupScheduler } from "./schedulers/trashCleanup.js";
 import { startSensorThresholdScheduler } from "./schedulers/sensorThresholdAlert.js";
+import { start as startNutrientAutoScheduler } from "./services/nutrientAutoScheduler.js";
 import { startDeviceFailureScheduler } from "./schedulers/deviceFailureAlert.js";
 
 const app = express();
@@ -390,6 +391,7 @@ async function startServer() {
     startTrashCleanupScheduler();
     startSensorThresholdScheduler();
     startDeviceFailureScheduler();
+    startNutrientAutoScheduler();
 
     const server = app.listen(PORT, "0.0.0.0", () => {
       // MQTT + WebSocket 초기화

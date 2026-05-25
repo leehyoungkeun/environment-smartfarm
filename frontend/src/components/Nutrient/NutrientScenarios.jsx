@@ -225,7 +225,7 @@ const ScenarioCard = ({ scenario, index, isEditing, onEdit, onChange, onDelete, 
       {/* 인라인 편집 펼침 */}
       {isEditing && (
         <div style={{ borderTop: '1px solid #e2e8f0', padding: 14, background: '#f8fafc' }}>
-          <EditForm scenario={s} onChange={onChange} onDelete={onDelete} valveConfig={valveConfig} />
+          <EditForm scenario={s} onSave={onChange} onDelete={onDelete} valveConfig={valveConfig} />
         </div>
       )}
     </div>
@@ -284,8 +284,19 @@ const ToggleSwitch = ({ on, onChange, color = '#0891b2' }) => (
 // ─────────────────────────────────────────
 // 편집 폼
 // ─────────────────────────────────────────
-const EditForm = ({ scenario, onChange, onDelete, valveConfig }) => {
+// EditForm — 명시적 저장 버튼 (Settings 의 saveSection 패턴과 일관)
+// 각 필드 변경은 local draft 만, 저장 버튼 클릭 시 onSave(draft) 호출
+const EditForm = ({ scenario, onSave, onDelete, valveConfig }) => {
   const [section, setSection] = useState('target');
+  const [draft, setDraft] = useState(scenario);
+  // 부모(scenario) 가 외부에서 갱신되면 (예: 다른 client 가 저장) draft 동기화
+  useEffect(() => { setDraft(scenario); }, [scenario.id]);  // eslint-disable-line react-hooks/exhaustive-deps
+
+  const updateDraft = (updates) => setDraft(d => ({ ...d, ...updates }));
+  const dirty = JSON.stringify(draft) !== JSON.stringify(scenario);
+  const reset = () => setDraft(scenario);
+  const save  = () => { if (dirty) onSave(draft); };
+
   const SECTIONS = [
     { id: 'target', label: 'EC/pH 목표' },
     { id: 'dosing', label: '도징 비율' },
@@ -295,7 +306,7 @@ const EditForm = ({ scenario, onChange, onDelete, valveConfig }) => {
 
   return (
     <div>
-      <div style={{ display: 'flex', gap: 6, marginBottom: 14 }}>
+      <div style={{ display: 'flex', gap: 6, marginBottom: 14, alignItems: 'center', flexWrap: 'wrap' }}>
         {SECTIONS.map(sec => (
           <button key={sec.id} onClick={() => setSection(sec.id)} style={{
             padding: '8px 16px', borderRadius: 6, fontSize: 14, fontWeight: 700,
@@ -305,18 +316,37 @@ const EditForm = ({ scenario, onChange, onDelete, valveConfig }) => {
             cursor: 'pointer',
           }}>{sec.label}</button>
         ))}
+        {dirty && (
+          <span style={{ padding: '3px 8px', borderRadius: 10, background: '#fef3c7', color: '#92400e',
+                         fontSize: 11.5, fontWeight: 800 }}>● 변경됨</span>
+        )}
       </div>
 
-      {section === 'target' && <TargetSection s={scenario} onChange={onChange} />}
-      {section === 'dosing' && <DosingSection s={scenario} onChange={onChange} />}
-      {section === 'irrigation' && <IrrigationSection s={scenario} onChange={onChange} />}
-      {section === 'valves' && <ValvesSection s={scenario} onChange={onChange} valveConfig={valveConfig} />}
+      {section === 'target' && <TargetSection s={draft} onChange={updateDraft} />}
+      {section === 'dosing' && <DosingSection s={draft} onChange={updateDraft} />}
+      {section === 'irrigation' && <IrrigationSection s={draft} onChange={updateDraft} />}
+      {section === 'valves' && <ValvesSection s={draft} onChange={updateDraft} valveConfig={valveConfig} />}
 
-      <div style={{ marginTop: 16, display: 'flex', justifyContent: 'flex-end' }}>
+      <div style={{ marginTop: 16, display: 'flex', gap: 8, justifyContent: 'flex-end', alignItems: 'center' }}>
         <button onClick={onDelete} style={{
           background: '#fee2e2', color: '#dc2626', border: '1px solid #fca5a5',
           padding: '6px 12px', borderRadius: 8, fontSize: 13, fontWeight: 800, cursor: 'pointer',
         }}>🗑️ 삭제</button>
+        <div style={{ flex: 1 }} />
+        <button onClick={reset} disabled={!dirty} style={{
+          background: dirty ? '#fff' : '#f1f5f9',
+          color: dirty ? '#475569' : '#cbd5e1',
+          border: `1px solid ${dirty ? '#cbd5e1' : '#e2e8f0'}`,
+          padding: '6px 14px', borderRadius: 8, fontSize: 13, fontWeight: 700,
+          cursor: dirty ? 'pointer' : 'not-allowed',
+        }}>취소</button>
+        <button onClick={save} disabled={!dirty} style={{
+          background: dirty ? '#0891b2' : '#cbd5e1',
+          color: '#fff', border: 'none',
+          padding: '6px 18px', borderRadius: 8, fontSize: 13.5, fontWeight: 800,
+          cursor: dirty ? 'pointer' : 'not-allowed',
+          boxShadow: dirty ? '0 1px 3px rgba(8,145,178,0.3)' : 'none',
+        }}>{dirty ? '변경사항 저장' : '저장됨'}</button>
       </div>
     </div>
   );

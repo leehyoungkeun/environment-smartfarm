@@ -231,13 +231,21 @@ router.put("/:farmId/config", async (req, res) => {
     await getOrCreateConfig(farmId); // ensure exists
     const fields = ["tanks", "valveCount", "valveGroups", "valves", "alerts", "hardware", "autoSchedule"];
     const data = {};
-    for (const f of fields) if (req.body[f] !== undefined) data[f] = req.body[f];
+    const incoming = [];
+    for (const f of fields) {
+      if (req.body[f] !== undefined) {
+        data[f] = req.body[f];
+        incoming.push(f);
+      }
+    }
     data.updatedAt = new Date();
+    logger.info(`📝 nutrient config PUT: farmId=${farmId} fields=[${incoming.join(", ")}]`);
 
     const cfg = await prisma.nutrientConfig.update({ where: { farmId }, data });
+    logger.info(`✅ nutrient config 저장 성공: ${farmId}`);
     res.json({ success: true, data: cfg });
   } catch (e) {
-    logger.error("config put:", e);
+    logger.error(`❌ config put 실패: ${e.message}`, e);
     res.status(400).json({ success: false, error: e.message });
   }
 });

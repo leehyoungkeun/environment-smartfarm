@@ -29,6 +29,7 @@ export default function NutrientPanel({ farmId }) {
   const [programName, setProgramName] = useState(null);
   const [scenarios, setScenarios] = useState([]);
   const [phaseInfo, setPhaseInfo] = useState(null);  // NutrientRealtime → push (모드바 사이클 그래픽)
+  const [autoStatus, setAutoStatus] = useState(null); // NutrientRealtime → push (자동 모드 큐 진행)
   const [alerts] = useState([]); // sticky 경보 배너 (Phase 3 RPi telemetry 연동 후 활성)
   const [env] = useState(MOCK_ENV);
 
@@ -179,20 +180,23 @@ export default function NutrientPanel({ farmId }) {
       </div>
 
       {/* 운영 모드 바 — 자동/시나리오/수동/직접/정지 (비상은 헤더로 이동) */}
-      <div style={{
-        background: '#fff', borderRadius: 12, padding: 8,
-        marginBottom: 12, boxShadow: '0 1px 3px rgba(0,0,0,0.04)',
-        border: '1px solid #e2e8f0',
-        display: 'flex', alignItems: 'center', justifyContent: 'center',
-      }}>
-        <ModeSegment mode={mode} onChange={handleModeChange}
-          programNum={programNum} programName={programName}
-          scenarios={scenarios} onScenarioSelect={handleScenarioSelect}
-          phaseInfo={phaseInfo} />
-      </div>
+      {/* 모드바 — 실시간 탭에서만 (설정 탭에선 운영 상태 표시 불필요) */}
+      {activeTab === 'realtime' && (
+        <div style={{
+          background: '#fff', borderRadius: 12, padding: 8,
+          marginBottom: 12, boxShadow: '0 1px 3px rgba(0,0,0,0.04)',
+          border: '1px solid #e2e8f0',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+        }}>
+          <ModeSegment mode={mode} onChange={handleModeChange}
+            programNum={programNum} programName={programName}
+            scenarios={scenarios} onScenarioSelect={handleScenarioSelect}
+            phaseInfo={phaseInfo} autoStatus={autoStatus} />
+        </div>
+      )}
 
       {/* 컨텐츠 */}
-      {activeTab === 'realtime' && <NutrientRealtime farmId={farmId} mode={mode} onModeChange={handleModeChange} onProgramChange={handleProgramChange} onPhaseChange={setPhaseInfo} />}
+      {activeTab === 'realtime' && <NutrientRealtime farmId={farmId} mode={mode} onModeChange={handleModeChange} onProgramChange={handleProgramChange} onPhaseChange={setPhaseInfo} onAutoStatusChange={setAutoStatus} />}
       {activeTab === 'settings' && <NutrientSettings farmId={farmId} />}
 
       <style>{`
@@ -312,11 +316,161 @@ const CyclePhaseGraphic = ({ phaseInfo }) => {
   );
 };
 
+// 자동 모드 활성 시 통합 상태 카드 — 현재 시나리오 + 사이클 단계 + 다음 시나리오
+const AutoStatusCard = ({ autoStatus, phaseInfo, onChange, scenarios, onScenarioSelect }) => {
+  const cardBg = 'linear-gradient(135deg, #ecfdf5 0%, #f0fdfa 100%)';
+  const accent = '#16a34a';
+  const dimMode = (key, label, icon, color) => (
+    <button onClick={() => onChange(key)} title={label}
+      style={{
+        display: 'flex', alignItems: 'center', gap: 4,
+        padding: '5px 11px', borderRadius: 14,
+        background: '#fff', color: '#64748b',
+        border: '1.5px solid #e2e8f0',
+        cursor: 'pointer', fontSize: 12.5, fontWeight: 700, whiteSpace: 'nowrap',
+      }}
+      onMouseEnter={(e) => { e.currentTarget.style.background = '#f8fafc'; e.currentTarget.style.borderColor = '#cbd5e1'; }}
+      onMouseLeave={(e) => { e.currentTarget.style.background = '#fff'; e.currentTarget.style.borderColor = '#e2e8f0'; }}
+    >
+      <span style={{ color }}>{icon}</span>
+      <span>{label}</span>
+    </button>
+  );
+
+  if (!autoStatus || autoStatus.empty) {
+    // 자동 진입했지만 큐 비어있음
+    return (
+      <div style={{ flex: 1, padding: '8px 12px', borderRadius: 12, background: cardBg, border: `1.5px solid ${accent}55` }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+          <span style={{ padding: '4px 10px', borderRadius: 14, background: accent, color: '#fff', fontSize: 13, fontWeight: 800 }}>▶ 자동</span>
+          <span style={{ fontSize: 13, color: '#64748b', fontWeight: 600, flex: 1 }}>
+            자동 실행 스케줄이 비었습니다 — 설정 → 🔄 자동 실행 스케줄에서 시나리오 추가
+          </span>
+          <div style={{ display: 'flex', gap: 4 }}>
+            {dimMode('manual', '수동', '✋', '#d97706')}
+            {dimMode('direct', '직접', '⚙', '#7c3aed')}
+            {dimMode('paused', '정지', '❚❚', '#2563eb')}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  const { currentScenario, currentProgramNum, nextScenario, nextProgramNum, repeat, repeatDone, loop, totalCycles } = autoStatus;
+  const phaseColor = phaseInfo ? (PHASE_COLOR[phaseInfo.phaseKey] || accent) : '#94a3b8';
+  const pct = phaseInfo ? Math.round((phaseInfo.progress || 0) * 100) : 0;
+  const remainSec = phaseInfo ? Math.max(0, Math.floor(phaseInfo.remaining || 0)) : 0;
+
+  return (
+    <div style={{ flex: 1, padding: 10, borderRadius: 12, background: cardBg, border: `1.5px solid ${accent}55` }}>
+      {/* 1줄: 자동 활성 + 현재 시나리오 + 큐 진행 + 다른 모드 */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: phaseInfo ? 6 : 0, flexWrap: 'wrap' }}>
+        <span style={{
+          padding: '4px 11px', borderRadius: 14, background: accent, color: '#fff',
+          fontSize: 13, fontWeight: 800, animation: 'pulse 2s ease-in-out infinite',
+        }}>▶ 자동 실행 중</span>
+
+        {/* 현재 시나리오 select — 사용자가 큐 항목 무관 즉시 변경 가능 */}
+        <select value={currentScenario?.id || ''}
+          onChange={(e) => onScenarioSelect && onScenarioSelect(e.target.value)}
+          title={currentScenario ? `P-${String(currentProgramNum).padStart(2,'0')} · ${currentScenario.name}` : '시나리오 선택'}
+          style={{
+            padding: '4px 10px', borderRadius: 14,
+            background: '#fff', color: '#0f172a',
+            border: '1.5px solid #e2e8f0',
+            fontSize: 13, fontWeight: 800, cursor: 'pointer',
+            minWidth: 160, maxWidth: 240,
+          }}>
+          {scenarios.map((s, i) => (
+            <option key={s.id} value={s.id}>P-{String(i+1).padStart(2,'0')} · {s.name}</option>
+          ))}
+        </select>
+
+        {/* 반복 진행 */}
+        <span style={{ padding: '3px 9px', borderRadius: 10, background: '#fff', border: `1px solid ${accent}55`, color: accent, fontSize: 12, fontWeight: 800 }}>
+          🔁 {repeatDone + 1}/{repeat}회
+        </span>
+
+        {/* 다음 시나리오 */}
+        {nextScenario && (
+          <span style={{ fontSize: 11.5, color: '#64748b', fontWeight: 700 }}>
+            →  다음 P-{String(nextProgramNum).padStart(2,'0')} {nextScenario.name}
+          </span>
+        )}
+
+        <div style={{ flex: 1 }} />
+
+        {/* 다른 모드 전환 */}
+        <div style={{ display: 'flex', gap: 4 }}>
+          {dimMode('manual', '수동', '✋', '#d97706')}
+          {dimMode('direct', '직접', '⚙', '#7c3aed')}
+          {dimMode('paused', '정지', '❚❚', '#2563eb')}
+        </div>
+      </div>
+
+      {/* 2줄: 현재 사이클 단계 — phaseInfo 있을 때만 */}
+      {phaseInfo ? (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '4px 10px', borderRadius: 10,
+                        background: phaseColor + '18', border: `1.5px solid ${phaseColor}55` }}>
+            <PhaseSvgIcon phaseKey={phaseInfo.phaseKey} color={phaseColor} size={14} />
+            <span style={{ fontSize: 12.5, fontWeight: 800, color: phaseColor }}>{phaseInfo.short}</span>
+            <span style={{ fontSize: 11.5, fontWeight: 800, color: phaseColor, opacity: 0.9 }}>{pct}%</span>
+            {remainSec > 0 && (
+              <span style={{ fontSize: 10.5, fontFamily: 'ui-monospace,SF Mono,monospace', fontWeight: 700, color: phaseColor, opacity: 0.7 }}>
+                −{Math.floor(remainSec/60)>0?`${Math.floor(remainSec/60)}:`:''}{String(remainSec%60).padStart(2,'0')}
+              </span>
+            )}
+          </div>
+          {/* 5단계 mini stepper */}
+          <MiniPhaseStepper phaseKey={phaseInfo.phaseKey} progress={phaseInfo.progress} />
+        </div>
+      ) : (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '3px 10px', borderRadius: 10,
+                      background: '#f1f5f9', border: '1px solid #e2e8f0', width: 'fit-content' }}>
+          <span style={{ width: 7, height: 7, borderRadius: '50%', background: '#94a3b8',
+                         animation: 'pulse 1.6s ease-in-out infinite' }} />
+          <span style={{ fontSize: 12, fontWeight: 700, color: '#64748b' }}>사이클 대기 — 잠시 후 시작</span>
+        </div>
+      )}
+    </div>
+  );
+};
+
+// 5단계 mini stepper — dot 5개 가로 연결
+const MiniPhaseStepper = ({ phaseKey, progress }) => {
+  const ORDER = ['dosing','mixing','stabilize','irrigating','cleanup'];
+  const LABEL = { dosing:'도싱', mixing:'교반', stabilize:'안정', irrigating:'관수', cleanup:'정리' };
+  const curIdx = ORDER.indexOf(phaseKey);
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+      {ORDER.map((k, i) => {
+        const past = curIdx > i;
+        const cur = curIdx === i;
+        const c = past ? '#16a34a' : cur ? (PHASE_COLOR[k] || '#16a34a') : '#cbd5e1';
+        return (
+          <div key={k} style={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+            <span style={{
+              width: cur ? 9 : 6, height: cur ? 9 : 6, borderRadius: '50%',
+              background: c, transition: 'all 0.2s',
+              boxShadow: cur ? `0 0 0 2px ${c}33` : 'none',
+            }} title={LABEL[k]} />
+            {i < 4 && <span style={{ width: 12, height: 1.5, background: past ? '#16a34a' : '#e2e8f0' }} />}
+          </div>
+        );
+      })}
+    </div>
+  );
+};
+
 // 5모드 segmented control — 흰 배경 컴팩트, 1줄 (모바일 wrap)
-// 자동 모드 활성 + phaseInfo 있을 때 시나리오 select 옆에 사이클 그래픽 표시
-const ModeSegment = ({ mode, onChange, programNum, programName, scenarios = [], onScenarioSelect, phaseInfo }) => {
+// 자동 모드 활성 시 통합 카드(AutoStatusCard)로 분기, 다른 모드는 컴팩트 모드바
+const ModeSegment = ({ mode, onChange, programNum, programName, scenarios = [], onScenarioSelect, phaseInfo, autoStatus }) => {
   const activeScenario = scenarios.find(s => s.active);
-  const showCycle = mode === 'auto';  // phaseInfo null 도 '사이클 대기' chip 으로 표시
+  // 자동 모드 활성 — 통합 카드로 전환
+  if (mode === 'auto') {
+    return <AutoStatusCard autoStatus={autoStatus} phaseInfo={phaseInfo} onChange={onChange} scenarios={scenarios} onScenarioSelect={onScenarioSelect} />;
+  }
   const renderBtn = (key) => {
     const m = MODES[key];
     const active = mode === key;
@@ -373,7 +527,6 @@ const ModeSegment = ({ mode, onChange, programNum, programName, scenarios = [], 
           </option>
         ))}
       </select>
-      {showCycle && <CyclePhaseGraphic phaseInfo={phaseInfo} />}
       {['manual', 'direct', 'paused'].map(renderBtn)}
     </div>
   );

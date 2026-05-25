@@ -55,7 +55,7 @@ const MODE_ICON = { auto: Ico.Play, manual: Ico.Hand, direct: Ico.Direct, paused
 
 const kicker = { fontSize: 11.5, fontWeight: 700, color: T.fg3, letterSpacing: '0.14em', textTransform: 'uppercase' };
 
-export default function NutrientRealtime({ farmId, mode, onModeChange, onProgramChange, onPhaseChange }) {
+export default function NutrientRealtime({ farmId, mode, onModeChange, onProgramChange, onPhaseChange, onAutoStatusChange }) {
   const [state, setState] = useState(null);
   const [config, setConfig] = useState(null);
   const [scenarios, setScenarios] = useState([]);
@@ -158,6 +158,39 @@ export default function NutrientRealtime({ farmId, mode, onModeChange, onProgram
     onPhaseChange?.(phaseInfo);
   }, [phaseInfo, onPhaseChange]);
 
+  // 자동 모드 큐 진행 상태 derive + Panel push
+  // { item, currentScenario, nextScenario, repeat, repeatDone, loop, totalCycles, activeItemIdxs }
+  const autoStatus = useMemo(() => {
+    if (mode !== 'auto') return null;
+    const sched = config?.autoSchedule || { items: [], loop: true };
+    const items = Array.isArray(sched.items) ? sched.items : [];
+    if (items.length === 0) return { empty: true };
+    const queue = state?.autoQueue || {};
+    const itemIdx = queue.itemIdx ?? items.findIndex(it => it.enabled);
+    const item = items[itemIdx];
+    if (!item) return { empty: true };
+    const currentScenario = scenarios.find(s => s.id === item.scenarioId);
+    const currentProgramNum = scenarios.findIndex(s => s.id === item.scenarioId) + 1;
+    // 다음 enabled item
+    let nextIdx = items.findIndex((it, i) => i > itemIdx && it.enabled);
+    if (nextIdx < 0 && sched.loop) nextIdx = items.findIndex(it => it.enabled);
+    const nextItem = nextIdx >= 0 && nextIdx !== itemIdx ? items[nextIdx] : null;
+    const nextScenario = nextItem ? scenarios.find(s => s.id === nextItem.scenarioId) : null;
+    const nextProgramNum = nextItem ? scenarios.findIndex(s => s.id === nextItem.scenarioId) + 1 : null;
+    const totalCycles = items.filter(i => i.enabled).reduce((a, i) => a + (i.repeat || 1), 0);
+    return {
+      itemIdx, item, currentScenario, currentProgramNum,
+      nextItem, nextScenario, nextProgramNum,
+      repeat: item.repeat || 1,
+      repeatDone: queue.repeatDone || 0,
+      loop: !!sched.loop,
+      totalCycles,
+    };
+  }, [mode, config, state, scenarios]);
+  useEffect(() => {
+    onAutoStatusChange?.(autoStatus);
+  }, [autoStatus, onAutoStatusChange]);
+
   // 하드웨어 BOM default (nutrient-flow-design.md) — config 가 완전히 빌 때만 사용.
   // Settings 에 저장된 값이 source of truth — 4 탱크면 4 탱크, 8 밸브면 8 밸브 그대로 표시.
   const TANK_DEFAULTS = [
@@ -206,6 +239,25 @@ export default function NutrientRealtime({ farmId, mode, onModeChange, onProgram
       setManualScenarioId(active?.id || null);
     }
   }, [mode, scenarios, manualScenarioId]);
+
+  // 수동 시나리오 변경 시 — 그 시나리오의 zones (또는 옛 valves 14개) 자동 selectedValves
+  // 사용자가 다이어그램에서 추가 toggle 가능
+  useEffect(() => {
+    if (!manualScenarioId) return;
+    const sc = scenarios.find(s => s.id === manualScenarioId);
+    if (!sc) return;
+    let zoneIdxs = [];
+    if (Array.isArray(sc.zones) && sc.zones.length > 0) {
+      // 새 모델 — 구역 선택 적용
+      zoneIdxs = sc.zones.map(z => z.idx).filter(Boolean);
+    } else if (Array.isArray(sc.valves) && sc.valves.length > 0) {
+      // 옛 호환 — valves 14개 전체 활성
+      zoneIdxs = sc.valves.map((_, i) => i + 1);
+    }
+    if (zoneIdxs.length > 0) {
+      setSelectedValves(new Set(zoneIdxs));
+    }
+  }, [manualScenarioId, scenarios]);
 
   const toggleValve = (id) => {
     setSelectedValves(prev => {

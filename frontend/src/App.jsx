@@ -647,6 +647,21 @@ function AppContent() {
                   {item.label}
                 </button>
               ))}
+              {/* 종료 — 로그아웃 */}
+              <div className="border-t border-gray-100 mt-2 pt-2">
+                <button
+                  onClick={() => {
+                    if (window.confirm('로그아웃 하시겠습니까?')) {
+                      logout();
+                      setShowMobileSidebar(false);
+                    }
+                  }}
+                  className="w-full text-left px-5 py-3 flex items-center gap-3 text-sm font-semibold text-red-600 hover:bg-red-50 transition-all"
+                >
+                  <span className="text-lg">🚪</span>
+                  종료
+                </button>
+              </div>
             </div>
             {/* 하단: 농장 정보 */}
             {selectedFarmInfo && (

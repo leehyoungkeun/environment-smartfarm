@@ -119,7 +119,7 @@ export default function NutrientPanel({ farmId }) {
           <h2 style={{
             color: '#fff', fontSize: 17, fontWeight: 800, margin: 0,
             whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
-          }}>양액자동공급시스템</h2>
+          }}>양액제어</h2>
         </div>
 
         {/* 우상단 액션 — 설정 토글 + 비상 */}

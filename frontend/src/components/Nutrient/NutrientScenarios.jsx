@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import * as nutrientApi from '../../services/nutrientApi';
 
 export default function NutrientScenarios({ farmId }) {
@@ -7,6 +7,8 @@ export default function NutrientScenarios({ farmId }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [saving, setSaving] = useState(false);
+  // 구역(밸브) 그룹 + 품목/식재수 정보 — ValvesSection 그룹별 묶음 렌더용
+  const [valveConfig, setValveConfig] = useState({ valveGroups: [], valves: [] });
 
   // 초기 로드
   useEffect(() => {
@@ -14,8 +16,16 @@ export default function NutrientScenarios({ farmId }) {
     (async () => {
       try {
         setLoading(true);
-        const data = await nutrientApi.listScenarios(farmId);
-        if (!cancelled) setScenarios(data || []);
+        const [data, cfg] = await Promise.all([
+          nutrientApi.listScenarios(farmId),
+          nutrientApi.getConfig(farmId).catch(() => ({})),
+        ]);
+        if (cancelled) return;
+        setScenarios(data || []);
+        setValveConfig({
+          valveGroups: cfg.valveGroups || [],
+          valves: cfg.valves || [],
+        });
       } catch (e) {
         if (!cancelled) setError(e.response?.data?.error || e.message);
       } finally {
@@ -145,6 +155,7 @@ export default function NutrientScenarios({ farmId }) {
               onChange={(updates) => updateScenario(s.id, updates)}
               onDelete={() => deleteScenario(s.id)}
               onActivate={() => activate(s.id)}
+              valveConfig={valveConfig}
             />
           ))}
         </div>
@@ -156,7 +167,7 @@ export default function NutrientScenarios({ farmId }) {
 // ─────────────────────────────────────────
 // 시나리오 카드
 // ─────────────────────────────────────────
-const ScenarioCard = ({ scenario, index, isEditing, onEdit, onChange, onDelete, onActivate }) => {
+const ScenarioCard = ({ scenario, index, isEditing, onEdit, onChange, onDelete, onActivate, valveConfig }) => {
   const s = scenario;
   const modeLabel = { solar: '일사량', timer: '간격', schedule: '시각' };
 
@@ -214,7 +225,7 @@ const ScenarioCard = ({ scenario, index, isEditing, onEdit, onChange, onDelete, 
       {/* 인라인 편집 펼침 */}
       {isEditing && (
         <div style={{ borderTop: '1px solid #e2e8f0', padding: 14, background: '#f8fafc' }}>
-          <EditForm scenario={s} onChange={onChange} onDelete={onDelete} />
+          <EditForm scenario={s} onChange={onChange} onDelete={onDelete} valveConfig={valveConfig} />
         </div>
       )}
     </div>
@@ -273,13 +284,13 @@ const ToggleSwitch = ({ on, onChange, color = '#0891b2' }) => (
 // ─────────────────────────────────────────
 // 편집 폼
 // ─────────────────────────────────────────
-const EditForm = ({ scenario, onChange, onDelete }) => {
+const EditForm = ({ scenario, onChange, onDelete, valveConfig }) => {
   const [section, setSection] = useState('target');
   const SECTIONS = [
     { id: 'target', label: 'EC/pH 목표' },
     { id: 'dosing', label: '도징 비율' },
     { id: 'irrigation', label: '관수 방식' },
-    { id: 'valves', label: '밸브 설정' },
+    { id: 'valves', label: '구역 설정' },
   ];
 
   return (
@@ -299,7 +310,7 @@ const EditForm = ({ scenario, onChange, onDelete }) => {
       {section === 'target' && <TargetSection s={scenario} onChange={onChange} />}
       {section === 'dosing' && <DosingSection s={scenario} onChange={onChange} />}
       {section === 'irrigation' && <IrrigationSection s={scenario} onChange={onChange} />}
-      {section === 'valves' && <ValvesSection s={scenario} onChange={onChange} />}
+      {section === 'valves' && <ValvesSection s={scenario} onChange={onChange} valveConfig={valveConfig} />}
 
       <div style={{ marginTop: 16, display: 'flex', justifyContent: 'flex-end' }}>
         <button onClick={onDelete} style={{
@@ -393,51 +404,255 @@ const IrrigationSection = ({ s, onChange }) => (
   </div>
 );
 
-const ValvesSection = ({ s, onChange }) => {
-  const [bulkDur, setBulkDur] = useState(600);
-  const [bulkVol, setBulkVol] = useState(150);
-  const setValve = (i, updates) => {
-    const valves = [...s.valves];
-    valves[i] = { ...valves[i], ...updates };
-    onChange({ valves });
+// 시나리오 — 구역 설정: 사용할 구역 선택 + 그룹별 일괄 + 카드별 시간/유량
+// 공급량 등급(supplyLevel) 가중치는 NR 자동화 실행 시점에 곱하므로 여기는 기본 수치만 입력
+const SUPPLY_LEVELS_LABEL = { light: '적음 ×0.7', standard: '표준 ×1.0', heavy: '많음 ×1.5' };
+
+// 옛 valves[14] → zones 변환 (옛 호환)
+const getZones = (s) => {
+  if (Array.isArray(s.zones) && s.zones.length > 0) return s.zones;
+  return [];
+};
+
+const ValvesSection = ({ s, onChange, valveConfig }) => {
+  const { valveGroups = [], valves: cfgValves = [] } = valveConfig || {};
+  const valveCount = Math.max(s.valves?.length || 14, cfgValves.length || 0);
+
+  const zones = getZones(s);
+  const zoneMap = useMemo(() => {
+    const m = {};
+    zones.forEach(z => { m[z.idx] = z; });
+    return m;
+  }, [zones]);
+  const selectedIdxs = zones.map(z => z.idx).sort((a, b) => a - b);
+
+  const writeZones = (newZones) => onChange({ zones: newZones.sort((a, b) => a.idx - b.idx) });
+
+  const toggleZone = (idx) => {
+    if (zoneMap[idx]) {
+      writeZones(zones.filter(z => z.idx !== idx));
+    } else {
+      writeZones([...zones, { idx, duration: 600, volume: 150 }]);
+    }
   };
-  const bulkApply = (key, val) => {
-    onChange({ valves: s.valves.map(v => ({ ...v, [key]: val })) });
+  const toggleGroupAll = (idxs, on) => {
+    if (on) {
+      const existing = new Set(zones.map(z => z.idx));
+      const toAdd = idxs.filter(idx => !existing.has(idx)).map(idx => ({ idx, duration: 600, volume: 150 }));
+      writeZones([...zones, ...toAdd]);
+    } else {
+      const remove = new Set(idxs);
+      writeZones(zones.filter(z => !remove.has(z.idx)));
+    }
   };
-  const fmt = (sec) => `${Math.floor(sec/60).toString().padStart(2,'0')}:${(sec%60).toString().padStart(2,'0')}`;
+  const setZone = (idx, updates) => {
+    writeZones(zones.map(z => z.idx === idx ? { ...z, ...updates } : z));
+  };
+  const bulkApplyTo = (key, val, idxs) => {
+    const set = new Set(idxs);
+    writeZones(zones.map(z => set.has(z.idx) ? { ...z, [key]: val } : z));
+  };
+
+  const cfgValveOf = (idx) => cfgValves.find(cv => cv.idx === idx) || {};
+
+  // 그룹별 멤버 idx (1-based)
+  const groupBuckets = valveGroups.map(g => ({
+    ...g,
+    memberIdxs: cfgValves
+      .filter(cv => cv.groupId === g.id)
+      .map(cv => cv.idx)
+      .filter(idx => idx >= 1 && idx <= valveCount)
+      .sort((a, b) => a - b),
+  }));
+  const assigned = new Set();
+  groupBuckets.forEach(g => g.memberIdxs.forEach(idx => assigned.add(idx)));
+  const unassignedAll = Array.from({ length: valveCount }, (_, i) => i + 1).filter(idx => !assigned.has(idx));
+
   return (
     <div className="space-y-3">
-      {/* 일괄 설정 */}
-      <div style={{ padding: 12, background: '#fef3c7', borderRadius: 8, border: '1px solid #fde68a' }}>
-        <div style={{ fontSize: 15, fontWeight: 800, color: '#92400e', marginBottom: 8 }}>📦 일괄 설정 (모든 밸브 동일)</div>
-        <div className="grid grid-cols-2 gap-3">
-          <div className="flex gap-2 items-center">
-            <input type="number" value={bulkDur} onChange={(e) => setBulkDur(parseInt(e.target.value) || 0)}
-                   style={inputSm} />
-            <span style={{ fontSize: 13, fontWeight: 700, color: '#92400e' }}>초</span>
-            <button onClick={() => bulkApply('duration', bulkDur)} style={miniBtn('#d97706')}>시간 적용</button>
-          </div>
-          <div className="flex gap-2 items-center">
-            <input type="number" value={bulkVol} onChange={(e) => setBulkVol(parseInt(e.target.value) || 0)}
-                   style={inputSm} />
-            <span style={{ fontSize: 13, fontWeight: 700, color: '#92400e' }}>mL</span>
-            <button onClick={() => bulkApply('volume', bulkVol)} style={miniBtn('#d97706')}>유량 적용</button>
-          </div>
+      {/* 0. 사용할 구역 선택 */}
+      <ZoneSelector
+        groupBuckets={groupBuckets}
+        unassignedAll={unassignedAll}
+        cfgValveOf={cfgValveOf}
+        selectedSet={new Set(selectedIdxs)}
+        onToggle={toggleZone}
+        onToggleGroupAll={toggleGroupAll}
+      />
+
+      {selectedIdxs.length === 0 ? (
+        <div style={{ padding: 16, background: '#f1f5f9', borderRadius: 8, fontSize: 14, color: '#64748b', textAlign: 'center' }}>
+          ☝️ 위에서 이 시나리오에 사용할 구역을 선택하세요
+        </div>
+      ) : (
+        <>
+          {/* 전체 일괄 (선택된 구역만) */}
+          <BulkApplyPanel
+            title={`📦 전체 일괄 (선택된 ${selectedIdxs.length}개 구역)`}
+            bg="#fef3c7" border="#fde68a" textColor="#92400e" btnColor="#d97706"
+            onApplyDuration={(v) => bulkApplyTo('duration', v, selectedIdxs)}
+            onApplyVolume={(v) => bulkApplyTo('volume', v, selectedIdxs)}
+          />
+
+          {/* 그룹별 섹션 — 선택된 멤버만 */}
+          {groupBuckets.map(g => {
+            const selected = g.memberIdxs.filter(idx => zoneMap[idx]);
+            if (selected.length === 0) return null;
+            return (
+              <GroupValvesPanel key={g.id} group={{ ...g, memberIdxs: selected }} zones={zones} zoneMap={zoneMap}
+                                cfgValveOf={cfgValveOf}
+                                onZoneChange={setZone}
+                                onBulkApply={(key, val) => bulkApplyTo(key, val, selected)} />
+            );
+          })}
+
+          {/* 미배정 — 선택된 것만 */}
+          {(() => {
+            const selectedUnassigned = unassignedAll.filter(idx => zoneMap[idx]);
+            if (selectedUnassigned.length === 0) return null;
+            return <UnassignedValvesPanel idxs={selectedUnassigned} zones={zones} zoneMap={zoneMap} cfgValveOf={cfgValveOf} onZoneChange={setZone} />;
+          })()}
+        </>
+      )}
+
+      {valveGroups.length === 0 && (
+        <div style={{ padding: 10, background: '#f1f5f9', borderRadius: 8, fontSize: 13, color: '#64748b' }}>
+          💡 그룹을 만들면 그룹별로 일괄 설정할 수 있습니다 — 설정 → 🗺️ 구역 설정 에서 그룹 추가
+        </div>
+      )}
+    </div>
+  );
+};
+
+// 상단 구역 선택 UI — 그룹별 체크박스 + 멤버 chip 토글
+const ZoneSelector = ({ groupBuckets, unassignedAll, cfgValveOf, selectedSet, onToggle, onToggleGroupAll }) => {
+  const renderGroup = (g, color, name, icon) => {
+    if (g.memberIdxs.length === 0) return null;
+    const allOn = g.memberIdxs.every(idx => selectedSet.has(idx));
+    return (
+      <div key={g.id || 'unassigned'} style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', padding: '6px 0' }}>
+        <label style={{ display: 'flex', alignItems: 'center', gap: 5, cursor: 'pointer', minWidth: 160 }}>
+          <input type="checkbox" checked={allOn} onChange={() => onToggleGroupAll(g.memberIdxs, !allOn)}
+                 style={{ width: 16, height: 16, accentColor: color }} />
+          <span style={{ fontSize: 13.5, fontWeight: 800, color }}>{icon} {name}</span>
+          <span style={{ fontSize: 11, color: '#94a3b8' }}>({g.memberIdxs.length})</span>
+        </label>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+          {g.memberIdxs.map(idx => {
+            const on = selectedSet.has(idx);
+            const cfg = cfgValveOf(idx);
+            return (
+              <button key={idx} onClick={() => onToggle(idx)} title={cfg.crop ? `${cfg.crop} ${cfg.plantCount || 0}주` : ''}
+                      style={{
+                        padding: '3px 9px', borderRadius: 10, fontSize: 12, fontWeight: 800, cursor: 'pointer',
+                        background: on ? color : '#fff',
+                        color: on ? '#fff' : '#94a3b8',
+                        border: on ? `1.5px solid ${color}` : '1.5px solid #e2e8f0',
+                      }}>
+                V{idx}
+              </button>
+            );
+          })}
         </div>
       </div>
-      {/* 개별 밸브 그리드 */}
-      <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-2">
-        {s.valves.map((v, i) => (
-          <div key={i} style={{ padding: 8, background: '#fff', borderRadius: 8, border: '1px solid #e2e8f0' }}>
-            <div style={{ fontSize: 14, fontWeight: 800, color: '#0891b2', marginBottom: 6 }}>V{i + 1}</div>
-            <input type="text" value={fmt(v.duration)} readOnly
-                   style={{ width: '100%', fontSize: 14, fontWeight: 700, padding: '4px 6px', border: '1px solid #e2e8f0', borderRadius: 6, marginBottom: 4, textAlign: 'center' }} />
-            <input type="number" value={v.volume} onChange={(e) => setValve(i, { volume: parseInt(e.target.value) || 0 })}
-                   style={{ width: '100%', fontSize: 14, fontWeight: 700, padding: '4px 6px', border: '1px solid #e2e8f0', borderRadius: 6, textAlign: 'center' }} />
-            <div style={{ fontSize: 12, color: '#94a3b8', textAlign: 'center', marginTop: 3, fontWeight: 600 }}>mL</div>
-          </div>
-        ))}
+    );
+  };
+  return (
+    <div style={{ padding: 12, background: '#f0f9ff', border: '1.5px solid #bae6fd', borderRadius: 10 }}>
+      <div style={{ fontSize: 14, fontWeight: 800, color: '#0c4a6e', marginBottom: 8 }}>🎯 이 시나리오 대상 구역 선택</div>
+      <div className="space-y-1">
+        {groupBuckets.map(g => renderGroup(g, g.color, g.name, '●'))}
+        {unassignedAll.length > 0 && renderGroup(
+          { id: '__unassigned__', memberIdxs: unassignedAll },
+          '#64748b', '미배정', '📭'
+        )}
       </div>
+    </div>
+  );
+};
+
+// 일괄 입력 패널 — 전체용 + 그룹용 공통
+const BulkApplyPanel = ({ title, bg, border, textColor, btnColor, onApplyDuration, onApplyVolume }) => {
+  const [dur, setDur] = useState(600);
+  const [vol, setVol] = useState(150);
+  return (
+    <div style={{ padding: 10, background: bg, borderRadius: 8, border: `1px solid ${border}` }}>
+      <div style={{ fontSize: 14, fontWeight: 800, color: textColor, marginBottom: 6 }}>{title}</div>
+      <div className="grid grid-cols-2 gap-3">
+        <div className="flex gap-2 items-center">
+          <input type="number" value={dur} onChange={(e) => setDur(parseInt(e.target.value) || 0)} style={inputSm} />
+          <span style={{ fontSize: 13, fontWeight: 700, color: textColor }}>초</span>
+          <button onClick={() => onApplyDuration(dur)} style={miniBtn(btnColor)}>시간 적용</button>
+        </div>
+        <div className="flex gap-2 items-center">
+          <input type="number" value={vol} onChange={(e) => setVol(parseInt(e.target.value) || 0)} style={inputSm} />
+          <span style={{ fontSize: 13, fontWeight: 700, color: textColor }}>mL</span>
+          <button onClick={() => onApplyVolume(vol)} style={miniBtn(btnColor)}>유량 적용</button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// 그룹 섹션 — 그룹 헤더(이름 + 공급량 등급) + 그룹 일괄 + 멤버 카드 그리드 (선택된 zones 만)
+const GroupValvesPanel = ({ group, zones, zoneMap, cfgValveOf, onZoneChange, onBulkApply }) => {
+  const supplyLabel = SUPPLY_LEVELS_LABEL[group.supplyLevel] || SUPPLY_LEVELS_LABEL.standard;
+  return (
+    <div style={{
+      padding: 10, background: '#fff',
+      border: `1.5px solid ${group.color}55`, borderLeft: `4px solid ${group.color}`,
+      borderRadius: 10,
+    }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8, flexWrap: 'wrap' }}>
+        <span style={{ fontSize: 15, fontWeight: 800, color: group.color }}>{group.name}</span>
+        <span style={{ padding: '2px 8px', borderRadius: 10, background: group.color + '18', color: group.color,
+                       fontSize: 11.5, fontWeight: 800 }}>{supplyLabel}</span>
+        <span style={{ fontSize: 12, color: '#94a3b8' }}>{group.memberIdxs.length}개 구역</span>
+      </div>
+      <div style={{ marginBottom: 8 }}>
+        <BulkApplyPanel title="이 그룹만 일괄 적용" bg={group.color + '0d'} border={group.color + '33'}
+                        textColor={group.color} btnColor={group.color}
+                        onApplyDuration={(v) => onBulkApply('duration', v)}
+                        onApplyVolume={(v) => onBulkApply('volume', v)} />
+      </div>
+      <ValveCardGrid idxs={group.memberIdxs} zoneMap={zoneMap} cfgValveOf={cfgValveOf} color={group.color} onZoneChange={onZoneChange} />
+    </div>
+  );
+};
+
+const UnassignedValvesPanel = ({ idxs, zoneMap, cfgValveOf, onZoneChange }) => (
+  <div style={{
+    padding: 10, background: '#f8fafc',
+    border: '1.5px dashed #cbd5e1', borderRadius: 10,
+  }}>
+    <div style={{ fontSize: 14, fontWeight: 800, color: '#64748b', marginBottom: 8 }}>📭 미배정 구역 ({idxs.length}개)</div>
+    <ValveCardGrid idxs={idxs} zoneMap={zoneMap} cfgValveOf={cfgValveOf} color="#64748b" onZoneChange={onZoneChange} />
+  </div>
+);
+
+// 구역 카드 그리드 — 카드 안: 구역 # / 품목·식재수 / 시간 / 유량
+const ValveCardGrid = ({ idxs, zoneMap, cfgValveOf, color, onZoneChange }) => {
+  const fmt = (sec) => `${Math.floor(sec/60).toString().padStart(2,'0')}:${(sec%60).toString().padStart(2,'0')}`;
+  return (
+    <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-2">
+      {idxs.map(idx => {
+        const z = zoneMap[idx] || { duration: 600, volume: 150 };
+        const cfg = cfgValveOf(idx);
+        return (
+          <div key={idx} style={{ padding: 8, background: '#fff', borderRadius: 8, border: `1px solid ${color}33` }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 4 }}>
+              <span style={{ fontSize: 13, fontWeight: 800, color }}>V{idx}</span>
+              {cfg.crop && <span style={{ fontSize: 10.5, color, fontWeight: 700, opacity: 0.8 }}>{cfg.crop}{cfg.plantCount > 0 ? `·${cfg.plantCount}` : ''}</span>}
+            </div>
+            <input type="text" value={fmt(z.duration)} readOnly
+                   title="전체/그룹 일괄 적용으로 변경"
+                   style={{ width: '100%', fontSize: 13, fontWeight: 700, padding: '4px 6px', border: '1px solid #e2e8f0', borderRadius: 6, marginBottom: 4, textAlign: 'center', background: '#f8fafc' }} />
+            <input type="number" value={z.volume} onChange={(e) => onZoneChange(idx, { volume: parseInt(e.target.value) || 0 })}
+                   style={{ width: '100%', fontSize: 13, fontWeight: 700, padding: '4px 6px', border: '1px solid #e2e8f0', borderRadius: 6, textAlign: 'center' }} />
+            <div style={{ fontSize: 11, color: '#94a3b8', textAlign: 'center', marginTop: 2, fontWeight: 600 }}>mL</div>
+          </div>
+        );
+      })}
     </div>
   );
 };

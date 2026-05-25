@@ -28,6 +28,7 @@ export default function NutrientPanel({ farmId }) {
   const [programNum, setProgramNum] = useState(null);
   const [programName, setProgramName] = useState(null);
   const [scenarios, setScenarios] = useState([]);
+  const [phaseInfo, setPhaseInfo] = useState(null);  // NutrientRealtime → push (모드바 사이클 그래픽)
   const [alerts] = useState([]); // sticky 경보 배너 (Phase 3 RPi telemetry 연동 후 활성)
   const [env] = useState(MOCK_ENV);
 
@@ -186,11 +187,12 @@ export default function NutrientPanel({ farmId }) {
       }}>
         <ModeSegment mode={mode} onChange={handleModeChange}
           programNum={programNum} programName={programName}
-          scenarios={scenarios} onScenarioSelect={handleScenarioSelect} />
+          scenarios={scenarios} onScenarioSelect={handleScenarioSelect}
+          phaseInfo={phaseInfo} />
       </div>
 
       {/* 컨텐츠 */}
-      {activeTab === 'realtime' && <NutrientRealtime farmId={farmId} mode={mode} onModeChange={handleModeChange} onProgramChange={handleProgramChange} />}
+      {activeTab === 'realtime' && <NutrientRealtime farmId={farmId} mode={mode} onModeChange={handleModeChange} onProgramChange={handleProgramChange} onPhaseChange={setPhaseInfo} />}
       {activeTab === 'settings' && <NutrientSettings farmId={farmId} />}
 
       <style>{`
@@ -198,6 +200,7 @@ export default function NutrientPanel({ farmId }) {
         @keyframes flow-dash { to { stroke-dashoffset: -20; } }
         @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
         @keyframes wave { 0%, 100% { transform: translateX(0); } 50% { transform: translateX(-3px); } }
+        @keyframes seg-stripes { from { background-position: 0 0; } to { background-position: 24px 0; } }
 
         /* 도싱 탱크 이름 input — 수정 가능 시각 단서 */
         .tank-label-input:hover {
@@ -233,9 +236,87 @@ const SHORT_LABEL = {
   auto: '자동', manual: '수동', direct: '직접', paused: '정지', emergency: '비상',
 };
 
+// 자동 모드 활성 시 시나리오 select 옆에 표시되는 사이클 진행 그래픽
+// 현재 단계 SVG 아이콘 (펄스/회전/파동) + 진행 stripe + % + 남은 시간
+const PHASE_COLOR = {
+  dosing:     '#0891b2',  // 도싱 — 청록
+  mixing:     '#d97706',  // 교반 — 주황
+  stabilize:  '#16a34a',  // 안정화 — 초록
+  irrigating: '#2563eb',  // 관수 — 파랑
+  cleanup:    '#7c3aed',  // 정리 — 보라
+};
+const PhaseSvgIcon = ({ phaseKey, color, size = 14 }) => {
+  const common = { display: 'inline-block', fontSize: size, color, lineHeight: 1 };
+  switch (phaseKey) {
+    case 'dosing':     return <span style={{ ...common, animation: 'pulse 1s ease-in-out infinite' }}>💧</span>;
+    case 'mixing':     return <span style={{ ...common, animation: 'spin 1.8s linear infinite' }}>↻</span>;
+    case 'stabilize':  return <span style={{ ...common, animation: 'pulse 1.6s ease-in-out infinite' }}>◎</span>;
+    case 'irrigating': return <span style={{ ...common, animation: 'wave 1.4s ease-in-out infinite' }}>≈</span>;
+    case 'cleanup':    return <span style={{ ...common, animation: 'pulse 1.2s ease-in-out infinite' }}>✦</span>;
+    default:           return null;
+  }
+};
+const CyclePhaseGraphic = ({ phaseInfo }) => {
+  // 사이클 대기 상태 — 회색 chip
+  if (!phaseInfo) {
+    return (
+      <div role="status" aria-label="사이클 대기 중" style={{
+        display: 'flex', alignItems: 'center', gap: 6,
+        padding: '5px 11px', borderRadius: 14,
+        background: '#f1f5f9',
+        border: '1.5px solid #e2e8f0',
+        whiteSpace: 'nowrap',
+      }}>
+        <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#94a3b8',
+          animation: 'pulse 1.6s ease-in-out infinite', display: 'inline-block' }} />
+        <span style={{ fontSize: 12.5, fontWeight: 700, color: '#64748b', letterSpacing: '0.02em' }}>사이클 대기</span>
+      </div>
+    );
+  }
+  // 진행 중 — 단계별 컬러 + 액체 흐름 stripe + 펄스 아이콘
+  const c = PHASE_COLOR[phaseInfo.phaseKey] || '#64748b';
+  const pct = Math.round((phaseInfo.progress || 0) * 100);
+  const remainSec = Math.max(0, Math.floor(phaseInfo.remaining || 0));
+  const mins = Math.floor(remainSec / 60);
+  const secs = remainSec % 60;
+  return (
+    <div role="status" aria-label={`현재 단계 ${phaseInfo.short} ${pct}%`} style={{
+      display: 'flex', alignItems: 'center', gap: 7,
+      padding: '5px 11px', borderRadius: 14,
+      background: c + '12',
+      border: `1.5px solid ${c}55`,
+      minWidth: 160, position: 'relative', overflow: 'hidden',
+      whiteSpace: 'nowrap',
+    }}>
+      {/* 진행률 stripe 배경 — 액체 흐름 애니메이션 */}
+      <div style={{
+        position: 'absolute', left: 0, top: 0, bottom: 0,
+        width: `${pct}%`,
+        background: `repeating-linear-gradient(45deg, ${c}33 0 6px, ${c}15 6px 12px)`,
+        animation: 'seg-stripes 0.8s linear infinite',
+        backgroundSize: '24px 24px',
+        opacity: 0.85,
+        transition: 'width 0.6s linear',
+      }} />
+      <div style={{ position: 'relative', display: 'flex', alignItems: 'center', gap: 6 }}>
+        <PhaseSvgIcon phaseKey={phaseInfo.phaseKey} color={c} size={15} />
+        <span style={{ fontSize: 12.5, fontWeight: 800, color: c, letterSpacing: '0.02em' }}>{phaseInfo.short}</span>
+        <span style={{ fontSize: 11.5, fontWeight: 800, color: c, opacity: 0.95 }}>{pct}%</span>
+        {remainSec > 0 && (
+          <span style={{ fontSize: 10.5, fontFamily: 'ui-monospace,SF Mono,monospace', fontWeight: 700, color: c, opacity: 0.7 }}>
+            −{mins > 0 ? `${mins}:` : ''}{String(secs).padStart(2, '0')}
+          </span>
+        )}
+      </div>
+    </div>
+  );
+};
+
 // 5모드 segmented control — 흰 배경 컴팩트, 1줄 (모바일 wrap)
-const ModeSegment = ({ mode, onChange, programNum, programName, scenarios = [], onScenarioSelect }) => {
+// 자동 모드 활성 + phaseInfo 있을 때 시나리오 select 옆에 사이클 그래픽 표시
+const ModeSegment = ({ mode, onChange, programNum, programName, scenarios = [], onScenarioSelect, phaseInfo }) => {
   const activeScenario = scenarios.find(s => s.active);
+  const showCycle = mode === 'auto';  // phaseInfo null 도 '사이클 대기' chip 으로 표시
   const renderBtn = (key) => {
     const m = MODES[key];
     const active = mode === key;
@@ -292,6 +373,7 @@ const ModeSegment = ({ mode, onChange, programNum, programName, scenarios = [], 
           </option>
         ))}
       </select>
+      {showCycle && <CyclePhaseGraphic phaseInfo={phaseInfo} />}
       {['manual', 'direct', 'paused'].map(renderBtn)}
     </div>
   );

@@ -55,7 +55,7 @@ const MODE_ICON = { auto: Ico.Play, manual: Ico.Hand, direct: Ico.Direct, paused
 
 const kicker = { fontSize: 11.5, fontWeight: 700, color: T.fg3, letterSpacing: '0.14em', textTransform: 'uppercase' };
 
-export default function NutrientRealtime({ farmId, mode, onModeChange, onProgramChange }) {
+export default function NutrientRealtime({ farmId, mode, onModeChange, onProgramChange, onPhaseChange }) {
   const [state, setState] = useState(null);
   const [config, setConfig] = useState(null);
   const [scenarios, setScenarios] = useState([]);
@@ -137,6 +137,7 @@ export default function NutrientRealtime({ farmId, mode, onModeChange, onProgram
     lastProgramRef.current = { num: activeProgramNum, name: activeProgramName };
     onProgramChange?.({ programNum: activeProgramNum, programName: activeProgramName });
   }, [activeProgramNum, activeProgramName, onProgramChange]);
+
   const ecTarget = activeScenario?.ecTarget ?? null;
   const phTarget = activeScenario?.phTarget ?? null;
 
@@ -151,6 +152,11 @@ export default function NutrientRealtime({ farmId, mode, onModeChange, onProgram
       progress: Math.min(1, elapsed / plan.duration),
       valveIdx: cc.valveIdx ?? null, suppliedL: cc.suppliedL ?? 0 };
   }, [state, now]);
+
+  // phaseInfo 를 NutrientPanel 의 ModeSegment 로 push — 모드바와 사이클 그래픽 한 줄 통합용
+  useEffect(() => {
+    onPhaseChange?.(phaseInfo);
+  }, [phaseInfo, onPhaseChange]);
 
   // 하드웨어 BOM default (nutrient-flow-design.md) — config 가 완전히 빌 때만 사용.
   // Settings 에 저장된 값이 source of truth — 4 탱크면 4 탱크, 8 밸브면 8 밸브 그대로 표시.
@@ -358,8 +364,9 @@ export default function NutrientRealtime({ farmId, mode, onModeChange, onProgram
 
       {/* 현재 단계 + progress bar — 헤더 직하 (모바일 가시성).
           manual+runningJob 은 ManualRunningCard 가 phaseInfo 표시 → 중복 회피
-          나머지 (auto·paused·emergency·direct·manual idle) 는 모두 표시 */}
-      {!runningJob && (
+          자동 모드는 NutrientPanel 의 ModeSegment 가 CyclePhaseGraphic 으로 표시 → 항상 hide
+          나머지 (paused·emergency·direct·manual idle) 는 모두 표시 */}
+      {!runningJob && mode !== 'auto' && (
         <PhaseProgressBar phaseInfo={phaseInfo} mode={mode} />
       )}
 

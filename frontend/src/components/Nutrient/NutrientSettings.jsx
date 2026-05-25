@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import * as nutrientApi from '../../services/nutrientApi';
 import NutrientScenarios from './NutrientScenarios';
 
@@ -62,6 +62,8 @@ export default function NutrientSettings({ farmId }) {
         setConfig({
           tanks: (cfg.tanks && cfg.tanks.length) ? cfg.tanks : DEFAULT_TANKS,
           valveCount: cfg.valveCount || 14,
+          valveGroups: cfg.valveGroups || [],          // [{id, name, crop, plantCount, supplyLevel, color}]
+          valves: cfg.valves || [],                    // [{idx, groupId}]
           alerts: { ...DEFAULT_ALERTS, ...(cfg.alerts || {}) },
           hardware: { ...DEFAULT_HW, ...(cfg.hardware || {}) },
         });
@@ -117,10 +119,18 @@ export default function NutrientSettings({ farmId }) {
         <TanksEditor tanks={config.tanks} onSave={(t) => saveSection('tanks', t)} />
       </Section>
 
-      {/* 2. 관수 밸브 */}
-      <Section title="🚿 관수 밸브" subtitle={`${config.valveCount}구역 · 최대 24개`}
-               open={open.valves} onToggle={() => toggle('valves')} saving={savingSection === 'valveCount'}>
-        <ValvesEditor count={config.valveCount} onSave={(n) => saveSection('valveCount', n)} />
+      {/* 2. 구역 설정 (그룹 매핑 + 품목/식재수) */}
+      <Section title="🗺️ 구역 설정" subtitle={`${config.valveCount}구역 · 그룹 ${config.valveGroups.length}개`}
+               open={open.valves} onToggle={() => toggle('valves')}
+               saving={savingSection === 'valveCount' || savingSection === 'valveGroups' || savingSection === 'valves'}>
+        <GroupedValvesEditor
+          count={config.valveCount}
+          groups={config.valveGroups}
+          valves={config.valves}
+          onSaveCount={(n) => saveSection('valveCount', n)}
+          onSaveGroups={(g) => saveSection('valveGroups', g)}
+          onSaveValves={(v) => saveSection('valves', v)}
+        />
       </Section>
 
       <Section title="🔌 릴레이 채널 매핑" subtitle="Waveshare 32CH · 환경 0~7 + 양액 8~30"
@@ -283,44 +293,247 @@ const TanksEditor = ({ tanks: initial, onSave }) => {
 // ─────────────────────────────────────────
 // 관수 밸브 편집
 // ─────────────────────────────────────────
-const ValvesEditor = ({ count: initial, onSave }) => {
-  const [count, setCount] = useState(initial || 14);
-  const dirty = count !== initial;
+// ─────────────────────────────────────────
+// GroupedValvesEditor — 밸브 수 + 그룹 매핑 (품목/식재수/공급량 등급)
+// 그룹 카드 + 멤버 밸브 chip + 미배정 영역
+// 공급량 등급: standard(×1.0) / heavy(×1.5) / light(×0.7) — 시나리오 duration 가중치
+// ─────────────────────────────────────────
+const SUPPLY_LEVELS = {
+  light:    { label: '적음', weight: 0.7, color: '#0891b2', bg: '#cffafe' },
+  standard: { label: '표준', weight: 1.0, color: '#475569', bg: '#f1f5f9' },
+  heavy:    { label: '많음', weight: 1.5, color: '#d97706', bg: '#fef3c7' },
+};
+const GROUP_PALETTE = ['#dc2626','#d97706','#16a34a','#0891b2','#2563eb','#7c3aed','#db2777','#65a30d','#ea580c','#0d9488'];
+const CROP_OPTIONS = ['딸기','토마토','오이','파프리카','상추','쑥갓','시금치','케일','바질','고추','가지','참외','수박','메론','블루베리','기타'];
+
+const newGroupId = () => 'g_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+
+const GroupedValvesEditor = ({ count: initialCount, groups: initialGroups, valves: initialValves, onSaveCount, onSaveGroups, onSaveValves }) => {
+  const [count, setCount] = useState(initialCount || 14);
+  const [groups, setGroups] = useState(initialGroups || []);
+  // valveData[idx] = { groupId, crop, plantCount } — 구역별 품목/식재수 보존
+  const valveDataInit = useMemo(() => {
+    const m = {};
+    (initialValves || []).forEach(v => {
+      m[v.idx] = { groupId: v.groupId || null, crop: v.crop || '', plantCount: v.plantCount || 0 };
+    });
+    return m;
+  }, [initialValves]);
+  const [valveData, setValveData] = useState(valveDataInit);
+  useEffect(() => { setValveData(valveDataInit); }, [valveDataInit]);
+
+  const countDirty  = count !== initialCount;
+  const groupsDirty = JSON.stringify(groups) !== JSON.stringify(initialGroups || []);
+  const valvesDirty = JSON.stringify(valveData) !== JSON.stringify(valveDataInit);
+
+  // 그룹 추가
+  const addGroup = () => {
+    const id = newGroupId();
+    const color = GROUP_PALETTE[groups.length % GROUP_PALETTE.length];
+    setGroups([...groups, {
+      id, name: `그룹 ${groups.length + 1}`,
+      supplyLevel: 'standard', color,
+    }]);
+  };
+  const updateGroup = (id, patch) => setGroups(gs => gs.map(g => g.id === id ? { ...g, ...patch } : g));
+  const deleteGroup = (id) => {
+    if (!window.confirm('이 그룹을 삭제하시겠습니까?\n그룹 안 구역은 미배정으로 돌아갑니다 (품목/식재수는 보존).')) return;
+    setGroups(gs => gs.filter(g => g.id !== id));
+    setValveData(d => {
+      const next = { ...d };
+      Object.keys(next).forEach(idx => { if (next[idx].groupId === id) next[idx] = { ...next[idx], groupId: null }; });
+      return next;
+    });
+  };
+  // 밸브 그룹 할당 변경 (품목/식재수는 보존)
+  const setValveGroup = (idx, groupId) => {
+    setValveData(d => ({ ...d, [idx]: { ...(d[idx] || {}), groupId: groupId || null, crop: d[idx]?.crop || '', plantCount: d[idx]?.plantCount || 0 } }));
+  };
+  // 밸브 품목/식재수 변경
+  const setValveInfo = (idx, patch) => {
+    setValveData(d => ({ ...d, [idx]: { ...(d[idx] || { groupId: null, crop: '', plantCount: 0 }), ...patch } }));
+  };
+
+  // 그룹별 멤버 밸브 추출 (idx 배열)
+  const membersOf = (gid) => Array.from({ length: count }, (_, i) => i + 1).filter(idx => valveData[idx]?.groupId === gid);
+  const unassigned = Array.from({ length: count }, (_, i) => i + 1).filter(idx => !valveData[idx]?.groupId);
+
+  const saveAll = async () => {
+    if (countDirty) await onSaveCount(count);
+    if (groupsDirty) await onSaveGroups(groups);
+    if (valvesDirty) {
+      const arr = Array.from({ length: count }, (_, i) => i + 1)
+        .filter(idx => valveData[idx] && (valveData[idx].groupId || valveData[idx].crop || valveData[idx].plantCount))
+        .map(idx => ({ idx, ...valveData[idx] }));
+      await onSaveValves(arr);
+    }
+  };
+  const anyDirty = countDirty || groupsDirty || valvesDirty;
+
   return (
     <div>
+      {/* 구역 수 조정 */}
       <div className="flex items-center gap-3 mb-3">
-        <span style={{ fontSize: 15, fontWeight: 700, color: '#475569' }}>밸브 수:</span>
-        <div className="flex items-center gap-1">
-          <button onClick={() => setCount(c => Math.max(1, c - 1))}
-                  style={{ width: 28, height: 28, borderRadius: 6, border: '1px solid #cbd5e1', background: '#fff', cursor: 'pointer', fontWeight: 800 }}>−</button>
-          <input type="number" value={count} onChange={(e) => setCount(Math.max(1, Math.min(24, parseInt(e.target.value) || 1)))}
-                 style={{ width: 60, padding: '4px 8px', fontSize: 17, fontWeight: 800, textAlign: 'center',
-                          border: '1px solid #cbd5e1', borderRadius: 6, color: '#0891b2' }} />
-          <button onClick={() => setCount(c => Math.min(24, c + 1))}
-                  style={{ width: 28, height: 28, borderRadius: 6, border: '1px solid #cbd5e1', background: '#fff', cursor: 'pointer', fontWeight: 800 }}>+</button>
-        </div>
-        <span style={{ fontSize: 14, color: '#94a3b8' }}>(1~24)</span>
+        <span style={{ fontSize: 15, fontWeight: 700, color: '#475569' }}>구역 수:</span>
+        <button onClick={() => setCount(c => Math.max(1, c - 1))}
+                style={{ width: 28, height: 28, borderRadius: 6, border: '1px solid #cbd5e1', background: '#fff', cursor: 'pointer', fontWeight: 800 }}>−</button>
+        <input type="number" value={count} onChange={(e) => setCount(Math.max(1, Math.min(24, parseInt(e.target.value) || 1)))}
+               style={{ width: 60, padding: '4px 8px', fontSize: 17, fontWeight: 800, textAlign: 'center', border: '1px solid #cbd5e1', borderRadius: 6, color: '#0891b2' }} />
+        <button onClick={() => setCount(c => Math.min(24, c + 1))}
+                style={{ width: 28, height: 28, borderRadius: 6, border: '1px solid #cbd5e1', background: '#fff', cursor: 'pointer', fontWeight: 800 }}>+</button>
+        <span style={{ fontSize: 13, color: '#94a3b8' }}>(1~24)</span>
       </div>
-      <div className="grid grid-cols-6 md:grid-cols-12 gap-2">
-        {Array.from({ length: count }).map((_, i) => (
-          <div key={i} style={{
-            padding: '8px 4px', background: '#f0fdf4', borderRadius: 6,
-            border: '1px solid #86efac', textAlign: 'center',
-            fontSize: 15, fontWeight: 800, color: '#15803d',
-          }}>{i + 1}</div>
+
+      {/* 그룹 카드 목록 */}
+      <div className="space-y-2 mb-3">
+        {groups.map(g => (
+          <GroupCard key={g.id} group={g}
+            members={membersOf(g.id)} unassigned={unassigned}
+            valveData={valveData}
+            onChange={(patch) => updateGroup(g.id, patch)}
+            onDelete={() => deleteGroup(g.id)}
+            onValveAdd={(idx) => setValveGroup(idx, g.id)}
+            onValveRemove={(idx) => setValveGroup(idx, null)}
+            onValveInfo={setValveInfo}
+          />
         ))}
       </div>
-      <div style={{ fontSize: 14, color: '#94a3b8', marginTop: 8, padding: 8, background: '#fef3c7', borderRadius: 6 }}>
-        💡 소규모 4-8 · 중규모 10-16 · 대규모 18-24 구역
+
+      <button onClick={addGroup} style={{
+        width: '100%', padding: 10, borderRadius: 8, border: '1.5px dashed #94a3b8',
+        background: 'transparent', color: '#475569', fontSize: 14, fontWeight: 700, cursor: 'pointer', marginBottom: 12,
+      }}>+ 새 그룹 추가</button>
+
+      {/* 미배정 구역 */}
+      {unassigned.length > 0 && (
+        <div style={{ padding: 10, background: '#f8fafc', borderRadius: 8, border: '1px solid #e2e8f0', marginBottom: 12 }}>
+          <div style={{ fontSize: 13, fontWeight: 700, color: '#64748b', marginBottom: 6 }}>📭 미배정 구역 ({unassigned.length})</div>
+          <ValveRowTable
+            valveIdxs={unassigned}
+            valveData={valveData}
+            groups={groups}
+            onValveInfo={setValveInfo}
+            onAssign={(idx, gid) => setValveGroup(idx, gid)}
+            color="#64748b"
+            showAssignSelect
+          />
+        </div>
+      )}
+
+      <div style={{ fontSize: 13, color: '#94a3b8', padding: 8, background: '#fef3c7', borderRadius: 6, marginBottom: 10 }}>
+        💡 공급량 등급: 적음 ×0.7 · 표준 ×1.0 · 많음 ×1.5 (시나리오 관수 시간에 가중치 적용)
       </div>
-      <button onClick={() => onSave(count)} disabled={!dirty} style={{
-        marginTop: 10, width: '100%', padding: 10, borderRadius: 8, border: 'none',
-        background: dirty ? '#0891b2' : '#cbd5e1', color: '#fff',
-        fontSize: 15, fontWeight: 800, cursor: dirty ? 'pointer' : 'not-allowed',
-      }}>{dirty ? '변경사항 저장' : '저장됨'}</button>
+
+      <button onClick={saveAll} disabled={!anyDirty} style={{
+        width: '100%', padding: 10, borderRadius: 8, border: 'none',
+        background: anyDirty ? '#0891b2' : '#cbd5e1', color: '#fff',
+        fontSize: 15, fontWeight: 800, cursor: anyDirty ? 'pointer' : 'not-allowed',
+      }}>{anyDirty ? '변경사항 저장' : '저장됨'}</button>
     </div>
   );
 };
+
+const GroupCard = ({ group, members, unassigned, valveData, onChange, onDelete, onValveAdd, onValveRemove, onValveInfo }) => {
+  const level = SUPPLY_LEVELS[group.supplyLevel] || SUPPLY_LEVELS.standard;
+  return (
+    <div style={{
+      padding: 12, background: '#fff',
+      border: `1.5px solid ${group.color}55`, borderLeft: `4px solid ${group.color}`,
+      borderRadius: 10,
+    }}>
+      {/* 그룹 헤더 — 이름 + 공급량 등급 + 삭제 */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10, flexWrap: 'wrap' }}>
+        <input value={group.name} onChange={(e) => onChange({ name: e.target.value })}
+               placeholder="그룹 이름"
+               style={{ flex: 1, minWidth: 120, padding: '4px 8px', fontSize: 15, fontWeight: 800, color: group.color,
+                        border: '1px solid transparent', borderRadius: 6, background: 'transparent' }}
+               onFocus={(e) => { e.target.style.border = '1px solid #cbd5e1'; e.target.style.background = '#f8fafc'; }}
+               onBlur={(e)  => { e.target.style.border = '1px solid transparent'; e.target.style.background = 'transparent'; }}
+        />
+        <select value={group.supplyLevel} onChange={(e) => onChange({ supplyLevel: e.target.value })}
+                title="이 그룹 멤버 밸브의 공급량 가중치 (시나리오 duration × weight)"
+                style={{ padding: '4px 10px', borderRadius: 14, border: `1.5px solid ${level.color}55`,
+                         background: level.bg, color: level.color, fontSize: 12.5, fontWeight: 800, cursor: 'pointer' }}>
+          {Object.entries(SUPPLY_LEVELS).map(([k, v]) => (
+            <option key={k} value={k}>{v.label} (×{v.weight})</option>
+          ))}
+        </select>
+        <button onClick={onDelete} title="그룹 삭제"
+                style={{ width: 28, height: 28, borderRadius: 6, border: '1px solid #fecaca', background: '#fef2f2', color: '#dc2626', cursor: 'pointer', fontSize: 14 }}>🗑️</button>
+      </div>
+
+      {/* 그룹 멤버 구역 표 */}
+      {members.length === 0 ? (
+        <div style={{ fontSize: 13, color: '#94a3b8', fontStyle: 'italic', padding: '8px 0' }}>(구역 없음 — 아래에서 추가)</div>
+      ) : (
+        <ValveRowTable
+          valveIdxs={members}
+          valveData={valveData}
+          color={group.color}
+          onValveInfo={onValveInfo}
+          onRemove={onValveRemove}
+        />
+      )}
+
+      {/* 구역 추가 */}
+      {unassigned.length > 0 && (
+        <div style={{ marginTop: 8 }}>
+          <select onChange={(e) => { if (e.target.value) { onValveAdd(parseInt(e.target.value)); e.target.value = ''; } }}
+                  defaultValue=""
+                  style={{ padding: '5px 10px', borderRadius: 8, border: `1.5px dashed ${group.color}88`, background: 'transparent', color: group.color, fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>
+            <option value="">+ 구역 추가</option>
+            {unassigned.map(idx => <option key={idx} value={idx}>구역 {idx}</option>)}
+          </select>
+        </div>
+      )}
+    </div>
+  );
+};
+
+// 구역 표 — 구역 # / 품목 (datalist 자유입력) / 식재수 / 제외 (또는 그룹 배정)
+const VALVE_GRID = '44px minmax(0, 1fr) minmax(0, 1fr) 96px';
+const ValveRowTable = ({ valveIdxs, valveData, color, onValveInfo, onRemove, onAssign, groups, showAssignSelect }) => (
+  <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+    <div style={{ display: 'grid', gridTemplateColumns: VALVE_GRID, gap: 6,
+                  fontSize: 11, fontWeight: 700, color: '#94a3b8', padding: '0 4px' }}>
+      <span>#</span><span>품목</span><span>식재수</span><span></span>
+    </div>
+    {valveIdxs.map(idx => {
+      const info = valveData[idx] || { crop: '', plantCount: 0 };
+      return (
+        <div key={idx} style={{ display: 'grid', gridTemplateColumns: VALVE_GRID, gap: 6, alignItems: 'center' }}>
+          <span style={{ padding: '4px 8px', borderRadius: 6, background: color, color: '#fff',
+                         fontSize: 13, fontWeight: 800, textAlign: 'center' }}>{idx}</span>
+          <input list="crop-suggestions" value={info.crop || ''}
+                 onChange={(e) => onValveInfo(idx, { crop: e.target.value })}
+                 placeholder="작물명 입력 또는 선택…"
+                 style={{ width: '100%', padding: '4px 8px', borderRadius: 6, border: '1px solid #cbd5e1', fontSize: 13, fontWeight: 700, minWidth: 0 }} />
+          <div style={{ display: 'flex', alignItems: 'center', gap: 4, minWidth: 0 }}>
+            <input type="number" value={info.plantCount || 0}
+                   onChange={(e) => onValveInfo(idx, { plantCount: parseInt(e.target.value) || 0 })}
+                   style={{ flex: 1, minWidth: 0, padding: '4px 6px', borderRadius: 6, border: '1px solid #cbd5e1', fontSize: 13, fontWeight: 700, textAlign: 'right' }} />
+            <span style={{ fontSize: 11, color: '#94a3b8', flexShrink: 0 }}>주</span>
+          </div>
+          {showAssignSelect ? (
+            <select defaultValue="" onChange={(e) => { if (e.target.value) onAssign(idx, e.target.value); }}
+                    style={{ width: '100%', padding: '4px 6px', borderRadius: 6, border: '1px solid #cbd5e1', fontSize: 11, fontWeight: 700, color: '#475569', cursor: 'pointer' }}>
+              <option value="">↗ 그룹</option>
+              {groups.map(g => <option key={g.id} value={g.id}>{g.name}</option>)}
+            </select>
+          ) : (
+            <button onClick={() => onRemove(idx)} title="구역을 그룹에서 제외 (품목·식재수는 보존)"
+                    style={{ width: '100%', padding: '4px 8px', borderRadius: 6, border: '1px solid #e2e8f0', background: '#fff', color: '#94a3b8',
+                             fontSize: 11, fontWeight: 700, cursor: 'pointer' }}>제외</button>
+          )}
+        </div>
+      );
+    })}
+    {/* datalist — 모든 row 공유 (한 번만 렌더) */}
+    <datalist id="crop-suggestions">
+      {CROP_OPTIONS.filter(c => c !== '기타').map(c => <option key={c} value={c} />)}
+    </datalist>
+  </div>
+);
 
 // ─────────────────────────────────────────
 // 경보 한계값 편집 + 시각화

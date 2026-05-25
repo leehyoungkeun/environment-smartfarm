@@ -229,7 +229,7 @@ router.put("/:farmId/config", async (req, res) => {
   try {
     const { farmId } = req.params;
     await getOrCreateConfig(farmId); // ensure exists
-    const fields = ["tanks", "valveCount", "alerts", "hardware"];
+    const fields = ["tanks", "valveCount", "valveGroups", "valves", "alerts", "hardware"];
     const data = {};
     for (const f of fields) if (req.body[f] !== undefined) data[f] = req.body[f];
     data.updatedAt = new Date();

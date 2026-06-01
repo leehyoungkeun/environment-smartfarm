@@ -2,6 +2,7 @@ module.exports = {
   apps: [
     {
       name: 'smartfarm-backend',
+      cwd: __dirname,
       script: 'backend/src/app.js',
       interpreter: 'node',
       interpreter_args: '--experimental-specifier-resolution=node',
@@ -15,6 +16,7 @@ module.exports = {
       env: {
         NODE_ENV: 'production',
         PORT: 3000,
+        TZ: 'Asia/Seoul',
       },
       error_file: 'logs/backend-error.log',
       out_file: 'logs/backend-out.log',

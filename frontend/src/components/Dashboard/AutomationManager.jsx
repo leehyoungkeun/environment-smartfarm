@@ -51,7 +51,7 @@ const DAYS_OPTIONS = [
 ];
 
 const COMMAND_LABELS = {
-  open: '열기', close: '닫기', stop: '정지', on: 'ON', off: 'OFF',
+  open: '열기', close: '닫기', stop: '정지', on: '켜짐', off: '꺼짐',
 };
 
 // PC Server API: 단일 진실 소스 (PC 서버 → MQTT 알림 → RPi pull)
@@ -243,35 +243,46 @@ const AutomationManager = ({ farmId, houses = [] }) => {
         </div>
       )}
 
-      {/* 탭 네비게이션 + 새 규칙 */}
-      <div className="flex items-center gap-1.5 md:gap-2 mb-3 md:mb-4 overflow-x-auto pb-1" style={{ scrollbarWidth: 'none', WebkitOverflowScrolling: 'touch' }}>
-        {TABS.map(tab => {
-          const count = houseRules.filter(r => categorizeRule(r) === tab.id).length;
-          const isActive = activeTab === tab.id;
-          return (
-            <button
-              key={tab.id}
-              onClick={() => setActiveTab(tab.id)}
-              className={`flex items-center gap-1 md:gap-1.5 px-2.5 md:px-4 py-2 md:py-2.5 rounded-lg text-xs md:text-sm font-bold transition-all border whitespace-nowrap flex-shrink-0 ${
-                isActive
-                  ? 'bg-blue-600 text-white shadow-md shadow-blue-600/25 border-blue-700'
-                  : 'bg-gray-100 text-gray-500 hover:bg-gray-200 border-gray-300'
-              }`}
-            >
-              <span>{tab.icon}</span>
-              {tab.label}
-              {count > 0 && (
-                <span className={`text-xs px-1.5 py-0.5 rounded-full font-bold ${
-                  isActive ? 'bg-white/25 text-white' : 'bg-gray-300 text-gray-600'
-                }`}>
-                  {count}
-                </span>
-              )}
-            </button>
-          );
-        })}
-        <button onClick={startNew} className="btn-primary ml-auto flex-shrink-0">
-          + 새 규칙
+      {/* 탭 네비게이션 + 새 규칙 (모바일은 탭 옆 + 아이콘, 데스크탑은 탭 옆 텍스트) */}
+      <div className="flex items-center gap-1 md:gap-2 mb-3 md:mb-4">
+        <div
+          className="flex items-center gap-1 md:gap-2 overflow-x-auto pb-1 flex-1 min-w-0"
+          style={{ scrollbarWidth: 'none', WebkitOverflowScrolling: 'touch' }}
+        >
+          {TABS.map(tab => {
+            const count = houseRules.filter(r => categorizeRule(r) === tab.id).length;
+            const isActive = activeTab === tab.id;
+            return (
+              <button
+                key={tab.id}
+                onClick={() => setActiveTab(tab.id)}
+                className={`flex items-center gap-0.5 md:gap-1.5 px-1.5 md:px-4 py-2 md:py-2.5 rounded-lg text-[11px] md:text-sm font-bold transition-all border whitespace-nowrap flex-shrink-0 ${
+                  isActive
+                    ? 'bg-blue-600 text-white shadow-md shadow-blue-600/25 border-blue-700'
+                    : 'bg-gray-100 text-gray-500 hover:bg-gray-200 border-gray-300'
+                }`}
+              >
+                <span className="text-[11px] md:text-base">{tab.icon}</span>
+                {tab.label}
+                {count > 0 && (
+                  <span className={`text-[10px] md:text-xs px-1 md:px-1.5 py-0 md:py-0.5 rounded-full font-bold ${
+                    isActive ? 'bg-white/25 text-white' : 'bg-gray-300 text-gray-600'
+                  }`}>
+                    {count}
+                  </span>
+                )}
+              </button>
+            );
+          })}
+        </div>
+        <button
+          onClick={startNew}
+          className="btn-primary flex-shrink-0 flex items-center justify-center w-9 h-9 p-0 text-xl leading-none md:w-auto md:h-auto md:px-4 md:py-2.5 md:text-sm font-extrabold"
+          title="새 규칙 추가"
+          aria-label="새 규칙 추가"
+        >
+          <span className="md:hidden">＋</span>
+          <span className="hidden md:inline">+ 새 규칙</span>
         </button>
       </div>
 
@@ -1125,7 +1136,7 @@ const RuleForm = ({ farmId, houseId, houses = [], rule, existingRules = [], defa
                   <select
                     value={action.command}
                     onChange={(e) => updateAction(idx, { command: e.target.value })}
-                    className="input-field w-16 md:w-24 text-xs md:text-sm"
+                    className="input-field w-20 md:w-24 text-xs md:text-sm flex-shrink-0 px-2"
                   >
                     {commands.map(c => (
                       <option key={c} value={c} className="bg-slate-800">{COMMAND_LABELS[c]}</option>

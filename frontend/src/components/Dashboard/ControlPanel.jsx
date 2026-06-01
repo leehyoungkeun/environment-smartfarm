@@ -1374,7 +1374,7 @@ const ControlPanel = ({ farmId, houseId, houseConfig }) => {
   const handleBatchControl = useCallback(async (deviceList, command) => {
     batchModeRef.current = true;
     stopRelayPolling();
-    const COMMAND_LABELS_BATCH = { open: '열기', close: '닫기', stop: '정지', on: 'ON', off: 'OFF' };
+    const COMMAND_LABELS_BATCH = { open: '열기', close: '닫기', stop: '정지', on: '켜짐', off: '꺼짐' };
     // 클라우드 모드 감지 — handleControl 의 분기 조건과 동일
     // 로컬/팜로컬/오프라인: handleControl 이 waitForModbusDone 으로 modbus 완료까지 대기 → 추가 delay 불필요
     // 클라우드: Lambda 응답(~200ms) 만에 다음 device 로 넘어가서 NR 큐에 명령이 한꺼번에 쌓임 → 진행률이 실제 동작보다 빨라짐
@@ -1426,7 +1426,7 @@ const ControlPanel = ({ farmId, houseId, houseConfig }) => {
 
   // 일괄 제어 확인 대화상자
   const confirmBatchControl = useCallback((deviceList, command) => {
-    const COMMAND_LABELS = { open: '열기', close: '닫기', stop: '정지', on: 'ON', off: 'OFF' };
+    const COMMAND_LABELS = { open: '열기', close: '닫기', stop: '정지', on: '켜짐', off: '꺼짐' };
     const cmdLabel = COMMAND_LABELS[command] || command;
     const deviceNames = deviceList.map(d => d.name || d.deviceId).join(', ');
     setConfirmAction({
@@ -2327,7 +2327,7 @@ const ScheduleOffPicker = ({ deviceId, deviceName, onPick, onClose }) => {
 };
 
 const OPERATOR_LABELS = { '>': '초과', '>=': '이상', '<': '미만', '<=': '이하' };
-const COMMAND_LABELS = { open: '열기', close: '닫기', stop: '정지', on: 'ON', off: 'OFF' };
+const COMMAND_LABELS = { open: '열기', close: '닫기', stop: '정지', on: '켜짐', off: '꺼짐' };
 const DAYS_LABELS = { 1: '월', 2: '화', 3: '수', 4: '목', 5: '금', 6: '토', 0: '일' };
 
 /** 다음 실행까지 카운트다운 (서버 스케줄 기반 — 정확한 시각) */

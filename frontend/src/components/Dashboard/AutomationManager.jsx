@@ -256,16 +256,16 @@ const AutomationManager = ({ farmId, houses = [] }) => {
               <button
                 key={tab.id}
                 onClick={() => setActiveTab(tab.id)}
-                className={`flex items-center gap-0.5 md:gap-1.5 px-1.5 md:px-4 py-2 md:py-2.5 rounded-lg text-[11px] md:text-sm font-bold transition-all border whitespace-nowrap flex-shrink-0 ${
+                className={`flex items-center gap-1 md:gap-1.5 px-2.5 md:px-4 py-2 md:py-2.5 rounded-lg text-xs md:text-sm font-bold transition-all border whitespace-nowrap flex-shrink-0 ${
                   isActive
                     ? 'bg-blue-600 text-white shadow-md shadow-blue-600/25 border-blue-700'
                     : 'bg-gray-100 text-gray-500 hover:bg-gray-200 border-gray-300'
                 }`}
               >
-                <span className="text-[11px] md:text-base">{tab.icon}</span>
+                <span className="text-sm md:text-base">{tab.icon}</span>
                 {tab.label}
                 {count > 0 && (
-                  <span className={`text-[10px] md:text-xs px-1 md:px-1.5 py-0 md:py-0.5 rounded-full font-bold ${
+                  <span className={`text-[10px] md:text-xs px-1.5 py-0.5 rounded-full font-bold ${
                     isActive ? 'bg-white/25 text-white' : 'bg-gray-300 text-gray-600'
                   }`}>
                     {count}
@@ -277,7 +277,7 @@ const AutomationManager = ({ farmId, houses = [] }) => {
         </div>
         <button
           onClick={startNew}
-          className="btn-primary flex-shrink-0 flex items-center justify-center w-9 h-9 p-0 text-xl leading-none md:w-auto md:h-auto md:px-4 md:py-2.5 md:text-sm font-extrabold"
+          className="btn-primary flex-shrink-0 flex items-center justify-center w-10 h-10 p-0 text-2xl leading-none md:w-auto md:h-auto md:px-4 md:py-2.5 md:text-sm font-extrabold"
           title="새 규칙 추가"
           aria-label="새 규칙 추가"
         >
@@ -923,7 +923,7 @@ const RuleForm = ({ farmId, houseId, houses = [], rule, existingRules = [], defa
           <span className="text-sm font-bold text-amber-600">⏰ 시간 조건</span>
           <button onClick={() => addCondition('time')} className="text-xs text-amber-600 font-semibold bg-amber-50 px-2.5 py-1 rounded-lg hover:bg-amber-100 transition-all">+ 시간 조건 추가</button>
         </div>
-        <div className="bg-gray-50/80 rounded-xl p-3 space-y-3 border border-gray-100">
+        <div className="space-y-3">
           {timeConds.length > 0 ? timeConds.map((cond) => {
             // 기존 호환: timeMode 없고 time만 있으면 specific으로 취급
             const timeMode = cond.timeMode || 'specific';
@@ -1024,7 +1024,7 @@ const RuleForm = ({ farmId, houseId, houses = [], rule, existingRules = [], defa
                 )}
 
                 {/* 요일 선택 (공통) */}
-                <div className="flex gap-1.5 flex-wrap">
+                <div className="flex gap-1 md:gap-1.5 flex-nowrap">
                   {DAYS_OPTIONS.map(d => (
                     <button
                       key={d.value}
@@ -1033,7 +1033,7 @@ const RuleForm = ({ farmId, houseId, houses = [], rule, existingRules = [], defa
                         const updated = days.includes(d.value) ? days.filter(v => v !== d.value) : [...days, d.value];
                         updateCondition(cond._idx, 'days', updated);
                       }}
-                      className={`w-9 h-9 rounded-lg text-xs font-bold transition-all border ${
+                      className={`flex-1 min-w-0 h-8 md:h-9 rounded-lg text-xs font-bold transition-all border ${
                         (cond.days || []).includes(d.value)
                           ? 'bg-blue-500 text-white border-blue-600 shadow-sm'
                           : 'bg-white text-gray-400 border-gray-200 hover:border-blue-300 hover:text-blue-400'

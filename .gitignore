@@ -60,6 +60,8 @@ backend/scripts/
 *.png
 !docs/screenshots/**/*.png
 !docs/screenshots/**/*.PNG
+!docs/screen/**/*.png
+!docs/screen/**/*.PNG
 !frontend/public/**/*.png
 
 # Root lock file (monorepo 아님)

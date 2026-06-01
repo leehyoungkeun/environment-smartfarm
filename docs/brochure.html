@@ -1,0 +1,488 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<title>케이그린텍 스마트팜 — 제품 브로셔</title>
+<style>
+  @page { size: A4; margin: 0; }
+  @media print {
+    .no-print { display: none !important; }
+    body { background: #fff !important; }
+    .page { box-shadow: none !important; margin: 0 !important; }
+  }
+
+  body {
+    font-family: "Malgun Gothic", "맑은 고딕", "Apple SD Gothic Neo", sans-serif;
+    margin: 0;
+    padding: 0;
+    background: #e5e7eb;
+    color: #1a1a1a;
+    line-height: 1.5;
+  }
+
+  .page {
+    width: 210mm;
+    min-height: 297mm;
+    margin: 6mm auto;
+    background: #fff;
+    box-shadow: 0 4px 24px rgba(0,0,0,0.12);
+    position: relative;
+    overflow: hidden;
+    page-break-after: always;
+    box-sizing: border-box;
+  }
+  .page:last-child { page-break-after: auto; }
+
+  /* ─── 1페이지 표지 ─── */
+  .cover {
+    background: linear-gradient(135deg, #064e3b 0%, #047857 45%, #10b981 100%);
+    color: #fff;
+    padding: 35mm 22mm;
+    min-height: 297mm;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+  }
+  .cover .top-band {
+    font-size: 11pt;
+    letter-spacing: 4px;
+    opacity: 0.85;
+    font-weight: 500;
+  }
+  .cover .leaf {
+    font-size: 70pt;
+    line-height: 1;
+    margin: 8mm 0 12mm;
+    opacity: 0.92;
+  }
+  .cover h1.brand {
+    font-size: 44pt;
+    font-weight: 900;
+    letter-spacing: -1.5px;
+    margin: 0;
+    line-height: 1.1;
+  }
+  .cover h2.product {
+    font-size: 22pt;
+    font-weight: 400;
+    margin: 6mm 0 0;
+    opacity: 0.92;
+  }
+  .cover .product strong { color: #a7f3d0; font-weight: 700; }
+  .cover .tagline {
+    font-size: 14pt;
+    line-height: 1.7;
+    margin-top: 18mm;
+    max-width: 130mm;
+    opacity: 0.95;
+  }
+  .cover .tagline em {
+    color: #a7f3d0;
+    font-style: normal;
+    font-weight: 700;
+  }
+  .cover .footer-band {
+    border-top: 1px solid rgba(255,255,255,0.3);
+    padding-top: 6mm;
+    font-size: 10.5pt;
+    display: flex;
+    justify-content: space-between;
+    opacity: 0.85;
+  }
+
+  /* ─── 일반 페이지 ─── */
+  .body-page { padding: 18mm 18mm 18mm; }
+  .body-page h1.section {
+    font-size: 22pt;
+    color: #047857;
+    border-bottom: 3px solid #047857;
+    padding-bottom: 3mm;
+    margin: 0 0 8mm;
+    font-weight: 800;
+  }
+  .body-page h2.sub {
+    font-size: 14pt;
+    color: #1e40af;
+    margin: 8mm 0 3mm;
+    border-left: 4px solid #1e40af;
+    padding-left: 3mm;
+  }
+
+  /* ─── 핵심 수치 ─── */
+  .stats {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 6mm;
+    margin: 6mm 0 10mm;
+  }
+  .stat {
+    background: linear-gradient(135deg, #ecfdf5 0%, #f0fdfa 100%);
+    border: 1px solid #a7f3d0;
+    border-radius: 3mm;
+    padding: 5mm 3mm;
+    text-align: center;
+  }
+  .stat .num {
+    font-size: 26pt;
+    font-weight: 900;
+    color: #047857;
+    line-height: 1;
+  }
+  .stat .label {
+    font-size: 10pt;
+    color: #475569;
+    margin-top: 3mm;
+    line-height: 1.4;
+  }
+
+  /* ─── 기능 카드 ─── */
+  .features {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 5mm;
+    margin: 6mm 0;
+  }
+  .feat {
+    background: #f8fafc;
+    border-left: 4px solid #047857;
+    padding: 4mm 5mm;
+    border-radius: 0 2mm 2mm 0;
+  }
+  .feat .icon {
+    font-size: 22pt;
+    margin-bottom: 2mm;
+    display: block;
+  }
+  .feat h3 {
+    font-size: 13pt;
+    color: #064e3b;
+    margin: 0 0 1.5mm;
+    font-weight: 800;
+  }
+  .feat p {
+    font-size: 10.5pt;
+    color: #374151;
+    margin: 0;
+    line-height: 1.55;
+  }
+
+  /* ─── 화면 미리보기 ─── */
+  .shots {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 5mm;
+    margin: 6mm 0;
+  }
+  .shot {
+    background: #f1f5f9;
+    border-radius: 2mm;
+    overflow: hidden;
+    border: 1px solid #cbd5e1;
+  }
+  .shot img {
+    width: 100%;
+    height: auto;
+    display: block;
+  }
+  .shot .cap {
+    padding: 2mm 4mm;
+    font-size: 10pt;
+    font-weight: 700;
+    color: #064e3b;
+    background: #ecfdf5;
+    border-top: 1px solid #a7f3d0;
+  }
+  .shot-large {
+    margin: 6mm 0;
+    border: 1px solid #cbd5e1;
+    border-radius: 2mm;
+    overflow: hidden;
+  }
+  .shot-large img { width: 100%; height: auto; display: block; }
+  .shot-large .cap {
+    padding: 2mm 4mm;
+    font-size: 10pt;
+    font-weight: 700;
+    color: #064e3b;
+    background: #ecfdf5;
+  }
+
+  /* ─── 표 ─── */
+  table.specs {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 10.5pt;
+    margin: 4mm 0;
+  }
+  table.specs th, table.specs td {
+    padding: 2.5mm 4mm;
+    text-align: left;
+    border-bottom: 1px solid #e2e8f0;
+  }
+  table.specs th {
+    background: #f1f5f9;
+    color: #064e3b;
+    font-weight: 700;
+    width: 32%;
+  }
+
+  /* ─── 연락처 ─── */
+  .contact-band {
+    background: linear-gradient(135deg, #064e3b 0%, #047857 100%);
+    color: #fff;
+    padding: 10mm 14mm;
+    border-radius: 3mm;
+    margin: 8mm 0 4mm;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 5mm;
+  }
+  .contact-band .col h4 {
+    font-size: 11pt;
+    margin: 0 0 2mm;
+    color: #a7f3d0;
+    font-weight: 700;
+    letter-spacing: 1px;
+  }
+  .contact-band .col p {
+    margin: 0 0 1.5mm;
+    font-size: 11.5pt;
+    line-height: 1.5;
+  }
+  .contact-band .col strong { font-size: 14pt; }
+
+  /* ─── 발행 정보 ─── */
+  .imprint {
+    text-align: center;
+    color: #64748b;
+    font-size: 9.5pt;
+    margin-top: 6mm;
+    line-height: 1.6;
+  }
+
+  /* ─── 인쇄 안내 ─── */
+  .print-banner {
+    background: #047857;
+    color: #fff;
+    padding: 3mm 5mm;
+    text-align: center;
+    font-size: 11pt;
+    max-width: 210mm;
+    margin: 6mm auto 0;
+  }
+  .print-banner button {
+    background: #fff;
+    color: #047857;
+    border: none;
+    padding: 2mm 6mm;
+    border-radius: 2mm;
+    font-weight: 700;
+    cursor: pointer;
+    margin-left: 4mm;
+  }
+  .print-banner kbd {
+    background: rgba(255,255,255,0.2);
+    padding: 1mm 2mm;
+    border-radius: 1mm;
+    font-family: Consolas, monospace;
+    font-size: 10pt;
+  }
+</style>
+</head>
+<body>
+
+<div class="print-banner no-print">
+  📘 이 페이지는 인쇄용 브로셔입니다. <kbd>Ctrl</kbd> + <kbd>P</kbd> 로 PDF 저장 가능.
+  <button onclick="window.print()">PDF 저장</button>
+</div>
+
+<!-- ─── 1페이지: 표지 ─── -->
+<div class="page cover">
+  <div>
+    <div class="top-band">KGREENTECH · MARO-FARM26</div>
+    <div class="leaf">🌱</div>
+    <h1 class="brand">케이그린텍 스마트팜</h1>
+    <h2 class="product">스마트팜 <strong>복합환경제어기</strong></h2>
+    <div class="tagline">
+      비닐하우스와 온실의 <em>환경·관수·양액</em>을 한 화면에서.<br>
+      국가 표준 KS X 3288 기반 — <em>최대 256채널</em>까지 확장.
+    </div>
+  </div>
+  <div class="footer-band">
+    <span>제품 브로셔</span>
+    <span>2026.05</span>
+  </div>
+</div>
+
+<!-- ─── 2페이지: 한눈에 ─── -->
+<div class="page body-page">
+  <h1 class="section">한눈에 보는 시스템</h1>
+
+  <p style="font-size: 12pt; color: #374151; margin-bottom: 6mm;">
+    농장 환경을 <strong>측정 → 제어 → 기록 → 분석</strong> 하는 모든 과정을 하나의 클라우드 플랫폼으로 통합했습니다.
+    스마트폰·PC 어디서든 같은 화면으로 농장을 운영할 수 있습니다.
+  </p>
+
+  <div class="stats">
+    <div class="stat">
+      <div class="num">256</div>
+      <div class="label">최대 제어 채널</div>
+    </div>
+    <div class="stat">
+      <div class="num">14</div>
+      <div class="label">양액 관수 구역</div>
+    </div>
+    <div class="stat">
+      <div class="num">24<span style="font-size:14pt;">h</span></div>
+      <div class="label">무인 자동 운전</div>
+    </div>
+    <div class="stat">
+      <div class="num">KS</div>
+      <div class="label">국가 표준 호환<br>X 3288</div>
+    </div>
+  </div>
+
+  <h2 class="sub">측정 항목</h2>
+  <p style="font-size: 11pt; color: #374151;">
+    온도 · 습도 · CO₂ · 일사량 · 토양 수분 · EC · pH (내부)　/ 　강우 · 풍속 · 외부 온도 (외부)
+  </p>
+
+  <h2 class="sub">제어 장치</h2>
+  <table class="specs">
+    <tr><th>개폐</th><td>천창 · 측창 · 수평커튼 · 차광막</td></tr>
+    <tr><th>공조</th><td>환기팬 · 순환팬 · 온풍기 · 냉방기</td></tr>
+    <tr><th>관수 · 양액</th><td>관수밸브 · 펌프 · 도싱 펌프 6채널 · 혼합 탱크</td></tr>
+    <tr><th>기타</th><td>CO₂ 공급기 · 보광등 · 분무기</td></tr>
+  </table>
+
+  <h2 class="sub">설치 구성</h2>
+  <div class="shot-large">
+    <img src="screen/구성도_new.PNG" alt="시스템 구성도">
+    <div class="cap">RS485 기반 스마트팜 제어 시스템 아키텍처</div>
+  </div>
+</div>
+
+<!-- ─── 3페이지: 주요 기능 ─── -->
+<div class="page body-page">
+  <h1 class="section">주요 기능</h1>
+
+  <div class="features">
+    <div class="feat" style="grid-column: 1 / -1; border-left-color: #b45309; background: #fffbeb;">
+      <span class="icon">🔌</span>
+      <h3 style="color: #92400e;">기존 수동 제어반에 연결 — 그대로 원격 제어</h3>
+      <p>농가의 <strong>수동 제어반·마그네트·컨트롤박스</strong> ON/OFF 신호선에 연결만 하면 스마트폰 원격 제어·자동화·데이터 기록을 그대로 얹을 수 있습니다. 기존 설비 교체 없이 도입하므로 초기 비용이 크게 절감되며, 수동 스위치는 그대로 살아있어 비상 시 직접 조작이 가능합니다.</p>
+    </div>
+    <div class="feat">
+      <span class="icon">📊</span>
+      <h3>실시간 환경 측정</h3>
+      <p>내부·외부 환경을 1분 주기로 측정. 게이지 색으로 위험·주의·정상을 한눈에.</p>
+    </div>
+    <div class="feat">
+      <span class="icon">⚙️</span>
+      <h3>자동 제어 규칙</h3>
+      <p>센서 기반 / 시간대별 / 사용자 정의 규칙. 조건이 맞으면 천창·측창·환기팬이 자동 동작.</p>
+    </div>
+    <div class="feat">
+      <span class="icon">💧</span>
+      <h3>양액 자동 제어</h3>
+      <p>시나리오별 EC·pH 목표 자동 조성. 14구역 관수 밸브 순차 공급. 자동·수동·직접 3모드.</p>
+    </div>
+    <div class="feat">
+      <span class="icon">🔒</span>
+      <h3>안전 인터록</h3>
+      <p>EC·pH 한계 이탈, 탱크 잔량 부족, 사이클 시간 초과 시 자동 정지하고 알림 발송.</p>
+    </div>
+    <div class="feat">
+      <span class="icon">📓</span>
+      <h3>영농일지·자재 관리</h3>
+      <p>일지·수확·자재 입출고를 한곳에. 농약 사용은 PLS 대응 필수 항목으로 자동 입력 유도.</p>
+    </div>
+    <div class="feat">
+      <span class="icon">📈</span>
+      <h3>보고서 출력</h3>
+      <p>환경·수확·자재·알림 이력을 기간별로 PDF·엑셀 출력. 출하 거래처·기술센터 제출용.</p>
+    </div>
+    <div class="feat">
+      <span class="icon">🤖</span>
+      <h3>AI 도우미</h3>
+      <p>잎·열매 사진으로 병해충 진단. 재배 상담·이상값 분석을 한국어 대화로.</p>
+    </div>
+    <div class="feat">
+      <span class="icon">📶</span>
+      <h3>오프라인 자동 전환</h3>
+      <p>인터넷이 끊겨도 농장 와이파이 안에서 로컬 제어. 복구 시 클라우드 자동 동기화.</p>
+    </div>
+  </div>
+</div>
+
+<!-- ─── 4페이지: 화면 미리보기 ─── -->
+<div class="page body-page">
+  <h1 class="section">화면 미리보기</h1>
+
+  <div class="shot-large">
+    <img src="screen/1. 대시보드_1.PNG" alt="대시보드">
+    <div class="cap">대시보드 — 농장 환경을 한눈에</div>
+  </div>
+
+  <div class="shots">
+    <div class="shot">
+      <img src="screen/2. 환경제어.PNG" alt="환경 제어">
+      <div class="cap">환경 제어</div>
+    </div>
+    <div class="shot">
+      <img src="screen/3. 양액제어_자동모드.PNG" alt="양액제어 자동 모드">
+      <div class="cap">양액 자동 제어</div>
+    </div>
+    <div class="shot">
+      <img src="screen/5. 영농일지.PNG" alt="영농일지">
+      <div class="cap">영농일지</div>
+    </div>
+    <div class="shot">
+      <img src="screen/7. AI도우미.PNG" alt="AI 도우미">
+      <div class="cap">AI 도우미</div>
+    </div>
+  </div>
+</div>
+
+<!-- ─── 5페이지: 제원 · 연락처 ─── -->
+<div class="page body-page">
+  <h1 class="section">제원</h1>
+
+  <table class="specs">
+    <tr><th>제품명</th><td><strong>MARO-FARM26</strong></td></tr>
+    <tr><th>제품 종류</th><td>스마트팜 복합환경제어기</td></tr>
+    <tr><th>지원 채널</th><td>4 / 8 / 16 / 32 (최대 256, 모듈 캐스케이드)</td></tr>
+    <tr><th>연동 표준</th><td>국가스마트팜표준 KS X 3288 — RS485 Modbus 인터페이스</td></tr>
+    <tr><th>통신 (장치)</th><td>RS485 Modbus RTU · 9600 baud · 8N1</td></tr>
+    <tr><th>통신 (서버)</th><td>클라우드 IoT MQTT (TLS 1.2)</td></tr>
+    <tr><th>인터넷</th><td>유선 LAN 또는 Wi-Fi — 끊김 시 농장 로컬 자동 전환</td></tr>
+    <tr><th>전원</th><td>5V DC 3A (본체) + 릴레이 모듈 별도</td></tr>
+    <tr><th>로컬 DB</th><td>SQLite — 인터넷 복구 시 클라우드 자동 동기화</td></tr>
+    <tr><th>자동화</th><td>센서 기반 / 시간대별 / 사용자 정의 (혼합 조건)</td></tr>
+    <tr><th>양액 시스템</th><td>도싱 펌프 6채널 · 14구역 관수 밸브 · EC/pH 안전 인터록</td></tr>
+    <tr><th>보안</th><td>장치별 IoT 인증서 발급 + JWT 사용자 인증</td></tr>
+    <tr><th>원격 점검</th><td>보안 원격 점검 VPN — 케이그린텍 기술 지원 시 사용</td></tr>
+  </table>
+
+  <div class="contact-band">
+    <div class="col">
+      <h4>케이그린텍</h4>
+      <p><strong>070-5043-8158</strong></p>
+      <p>010-5625-7978</p>
+      <p>afocus@naver.com</p>
+    </div>
+    <div class="col">
+      <h4>본사</h4>
+      <p>경기도 안양시 만안구 전파로 53<br>(태광산업 별관) 303B</p>
+      <p>https://www.k-greentech.com/</p>
+    </div>
+  </div>
+
+  <div class="imprint">
+    케이그린텍 스마트팜 제품 브로셔 · 2026년 5월<br>
+    본 브로셔는 케이그린텍의 자산이며, 무단 복제·배포를 금합니다.
+  </div>
+</div>
+
+</body>
+</html>

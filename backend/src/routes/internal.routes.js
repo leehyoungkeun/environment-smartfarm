@@ -382,7 +382,13 @@ router.post("/control-log", async (req, res) => {
 
     // 자동화 발동이면 rule 의 lastTriggeredAt + triggerCount 도 갱신
     // 시간 조건 단독 발동(④⑤)은 evaluate endpoint 안 거쳐 갱신 누락되던 케이스 보완
-    if (ruleId) {
+    //
+    // ★ command 구분: ON-style(on/open/close)만 발동 카운트.
+    //   NR ⑤ 가 Duration 종료 OFF 도 같은 sendControlLog 로 호출 → 그대로 갱신하면
+    //   lastTriggeredAt 가 OFF 시점으로 잘못 갱신되어 frontend 카운트다운이
+    //   동작 종료 후에도 "▶ 동작중" 으로 N초 더 표시되는 모순 발생.
+    const TRIGGER_COMMANDS = new Set(["on", "open", "close"]);
+    if (ruleId && TRIGGER_COMMANDS.has(command)) {
       await prisma.automationRule.update({
         where: { id: ruleId },
         data: {

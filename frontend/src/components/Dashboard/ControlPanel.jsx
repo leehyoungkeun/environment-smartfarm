@@ -1687,14 +1687,14 @@ const ControlPanel = ({ farmId, houseId, houseConfig }) => {
                       style={{background: isAuto ? '#f0fdf4' : '#f8fafc',border:`2px solid ${isAuto ? '#bbf7d0' : '#e2e8f0'}`,borderRadius:12,padding:'10px 12px',transition:'all 0.2s'}}>
                       <div className="flex items-center justify-between mb-2 flex-wrap gap-1">
                         <span style={{fontSize:15,fontWeight:800,color:'#0f172a'}}>{device.name}</span>
-                        <div className="flex items-center gap-1.5">
+                        <div className="flex items-center gap-1.5" style={{flexWrap:'wrap'}}>
                           {/* 수동/자동 모드 토글 */}
                           <button
                             onClick={() => !automationActive && toggleDeviceMode(device.deviceId)}
                             disabled={automationActive}
                             style={{
-                              display:'flex',alignItems:'center',gap:5,
-                              padding:'8px 12px',borderRadius:8,fontSize:12,fontWeight:700,minHeight:36,
+                              display:'flex',alignItems:'center',gap:5,whiteSpace:'nowrap',
+                              padding:'8px 10px',borderRadius:8,fontSize:12,fontWeight:700,minHeight:36,
                               border:`2px solid ${isAuto ? '#bbf7d0' : '#e2e8f0'}`,
                               background: isAuto ? '#f0fdf4' : '#f8fafc',
                               color: isAuto ? '#047857' : '#6b7280',
@@ -1734,8 +1734,8 @@ const ControlPanel = ({ farmId, houseId, houseConfig }) => {
                                 }}
                                 title={`예약 취소 — ${new Date(atMs).toLocaleTimeString('ko-KR', {hour12:false})} 자동 OFF`}
                                 style={{
-                                  display:'flex',alignItems:'center',gap:5,
-                                  padding:'8px 12px',borderRadius:8,fontSize:12,fontWeight:700,minHeight:36,
+                                  display:'flex',alignItems:'center',gap:5,whiteSpace:'nowrap',
+                                  padding:'8px 10px',borderRadius:8,fontSize:12,fontWeight:700,minHeight:36,
                                   border:'2px solid #fde68a',background:'#fef3c7',color:'#92400e',
                                   cursor:'pointer',
                                   fontFamily:'ui-monospace, monospace',
@@ -1749,8 +1749,8 @@ const ControlPanel = ({ farmId, houseId, houseConfig }) => {
                                 onClick={() => setPickerOpenFor(device.deviceId)}
                                 title="자동 OFF 예약"
                                 style={{
-                                  display:'flex',alignItems:'center',gap:5,
-                                  padding:'8px 12px',borderRadius:8,fontSize:12,fontWeight:700,minHeight:36,
+                                  display:'flex',alignItems:'center',gap:5,whiteSpace:'nowrap',
+                                  padding:'8px 10px',borderRadius:8,fontSize:12,fontWeight:700,minHeight:36,
                                   border:'2px solid #e2e8f0',background:'#f8fafc',color:'#6b7280',
                                   cursor:'pointer',
                                 }}>
@@ -1760,9 +1760,9 @@ const ControlPanel = ({ farmId, houseId, houseConfig }) => {
                             );
                           })()}
                           {/* 상태 표시 */}
-                          <div style={{display:'flex',alignItems:'center',gap:6,
+                          <div style={{display:'flex',alignItems:'center',gap:6,whiteSpace:'nowrap',
                                        background: statusDisplay.bg || '#f1f5f9',
-                                       padding:'8px 12px', borderRadius:8, minHeight:36,
+                                       padding:'8px 10px', borderRadius:8, minHeight:36,
                                        border:`2px solid ${statusDisplay.color}33`}}>
                             <span style={{width:9,height:9,borderRadius:'50%',background:statusDisplay.color,display:'inline-block',boxShadow:`0 0 8px ${statusDisplay.color}88`}} className={statusDisplay.animate ? 'animate-pulse' : ''} />
                             <span style={{fontSize:13,fontWeight:800,color:statusDisplay.color,letterSpacing:'0.02em'}}>{statusDisplay.text}</span>

@@ -2371,17 +2371,19 @@ const NextRunCountdown = ({ schedule, bidirPosition }) => {
 
     const calc = () => {
       const now = Date.now();
+      // 다음 발동까지 — 모든 mode 에서 공통으로 계산 (reached 표시에도 사용)
+      const nextDiff = Math.max(0, Math.floor((nextRunTarget - now) / 1000));
+      const nextStr = nextDiff > 0 ? fmt(nextDiff) : '실행중...';
 
       // ① 목표 도달 — bidir 의 현재 위치가 목표 이상/이하
-      //    NR ⑤ 가 "이미 목표 도달 → 스킵" 처리하는 동안에도 매분 nextRunAt 갱신되어
-      //    카운트다운이 의미없이 계속 표시되던 케이스 해소
+      //    "다음 → 동작중 → 도달 → 다음" 단계 순환이 항상 보이도록
+      //    도달 상태에서도 다음 발동까지 카운트다운 같이 표시
       if (isBidirCmd && typeof curPos === 'number') {
         const isAtTarget = (firstAction.command === 'open' && curPos >= target) ||
                            (firstAction.command === 'close' && curPos <= target);
         if (isAtTarget && !endAt) {
-          // 동작 중 (endAt 안 지남) 이 아니고 목표 도달 — 정지 상태
           setMode('reached');
-          setRemaining(`${target}% 도달 (현재 ${curPos}%)`);
+          setRemaining(`${target}% 도달 · 다음 ${nextStr}`);
           return;
         }
       }
@@ -2395,8 +2397,7 @@ const NextRunCountdown = ({ schedule, bidirPosition }) => {
 
       // ③ 대기 중: 다음 발동까지
       setMode('waiting');
-      const diff = Math.max(0, Math.floor((nextRunTarget - now) / 1000));
-      setRemaining(diff > 0 ? fmt(diff) : '실행중...');
+      setRemaining(nextStr);
     };
 
     calc();
@@ -2417,6 +2418,7 @@ const NextRunCountdown = ({ schedule, bidirPosition }) => {
       </span>
     );
   }
+  // ★ 표시 라벨 — mode 와 무관하게 단계 흐름이 일관되게 보이도록 위 분기에서 처리됨
 
   if (mode === 'running') {
     return (

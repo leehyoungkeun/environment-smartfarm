@@ -1860,6 +1860,7 @@ const ControlPanel = ({ farmId, houseId, houseConfig }) => {
                             latestSensors={latestSensors}
                             lastSensorTs={lastSensorTs}
                             bidirPosition={bidirPosition}
+                            bidirProgress={bidirProgress}
                           />
                         </div>
                       ) : isToggleType ? (
@@ -2334,16 +2335,21 @@ const OPERATOR_LABELS = { '>': '초과', '>=': '이상', '<': '미만', '<=': '�
 const COMMAND_LABELS = { open: '열기', close: '닫기', stop: '정지', on: '켜짐', off: '꺼짐' };
 const DAYS_LABELS = { 1: '월', 2: '화', 3: '수', 4: '목', 5: '금', 6: '토', 0: '일' };
 
-/** 카운트다운 — 목표 도달 / 동작 중 / 대기 중 3가지 모드 분기 */
-const NextRunCountdown = ({ schedule, bidirPosition }) => {
+/** 카운트다운 — 진행중 / 목표 도달 / 동작 중 / 대기 중 mode 분기
+ *  단계 우선순위: ① bidir 진행중 (NR 실제 동작) → ② 목표 도달 → ③ single 동작중 → ④ 대기
+ */
+const NextRunCountdown = ({ schedule, bidirPosition, bidirProgress }) => {
   const [remaining, setRemaining] = useState('');
   const [mode, setMode] = useState('waiting');   // 'waiting' | 'running' | 'reached'
 
-  // bidir 장치 의 목표/한계 도달 판정 (매 1초 재계산하기 위해 useEffect 안에서)
   const firstAction = (schedule && schedule.actions && schedule.actions[0]) || {};
   const curPos = bidirPosition && firstAction.deviceId !== undefined
     ? bidirPosition[firstAction.deviceId]
     : undefined;
+
+  // ★ bidirProgress 는 ref 로 — 매초 calc 안에서 최신값 참조 + useEffect 재실행 방지
+  const bidirProgressRef = React.useRef(bidirProgress);
+  bidirProgressRef.current = bidirProgress;
 
   useEffect(() => {
     if (!schedule) return;
@@ -2354,7 +2360,6 @@ const NextRunCountdown = ({ schedule, bidirPosition }) => {
     else if (firstAction.durationUnit === 'hours') durationSec *= 3600;
     const endAt = (lastTriggered && durationSec) ? lastTriggered + durationSec * 1000 : 0;
 
-    // 측창 같은 bidir 의 목표/한계 위치 (target 미설정 시 한계: open=100, close=0)
     const isBidirCmd = firstAction.command === 'open' || firstAction.command === 'close';
     const target = typeof firstAction.targetPosition === 'number'
       ? firstAction.targetPosition
@@ -2371,13 +2376,20 @@ const NextRunCountdown = ({ schedule, bidirPosition }) => {
 
     const calc = () => {
       const now = Date.now();
-      // 다음 발동까지 — 모든 mode 에서 공통으로 계산 (reached 표시에도 사용)
       const nextDiff = Math.max(0, Math.floor((nextRunTarget - now) / 1000));
       const nextStr = nextDiff > 0 ? fmt(nextDiff) : '실행중...';
 
-      // ① 목표 도달 — bidir 의 현재 위치가 목표 이상/이하
-      //    "다음 → 동작중 → 도달 → 다음" 단계 순환이 항상 보이도록
-      //    도달 상태에서도 다음 발동까지 카운트다운 같이 표시
+      // ① bidir 진행중 — NR `제어 실행 (릴레이)` 의 실제 동작 중 (stepped/position 의 step 동작 포함)
+      //    bidirProgress 는 backend WS 의 device/position publish 로 매초 갱신됨
+      const currentProg = bidirProgressRef.current && bidirProgressRef.current[firstAction.deviceId];
+      if (currentProg && typeof currentProg.remainSec === 'number' && currentProg.remainSec > 0) {
+        setMode('running');
+        setRemaining(fmt(currentProg.remainSec));
+        return;
+      }
+
+      // ② 목표 도달 — bidir 의 현재 위치가 목표 이상/이하 + 진행 중 아님
+      //    매분 발동 시도되어도 NR ⑤ 가 스킵 → 그대로 도달 + 다음 cycle 카운트 표시
       if (isBidirCmd && typeof curPos === 'number') {
         const isAtTarget = (firstAction.command === 'open' && curPos >= target) ||
                            (firstAction.command === 'close' && curPos <= target);
@@ -2388,14 +2400,14 @@ const NextRunCountdown = ({ schedule, bidirPosition }) => {
         }
       }
 
-      // ② 동작 중: lastTriggered + duration > now
+      // ③ 동작 중 (single device, lastTriggered + duration 기준)
       if (endAt && now < endAt) {
         setMode('running');
         setRemaining(fmt(Math.max(0, Math.floor((endAt - now) / 1000))));
         return;
       }
 
-      // ③ 대기 중: 다음 발동까지
+      // ④ 대기 중: 다음 발동까지
       setMode('waiting');
       setRemaining(nextStr);
     };
@@ -2556,7 +2568,7 @@ const AutomationEtaChip = ({ rule, isMet, lastSensorTs, bidirPosition = {} }) =>
 };
 
 /** 장치 자동 모드 - 적용된 활성 규칙 목록 (action.deviceId 매칭 + rule.enabled) */
-const DeviceAutoRules = ({ deviceId, rules, expandedRuleId, onToggleExpand, automationActive, scheduleMap = {}, latestSensors = {}, lastSensorTs = null, bidirPosition = {} }) => {
+const DeviceAutoRules = ({ deviceId, rules, expandedRuleId, onToggleExpand, automationActive, scheduleMap = {}, latestSensors = {}, lastSensorTs = null, bidirPosition = {}, bidirProgress = {} }) => {
   return (
     <div style={{display:'flex',flexDirection:'column',gap:6}}>
       {rules.length === 0 && (
@@ -2599,7 +2611,7 @@ const DeviceAutoRules = ({ deviceId, rules, expandedRuleId, onToggleExpand, auto
                   background: rule.enabled ? '#dcfce7' : '#fee2e2',
                   color: rule.enabled ? '#15803d' : '#dc2626',
                 }}>{rule.enabled ? '활성' : '비활성'}</span>
-                {automationActive && rule.enabled && scheduleMap[rule._id] && <NextRunCountdown schedule={scheduleMap[rule._id]} bidirPosition={bidirPosition} />}
+                {automationActive && rule.enabled && scheduleMap[rule._id] && <NextRunCountdown schedule={scheduleMap[rule._id]} bidirPosition={bidirPosition} bidirProgress={bidirProgress} />}
                 {automationActive && rule.enabled && sensorConds.length > 0 && (
                   <AutomationEtaChip rule={rule} isMet={allSensorMet} lastSensorTs={lastSensorTs} bidirPosition={bidirPosition} />
                 )}

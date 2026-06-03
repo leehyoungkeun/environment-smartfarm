@@ -1461,6 +1461,7 @@ const ControlPanel = ({ farmId, houseId, houseConfig }) => {
       closed:     { text: '닫힘', color: '#1d4ed8', bg: '#dbeafe', animate: false },
       on:         { text: '동작중', color: '#15803d', bg: '#dcfce7', animate: false },
       off:        { text: '꺼짐',   color: '#b91c1c', bg: '#fee2e2', animate: false },
+      auto_waiting: { text: '자동 진행', color: '#7c3aed', bg: '#ede9fe', animate: true },
       error:      { text: '오류', color: '#be123c', bg: '#fee2e2', animate: false },
     };
     return map[status] || { text: '대기', color: '#d97706', bg: '#fef3c7', animate: false };
@@ -1650,8 +1651,31 @@ const ControlPanel = ({ farmId, houseId, houseConfig }) => {
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 {devicesInGroup.map(device => {
                   const state = deviceStates[device.deviceId] || { status: 'idle' };
-                  const statusDisplay = getStatusDisplay(state.status);
-                  const isProcessing = ['opening', 'closing', 'stopping', 'turning_on', 'turning_off'].includes(state.status);
+
+                  // ★ 자동화 진행 상태 반영 — bidir + 자동 모드일 때 정확한 상태 표시
+                  //   bidirProgress 있음(모터 회전 중) → opening/closing
+                  //   자동 모드 + 자동화 활성 rule 의 target 미도달 → 'auto_waiting' (step pause 등)
+                  let effectiveStatus = state.status;
+                  if (device.modbus?.controlType === 'bidir') {
+                    const _prog = bidirProgress[device.deviceId];
+                    const _curPos = bidirPosition[device.deviceId];
+                    const _isAutoMode = getDeviceMode(device.deviceId) === 'auto';
+                    if (_prog) {
+                      effectiveStatus = _prog.direction === 'open' ? 'opening' : 'closing';
+                    } else if (_isAutoMode && typeof _curPos === 'number') {
+                      const _rules = getDeviceRules(device.deviceId);
+                      const _activeRule = _rules.find(r => r.enabled && r.actions?.[0]);
+                      const _tgtCmd = _activeRule?.actions?.[0]?.command;
+                      const _tgtPos = _activeRule?.actions?.[0]?.targetPosition;
+                      if (typeof _tgtPos === 'number' && (_tgtCmd === 'open' || _tgtCmd === 'close')) {
+                        const _isAtTarget = (_tgtCmd === 'open' && _curPos >= _tgtPos) ||
+                                            (_tgtCmd === 'close' && _curPos <= _tgtPos);
+                        if (!_isAtTarget) effectiveStatus = 'auto_waiting';
+                      }
+                    }
+                  }
+                  const statusDisplay = getStatusDisplay(effectiveStatus);
+                  const isProcessing = ['opening', 'closing', 'stopping', 'turning_on', 'turning_off'].includes(effectiveStatus);
                   // 자기 장치 modbus 잠금만 체크 — RS-485 시리얼 큐는 Node-RED modbus-flex-write 가 처리
                   // anyModbusBusy 는 전역 잠금이라 다른 장치 verifying 중에 깜빡임(disable→enable) 발생
                   const myModbusBusy = modbusStatus[device.deviceId] === 'verifying';

@@ -1182,10 +1182,13 @@ const RuleForm = ({ farmId, houseId, houses = [], rule, existingRules = [], defa
                             <div style={{display:'flex',alignItems:'center',gap:8,padding:'4px 0',flexWrap:'wrap'}}>
                               <span style={{fontSize:12,color:'#475569',fontWeight:600}}>목표 위치:</span>
                               <div style={{display:'flex',alignItems:'center',gap:4,background:'#fff',borderRadius:8,padding:'2px 8px',border:'1.5px solid #bfdbfe'}}>
-                                <input type="number" min={0} max={100} value={action.targetPosition ?? 50}
-                                  onChange={(e) => updateAction(idx, { targetPosition: Math.max(0, Math.min(100, parseInt(e.target.value) || 0)) })}
-                                  style={{width:48,fontSize:14,fontWeight:800,textAlign:'center',border:'none',outline:'none',color:'#1e40af',background:'transparent'}}
-                                />
+                                <select value={Math.round((action.targetPosition ?? 50) / 10) * 10}
+                                  onChange={(e) => updateAction(idx, { targetPosition: parseInt(e.target.value) })}
+                                  style={{fontSize:14,fontWeight:800,textAlign:'center',border:'none',outline:'none',color:'#1e40af',background:'transparent',cursor:'pointer'}}>
+                                  {[0,10,20,30,40,50,60,70,80,90,100].map(v => (
+                                    <option key={v} value={v}>{v}</option>
+                                  ))}
+                                </select>
                                 <span style={{fontSize:12,fontWeight:700,color:'#64748b'}}>%</span>
                               </div>
                               <span style={{fontSize:11,color:'#94a3b8'}}>현재 위치에서 한 번에 이동</span>
@@ -1199,10 +1202,13 @@ const RuleForm = ({ farmId, houseId, houses = [], rule, existingRules = [], defa
                               </div>
                               <div style={{display:'flex',alignItems:'center',gap:8,flexWrap:'wrap'}}>
                                 <span style={{fontSize:12,color:'#475569',fontWeight:600,minWidth:64}}>매 단계:</span>
-                                <input type="number" min={1} max={50} value={action.stepPercent ?? 10}
-                                  onChange={(e) => updateAction(idx, { stepPercent: Math.max(1, Math.min(50, parseInt(e.target.value) || 1)) })}
-                                  style={{width:48,fontSize:14,fontWeight:800,textAlign:'center',border:'1.5px solid #fde047',borderRadius:6,padding:'2px 4px',outline:'none'}}
-                                />
+                                <select value={Math.round((action.stepPercent ?? 10) / 10) * 10 || 10}
+                                  onChange={(e) => updateAction(idx, { stepPercent: parseInt(e.target.value) })}
+                                  style={{fontSize:14,fontWeight:800,textAlign:'center',border:'1.5px solid #fde047',borderRadius:6,padding:'2px 4px',outline:'none',cursor:'pointer',background:'#fff'}}>
+                                  {[10,20,30,40,50].map(v => (
+                                    <option key={v} value={v}>{v}</option>
+                                  ))}
+                                </select>
                                 <span style={{fontSize:12,color:'#64748b'}}>%</span>
                               </div>
                               <div style={{display:'flex',alignItems:'center',gap:8,flexWrap:'wrap'}}>
@@ -1215,10 +1221,13 @@ const RuleForm = ({ farmId, houseId, houses = [], rule, existingRules = [], defa
                               </div>
                               <div style={{display:'flex',alignItems:'center',gap:8,flexWrap:'wrap'}}>
                                 <span style={{fontSize:12,color:'#475569',fontWeight:600,minWidth:64}}>최종 목표:</span>
-                                <input type="number" min={0} max={100} value={action.targetPosition ?? 100}
-                                  onChange={(e) => updateAction(idx, { targetPosition: Math.max(0, Math.min(100, parseInt(e.target.value) || 0)) })}
-                                  style={{width:48,fontSize:14,fontWeight:800,textAlign:'center',border:'1.5px solid #fde047',borderRadius:6,padding:'2px 4px',outline:'none'}}
-                                />
+                                <select value={Math.round((action.targetPosition ?? 100) / 10) * 10}
+                                  onChange={(e) => updateAction(idx, { targetPosition: parseInt(e.target.value) })}
+                                  style={{fontSize:14,fontWeight:800,textAlign:'center',border:'1.5px solid #fde047',borderRadius:6,padding:'2px 4px',outline:'none',cursor:'pointer',background:'#fff'}}>
+                                  {[0,10,20,30,40,50,60,70,80,90,100].map(v => (
+                                    <option key={v} value={v}>{v}</option>
+                                  ))}
+                                </select>
                                 <span style={{fontSize:12,color:'#64748b'}}>%</span>
                               </div>
                               {(() => {

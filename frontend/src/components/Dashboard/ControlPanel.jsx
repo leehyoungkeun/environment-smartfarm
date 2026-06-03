@@ -2335,12 +2335,12 @@ const OPERATOR_LABELS = { '>': '초과', '>=': '이상', '<': '미만', '<=': '�
 const COMMAND_LABELS = { open: '열기', close: '닫기', stop: '정지', on: '켜짐', off: '꺼짐' };
 const DAYS_LABELS = { 1: '월', 2: '화', 3: '수', 4: '목', 5: '금', 6: '토', 0: '일' };
 
-/** 카운트다운 — 진행중 / 목표 도달 / 동작 중 / 대기 중 mode 분기
- *  단계 우선순위: ① bidir 진행중 (NR 실제 동작) → ② 목표 도달 → ③ single 동작중 → ④ 대기
+/** 카운트다운 — 진행중 / step pause / 목표 도달 / 동작 중 / 대기 중 mode 분기
+ *  우선순위: ① bidir 진행중 → ★ stepped step pause → ② 목표 도달 → ③ single 동작중 → ④ 대기
  */
 const NextRunCountdown = ({ schedule, bidirPosition, bidirProgress }) => {
   const [remaining, setRemaining] = useState('');
-  const [mode, setMode] = useState('waiting');   // 'waiting' | 'running' | 'reached'
+  const [mode, setMode] = useState('waiting');   // 'waiting' | 'running' | 'reached' | 'step_pause'
 
   const firstAction = (schedule && schedule.actions && schedule.actions[0]) || {};
   const curPos = bidirPosition && firstAction.deviceId !== undefined
@@ -2350,6 +2350,10 @@ const NextRunCountdown = ({ schedule, bidirPosition, bidirProgress }) => {
   // ★ bidirProgress 는 ref 로 — 매초 calc 안에서 최신값 참조 + useEffect 재실행 방지
   const bidirProgressRef = React.useRef(bidirProgress);
   bidirProgressRef.current = bidirProgress;
+
+  // ★ stepped step 종료 시점 추적 — bidirProgress null 변경 감지로 pause 카운트 시작
+  const stepEndedAtRef = React.useRef(0);
+  const wasProgRunningRef = React.useRef(false);
 
   useEffect(() => {
     if (!schedule) return;
@@ -2379,25 +2383,45 @@ const NextRunCountdown = ({ schedule, bidirPosition, bidirProgress }) => {
       const nextDiff = Math.max(0, Math.floor((nextRunTarget - now) / 1000));
       const nextStr = nextDiff > 0 ? fmt(nextDiff) : '실행중...';
 
-      // ① bidir 진행중 — NR `제어 실행 (릴레이)` 의 실제 동작 중 (stepped/position 의 step 동작 포함)
-      //    bidirProgress 는 backend WS 의 device/position publish 로 매초 갱신됨
+      // bidir 의 목표 도달 판정 — 여러 mode 에서 재사용
+      const isAtTarget = isBidirCmd && typeof curPos === 'number' &&
+        ((firstAction.command === 'open' && curPos >= target) ||
+         (firstAction.command === 'close' && curPos <= target));
+
+      // step 진행 상태 변경 추적 — running → !running 시점 = step pause 시작
       const currentProg = bidirProgressRef.current && bidirProgressRef.current[firstAction.deviceId];
-      if (currentProg && typeof currentProg.remainSec === 'number' && currentProg.remainSec > 0) {
+      const isProgRunning = !!(currentProg && typeof currentProg.remainSec === 'number' && currentProg.remainSec > 0);
+      if (wasProgRunningRef.current && !isProgRunning) {
+        stepEndedAtRef.current = now;   // step 동작 종료 → pause 시작 시점 기록
+      }
+      wasProgRunningRef.current = isProgRunning;
+
+      // ① bidir 진행중 — NR `제어 실행 (릴레이)` 의 실제 동작 중 (stepped/position 의 step 동작 포함)
+      if (isProgRunning) {
         setMode('running');
         setRemaining(fmt(currentProg.remainSec));
         return;
       }
 
-      // ② 목표 도달 — bidir 의 현재 위치가 목표 이상/이하 + 진행 중 아님
-      //    매분 발동 시도되어도 NR ⑤ 가 스킵 → 그대로 도달 + 다음 cycle 카운트 표시
-      if (isBidirCmd && typeof curPos === 'number') {
-        const isAtTarget = (firstAction.command === 'open' && curPos >= target) ||
-                           (firstAction.command === 'close' && curPos <= target);
-        if (isAtTarget && !endAt) {
-          setMode('reached');
-          setRemaining(`${target}% 도달 · 다음 ${nextStr}`);
+      // ★ stepped step pause — 다음 step 까지 카운트다운
+      //   step 동작 종료 직후 stepPauseSeconds 동안 활성. 목표 미도달 + 최근 step 종료 + 합리적 시간 안.
+      if (firstAction.actionMode === 'stepped' && !isAtTarget && stepEndedAtRef.current > 0) {
+        const stepPauseSec = firstAction.stepPauseSeconds || 60;
+        const nextStepAt = stepEndedAtRef.current + stepPauseSec * 1000;
+        const remainMs = nextStepAt - now;
+        if (remainMs > 0) {
+          setMode('step_pause');
+          setRemaining(fmt(Math.max(0, Math.floor(remainMs / 1000))));
           return;
         }
+        // pause 만료 — 다음 step 발사 대기 (NR ⑤ stepLoop). 잠시 후 isProgRunning 재진입
+      }
+
+      // ② 목표 도달 — bidir 의 현재 위치가 목표 이상/이하 + 진행 중 아님
+      if (isAtTarget && !endAt) {
+        setMode('reached');
+        setRemaining(`${target}% 도달 · 다음 ${nextStr}`);
+        return;
       }
 
       // ③ 동작 중 (single device, lastTriggered + duration 기준)
@@ -2430,7 +2454,18 @@ const NextRunCountdown = ({ schedule, bidirPosition, bidirProgress }) => {
       </span>
     );
   }
-  // ★ 표시 라벨 — mode 와 무관하게 단계 흐름이 일관되게 보이도록 위 분기에서 처리됨
+
+  if (mode === 'step_pause') {
+    return (
+      <span style={{
+        fontSize:14, fontWeight:700, padding:'3px 8px', borderRadius:8,
+        background:'#ede9fe', color:'#6d28d9', border:'1px solid #c4b5fd',
+        whiteSpace:'nowrap', animation:'pulse 2s ease-in-out infinite'
+      }}>
+        ⏳ 다음 단계 {remaining}
+      </span>
+    );
+  }
 
   if (mode === 'running') {
     return (

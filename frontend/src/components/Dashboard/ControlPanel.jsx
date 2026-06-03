@@ -2334,20 +2334,31 @@ const OPERATOR_LABELS = { '>': '초과', '>=': '이상', '<': '미만', '<=': '�
 const COMMAND_LABELS = { open: '열기', close: '닫기', stop: '정지', on: '켜짐', off: '꺼짐' };
 const DAYS_LABELS = { 1: '월', 2: '화', 3: '수', 4: '목', 5: '금', 6: '토', 0: '일' };
 
-/** 동작 중이면 종료까지, 대기 중이면 다음 발동까지 카운트다운 */
-const NextRunCountdown = ({ schedule }) => {
+/** 카운트다운 — 목표 도달 / 동작 중 / 대기 중 3가지 모드 분기 */
+const NextRunCountdown = ({ schedule, bidirPosition }) => {
   const [remaining, setRemaining] = useState('');
-  const [mode, setMode] = useState('waiting');   // 'waiting' | 'running'
+  const [mode, setMode] = useState('waiting');   // 'waiting' | 'running' | 'reached'
+
+  // bidir 장치 의 목표/한계 도달 판정 (매 1초 재계산하기 위해 useEffect 안에서)
+  const firstAction = (schedule && schedule.actions && schedule.actions[0]) || {};
+  const curPos = bidirPosition && firstAction.deviceId !== undefined
+    ? bidirPosition[firstAction.deviceId]
+    : undefined;
 
   useEffect(() => {
     if (!schedule) return;
     const nextRunTarget = schedule.nextRunAt ? new Date(schedule.nextRunAt).getTime() : 0;
     const lastTriggered = schedule.lastTriggeredAt ? new Date(schedule.lastTriggeredAt).getTime() : 0;
-    const firstAction = (schedule.actions && schedule.actions[0]) || {};
     let durationSec = firstAction.duration || 0;
     if (firstAction.durationUnit === 'minutes') durationSec *= 60;
     else if (firstAction.durationUnit === 'hours') durationSec *= 3600;
     const endAt = (lastTriggered && durationSec) ? lastTriggered + durationSec * 1000 : 0;
+
+    // 측창 같은 bidir 의 목표/한계 위치 (target 미설정 시 한계: open=100, close=0)
+    const isBidirCmd = firstAction.command === 'open' || firstAction.command === 'close';
+    const target = typeof firstAction.targetPosition === 'number'
+      ? firstAction.targetPosition
+      : (firstAction.command === 'open' ? 100 : 0);
 
     const fmt = (sec) => {
       const h = Math.floor(sec / 3600);
@@ -2360,24 +2371,52 @@ const NextRunCountdown = ({ schedule }) => {
 
     const calc = () => {
       const now = Date.now();
-      // 동작 중: lastTriggered + duration > now
+
+      // ① 목표 도달 — bidir 의 현재 위치가 목표 이상/이하
+      //    NR ⑤ 가 "이미 목표 도달 → 스킵" 처리하는 동안에도 매분 nextRunAt 갱신되어
+      //    카운트다운이 의미없이 계속 표시되던 케이스 해소
+      if (isBidirCmd && typeof curPos === 'number') {
+        const isAtTarget = (firstAction.command === 'open' && curPos >= target) ||
+                           (firstAction.command === 'close' && curPos <= target);
+        if (isAtTarget && !endAt) {
+          // 동작 중 (endAt 안 지남) 이 아니고 목표 도달 — 정지 상태
+          setMode('reached');
+          setRemaining(`${target}% 도달 (현재 ${curPos}%)`);
+          return;
+        }
+      }
+
+      // ② 동작 중: lastTriggered + duration > now
       if (endAt && now < endAt) {
         setMode('running');
         setRemaining(fmt(Math.max(0, Math.floor((endAt - now) / 1000))));
-      } else {
-        // 대기 중: 다음 발동까지
-        setMode('waiting');
-        const diff = Math.max(0, Math.floor((nextRunTarget - now) / 1000));
-        setRemaining(diff > 0 ? fmt(diff) : '실행중...');
+        return;
       }
+
+      // ③ 대기 중: 다음 발동까지
+      setMode('waiting');
+      const diff = Math.max(0, Math.floor((nextRunTarget - now) / 1000));
+      setRemaining(diff > 0 ? fmt(diff) : '실행중...');
     };
 
     calc();
     const timer = setInterval(calc, 1000);
     return () => clearInterval(timer);
-  }, [schedule]);
+  }, [schedule, curPos, firstAction.command, firstAction.deviceId, firstAction.duration, firstAction.durationUnit, firstAction.targetPosition]);
 
   if (!remaining) return null;
+
+  if (mode === 'reached') {
+    return (
+      <span style={{
+        fontSize:14, fontWeight:700, padding:'3px 8px', borderRadius:8,
+        background:'#f1f5f9', color:'#475569', border:'1px solid #cbd5e1',
+        whiteSpace:'nowrap'
+      }}>
+        ✓ 목표 {remaining}
+      </span>
+    );
+  }
 
   if (mode === 'running') {
     return (
@@ -2558,7 +2597,7 @@ const DeviceAutoRules = ({ deviceId, rules, expandedRuleId, onToggleExpand, auto
                   background: rule.enabled ? '#dcfce7' : '#fee2e2',
                   color: rule.enabled ? '#15803d' : '#dc2626',
                 }}>{rule.enabled ? '활성' : '비활성'}</span>
-                {automationActive && rule.enabled && scheduleMap[rule._id] && <NextRunCountdown schedule={scheduleMap[rule._id]} />}
+                {automationActive && rule.enabled && scheduleMap[rule._id] && <NextRunCountdown schedule={scheduleMap[rule._id]} bidirPosition={bidirPosition} />}
                 {automationActive && rule.enabled && sensorConds.length > 0 && (
                   <AutomationEtaChip rule={rule} isMet={allSensorMet} lastSensorTs={lastSensorTs} bidirPosition={bidirPosition} />
                 )}

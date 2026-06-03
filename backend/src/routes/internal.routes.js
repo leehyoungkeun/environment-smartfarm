@@ -380,6 +380,18 @@ router.post("/control-log", async (req, res) => {
       automationReason: reason || null,
     });
 
+    // 자동화 발동이면 rule 의 lastTriggeredAt + triggerCount 도 갱신
+    // 시간 조건 단독 발동(④⑤)은 evaluate endpoint 안 거쳐 갱신 누락되던 케이스 보완
+    if (ruleId) {
+      await prisma.automationRule.update({
+        where: { id: ruleId },
+        data: {
+          lastTriggeredAt: new Date(),
+          triggerCount: { increment: 1 },
+        },
+      }).catch((err) => logger.warn(`lastTriggeredAt 갱신 실패 (ruleId=${ruleId}): ${err?.message}`));
+    }
+
     res.json({ success: true, data: { id: log._id } });
   } catch (error) {
     logger.error("자동화 제어 이력 저장 실패:", error);

@@ -323,6 +323,7 @@ router.get("/:farmId/schedule", async (req, res) => {
           ruleName: rule.name,
           houseId: rule.houseId,
           nextRunAt: adjustedNext.toISOString(),
+          lastTriggeredAt: rule.lastTriggeredAt || null,
           actions: rule.actions,
         });
       }

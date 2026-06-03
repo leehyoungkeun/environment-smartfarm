@@ -430,7 +430,11 @@ const ControlPanel = ({ farmId, houseId, houseConfig }) => {
       if (res?.data?.success && Array.isArray(res.data.data)) {
         const map = {};
         for (const item of res.data.data) {
-          map[item.ruleId] = item.nextRunAt;
+          map[item.ruleId] = {
+            nextRunAt: item.nextRunAt,
+            lastTriggeredAt: item.lastTriggeredAt,
+            actions: item.actions,
+          };
         }
         setScheduleMap(map);
       }
@@ -2330,34 +2334,69 @@ const OPERATOR_LABELS = { '>': '초과', '>=': '이상', '<': '미만', '<=': '�
 const COMMAND_LABELS = { open: '열기', close: '닫기', stop: '정지', on: '켜짐', off: '꺼짐' };
 const DAYS_LABELS = { 1: '월', 2: '화', 3: '수', 4: '목', 5: '금', 6: '토', 0: '일' };
 
-/** 다음 실행까지 카운트다운 (서버 스케줄 기반 — 정확한 시각) */
-const NextRunCountdown = ({ nextRunAt }) => {
+/** 동작 중이면 종료까지, 대기 중이면 다음 발동까지 카운트다운 */
+const NextRunCountdown = ({ schedule }) => {
   const [remaining, setRemaining] = useState('');
+  const [mode, setMode] = useState('waiting');   // 'waiting' | 'running'
 
   useEffect(() => {
-    if (!nextRunAt) return;
-    const target = new Date(nextRunAt).getTime();
+    if (!schedule) return;
+    const nextRunTarget = schedule.nextRunAt ? new Date(schedule.nextRunAt).getTime() : 0;
+    const lastTriggered = schedule.lastTriggeredAt ? new Date(schedule.lastTriggeredAt).getTime() : 0;
+    const firstAction = (schedule.actions && schedule.actions[0]) || {};
+    let durationSec = firstAction.duration || 0;
+    if (firstAction.durationUnit === 'minutes') durationSec *= 60;
+    else if (firstAction.durationUnit === 'hours') durationSec *= 3600;
+    const endAt = (lastTriggered && durationSec) ? lastTriggered + durationSec * 1000 : 0;
 
-    const calcRemaining = () => {
-      const diff = Math.max(0, Math.floor((target - Date.now()) / 1000));
-      if (diff <= 0) { setRemaining('실행중...'); return; }
-      const h = Math.floor(diff / 3600);
-      const m = Math.floor((diff % 3600) / 60);
-      const s = diff % 60;
-      if (h > 0) setRemaining(`${h}시간 ${m}분 ${s}초`);
-      else if (m > 0) setRemaining(`${m}분 ${s}초`);
-      else setRemaining(`${s}초`);
+    const fmt = (sec) => {
+      const h = Math.floor(sec / 3600);
+      const m = Math.floor((sec % 3600) / 60);
+      const s = sec % 60;
+      if (h > 0) return `${h}시간 ${m}분 ${s}초`;
+      if (m > 0) return `${m}분 ${s}초`;
+      return `${s}초`;
     };
 
-    calcRemaining();
-    const timer = setInterval(calcRemaining, 1000);
+    const calc = () => {
+      const now = Date.now();
+      // 동작 중: lastTriggered + duration > now
+      if (endAt && now < endAt) {
+        setMode('running');
+        setRemaining(fmt(Math.max(0, Math.floor((endAt - now) / 1000))));
+      } else {
+        // 대기 중: 다음 발동까지
+        setMode('waiting');
+        const diff = Math.max(0, Math.floor((nextRunTarget - now) / 1000));
+        setRemaining(diff > 0 ? fmt(diff) : '실행중...');
+      }
+    };
+
+    calc();
+    const timer = setInterval(calc, 1000);
     return () => clearInterval(timer);
-  }, [nextRunAt]);
+  }, [schedule]);
 
   if (!remaining) return null;
+
+  if (mode === 'running') {
+    return (
+      <span style={{
+        fontSize:14, fontWeight:700, padding:'3px 8px', borderRadius:8,
+        background:'#dcfce7', color:'#15803d', border:'1px solid #86efac',
+        whiteSpace:'nowrap', animation:'pulse 2s ease-in-out infinite'
+      }}>
+        ▶ 동작중 {remaining}
+      </span>
+    );
+  }
   return (
-    <span style={{fontSize:14,fontWeight:700,padding:'3px 8px',borderRadius:8,background:'#fef3c7',color:'#b45309',border:'1px solid #fde68a',whiteSpace:'nowrap',animation:'pulse 2s ease-in-out infinite'}}>
-      ⏱ {remaining}
+    <span style={{
+      fontSize:14, fontWeight:700, padding:'3px 8px', borderRadius:8,
+      background:'#fef3c7', color:'#b45309', border:'1px solid #fde68a',
+      whiteSpace:'nowrap', animation:'pulse 2s ease-in-out infinite'
+    }}>
+      ⏱ 다음 {remaining}
     </span>
   );
 };
@@ -2519,7 +2558,7 @@ const DeviceAutoRules = ({ deviceId, rules, expandedRuleId, onToggleExpand, auto
                   background: rule.enabled ? '#dcfce7' : '#fee2e2',
                   color: rule.enabled ? '#15803d' : '#dc2626',
                 }}>{rule.enabled ? '활성' : '비활성'}</span>
-                {automationActive && rule.enabled && scheduleMap[rule._id] && <NextRunCountdown nextRunAt={scheduleMap[rule._id]} />}
+                {automationActive && rule.enabled && scheduleMap[rule._id] && <NextRunCountdown schedule={scheduleMap[rule._id]} />}
                 {automationActive && rule.enabled && sensorConds.length > 0 && (
                   <AutomationEtaChip rule={rule} isMet={allSensorMet} lastSensorTs={lastSensorTs} bidirPosition={bidirPosition} />
                 )}

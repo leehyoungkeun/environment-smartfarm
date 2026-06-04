@@ -719,6 +719,125 @@ const RuleForm = ({ farmId, houseId, houses = [], rule, existingRules = [], defa
     if (types.size > 1) {
       return alert(`한 규칙에는 같은 종류의 장치만 추가할 수 있습니다 (현재: ${[...types].join(', ')}).\n다른 종류는 별도 규칙을 만드세요.`);
     }
+
+    // ★ 충돌 rule 검증 — 같은 device + 시간 윈도우 겹침 (동작 시간까지 계산)
+    //   stepped/full mode 의 예상 동작 시간 추정 → 시간대 겹침 검사
+    //   기존 "같은 시각 + 반대 command" 만 검사하던 것을 일반화:
+    //     rule A 가 동작 중 (start ~ start+duration) 일 때 rule B 가 시작되면 차단
+    //   (project-nr-stepped-coil-stuck 사고 + 동시 동작 race 패턴 차단)
+    const COMMAND_LABEL_KR = { open: '열기', close: '닫기', on: '켜짐', off: '꺼짐', stop: '정지' };
+    const estimateDurationSec = (action) => {
+      if (action.actionMode === 'stepped') {
+        // 1330라인 예상 시간 계산식과 동일 로직
+        const stepPercent = action.stepPercent || 10;
+        const stepPauseSec = action.stepPauseSeconds || 60;
+        const startPos = action.command === 'close' ? 100 : 0;
+        const target = (typeof action.targetPosition === 'number')
+          ? action.targetPosition
+          : (action.command === 'close' ? 0 : 100);
+        const distance = Math.abs(startPos - target);
+        const numSteps = Math.max(1, Math.ceil(distance / stepPercent));
+        return numSteps * stepPauseSec;
+      }
+      if (action.actionMode === 'position' || action.actionMode === 'full') {
+        // bidir 한 번에 이동 — fullStrokeSec 메타 없으므로 보수적 120초
+        return 120;
+      }
+      // single 장치 (펌프/팬/조명 on/off) — duration 필드
+      let dur = action.duration || 0;
+      if (action.durationUnit === 'minutes') dur = dur * 60;
+      else if (action.durationUnit === 'hours') dur = dur * 3600;
+      return dur || 60; // "계속" (duration=0) 도 최소 60초 점유로 간주
+    };
+    const toMinutes = (timeStr) => {
+      const [h, m] = (timeStr || '00:00').split(':').map(Number);
+      return (h || 0) * 60 + (m || 0);
+    };
+    const fmtDur = (sec) => {
+      if (sec >= 60) {
+        const m = Math.floor(sec / 60);
+        const s = sec % 60;
+        return s > 0 ? `약 ${m}분 ${s}초` : `약 ${m}분`;
+      }
+      return `약 ${sec}초`;
+    };
+    const checkConflict = () => {
+      const newTimeConds = (form.conditions || []).filter(c =>
+        c.type === 'time' && c.timeMode === 'specific' && (c.times || []).length > 0
+      );
+      if (newTimeConds.length === 0) return null;
+      const newActs = (form.actions || []).filter(a => a.deviceId);
+      if (newActs.length === 0) return null;
+
+      const ruleHouseId = houseId || rule?.houseId || 'house_0001';
+      for (const r of existingRules) {
+        if (rule?._id && r._id === rule._id) continue;   // 자기 자신 제외
+        if (!r.enabled) continue;
+        if (r.houseId && r.houseId !== ruleHouseId) continue;
+        const rTimeConds = (r.conditions || []).filter(c =>
+          c.type === 'time' && c.timeMode === 'specific' && (c.times || []).length > 0
+        );
+        if (rTimeConds.length === 0) continue;
+        const rActs = (r.actions || []).filter(a => a.deviceId);
+        if (rActs.length === 0) continue;
+
+        for (const a1 of newActs) {
+          const durSec1 = estimateDurationSec(a1);
+          for (const a2 of rActs) {
+            if (a1.deviceId !== a2.deviceId) continue;
+            const durSec2 = estimateDurationSec(a2);
+            for (const c1 of newTimeConds) {
+              const d1 = (c1.days?.length ? c1.days : [0,1,2,3,4,5,6]);
+              for (const c2 of rTimeConds) {
+                const d2 = (c2.days?.length ? c2.days : [0,1,2,3,4,5,6]);
+                const overlapDays = d1.filter(d => d2.includes(d));
+                if (overlapDays.length === 0) continue;
+                for (const t1 of (c1.times || [])) {
+                  const s1 = toMinutes(t1);
+                  const e1 = s1 + Math.ceil(durSec1 / 60);
+                  for (const t2 of (c2.times || [])) {
+                    const s2 = toMinutes(t2);
+                    const e2 = s2 + Math.ceil(durSec2 / 60);
+                    // 시간 윈도우 겹침: [s1,e1) ∩ [s2,e2) ≠ ∅
+                    if (e1 <= s2 || e2 <= s1) continue;
+                    return {
+                      deviceName: a1.deviceName || a2.deviceName || a1.deviceId,
+                      newRule: { time: t1, command: a1.command, durSec: durSec1 },
+                      oldRule: { name: r.name, time: t2, command: a2.command, durSec: durSec2 },
+                    };
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+      return null;
+    };
+    const conflict = checkConflict();
+    if (conflict) {
+      const c = conflict;
+      const newEnd = (() => {
+        const sm = toMinutes(c.newRule.time) + Math.ceil(c.newRule.durSec / 60);
+        return `${String(Math.floor(sm/60) % 24).padStart(2,'0')}:${String(sm % 60).padStart(2,'0')}`;
+      })();
+      const oldEnd = (() => {
+        const sm = toMinutes(c.oldRule.time) + Math.ceil(c.oldRule.durSec / 60);
+        return `${String(Math.floor(sm/60) % 24).padStart(2,'0')}:${String(sm % 60).padStart(2,'0')}`;
+      })();
+      return alert(
+        `⚠️ 자동화 충돌 — 동작 시간 겹침\n\n` +
+        `장치: ${c.deviceName}\n\n` +
+        `새 규칙: ${c.newRule.time} ${COMMAND_LABEL_KR[c.newRule.command] || c.newRule.command}` +
+        ` (${fmtDur(c.newRule.durSec)} 소요, ~${newEnd})\n` +
+        `기존 "${c.oldRule.name}": ${c.oldRule.time} ${COMMAND_LABEL_KR[c.oldRule.command] || c.oldRule.command}` +
+        ` (${fmtDur(c.oldRule.durSec)} 소요, ~${oldEnd})\n\n` +
+        `두 동작의 시간대가 겹쳐 같은 장치에 동시 명령이 발생합니다.\n` +
+        `모터 stall + RS-485 큐 race + 결과 위치 불확실 위험.\n\n` +
+        `시간을 변경하거나 기존 규칙을 비활성화해 주세요.`
+      );
+    }
+
     if (savingRef.current) return; // 더블클릭 방지
     savingRef.current = true;
     setSaving(true);

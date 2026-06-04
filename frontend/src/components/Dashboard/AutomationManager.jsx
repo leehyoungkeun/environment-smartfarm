@@ -1253,9 +1253,13 @@ const RuleForm = ({ farmId, houseId, houses = [], rule, existingRules = [], defa
                               </div>
                               {(() => {
                                 const step = action.stepPercent || 10;
-                                const target = action.targetPosition ?? 100;
+                                const target = action.targetPosition ?? (action.command === 'close' ? 0 : 100);
                                 const pause = action.stepPauseSeconds || 60;
-                                const numSteps = Math.ceil(target / step);
+                                // ★ close 방향 고려 — 시작 위치 가정 (open: 0, close: 100) 기반 distance
+                                //   옛: target/step 만 → close+target=0 시 '0단계' 잘못 표시
+                                const startPos = action.command === 'close' ? 100 : 0;
+                                const distance = Math.abs(startPos - target);
+                                const numSteps = Math.max(1, Math.ceil(distance / step));
                                 const totalSec = numSteps * pause;
                                 return (
                                   <div style={{fontSize:11,color:'#a16207',fontStyle:'italic'}}>

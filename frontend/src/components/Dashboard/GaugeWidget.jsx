@@ -100,7 +100,7 @@ const GaugeChart = React.memo(({ sensor, value, percentage }) => {
 );
 
 /** GaugeWidget — 센서 값이 실제로 변한 경우에만 재렌더링 */
-const GaugeWidget = React.memo(({ sensors, latestData }) => {
+const GaugeWidget = React.memo(({ sensors, latestData, dragListeners }) => {
   const numberSensors = sensors?.filter(s => s.type === 'number') || [];
 
   if (numberSensors.length === 0) return null;
@@ -108,7 +108,14 @@ const GaugeWidget = React.memo(({ sensors, latestData }) => {
   return (
     <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: 16, boxShadow: '0 1px 3px rgba(0,0,0,0.06)' }}>
       <div style={{ background: '#0891b2', padding: '12px 18px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderRadius: '16px 16px 0 0' }}>
-        <h2 style={{ fontSize: 16, fontWeight: 800, color: '#fff' }}>🎯 센서 게이지</h2>
+        <h2 style={{fontSize:16,fontWeight:800,color:'#fff',display:'flex',alignItems:'center',gap:6}}>
+          {dragListeners && (
+            <span {...dragListeners} title="드래그하여 위치 변경"
+              style={{cursor:'grab',userSelect:'none',touchAction:'none',padding:'0 6px 0 0',opacity:0.7,fontSize:14}}
+            >⋮⋮</span>
+          )}
+          🎯 센서 게이지
+        </h2>
         <span style={{ background: 'rgba(255,255,255,0.2)', color: '#fff', fontSize: 12, fontWeight: 600, padding: '3px 10px', borderRadius: 8 }}>
           {numberSensors.length}개
         </span>

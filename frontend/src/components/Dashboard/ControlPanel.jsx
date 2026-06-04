@@ -1,10 +1,33 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import axios from 'axios';
 import { useAuth } from '../../contexts/AuthContext';
 import { sendControlCommand, getControlLogs, getRelayStatus, warmupLambda, saveControlLog } from '../../services/controlApi';
 import { getSystemMode, getApiBase, getRpiApiBase } from '../../services/apiSwitcher';
 import wsService from '../../services/wsService';
+import {
+  DndContext, closestCenter, PointerSensor, useSensor, useSensors
+} from '@dnd-kit/core';
+import {
+  SortableContext, useSortable, verticalListSortingStrategy, arrayMove
+} from '@dnd-kit/sortable';
+import { CSS } from '@dnd-kit/utilities';
+
+// ★ 패널 reorder — useSortable wrapper (render prop: dragListeners 함수 전달)
+const SortablePanel = ({ id, children }) => {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id });
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.6 : 1,
+    zIndex: isDragging ? 10 : 'auto',
+  };
+  return (
+    <div ref={setNodeRef} style={style} {...attributes}>
+      {typeof children === 'function' ? children(listeners) : children}
+    </div>
+  );
+};
 
 const DEVICE_TYPE_INFO = {
   window:      { label: '1창', icon: '🪟', commands: ['open', 'stop', 'close'] },
@@ -1532,6 +1555,33 @@ const ControlPanel = ({ farmId, houseId, houseConfig }) => {
     groupedDevices[groupKey].push(d);
   });
 
+  // ★ 패널 순서 — localStorage 별 farmId/houseId 저장 (사용자 개인 선호)
+  const panelOrderKey = `panelOrder_${farmId}_${houseId}`;
+  const [panelOrder, setPanelOrder] = useState(() => {
+    try { return JSON.parse(localStorage.getItem(panelOrderKey) || '[]'); } catch { return []; }
+  });
+  const orderedGroupKeys = useMemo(() => {
+    const allKeys = Object.keys(groupedDevices);
+    const inOrder = panelOrder.filter(k => allKeys.includes(k));
+    const notInOrder = allKeys.filter(k => !inOrder.includes(k));
+    return [...inOrder, ...notInOrder];
+  }, [groupedDevices, panelOrder]);
+
+  const panelSensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 8 } })
+  );
+
+  const handlePanelDragEnd = (event) => {
+    const { active, over } = event;
+    if (!over || active.id === over.id) return;
+    const oldIdx = orderedGroupKeys.indexOf(active.id);
+    const newIdx = orderedGroupKeys.indexOf(over.id);
+    if (oldIdx < 0 || newIdx < 0) return;
+    const newOrder = arrayMove(orderedGroupKeys, oldIdx, newIdx);
+    setPanelOrder(newOrder);
+    try { localStorage.setItem(panelOrderKey, JSON.stringify(newOrder)); } catch {}
+  };
+
   // Modbus 작업 중 모든 제어 버튼 비활성화 (RS-485 half-duplex)
   const anyModbusBusy = Object.values(modbusStatus).some(s => s === 'verifying');
 
@@ -1675,7 +1725,10 @@ const ControlPanel = ({ farmId, houseId, houseConfig }) => {
           </button>
       </div>
 
-      {Object.entries(groupedDevices).map(([groupKey, devicesInGroup]) => {
+      <DndContext sensors={panelSensors} collisionDetection={closestCenter} onDragEnd={handlePanelDragEnd}>
+       <SortableContext items={orderedGroupKeys} strategy={verticalListSortingStrategy}>
+      {orderedGroupKeys.map(groupKey => {
+        const devicesInGroup = groupedDevices[groupKey];
         const [type, groupCtrl] = groupKey.split('__');
         const typeInfo = DEVICE_TYPE_INFO[type] || { label: type, icon: '🔧', commands: ['on', 'off'] };
         // 그룹의 controlType 으로 버튼 분기 결정 (메타의 commands 가 아니라 실제 device 설정)
@@ -1688,10 +1741,13 @@ const ControlPanel = ({ farmId, houseId, houseConfig }) => {
         const ctrlLabel = hasMixedCtrl ? (groupCtrl === 'single' ? ' (단방향)' : ' (양방향)') : '';
 
         return (
-          <div key={groupKey} style={{background:'#fff',borderRadius:16,marginBottom:16,overflow:'hidden',border:'1px solid #d1d5db',boxShadow:'0 4px 12px rgba(0,0,0,0.1)'}}>
-            {/* 장치 유형 헤더 */}
+         <SortablePanel key={groupKey} id={groupKey}>
+          {(dragListeners) => (
+          <div style={{background:'#fff',borderRadius:16,marginBottom:16,overflow:'hidden',border:'1px solid #d1d5db',boxShadow:'0 4px 12px rgba(0,0,0,0.1)'}}>
+            {/* 장치 유형 헤더 — drag handle ⋮⋮ 좌측 */}
             <div style={{background:`linear-gradient(135deg, ${theme[0]} 0%, ${theme[1]} 100%)`,padding:'14px 18px',display:'flex',alignItems:'center',justifyContent:'space-between'}}>
               <h3 style={{fontSize:16,fontWeight:800,color:'#fff',letterSpacing:'-0.01em'}} className="flex items-center gap-2">
+                <span {...dragListeners} style={{cursor:'grab',userSelect:'none',touchAction:'none',padding:'0 6px 0 0',opacity:0.7,fontSize:14}} title="드래그하여 위치 변경">⋮⋮</span>
                 <span style={{fontSize:18}}>{typeInfo.icon}</span>
                 <span>{typeInfo.label}{ctrlLabel}</span>
               </h3>
@@ -2046,8 +2102,12 @@ const ControlPanel = ({ farmId, houseId, houseConfig }) => {
               })()}
             </div>
           </div>
+          )}
+         </SortablePanel>
         );
       })}
+       </SortableContext>
+      </DndContext>
 
       {/* 배치 제어 진행 상태 */}
       {batchProgress && (

@@ -55,7 +55,7 @@ const StatCard = React.memo(({ sensor, stats }) => {
 }, (prev, next) => prev.stats.current === next.stats.current && prev.stats.avg === next.stats.avg && prev.stats.min === next.stats.min && prev.stats.max === next.stats.max);
 
 /** StatsWidget — 센서 값이 실제로 변한 경우에만 재렌더링 */
-const StatsWidget = React.memo(({ sensors, latestData, historyData }) => {
+const StatsWidget = React.memo(({ sensors, latestData, historyData, dragListeners }) => {
   const calculateStats = (sensorId) => {
     if (!historyData || historyData.length === 0) return null;
     const values = historyData
@@ -78,7 +78,14 @@ const StatsWidget = React.memo(({ sensors, latestData, historyData }) => {
   return (
     <div style={{background:'#fff',border:'1px solid #e2e8f0',borderRadius:16,overflow:'hidden',boxShadow:'0 1px 3px rgba(0,0,0,0.06)'}}>
       <div style={{background:'#ea580c',padding:'12px 18px',display:'flex',alignItems:'center',justifyContent:'space-between'}}>
-        <h2 style={{fontSize:16,fontWeight:800,color:'#fff'}}>📊 24시간 통계</h2>
+        <h2 style={{fontSize:16,fontWeight:800,color:'#fff',display:'flex',alignItems:'center',gap:6}}>
+          {dragListeners && (
+            <span {...dragListeners} title="드래그하여 위치 변경"
+              style={{cursor:'grab',userSelect:'none',touchAction:'none',padding:'0 6px 0 0',opacity:0.7,fontSize:14}}
+            >⋮⋮</span>
+          )}
+          📊 24시간 통계
+        </h2>
         <span style={{background:'rgba(255,255,255,0.2)',color:'#fff',fontSize:12,fontWeight:600,padding:'3px 10px',borderRadius:8}}>
           실시간
         </span>

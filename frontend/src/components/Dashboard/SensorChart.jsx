@@ -19,7 +19,7 @@ const TIME_RANGES = [
   {value:'7d',label:'7일'},{value:'30d',label:'30일'},
 ];
 
-const SensorChart = ({ farmId, houseId, config, dataVersion }) => {
+const SensorChart = ({ farmId, houseId, config, dataVersion, dragListeners }) => {
   const [timeRange, setTimeRange] = useState('24h');
   const [chartData, setChartData] = useState([]);
   const [selectedSensors, setSelectedSensors] = useState([]);
@@ -187,7 +187,14 @@ const SensorChart = ({ farmId, houseId, config, dataVersion }) => {
   return (
     <div style={{background:'#fff',border:'1px solid #e2e8f0',borderRadius:16,overflow:'hidden',boxShadow:'0 1px 3px rgba(0,0,0,0.06)'}}>
       <div style={{background:'#7c3aed',padding:'12px 18px',display:'flex',alignItems:'center',justifyContent:'space-between'}}>
-        <h2 style={{fontSize:16,fontWeight:800,color:'#fff'}}>📈 센서 데이터 추이</h2>
+        <h2 style={{fontSize:16,fontWeight:800,color:'#fff',display:'flex',alignItems:'center',gap:6}}>
+          {dragListeners && (
+            <span {...dragListeners} title="드래그하여 위치 변경"
+              style={{cursor:'grab',userSelect:'none',touchAction:'none',padding:'0 6px 0 0',opacity:0.7,fontSize:14}}
+            >⋮⋮</span>
+          )}
+          📈 센서 데이터 추이
+        </h2>
         <button onClick={downloadCSV} disabled={chartData.length === 0}
           style={{background:'rgba(255,255,255,0.2)',color:'#fff',border:'1.5px solid rgba(255,255,255,0.3)',padding:'6px 14px',borderRadius:8,fontSize:13,fontWeight:700,cursor:'pointer',transition:'all 0.15s'}}>
           📥 CSV

@@ -24,7 +24,7 @@ const sensorUnit = (key, configSensors) => {
 };
 const fmtVal = (v) => typeof v === 'number' ? (Number.isInteger(v) ? v : v.toFixed(1)) : v;
 
-const TodaySummaryWidget = ({ farmId, houseId, alerts: parentAlerts, dataVersion, config }) => {
+const TodaySummaryWidget = ({ farmId, houseId, alerts: parentAlerts, dataVersion, config, dragListeners }) => {
   const [dataCount, setDataCount] = useState(0);
   const [loading, setLoading] = useState(true);
 
@@ -217,7 +217,12 @@ const TodaySummaryWidget = ({ farmId, houseId, alerts: parentAlerts, dataVersion
       <div style={{background:'#fff',border:'1px solid #e2e8f0',borderRadius:16,overflow:'hidden',boxShadow:'0 1px 3px rgba(0,0,0,0.06)'}}>
         {/* 컬러 헤더 */}
         <div style={{background:'#0ea5e9',padding:'12px 18px',display:'flex',alignItems:'center',justifyContent:'space-between'}}>
-          <h2 style={{fontSize:16,fontWeight:800,color:'#fff'}}>
+          <h2 style={{fontSize:16,fontWeight:800,color:'#fff',display:'flex',alignItems:'center',gap:6}}>
+            {dragListeners && (
+              <span {...dragListeners} title="드래그하여 위치 변경"
+                style={{cursor:'grab',userSelect:'none',touchAction:'none',padding:'0 6px 0 0',opacity:0.7,fontSize:14}}
+              >⋮⋮</span>
+            )}
             📋 오늘의 요약
             <span style={{fontSize:12,fontWeight:600,opacity:0.85,marginLeft:8}}>
               ({config?.houseName || houseId})

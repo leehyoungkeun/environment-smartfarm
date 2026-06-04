@@ -50,7 +50,7 @@ const SensorRow = React.memo(({ sensor, value }) => {
 });
 
 /** SystemStatusWidget — 센서 값이나 알림이 변한 경우에만 재렌더링 */
-const SystemStatusWidget = React.memo(({ config, latestData, alerts }) => {
+const SystemStatusWidget = React.memo(({ config, latestData, alerts, dragListeners }) => {
   const [systemMode, setSystemMode] = useState(getSystemMode());
 
   useEffect(() => {
@@ -145,7 +145,14 @@ const SystemStatusWidget = React.memo(({ config, latestData, alerts }) => {
   return (
     <div style={{background:'#fff',border:'1px solid #e2e8f0',borderRadius:16,overflow:'hidden',boxShadow:'0 1px 3px rgba(0,0,0,0.06)'}}>
       <div style={{background:headerColor,padding:'12px 18px',display:'flex',alignItems:'center',justifyContent:'space-between',transition:'background 0.3s'}}>
-        <h2 style={{fontSize:16,fontWeight:800,color:'#fff'}}>⚡ 시스템 상태</h2>
+        <h2 style={{fontSize:16,fontWeight:800,color:'#fff',display:'flex',alignItems:'center',gap:6}}>
+          {dragListeners && (
+            <span {...dragListeners} title="드래그하여 위치 변경"
+              style={{cursor:'grab',userSelect:'none',touchAction:'none',padding:'0 6px 0 0',opacity:0.7,fontSize:14}}
+            >⋮⋮</span>
+          )}
+          ⚡ 시스템 상태
+        </h2>
         <div style={{display:'flex',alignItems:'center',gap:8}}>
           <span style={{width:10,height:10,borderRadius:'50%',background:'#fff',display:'inline-block',boxShadow:'0 0 8px rgba(255,255,255,0.6)'}} className={serverOnline ? 'animate-pulse' : ''} />
           <span style={{color:'#fff',fontSize:13,fontWeight:700}}>

@@ -6,6 +6,30 @@ import SystemStatusWidget from './SystemStatusWidget';
 import TodaySummaryWidget from './TodaySummaryWidget';
 import SensorChart from './SensorChart';
 import { getApiBase, getSystemMode, setManualMode, onModeChange, getServerTimeoutSec, getConfigCache, setConfigCache } from '../../services/apiSwitcher';
+import {
+  DndContext, closestCenter, PointerSensor, useSensor, useSensors
+} from '@dnd-kit/core';
+import {
+  SortableContext, useSortable, verticalListSortingStrategy, arrayMove
+} from '@dnd-kit/sortable';
+import { CSS } from '@dnd-kit/utilities';
+
+// ★ widget reorder wrapper — render prop (children function 으로 dragListeners 전달)
+//   widget 컴포넌트가 dragListeners 받아서 자기 헤더 안에 ⋮⋮ inline 삽입 (ControlPanel 패턴 동일)
+const SortableWidget = ({ id, children }) => {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id });
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.6 : 1,
+    zIndex: isDragging ? 10 : 'auto',
+  };
+  return (
+    <div ref={setNodeRef} style={style} {...attributes}>
+      {typeof children === 'function' ? children(listeners) : children}
+    </div>
+  );
+};
 
 /** 하우스 탭 가로 스크롤 (좌/우 화살표 + 균등 버튼 크기) */
 const GAP = 8;
@@ -615,47 +639,74 @@ const DynamicDashboard = ({ farmId, isTouchPanel = false }) => {
         </div>
       )}
 
-      {/* 개요 뷰 */}
-      {(
-        <div className="space-y-5">
-          <div className="animate-fade-in-up stagger-1">
-            <TodaySummaryWidget farmId={farmId} houseId={selectedHouse} alerts={alerts} dataVersion={dataVersion} config={currentHouse} />
-          </div>
-
-          <div className="animate-fade-in-up stagger-2">
-            <SystemStatusWidget
-              config={currentHouse}
-              latestData={latestData}
-              alerts={alerts}
-            />
-          </div>
-
-          <div className="animate-fade-in-up stagger-3">
-            <SensorChart
-              farmId={farmId}
-              houseId={selectedHouse}
-              config={currentHouse}
-              dataVersion={dataVersion}
-            />
-          </div>
-
-          <div className="animate-fade-in-up stagger-4">
-            <GaugeWidget
-              sensors={sensors}
-              latestData={latestData}
-            />
-          </div>
-
-          <div className="animate-fade-in-up">
-            <StatsWidget
-              sensors={sensors}
-              latestData={latestData}
-              historyData={historyData}
-            />
-          </div>
-        </div>
-      )}
+      {/* 개요 뷰 — drag-drop 위치 변경 가능 (localStorage 별 farmId/houseId 저장) */}
+      <DashboardWidgets
+        farmId={farmId}
+        selectedHouse={selectedHouse}
+        alerts={alerts}
+        dataVersion={dataVersion}
+        currentHouse={currentHouse}
+        latestData={latestData}
+        sensors={sensors}
+        historyData={historyData}
+      />
     </div>
+  );
+};
+
+// ★ 대시보드 widget 들의 drag-drop reorder + localStorage 저장
+const DashboardWidgets = ({ farmId, selectedHouse, alerts, dataVersion, currentHouse, latestData, sensors, historyData }) => {
+  const widgets = [
+    { id: 'today', render: (drag) => <TodaySummaryWidget farmId={farmId} houseId={selectedHouse} alerts={alerts} dataVersion={dataVersion} config={currentHouse} dragListeners={drag} /> },
+    { id: 'system', render: (drag) => <SystemStatusWidget config={currentHouse} latestData={latestData} alerts={alerts} dragListeners={drag} /> },
+    { id: 'chart', render: (drag) => <SensorChart farmId={farmId} houseId={selectedHouse} config={currentHouse} dataVersion={dataVersion} dragListeners={drag} /> },
+    { id: 'gauge', render: (drag) => <GaugeWidget sensors={sensors} latestData={latestData} dragListeners={drag} /> },
+    { id: 'stats', render: (drag) => <StatsWidget sensors={sensors} latestData={latestData} historyData={historyData} dragListeners={drag} /> },
+  ];
+
+  const orderKey = `widgetOrder_${farmId}_${selectedHouse}`;
+  const [widgetOrder, setWidgetOrder] = useState(() => {
+    try { return JSON.parse(localStorage.getItem(orderKey) || '[]'); } catch { return []; }
+  });
+  const orderedWidgets = useMemo(() => {
+    const allIds = widgets.map(w => w.id);
+    const inOrder = widgetOrder.filter(id => allIds.includes(id));
+    const notInOrder = allIds.filter(id => !inOrder.includes(id));
+    return [...inOrder, ...notInOrder].map(id => widgets.find(w => w.id === id));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [widgetOrder, farmId, selectedHouse]);
+
+  const widgetSensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 8 } })
+  );
+
+  const handleDragEnd = (event) => {
+    const { active, over } = event;
+    if (!over || active.id === over.id) return;
+    const oldIdx = orderedWidgets.findIndex(w => w.id === active.id);
+    const newIdx = orderedWidgets.findIndex(w => w.id === over.id);
+    if (oldIdx < 0 || newIdx < 0) return;
+    const newOrder = arrayMove(orderedWidgets, oldIdx, newIdx).map(w => w.id);
+    setWidgetOrder(newOrder);
+    try { localStorage.setItem(orderKey, JSON.stringify(newOrder)); } catch {}
+  };
+
+  return (
+    <DndContext sensors={widgetSensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+      <SortableContext items={orderedWidgets.map(w => w.id)} strategy={verticalListSortingStrategy}>
+        <div className="space-y-5">
+          {orderedWidgets.map((w, idx) => (
+            <SortableWidget key={w.id} id={w.id}>
+              {(drag) => (
+                <div className={`animate-fade-in-up ${idx < 4 ? `stagger-${idx + 1}` : ''}`}>
+                  {w.render(drag)}
+                </div>
+              )}
+            </SortableWidget>
+          ))}
+        </div>
+      </SortableContext>
+    </DndContext>
   );
 };
 

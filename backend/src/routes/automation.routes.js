@@ -304,10 +304,7 @@ router.patch("/:farmId/reorder", async (req, res) => {
     }
     await Promise.all(
       ruleIds.map((id, idx) =>
-        AutomationRule.findOneAndUpdate(
-          { _id: id, farmId },
-          { priority: idx + 1 }
-        )
+        AutomationRule.findByIdAndUpdate(id, { priority: idx + 1 })
       )
     );
     logger.info(`🔀 자동화 규칙 순서 변경: ${ruleIds.length}개 (farmId=${farmId})`);

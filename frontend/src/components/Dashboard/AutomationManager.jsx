@@ -1,6 +1,43 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import axios from 'axios';
 import { getApiBase } from '../../services/apiSwitcher';
+import {
+  DndContext, closestCenter, PointerSensor, KeyboardSensor, useSensor, useSensors
+} from '@dnd-kit/core';
+import {
+  SortableContext, useSortable, verticalListSortingStrategy, arrayMove,
+  sortableKeyboardCoordinates
+} from '@dnd-kit/sortable';
+import { CSS } from '@dnd-kit/utilities';
+
+// ★ deviceId 별 색상 hash — 장비별 시각 구분
+const DEVICE_COLOR_PALETTE = [
+  '#10b981', '#0ea5e9', '#f59e0b', '#8b5cf6',
+  '#f43f5e', '#14b8a6', '#6366f1', '#f97316',
+  '#ec4899', '#06b6d4', '#84cc16', '#a855f7',
+];
+const deviceColor = (deviceId) => {
+  if (!deviceId) return DEVICE_COLOR_PALETTE[0];
+  let h = 0;
+  for (let i = 0; i < deviceId.length; i++) h = (h * 31 + deviceId.charCodeAt(i)) >>> 0;
+  return DEVICE_COLOR_PALETTE[h % DEVICE_COLOR_PALETTE.length];
+};
+
+// ★ drag-drop wrapper — rule card 를 sortable 로 감쌈
+const SortableWrapper = ({ id, children }) => {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id });
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.6 : 1,
+    zIndex: isDragging ? 10 : 'auto',
+  };
+  return (
+    <div ref={setNodeRef} style={style} {...attributes}>
+      {React.cloneElement(children, { dragListeners: listeners })}
+    </div>
+  );
+};
 
 const DEFAULT_SENSOR_OPTIONS = [
   { id: 'temp_0001', name: '온도', unit: '°C', icon: '🌡️' },
@@ -222,6 +259,50 @@ const AutomationManager = ({ farmId, houses = [] }) => {
   const filteredRules = houseRules.filter(r => categorizeRule(r) === activeTab);
   const currentTab = TABS.find(t => t.id === activeTab);
 
+  // ★ drag-drop sensor — pointer 8px 이상 이동 시 drag 시작 (단순 클릭 보호)
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
+  );
+
+  // ★ drag-drop end — priority 재계산 + backend update
+  //   다른 탭 rule 순서는 그대로 유지 (현재 탭 rule 들만 재배치)
+  const handleDragEnd = async (event) => {
+    const { active, over } = event;
+    if (!over || active.id === over.id) return;
+    const oldIdx = filteredRules.findIndex(r => r._id === active.id);
+    const newIdx = filteredRules.findIndex(r => r._id === over.id);
+    if (oldIdx < 0 || newIdx < 0) return;
+    const reorderedFiltered = arrayMove(filteredRules, oldIdx, newIdx);
+    const reorderedIds = reorderedFiltered.map(r => r._id);
+    // 전체 rules 배열에서 현재 탭 rule 만 새 순서 + priority 반영, 다른 탭은 위치 유지
+    setRules(prev => {
+      const priorityMap = new Map(reorderedFiltered.map((r, idx) => [r._id, idx + 1]));
+      // 현재 탭 rule 의 첫 번째 등장 인덱스 찾기 → 그 자리에 reorderedFiltered 삽입
+      const result = [];
+      let inserted = false;
+      for (const r of prev) {
+        if (categorizeRule(r) === activeTab) {
+          if (!inserted) {
+            reorderedFiltered.forEach(rr => result.push({ ...rr, priority: priorityMap.get(rr._id) }));
+            inserted = true;
+          }
+        } else {
+          result.push(r);
+        }
+      }
+      if (!inserted) reorderedFiltered.forEach(rr => result.push({ ...rr, priority: priorityMap.get(rr._id) }));
+      return result;
+    });
+    try {
+      await serverApi('patch', `/automation/${farmId}/reorder`, { ruleIds: reorderedIds });
+    } catch (err) {
+      console.error('순서 변경 실패:', err);
+      alert('순서 변경 실패: ' + (err.response?.data?.error || err.message));
+      loadData();
+    }
+  };
+
   return (
     <div>
       {/* 하우스 선택 */}
@@ -313,45 +394,51 @@ const AutomationManager = ({ farmId, houses = [] }) => {
       ) : filteredRules.length === 0 && !(showForm && !editingRule) ? (
         <EmptyState tab={activeTab} onAdd={startNew} />
       ) : (
-        <div className="space-y-3">
-          {filteredRules.map(rule => {
-            // 편집 중인 규칙이면 폼을 인라인으로 표시
-            if (showForm && editingRule && rule._id === editingRule._id) {
-              return (
-                <RuleForm
-                  key={`edit-${rule._id}`}
-                  farmId={farmId}
-                  houseId={selectedHouseId}
-                  houses={houses}
-                  rule={editingRule}
-                  existingRules={houseRules}
-                  defaultTab={activeTab}
-                  onSave={handleFormSave}
-                  onCancel={() => { setShowForm(false); setEditingRule(null); }}
-                />
-              );
-            }
-            // 일반 카드
-            return activeTab === 'schedule' ? (
-              <ScheduleCard
-                key={rule._id}
-                rule={rule}
-                onEdit={() => startEdit(rule)}
-                onDelete={() => deleteRule(rule._id)}
-                onToggle={() => toggleRule(rule._id, rule.enabled)}
-              />
-            ) : (
-              <RuleCard
-                key={rule._id}
-                rule={rule}
-                tabColor={currentTab?.color || 'violet'}
-                onEdit={() => startEdit(rule)}
-                onDelete={() => deleteRule(rule._id)}
-                onToggle={() => toggleRule(rule._id, rule.enabled)}
-              />
-            );
-          })}
-        </div>
+        <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+          <SortableContext items={filteredRules.map(r => r._id)} strategy={verticalListSortingStrategy}>
+            <div className="space-y-3">
+              {filteredRules.map(rule => {
+                // 편집 중인 규칙이면 폼을 인라인으로 표시 (sortable 제외)
+                if (showForm && editingRule && rule._id === editingRule._id) {
+                  return (
+                    <RuleForm
+                      key={`edit-${rule._id}`}
+                      farmId={farmId}
+                      houseId={selectedHouseId}
+                      houses={houses}
+                      rule={editingRule}
+                      existingRules={houseRules}
+                      defaultTab={activeTab}
+                      onSave={handleFormSave}
+                      onCancel={() => { setShowForm(false); setEditingRule(null); }}
+                    />
+                  );
+                }
+                // 일반 카드 — SortableWrapper 로 감쌈
+                return (
+                  <SortableWrapper key={rule._id} id={rule._id}>
+                    {activeTab === 'schedule' ? (
+                      <ScheduleCard
+                        rule={rule}
+                        onEdit={() => startEdit(rule)}
+                        onDelete={() => deleteRule(rule._id)}
+                        onToggle={() => toggleRule(rule._id, rule.enabled)}
+                      />
+                    ) : (
+                      <RuleCard
+                        rule={rule}
+                        tabColor={currentTab?.color || 'violet'}
+                        onEdit={() => startEdit(rule)}
+                        onDelete={() => deleteRule(rule._id)}
+                        onToggle={() => toggleRule(rule._id, rule.enabled)}
+                      />
+                    )}
+                  </SortableWrapper>
+                );
+              })}
+            </div>
+          </SortableContext>
+        </DndContext>
       )}
     </div>
   );
@@ -386,10 +473,13 @@ const EmptyState = ({ tab, onAdd }) => {
 /**
  * 시간대별 스케줄 카드 (타임라인 UI)
  */
-const ScheduleCard = ({ rule, onEdit, onDelete, onToggle }) => {
+const ScheduleCard = ({ rule, onEdit, onDelete, onToggle, dragListeners }) => {
   // 시간 조건 추출
   const timeCond = rule.conditions?.find(c => c.type === 'time');
   const activeDays = timeCond?.days || [];
+  // ★ device 별 색상 (첫 action 의 deviceId 기준)
+  const firstDeviceId = rule.actions?.[0]?.deviceId;
+  const accentColor = deviceColor(firstDeviceId);
 
   // 시간 표시 문자열 생성
   const getTimeDisplay = (cond) => {
@@ -416,9 +506,20 @@ const ScheduleCard = ({ rule, onEdit, onDelete, onToggle }) => {
   };
 
   return (
-    <div className={`glass-card p-3 md:p-5 transition-all ${!rule.enabled ? 'opacity-50' : ''}`}>
-      {/* 1행: 시간 뱃지 + 이름 + 토글 */}
+    <div
+      className={`glass-card p-3 md:p-5 transition-all ${!rule.enabled ? 'opacity-50' : ''}`}
+      style={{ borderLeft: `5px solid ${accentColor}` }}
+    >
+      {/* 1행: drag handle + 시간 뱃지 + 이름 + 토글 */}
       <div className="flex items-center gap-2 mb-2">
+        {/* drag handle — listeners 만 적용, 클릭 영역 분리 */}
+        <span
+          {...(dragListeners || {})}
+          className="flex-shrink-0 px-1 text-gray-300 hover:text-gray-500 cursor-grab active:cursor-grabbing select-none"
+          title="드래그하여 순서 변경"
+          style={{ fontSize: 18, lineHeight: 1, touchAction: 'none' }}
+          onClick={(e) => e.stopPropagation()}
+        >⋮⋮</span>
         <span className="text-sm font-bold text-amber-600 bg-amber-50 border border-amber-200 px-2.5 py-1 rounded-lg flex-shrink-0 font-mono">
           {timeDisplay.main}
         </span>
@@ -491,19 +592,32 @@ const ScheduleCard = ({ rule, onEdit, onDelete, onToggle }) => {
 /**
  * 규칙 카드
  */
-const RuleCard = ({ rule, tabColor = 'violet', onEdit, onDelete, onToggle }) => {
+const RuleCard = ({ rule, tabColor = 'violet', onEdit, onDelete, onToggle, dragListeners }) => {
   const icon = tabColor === 'emerald' ? '⚙️' : '🤖';
 
   // 조건 그룹 분리
   const sensorConds = (rule.conditions || []).filter(c => c.type === 'sensor');
   const timeConds = (rule.conditions || []).filter(c => c.type === 'time');
+  // ★ device 별 색상 (첫 action 의 deviceId 기준)
+  const firstDeviceId = rule.actions?.[0]?.deviceId;
+  const accentColor = deviceColor(firstDeviceId);
 
   return (
-    <div className={`glass-card p-4 md:p-5 transition-all ${!rule.enabled ? 'opacity-50' : ''}`}>
+    <div
+      className={`glass-card p-4 md:p-5 transition-all ${!rule.enabled ? 'opacity-50' : ''}`}
+      style={{ borderLeft: `5px solid ${accentColor}` }}
+    >
       <div className="flex items-start justify-between gap-3">
         <div className="flex-1 min-w-0">
           {/* 제목 + 활성화 토글 */}
           <div className="flex items-center gap-2 mb-2">
+            <span
+              {...(dragListeners || {})}
+              className="flex-shrink-0 px-1 text-gray-300 hover:text-gray-500 cursor-grab active:cursor-grabbing select-none"
+              title="드래그하여 순서 변경"
+              style={{ fontSize: 18, lineHeight: 1, touchAction: 'none' }}
+              onClick={(e) => e.stopPropagation()}
+            >⋮⋮</span>
             <span className="text-2xl">{icon}</span>
             <h3 className="text-lg font-extrabold text-gray-800 truncate">{rule.name}</h3>
             <button onClick={onToggle} className={`ml-auto w-11 h-6 rounded-full transition-all flex-shrink-0 relative ${rule.enabled ? 'bg-green-500' : 'bg-gray-300'}`}>

@@ -292,6 +292,34 @@ router.put("/:farmId/:ruleId", async (req, res) => {
 });
 
 /**
+ * PATCH /api/automation/:farmId/reorder
+ * 규칙 순서 변경 (drag-and-drop) — ruleIds 배열 순서대로 priority 1..N 부여
+ */
+router.patch("/:farmId/reorder", async (req, res) => {
+  try {
+    const { farmId } = req.params;
+    const { ruleIds } = req.body;
+    if (!Array.isArray(ruleIds) || ruleIds.length === 0) {
+      return res.status(400).json({ success: false, error: "ruleIds 배열 필수" });
+    }
+    await Promise.all(
+      ruleIds.map((id, idx) =>
+        AutomationRule.findOneAndUpdate(
+          { _id: id, farmId },
+          { priority: idx + 1 }
+        )
+      )
+    );
+    logger.info(`🔀 자동화 규칙 순서 변경: ${ruleIds.length}개 (farmId=${farmId})`);
+    res.json({ success: true });
+    notifyRpiSync(farmId);
+  } catch (error) {
+    logger.error("순서 변경 실패:", error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+/**
  * DELETE /api/automation/:farmId/:ruleId
  * 규칙 삭제
  */

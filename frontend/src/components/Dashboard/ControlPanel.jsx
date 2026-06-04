@@ -1746,10 +1746,11 @@ const ControlPanel = ({ farmId, houseId, houseConfig }) => {
           <div style={{background:'#fff',borderRadius:16,marginBottom:16,overflow:'hidden',border:'1px solid #d1d5db',boxShadow:'0 4px 12px rgba(0,0,0,0.1)'}}>
             {/* 장치 유형 헤더 — drag handle ⋮⋮ 좌측 */}
             <div style={{background:`linear-gradient(135deg, ${theme[0]} 0%, ${theme[1]} 100%)`,padding:'14px 18px',display:'flex',alignItems:'center',justifyContent:'space-between'}}>
-              <h3 style={{fontSize:16,fontWeight:800,color:'#fff',letterSpacing:'-0.01em'}} className="flex items-center gap-2">
+              <h3 style={{fontSize:20,fontWeight:900,color:'#fff',letterSpacing:'-0.02em',textShadow:'0 1px 2px rgba(0,0,0,0.18)'}} className="flex items-center gap-2">
                 <span {...dragListeners} style={{cursor:'grab',userSelect:'none',touchAction:'none',padding:'0 6px 0 0',opacity:0.7,fontSize:14}} title="드래그하여 위치 변경">⋮⋮</span>
-                <span style={{fontSize:18}}>{typeInfo.icon}</span>
-                <span>{typeInfo.label}{ctrlLabel}</span>
+                <span style={{fontSize:24}}>{typeInfo.icon}</span>
+                <span style={{fontSize:22,letterSpacing:'-0.02em'}}>{typeInfo.label}</span>
+                {ctrlLabel && <span style={{fontSize:14,fontWeight:700,opacity:0.85}}>{ctrlLabel}</span>}
               </h3>
               <span style={{background:'rgba(255,255,255,0.2)',color:'#fff',fontSize:12,fontWeight:700,padding:'2px 10px',borderRadius:8}}>
                 {devicesInGroup.length}대

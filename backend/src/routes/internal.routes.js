@@ -8,6 +8,7 @@ import ControlLog from "../models/ControlLog.js";
 import Config from "../models/Config.js";
 import { pool, prisma } from "../db.js";
 import logger from "../utils/logger.js";
+import { setStepStatus, clearStepStatus } from "../utils/stepStatusStore.js";
 
 const router = express.Router();
 
@@ -401,6 +402,39 @@ router.post("/control-log", async (req, res) => {
     res.json({ success: true, data: { id: log._id } });
   } catch (error) {
     logger.error("자동화 제어 이력 저장 실패:", error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+/**
+ * POST /internal/step-status
+ * NR ⑤ stepped step 발사 / 완료 알림 (frontend NextRunCountdown 동기화용)
+ *
+ * payload:
+ *   { farmId, deviceId, ruleId?, command, target, currentPos,
+ *     stepStartedAt, stepDurSec, stepPauseSec, nextStepAt, phase: 'running'|'completed' }
+ *
+ * - phase='running': step 발사 직후 (모터 회전 중)
+ * - phase='completed': stepped 종료 (목표 도달 + stop 발사)
+ *
+ * 메모리 store 만 사용 (DB 저장 X) — backend 재시작 시 휘발 OK.
+ * frontend 가 schedule API 통해 조회.
+ */
+router.post("/step-status", async (req, res) => {
+  try {
+    const { farmId, houseId } = resolveFarmHouse(req);
+    const { deviceId, phase, ...info } = req.body || {};
+    if (!deviceId) {
+      return res.status(400).json({ success: false, error: "deviceId 필수" });
+    }
+    if (phase === "completed") {
+      clearStepStatus(farmId, deviceId);
+    } else {
+      setStepStatus(farmId, deviceId, { ...info, phase: phase || "running", houseId });
+    }
+    res.json({ success: true });
+  } catch (error) {
+    logger.error("step-status 처리 실패:", error);
     res.status(500).json({ success: false, error: error.message });
   }
 });

@@ -6,6 +6,7 @@ import express from "express";
 import AutomationRule from "../models/AutomationRule.js";
 import ControlLog from "../models/ControlLog.js";
 import logger from "../utils/logger.js";
+import { getStepStatusMapByFarm } from "../utils/stepStatusStore.js";
 
 const router = express.Router();
 
@@ -173,6 +174,57 @@ function validateRuleActions(actions) {
 }
 
 /**
+ * 같은 device + 같은 시간(specific) + 반대 command 충돌 검증
+ *   예: 측창 close@20:10 (월~금) + 측창 open@20:10 (모든요일)
+ *       → 20:10 동시 발동 → 모터 양방향 stall + RS-485 noise
+ * 2026-06-04 측창 동시 발동 사고 패턴 (project-nr-stepped-coil-stuck 의 stuck 위험).
+ */
+async function validateNoConflict(farmId, newRule, excludeRuleId) {
+  if (!newRule.enabled) return null;   // disabled 는 충돌 검증 skip
+  const newConds = (newRule.conditions || []).filter((c) => c.type === "time" && c.timeMode === "specific");
+  if (newConds.length === 0) return null;
+  const newActions = (newRule.actions || []).filter(
+    (a) => (a.command === "open" || a.command === "close") && a.deviceId
+  );
+  if (newActions.length === 0) return null;
+
+  // 같은 farm + houseId 의 다른 enabled rule 들 조회
+  const others = await AutomationRule.find({ farmId, houseId: newRule.houseId, enabled: true }).lean();
+  for (const r of others) {
+    if (excludeRuleId && (r._id === excludeRuleId || r.id === excludeRuleId)) continue;
+    const rConds = (r.conditions || []).filter((c) => c.type === "time" && c.timeMode === "specific");
+    if (rConds.length === 0) continue;
+    const rActions = (r.actions || []).filter(
+      (a) => (a.command === "open" || a.command === "close") && a.deviceId
+    );
+
+    for (const a1 of newActions) {
+      for (const a2 of rActions) {
+        if (a1.deviceId !== a2.deviceId) continue;
+        // 반대 방향 check
+        const opposite =
+          (a1.command === "open" && a2.command === "close") ||
+          (a1.command === "close" && a2.command === "open");
+        if (!opposite) continue;
+        // 시간 + 요일 겹침 check
+        for (const c1 of newConds) {
+          for (const c2 of rConds) {
+            const overlapTimes = (c1.times || []).filter((t) => (c2.times || []).includes(t));
+            if (overlapTimes.length === 0) continue;
+            const overlapDays = (c1.days || [0, 1, 2, 3, 4, 5, 6]).filter((d) =>
+              (c2.days || [0, 1, 2, 3, 4, 5, 6]).includes(d)
+            );
+            if (overlapDays.length === 0) continue;
+            return `${a1.deviceId}: 기존 rule '${r.name}' 와 충돌 (시간=${overlapTimes.join(",")} 의 ${a1.command} ↔ ${a2.command})`;
+          }
+        }
+      }
+    }
+  }
+  return null;
+}
+
+/**
  * POST /api/automation/:farmId
  * 규칙 생성
  */
@@ -183,6 +235,11 @@ router.post("/:farmId", async (req, res) => {
     const validationErr = validateRuleActions(req.body.actions);
     if (validationErr) {
       return res.status(400).json({ success: false, error: `자동화 rule 모순: ${validationErr}` });
+    }
+    // ★ 충돌 rule 검증 (같은 device 의 같은 시간 반대 command)
+    const conflictErr = await validateNoConflict(farmId, req.body, null);
+    if (conflictErr) {
+      return res.status(400).json({ success: false, error: `자동화 rule 충돌: ${conflictErr}` });
     }
     const rule = await AutomationRule.create({ ...req.body, farmId });
 
@@ -201,12 +258,19 @@ router.post("/:farmId", async (req, res) => {
  */
 router.put("/:farmId/:ruleId", async (req, res) => {
   try {
-    const { ruleId } = req.params;
+    const { farmId, ruleId } = req.params;
     // ★ 모순 rule 검증 (command + targetPosition 정합성)
     if (req.body.actions) {
       const validationErr = validateRuleActions(req.body.actions);
       if (validationErr) {
         return res.status(400).json({ success: false, error: `자동화 rule 모순: ${validationErr}` });
+      }
+    }
+    // ★ 충돌 rule 검증 (같은 device 의 같은 시간 반대 command)
+    if (req.body.actions || req.body.conditions || req.body.enabled !== undefined) {
+      const conflictErr = await validateNoConflict(farmId, req.body, ruleId);
+      if (conflictErr) {
+        return res.status(400).json({ success: false, error: `자동화 rule 충돌: ${conflictErr}` });
       }
     }
     const rule = await AutomationRule.findByIdAndUpdate(ruleId, req.body, {
@@ -333,6 +397,9 @@ router.get("/:farmId/schedule", async (req, res) => {
     const now = new Date();
     const schedule = [];
 
+    // stepStatus — NR ⑤ 실시간 stepped 진행 상태 (deviceId 별)
+    const stepStatusMap = getStepStatusMapByFarm(farmId);
+
     for (const rule of rules) {
       const timeConds = (rule.conditions || []).filter(c => c.type === "time");
       if (timeConds.length === 0) continue;
@@ -351,6 +418,17 @@ router.get("/:farmId/schedule", async (req, res) => {
       }
 
       if (adjustedNext) {
+        // 이 rule 의 actions[0].deviceId 의 stepStatus 가 있고 command 일치하면 포함
+        // (같은 device 의 close/open rule 분리 — NR ⑤ 충돌 방어로 동시 1개만 active)
+        let stepStatus = null;
+        const firstAction = (rule.actions || [])[0];
+        if (firstAction && firstAction.deviceId) {
+          const ss = stepStatusMap[firstAction.deviceId];
+          if (ss && ss.command === firstAction.command) {
+            stepStatus = ss;
+          }
+        }
+
         schedule.push({
           ruleId: rule._id,
           ruleName: rule.name,
@@ -358,6 +436,7 @@ router.get("/:farmId/schedule", async (req, res) => {
           nextRunAt: adjustedNext.toISOString(),
           lastTriggeredAt: rule.lastTriggeredAt || null,
           actions: rule.actions,
+          stepStatus,
         });
       }
     }

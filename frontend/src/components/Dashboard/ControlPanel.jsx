@@ -192,13 +192,38 @@ const ControlPanel = ({ farmId, houseId, houseConfig }) => {
     // 클라우드 모드: handleApply/handleStop의 PUT /active가 이미 MQTT로 autoDevices 전달
   };
 
-  // 충돌 감지: 같은 장치에 대해 상반된 명령을 내리는 규칙이 있는지 검사
+  // 충돌 감지: 같은 device + 시간 윈도우 겹침 (duration 까지 계산)
+  //   AutomationManager 의 checkConflict 와 동일 로직.
+  //   옛: t.time (단일) 비교 → 새 schema (t.times 배열) 에서 undefined 비교로 false positive
   const detectRuleConflicts = () => {
     const conflicts = [];
     const OPPOSITE = { open: 'close', close: 'open', on: 'off', off: 'on' };
+    const estimateDurationSec = (action) => {
+      if (action.actionMode === 'stepped') {
+        const stepPercent = action.stepPercent || 10;
+        const stepPauseSec = action.stepPauseSeconds || 60;
+        const startPos = action.command === 'close' ? 100 : 0;
+        const target = (typeof action.targetPosition === 'number')
+          ? action.targetPosition
+          : (action.command === 'close' ? 0 : 100);
+        const distance = Math.abs(startPos - target);
+        const numSteps = Math.max(1, Math.ceil(distance / stepPercent));
+        return numSteps * stepPauseSec;
+      }
+      if (action.actionMode === 'position' || action.actionMode === 'full') return 120;
+      let dur = action.duration || 0;
+      if (action.durationUnit === 'minutes') dur = dur * 60;
+      else if (action.durationUnit === 'hours') dur = dur * 3600;
+      return dur || 60;
+    };
+    const toMinutes = (s) => {
+      const [h, m] = (s || '00:00').split(':').map(Number);
+      return (h || 0) * 60 + (m || 0);
+    };
+    const fmtTime = (m) => `${String(Math.floor(m / 60) % 24).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
 
-    // auto 모드 장치별로 활성 규칙 수집 — action.deviceId 매칭 + rule.enabled
-    const deviceRulesMap = {}; // { deviceId: [{ rule, action, timeConds }] }
+    // auto 모드 장치별로 활성 규칙 수집
+    const deviceRulesMap = {};
     devices.forEach(d => {
       if (getDeviceMode(d.deviceId) !== 'auto') return;
       const matchedRules = autoRules.filter(r => {
@@ -222,36 +247,60 @@ const ControlPanel = ({ farmId, houseId, houseConfig }) => {
       });
     });
 
-    // 장치별로 충돌 검사
     Object.entries(deviceRulesMap).forEach(([deviceId, entries]) => {
       for (let i = 0; i < entries.length; i++) {
         for (let j = i + 1; j < entries.length; j++) {
           const a = entries[i], b = entries[j];
           const cmdA = a.action.command, cmdB = b.action.command;
 
-          // 상반된 명령인지 확인
-          if (OPPOSITE[cmdA] !== cmdB) continue;
-
-          // 시간 조건이 둘 다 있으면 시간 겹침 확인
+          // 둘 다 시간 조건 있으면: 시간 윈도우 겹침 검사 (duration 계산)
           if (a.timeConds.length > 0 && b.timeConds.length > 0) {
-            const timesA = a.timeConds.map(t => t.time);
-            const timesB = b.timeConds.map(t => t.time);
-            const overlap = timesA.some(ta => timesB.includes(ta));
-            // 요일 겹침도 확인
-            const daysA = a.timeConds.flatMap(t => (t.days || []).map(Number));
-            const daysB = b.timeConds.flatMap(t => (t.days || []).map(Number));
-            const dayOverlap = daysA.length === 0 || daysB.length === 0 || daysA.some(d => daysB.includes(d));
-
-            if (!overlap || !dayOverlap) continue; // 시간/요일 안 겹치면 충돌 아님
+            const durA = estimateDurationSec(a.action);
+            const durB = estimateDurationSec(b.action);
+            let overlapInfo = null;
+            for (const ca of a.timeConds) {
+              const daysA = ca.days?.length ? ca.days.map(Number) : [0, 1, 2, 3, 4, 5, 6];
+              const timesA = ca.times?.length ? ca.times : (ca.time ? [ca.time] : []);
+              for (const cb of b.timeConds) {
+                const daysB = cb.days?.length ? cb.days.map(Number) : [0, 1, 2, 3, 4, 5, 6];
+                const timesB = cb.times?.length ? cb.times : (cb.time ? [cb.time] : []);
+                if (!daysA.some(d => daysB.includes(d))) continue;
+                for (const ta of timesA) {
+                  if (!ta) continue;
+                  const sa = toMinutes(ta);
+                  const ea = sa + Math.ceil(durA / 60);
+                  for (const tb of timesB) {
+                    if (!tb) continue;
+                    const sb = toMinutes(tb);
+                    const eb = sb + Math.ceil(durB / 60);
+                    if (ea <= sb || eb <= sa) continue;
+                    overlapInfo = `${ta}~${fmtTime(ea)} vs ${tb}~${fmtTime(eb)}`;
+                    break;
+                  }
+                  if (overlapInfo) break;
+                }
+                if (overlapInfo) break;
+              }
+              if (overlapInfo) break;
+            }
+            if (!overlapInfo) continue;  // 시간 윈도우 안 겹침 → 충돌 아님
+            conflicts.push({
+              deviceId,
+              ruleA: a.rule,
+              ruleB: b.rule,
+              cmdA, cmdB,
+              timeInfo: overlapInfo,
+            });
+            continue;
           }
 
-          // 둘 다 센서 조건만 있으면 → 센서 조건이 상호 배타적인지 확인
+          // 시간 조건 한쪽이라도 없음 (센서 only 등) — 반대 명령만 충돌 검사
+          if (OPPOSITE[cmdA] !== cmdB) continue;
+
+          // 둘 다 센서 조건만 있으면 → 센서 조건 상호 배타 검사 (예: temp>30 open + temp<20 close)
           if (a.sensorConds.length > 0 && b.sensorConds.length > 0 && a.timeConds.length === 0 && b.timeConds.length === 0) {
-            // 같은 센서에 대해 반대 방향 조건이면 상호 배타 (충돌 아님)
-            // 예: temp > 30 → open, temp < 20 → close
             const sameSensorOpposite = a.sensorConds.some(sa =>
               b.sensorConds.some(sb => {
-                // 같은 센서 또는 같은 센서 타입 (temp_0001 vs temp_0002 → 둘 다 temp)
                 const typeA = sa.sensorId ? sa.sensorId.replace(/_\d+$/, '') : '';
                 const typeB = sb.sensorId ? sb.sensorId.replace(/_\d+$/, '') : '';
                 if (sa.sensorId !== sb.sensorId && typeA !== typeB) return false;
@@ -259,15 +308,14 @@ const ControlPanel = ({ farmId, houseId, houseConfig }) => {
                 const bIsLow = sb.operator === '<' || sb.operator === '<=';
                 const aIsLow = sa.operator === '<' || sa.operator === '<=';
                 const bIsHigh = sb.operator === '>' || sb.operator === '>=';
-                // A가 높을 때 + B가 낮을 때, 또는 반대
                 if ((aIsHigh && bIsLow && sa.value > sb.value) ||
                     (aIsLow && bIsHigh && sa.value < sb.value)) {
-                  return true; // 상호 배타
+                  return true;
                 }
                 return false;
               })
             );
-            if (sameSensorOpposite) continue; // 상호 배타 → 충돌 아님
+            if (sameSensorOpposite) continue;
           }
 
           conflicts.push({
@@ -275,7 +323,7 @@ const ControlPanel = ({ farmId, houseId, houseConfig }) => {
             ruleA: a.rule,
             ruleB: b.rule,
             cmdA, cmdB,
-            timeInfo: a.timeConds.length > 0 ? a.timeConds.map(t => t.time).join(', ') : '센서 기반',
+            timeInfo: a.timeConds.length > 0 || b.timeConds.length > 0 ? '시간 조건' : '센서 기반',
           });
         }
       }
@@ -434,6 +482,7 @@ const ControlPanel = ({ farmId, houseId, houseConfig }) => {
             nextRunAt: item.nextRunAt,
             lastTriggeredAt: item.lastTriggeredAt,
             actions: item.actions,
+            stepStatus: item.stepStatus || null,   // NR ⑤ stepped 실시간 진행 (있을 때만)
           };
         }
         setScheduleMap(map);
@@ -2405,7 +2454,35 @@ const NextRunCountdown = ({ schedule, bidirPosition, bidirProgress }) => {
         ((firstAction.command === 'open' && curPos >= target) ||
          (firstAction.command === 'close' && curPos <= target));
 
-      // step 진행 상태 변경 추적 — running → !running 시점 = step pause 시작
+      // ★ NR ⑤ stepStatus (정확 동기화) — 새로고침해도 step running/pause 정확 표시
+      //   backend stepStatusStore 가 NR ⑤ 의 step 발사 시점 보관 + schedule API 가 응답
+      //   localStorage 휘발 (stepEndedAtRef) 대체로 서버측 truth source 사용
+      const stepStatus = schedule.stepStatus;
+      if (stepStatus && firstAction.actionMode === 'stepped' && !isAtTarget) {
+        const stepStartedAt = stepStatus.stepStartedAt ? new Date(stepStatus.stepStartedAt).getTime() : 0;
+        const stepDurSec = stepStatus.stepDurSec || 0;
+        const stepPauseSec = stepStatus.stepPauseSec || (firstAction.stepPauseSeconds || 60);
+        const stepEndAt = stepStartedAt + stepDurSec * 1000;
+        const nextStepAt = stepStatus.nextStepAt
+          ? new Date(stepStatus.nextStepAt).getTime()
+          : stepEndAt + stepPauseSec * 1000;
+
+        if (stepStartedAt && now < stepEndAt) {
+          // step 동작 중 (NR ⑤ step 발사 후 stepDurSec 안)
+          setMode('running');
+          setRemaining(fmt(Math.max(0, Math.floor((stepEndAt - now) / 1000))));
+          return;
+        }
+        if (stepStartedAt && now < nextStepAt) {
+          // step pause 중 (다음 step 까지 카운트다운)
+          setMode('step_pause');
+          setRemaining(fmt(Math.max(0, Math.floor((nextStepAt - now) / 1000))));
+          return;
+        }
+        // nextStepAt 만료 — 잠시 후 다음 step 발사 (NR ⑤ stepLoop). stepStatus 곧 update 됨.
+      }
+
+      // step 진행 상태 변경 추적 — running → !running 시점 = step pause 시작 (stepStatus 없을 때 fallback)
       //
       // ★ rule 의 command 와 prog.direction 일치 시만 progress 적용
       //   같은 device 에 열기 자동화 + 닫기 자동화 가 같이 있을 때
@@ -2425,8 +2502,7 @@ const NextRunCountdown = ({ schedule, bidirPosition, bidirProgress }) => {
         return;
       }
 
-      // ★ stepped step pause — 다음 step 까지 카운트다운
-      //   step 동작 종료 직후 stepPauseSeconds 동안 활성. 목표 미도달 + 최근 step 종료 + 합리적 시간 안.
+      // ★ stepped step pause fallback — stepStatus 없을 때 frontend ref 추정
       if (firstAction.actionMode === 'stepped' && !isAtTarget && stepEndedAtRef.current > 0) {
         const stepPauseSec = firstAction.stepPauseSeconds || 60;
         const nextStepAt = stepEndedAtRef.current + stepPauseSec * 1000;
@@ -2436,7 +2512,6 @@ const NextRunCountdown = ({ schedule, bidirPosition, bidirProgress }) => {
           setRemaining(fmt(Math.max(0, Math.floor(remainMs / 1000))));
           return;
         }
-        // pause 만료 — 다음 step 발사 대기 (NR ⑤ stepLoop). 잠시 후 isProgRunning 재진입
       }
 
       // ② 목표 도달 — bidir 의 현재 위치가 목표 이상/이하 + 진행 중 아님
@@ -2461,7 +2536,7 @@ const NextRunCountdown = ({ schedule, bidirPosition, bidirProgress }) => {
     calc();
     const timer = setInterval(calc, 1000);
     return () => clearInterval(timer);
-  }, [schedule, curPos, firstAction.command, firstAction.deviceId, firstAction.duration, firstAction.durationUnit, firstAction.targetPosition]);
+  }, [schedule, curPos, firstAction.command, firstAction.deviceId, firstAction.duration, firstAction.durationUnit, firstAction.targetPosition, firstAction.actionMode, firstAction.stepPauseSeconds]);
 
   if (!remaining) return null;
 

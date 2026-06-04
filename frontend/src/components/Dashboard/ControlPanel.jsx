@@ -2406,8 +2406,13 @@ const NextRunCountdown = ({ schedule, bidirPosition, bidirProgress }) => {
          (firstAction.command === 'close' && curPos <= target));
 
       // step 진행 상태 변경 추적 — running → !running 시점 = step pause 시작
+      //
+      // ★ rule 의 command 와 prog.direction 일치 시만 progress 적용
+      //   같은 device 에 열기 자동화 + 닫기 자동화 가 같이 있을 때
+      //   열기 발동 중에 닫기 rule 도 '동작중' 으로 잘못 표시되던 버그 fix
       const currentProg = bidirProgressRef.current && bidirProgressRef.current[firstAction.deviceId];
-      const isProgRunning = !!(currentProg && typeof currentProg.remainSec === 'number' && currentProg.remainSec > 0);
+      const isMyProgress = !!(currentProg && currentProg.direction === firstAction.command);
+      const isProgRunning = !!(isMyProgress && typeof currentProg.remainSec === 'number' && currentProg.remainSec > 0);
       if (wasProgRunningRef.current && !isProgRunning) {
         stepEndedAtRef.current = now;   // step 동작 종료 → pause 시작 시점 기록
       }

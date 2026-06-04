@@ -728,7 +728,6 @@ const RuleForm = ({ farmId, houseId, houses = [], rule, existingRules = [], defa
     const COMMAND_LABEL_KR = { open: '열기', close: '닫기', on: '켜짐', off: '꺼짐', stop: '정지' };
     const estimateDurationSec = (action) => {
       if (action.actionMode === 'stepped') {
-        // 1330라인 예상 시간 계산식과 동일 로직
         const stepPercent = action.stepPercent || 10;
         const stepPauseSec = action.stepPauseSeconds || 60;
         const startPos = action.command === 'close' ? 100 : 0;
@@ -737,7 +736,12 @@ const RuleForm = ({ farmId, houseId, houses = [], rule, existingRules = [], defa
           : (action.command === 'close' ? 0 : 100);
         const distance = Math.abs(startPos - target);
         const numSteps = Math.max(1, Math.ceil(distance / stepPercent));
-        return numSteps * stepPauseSec;
+        // ★ 정확화 (2026-06-04) — 옛 (numSteps × pause) 만 = 실제 동작 누락
+        //   실제 = numSteps × (step 동작 + pause) + reached check pause
+        //   step 동작 = fullStrokeSec × stepPercent / 100 (보수 fullStrokeSec=60초)
+        //   + 10% 버퍼 → 측창 100% 닫기 (5단계, pause=60) 약 396초 (6분 36초) 추정
+        const stepDurSec = Math.max(1, Math.round(60 * stepPercent / 100));
+        return Math.ceil(numSteps * (stepDurSec + stepPauseSec) * 1.1);
       }
       if (action.actionMode === 'position' || action.actionMode === 'full') {
         // bidir 한 번에 이동 — fullStrokeSec 메타 없으므로 보수적 120초

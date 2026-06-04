@@ -208,7 +208,12 @@ const ControlPanel = ({ farmId, houseId, houseConfig }) => {
           : (action.command === 'close' ? 0 : 100);
         const distance = Math.abs(startPos - target);
         const numSteps = Math.max(1, Math.ceil(distance / stepPercent));
-        return numSteps * stepPauseSec;
+        // ★ 정확화 — 옛 (numSteps × pause) 만 = 실제 동작 누락
+        //   실제 = numSteps × (step 동작 + pause) + reached check pause
+        //   step 동작 시간 = fullStrokeSec × stepPercent / 100 (fullStrokeSec 보수 60초)
+        //   + 10% 버퍼 (NR ⑤ stepLoop overhead 흡수)
+        const stepDurSec = Math.max(1, Math.round(60 * stepPercent / 100));
+        return Math.ceil(numSteps * (stepDurSec + stepPauseSec) * 1.1);
       }
       if (action.actionMode === 'position' || action.actionMode === 'full') return 120;
       let dur = action.duration || 0;

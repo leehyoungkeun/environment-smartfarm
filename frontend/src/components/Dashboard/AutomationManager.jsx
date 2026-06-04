@@ -1135,7 +1135,15 @@ const RuleForm = ({ farmId, houseId, houses = [], rule, existingRules = [], defa
                   )}
                   <select
                     value={action.command}
-                    onChange={(e) => updateAction(idx, { command: e.target.value })}
+                    onChange={(e) => {
+                      const newCmd = e.target.value;
+                      const updates = { command: newCmd };
+                      // ★ command 변경 시 targetPosition 자동 정합 보정
+                      //   close 인데 target=100 / open 인데 target=0 같은 모순 자동 swap
+                      if (newCmd === 'open' && action.targetPosition === 0) updates.targetPosition = 100;
+                      if (newCmd === 'close' && action.targetPosition === 100) updates.targetPosition = 0;
+                      updateAction(idx, updates);
+                    }}
                     className="input-field w-20 md:w-24 text-xs md:text-sm flex-shrink-0 px-2"
                   >
                     {commands.map(c => (
@@ -1162,11 +1170,16 @@ const RuleForm = ({ farmId, houseId, houses = [], rule, existingRules = [], defa
                               const newMode = e.target.value;
                               const updates = { actionMode: newMode };
                               // 기본값 세팅
-                              if (newMode === 'position' && action.targetPosition == null) updates.targetPosition = 50;
+                              // ★ command 에 맞춰 targetPosition default 설정 (모순 방지)
+                              if (newMode === 'position' && action.targetPosition == null) {
+                                updates.targetPosition = action.command === 'close' ? 0 : 50;
+                              }
                               if (newMode === 'stepped') {
                                 if (action.stepPercent == null) updates.stepPercent = 10;
                                 if (action.stepPauseSeconds == null) updates.stepPauseSeconds = 60;
-                                if (action.targetPosition == null) updates.targetPosition = 100;
+                                if (action.targetPosition == null) {
+                                  updates.targetPosition = action.command === 'close' ? 0 : 100;
+                                }
                               }
                               updateAction(idx, updates);
                             }}
@@ -1182,10 +1195,14 @@ const RuleForm = ({ farmId, houseId, houses = [], rule, existingRules = [], defa
                             <div style={{display:'flex',alignItems:'center',gap:8,padding:'4px 0',flexWrap:'wrap'}}>
                               <span style={{fontSize:12,color:'#475569',fontWeight:600}}>목표 위치:</span>
                               <div style={{display:'flex',alignItems:'center',gap:4,background:'#fff',borderRadius:8,padding:'2px 8px',border:'1.5px solid #bfdbfe'}}>
-                                <select value={Math.round((action.targetPosition ?? 50) / 10) * 10}
+                                <select value={Math.round((action.targetPosition ?? (action.command === 'close' ? 0 : 50)) / 10) * 10}
                                   onChange={(e) => updateAction(idx, { targetPosition: parseInt(e.target.value) })}
                                   style={{fontSize:14,fontWeight:800,textAlign:'center',border:'none',outline:'none',color:'#1e40af',background:'transparent',cursor:'pointer'}}>
-                                  {[0,10,20,30,40,50,60,70,80,90,100].map(v => (
+                                  {/* ★ command 에 따라 옵션 제한 — open 은 0 제외, close 는 100 제외 (모순 자체 불가능) */}
+                                  {(action.command === 'open'
+                                    ? [10,20,30,40,50,60,70,80,90,100]
+                                    : [0,10,20,30,40,50,60,70,80,90]
+                                  ).map(v => (
                                     <option key={v} value={v}>{v}</option>
                                   ))}
                                 </select>
@@ -1221,10 +1238,14 @@ const RuleForm = ({ farmId, houseId, houses = [], rule, existingRules = [], defa
                               </div>
                               <div style={{display:'flex',alignItems:'center',gap:8,flexWrap:'wrap'}}>
                                 <span style={{fontSize:12,color:'#475569',fontWeight:600,minWidth:64}}>최종 목표:</span>
-                                <select value={Math.round((action.targetPosition ?? 100) / 10) * 10}
+                                <select value={Math.round((action.targetPosition ?? (action.command === 'close' ? 0 : 100)) / 10) * 10}
                                   onChange={(e) => updateAction(idx, { targetPosition: parseInt(e.target.value) })}
                                   style={{fontSize:14,fontWeight:800,textAlign:'center',border:'1.5px solid #fde047',borderRadius:6,padding:'2px 4px',outline:'none',cursor:'pointer',background:'#fff'}}>
-                                  {[0,10,20,30,40,50,60,70,80,90,100].map(v => (
+                                  {/* ★ command 에 따라 옵션 제한 — open 은 0 제외, close 는 100 제외 (모순 자체 불가능) */}
+                                  {(action.command === 'open'
+                                    ? [10,20,30,40,50,60,70,80,90,100]
+                                    : [0,10,20,30,40,50,60,70,80,90]
+                                  ).map(v => (
                                     <option key={v} value={v}>{v}</option>
                                   ))}
                                 </select>

@@ -152,12 +152,38 @@ router.get("/:farmId", async (req, res) => {
 });
 
 /**
+ * actions 의 command + targetPosition 정합성 검증
+ *   - command='open' + target<=0  → 모순 (open 인데 닫히는 방향)
+ *   - command='close' + target>=100 → 모순 (close 인데 열리는 방향)
+ * 이런 모순 rule 이 저장되면 NR ⑤ 가 "이미 목표 도달 → 스킵" 으로 자동화
+ * 동작 안 함 (2026-06-04 측창 사고 패턴).
+ */
+function validateRuleActions(actions) {
+  if (!Array.isArray(actions)) return null;
+  for (const a of actions) {
+    if (typeof a.targetPosition !== "number") continue;
+    if (a.command === "open" && a.targetPosition <= 0) {
+      return `${a.deviceId || "device"}: command='open' 인데 targetPosition=${a.targetPosition} — 모순 (open 은 target>=10 이어야)`;
+    }
+    if (a.command === "close" && a.targetPosition >= 100) {
+      return `${a.deviceId || "device"}: command='close' 인데 targetPosition=${a.targetPosition} — 모순 (close 는 target<=90 이어야)`;
+    }
+  }
+  return null;
+}
+
+/**
  * POST /api/automation/:farmId
  * 규칙 생성
  */
 router.post("/:farmId", async (req, res) => {
   try {
     const { farmId } = req.params;
+    // ★ 모순 rule 검증 (command + targetPosition 정합성)
+    const validationErr = validateRuleActions(req.body.actions);
+    if (validationErr) {
+      return res.status(400).json({ success: false, error: `자동화 rule 모순: ${validationErr}` });
+    }
     const rule = await AutomationRule.create({ ...req.body, farmId });
 
     logger.info(`✅ 자동화 규칙 생성: ${rule.name} (${rule.houseId})`);
@@ -176,6 +202,13 @@ router.post("/:farmId", async (req, res) => {
 router.put("/:farmId/:ruleId", async (req, res) => {
   try {
     const { ruleId } = req.params;
+    // ★ 모순 rule 검증 (command + targetPosition 정합성)
+    if (req.body.actions) {
+      const validationErr = validateRuleActions(req.body.actions);
+      if (validationErr) {
+        return res.status(400).json({ success: false, error: `자동화 rule 모순: ${validationErr}` });
+      }
+    }
     const rule = await AutomationRule.findByIdAndUpdate(ruleId, req.body, {
       new: true,
       runValidators: true,

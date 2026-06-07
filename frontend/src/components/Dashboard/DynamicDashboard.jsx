@@ -368,10 +368,18 @@ const DynamicDashboard = ({ farmId, isTouchPanel = false }) => {
 
       if (latestRes.status === 'fulfilled' && latestRes.value.data.success) {
         const newData = latestRes.value.data.data || {};
-        if (newData.timestamp !== lastDataTimestampRef.current) {
-          lastDataTimestampRef.current = newData.timestamp;
-          setLatestData(newData);
-          anyChanged = true;
+        // ★ houseId 검증 — fetch URL 의 selectedHouse 와 응답 houseId 일치 확인
+        //   (race 또는 stale 응답 방지 — 옛 house 의 응답이 새 house 의 latestData 에 들어가는 사고 차단)
+        if (newData.houseId && newData.houseId !== selectedHouse) {
+          // 응답이 다른 house — 무시 (다음 polling 에서 정상)
+        } else {
+          // ★ ref 비교는 (selectedHouse + timestamp) 조합 — house 변경 시 옛 ref 영향 없음
+          const newKey = `${selectedHouse}:${newData.timestamp}`;
+          if (newKey !== lastDataTimestampRef.current) {
+            lastDataTimestampRef.current = newKey;
+            setLatestData(newData);
+            anyChanged = true;
+          }
         }
       }
       if (historyRes.status === 'fulfilled' && historyRes.value.data.success) {
@@ -412,6 +420,12 @@ const DynamicDashboard = ({ farmId, isTouchPanel = false }) => {
 
   useEffect(() => {
     if (selectedHouse) {
+      // ★ selectedHouse 변경 시 옛 house 의 stale state reset
+      //   (race 또는 옛 응답이 새 house 의 latestData 에 남는 사고 차단)
+      setLatestData({});
+      setHistoryData([]);
+      lastDataTimestampRef.current = null;
+
       const pollingMs = getPollingInterval();
       loadLatestData();
       intervalRef.current = setInterval(loadLatestData, pollingMs);

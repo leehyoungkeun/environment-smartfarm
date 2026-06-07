@@ -420,8 +420,8 @@ const DynamicDashboard = ({ farmId, isTouchPanel = false }) => {
 
   useEffect(() => {
     if (selectedHouse) {
-      // ★ selectedHouse 변경 시 옛 house 의 stale state reset
-      //   (race 또는 옛 응답이 새 house 의 latestData 에 남는 사고 차단)
+      // ★ selectedHouse 변경 시 옛 house 의 stale state reset (2026-06-07 fix)
+      //   race 또는 옛 응답이 새 house 의 latestData 에 남는 사고 차단
       setLatestData({});
       setHistoryData([]);
       lastDataTimestampRef.current = null;

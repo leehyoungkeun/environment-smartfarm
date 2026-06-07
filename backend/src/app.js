@@ -84,6 +84,23 @@ app.use(
 
 app.use(compression());
 
+// ★ realtime endpoint 의 응답에 no-cache header — workbox / CDN / browser 캐시 전부 차단
+//   PWA service worker 가 옛 응답 stale 표시하던 사고 (2026-06-07 진단) 영구 방지
+const NO_CACHE_PATTERNS = [
+  /\/api\/sensors\/latest\//,
+  /\/api\/automation\/[^/]+\/schedule/,
+  /\/api\/alerts/,
+  /\/api\/device-positions/,
+  /\/api\/nutrient\/(?:current|status)/,
+];
+app.use((req, res, next) => {
+  if (req.method === "GET" && NO_CACHE_PATTERNS.some(re => re.test(req.path))) {
+    res.set("Cache-Control", "no-store, must-revalidate");
+    res.set("Pragma", "no-cache");
+  }
+  next();
+});
+
 app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ extended: true, limit: "10mb" }));
 

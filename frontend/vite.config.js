@@ -52,6 +52,10 @@ export default defineConfig(({ mode }) => {
           globPatterns: ['**/*.{js,css,html,svg,png,woff2}'],
           // 큰 파일도 캐싱 (jspdf 등)
           maximumFileSizeToCacheInBytes: 5 * 1024 * 1024,
+          // ★ 새 SW 즉시 활성화 + 옛 캐시 폐기 — stale 응답 영구 차단
+          skipWaiting: true,
+          clientsClaim: true,
+          cleanupOutdatedCaches: true,
           runtimeCaching: [
             {
               // 사진 (uploads) — StaleWhileRevalidate
@@ -60,7 +64,15 @@ export default defineConfig(({ mode }) => {
               options: { cacheName: 'uploads-cache', expiration: { maxEntries: 200, maxAgeSeconds: 30 * 24 * 3600 } },
             },
             {
-              // API GET — NetworkFirst (네트워크 우선, 실패 시 캐시 fallback)
+              // ★ Realtime endpoint — NetworkOnly (절대 stale 안 됨)
+              //   sensors/latest, automation schedule, alerts, device-positions, nutrient current/status
+              urlPattern: ({ request, url }) =>
+                request.method === 'GET' &&
+                /\/api\/(sensors\/latest|automation\/[^/]+\/schedule|alerts|device-positions|nutrient\/(?:current|status))/.test(url.pathname),
+              handler: 'NetworkOnly',
+            },
+            {
+              // 그 외 API GET — NetworkFirst (네트워크 우선, 실패 시 캐시 fallback)
               urlPattern: ({ request, url }) => request.method === 'GET' && url.pathname.startsWith('/api/'),
               handler: 'NetworkFirst',
               options: { cacheName: 'api-cache', expiration: { maxEntries: 100, maxAgeSeconds: 24 * 3600 }, networkTimeoutSeconds: 5 },

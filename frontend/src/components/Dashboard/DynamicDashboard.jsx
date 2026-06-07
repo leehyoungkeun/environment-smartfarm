@@ -368,10 +368,11 @@ const DynamicDashboard = ({ farmId, isTouchPanel = false }) => {
 
       if (latestRes.status === 'fulfilled' && latestRes.value.data.success) {
         const newData = latestRes.value.data.data || {};
+        console.log('[DBG-latest]', { selectedHouse, respHouseId: newData.houseId, respTs: newData.timestamp, respData: newData.data });
         // ★ houseId 검증 — fetch URL 의 selectedHouse 와 응답 houseId 일치 확인
         //   (race 또는 stale 응답 방지 — 옛 house 의 응답이 새 house 의 latestData 에 들어가는 사고 차단)
         if (newData.houseId && newData.houseId !== selectedHouse) {
-          // 응답이 다른 house — 무시 (다음 polling 에서 정상)
+          console.log('[DBG-latest] SKIPPED: houseId mismatch');
         } else {
           // ★ ref 비교는 (selectedHouse + timestamp) 조합 — house 변경 시 옛 ref 영향 없음
           const newKey = `${selectedHouse}:${newData.timestamp}`;
@@ -379,8 +380,13 @@ const DynamicDashboard = ({ farmId, isTouchPanel = false }) => {
             lastDataTimestampRef.current = newKey;
             setLatestData(newData);
             anyChanged = true;
+            console.log('[DBG-latest] setLatestData called', { newKey });
+          } else {
+            console.log('[DBG-latest] SKIPPED: same key as last', { newKey });
           }
         }
+      } else {
+        console.log('[DBG-latest] fetch not fulfilled or success:false', { status: latestRes.status, success: latestRes.value?.data?.success });
       }
       if (historyRes.status === 'fulfilled' && historyRes.value.data.success) {
         const newHistory = historyRes.value.data.data || [];

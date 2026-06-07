@@ -3526,10 +3526,12 @@ const SystemManagePanel = ({ farmId }) => {
     if (!confirm('모든 릴레이를 OFF 하시겠습니까?\n(동작 중인 장치가 모두 정지됩니다)')) return;
     setActionLoading('relay-reset');
     setActionMsg(null);
+    let succeeded = false;
     try {
       if (wsService.isConnected()) {
         const sent = wsService.requestRelayReset(farmId);
         if (sent) {
+          succeeded = true;
           setActionMsg({ type: 'success', text: '릴레이 전체 OFF 요청 전송 (MQTT)' });
         } else {
           setActionMsg({ type: 'error', text: 'WebSocket 미연결 — 요청 실패' });
@@ -3539,6 +3541,7 @@ const SystemManagePanel = ({ farmId }) => {
         const rpiBase = getRpiApiBase();
         const res = await axiosBase.post(`${rpiBase}/relay/reset-all`, {}, { timeout: 15000 });
         if (res.data?.success) {
+          succeeded = true;
           setActionMsg({ type: 'success', text: `릴레이 전체 OFF 완료 (${res.data.detail || ''})` });
         } else {
           setActionMsg({ type: 'error', text: res.data?.error || '릴레이 초기화 실패' });
@@ -3547,6 +3550,14 @@ const SystemManagePanel = ({ farmId }) => {
     } catch (err) {
       setActionMsg({ type: 'error', text: err.message });
     } finally { setActionLoading(null); }
+
+    // ★ 성공 시 ControlPanel 의 모든 state 강제 reset
+    //   (옛: backend reset 했지만 frontend 의 commandLock/bidirProgress/'opening' 등이
+    //    polling 응답을 skip 시켜 옛 상태 그대로 표시되던 사고 차단)
+    if (succeeded) {
+      try { localStorage.removeItem(`deviceStates_${farmId}`); } catch {}
+      window.dispatchEvent(new CustomEvent('smartfarm:relay-reset', { detail: { farmId } }));
+    }
   };
 
   const StatusBadge = ({ online, label }) => (

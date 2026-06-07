@@ -1040,12 +1040,26 @@ const ControlPanel = ({ farmId, houseId, houseConfig }) => {
       }
     });
 
+    // ★ 릴레이 초기화 event — 모든 device state 강제 reset
+    //   설정 → "릴레이 초기화" 클릭 시 ConfigurationManager 가 발사
+    //   sync skip 조건 (commandLock/bidirProgress/'opening' 등) 우회 → 즉시 idle 표시
+    const handleRelayResetEvent = () => {
+      setDeviceStates({});
+      setBidirProgress({});
+      setBidirPosition({});
+      relayCoilsRef.current = {};
+      // 100ms 후 modbus 실제 상태 한 번 더 sync (확실히)
+      setTimeout(() => { fetchRelayStatus(); }, 100);
+    };
+    window.addEventListener('smartfarm:relay-reset', handleRelayResetEvent);
+
     return () => {
       stopRelayPolling();
       unsubRelay();
       unsubRelayRes();
       unsubControl();
       unsubDevicePos();
+      window.removeEventListener('smartfarm:relay-reset', handleRelayResetEvent);
     };
   }, [fetchRelayStatus, startRelayPolling, stopRelayPolling, farmId]);
 

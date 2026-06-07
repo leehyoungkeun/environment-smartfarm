@@ -94,25 +94,26 @@ function getFarmLocalApiBase() {
 }
 
 // localStorage에서 마지막 상태 복원
+// ★ serverOnline 은 항상 null 로 시작 — 옛 stale state 무시 + 첫 health check 까지 "확인 중" 표시
+//   (옛: localStorage 의 serverOnline=false 가 잠시 "연결 끊김" 표시되던 사고 차단)
 function loadSavedState() {
   if (isFarmLocalMode()) {
     return { serverOnline: false, manualOverride: false, downSince: null, currentApiBase: getFarmLocalApiBase() };
   }
+  let manualOverride = false;
   try {
     const saved = localStorage.getItem(STORAGE_KEY);
-    if (saved) {
+    if (saved && !IS_CLOUD_MODE) {
       const state = JSON.parse(saved);
-      return {
-        serverOnline: state.serverOnline ?? true,
-        manualOverride: IS_CLOUD_MODE ? false : (state.manualOverride ?? false),
-        downSince: state.downSince || null,
-        currentApiBase: IS_CLOUD_MODE
-          ? PC_SERVER
-          : (state.manualOverride ? RPI_SERVER : (state.serverOnline ? PC_SERVER : RPI_SERVER)),
-      };
+      manualOverride = state.manualOverride ?? false;
     }
   } catch {}
-  return { serverOnline: true, manualOverride: false, downSince: null, currentApiBase: PC_SERVER };
+  return {
+    serverOnline: null,            // 첫 health check 까지 미확인 (SystemStatusWidget "확인 중")
+    manualOverride,
+    downSince: null,
+    currentApiBase: manualOverride ? RPI_SERVER : PC_SERVER,
+  };
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -126,7 +127,7 @@ if (!window[GLOBAL_KEY]) {
     rpiOnline: null,
     manualOverride: saved.manualOverride,
     lastCheck: null,
-    downSince: saved.downSince ? new Date(saved.downSince) : (saved.serverOnline ? null : new Date()),
+    downSince: saved.downSince ? new Date(saved.downSince) : (saved.serverOnline === false ? new Date() : null),
     listeners: [],
     healthInterval: HEALTH_BASE_INTERVAL, // adaptive polling 현재 간격
     consecutiveFailures: 0,

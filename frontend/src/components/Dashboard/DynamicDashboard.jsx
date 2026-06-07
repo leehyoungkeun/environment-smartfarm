@@ -368,25 +368,17 @@ const DynamicDashboard = ({ farmId, isTouchPanel = false }) => {
 
       if (latestRes.status === 'fulfilled' && latestRes.value.data.success) {
         const newData = latestRes.value.data.data || {};
-        console.log('[DBG-latest]', { selectedHouse, respHouseId: newData.houseId, respTs: newData.timestamp, respData: newData.data });
         // ★ houseId 검증 — fetch URL 의 selectedHouse 와 응답 houseId 일치 확인
-        //   (race 또는 stale 응답 방지 — 옛 house 의 응답이 새 house 의 latestData 에 들어가는 사고 차단)
         if (newData.houseId && newData.houseId !== selectedHouse) {
-          console.log('[DBG-latest] SKIPPED: houseId mismatch');
+          // 응답이 다른 house — 무시
         } else {
-          // ★ ref 비교는 (selectedHouse + timestamp) 조합 — house 변경 시 옛 ref 영향 없음
           const newKey = `${selectedHouse}:${newData.timestamp}`;
           if (newKey !== lastDataTimestampRef.current) {
             lastDataTimestampRef.current = newKey;
             setLatestData(newData);
             anyChanged = true;
-            console.log('[DBG-latest] setLatestData called', { newKey });
-          } else {
-            console.log('[DBG-latest] SKIPPED: same key as last', { newKey });
           }
         }
-      } else {
-        console.log('[DBG-latest] fetch not fulfilled or success:false', { status: latestRes.status, success: latestRes.value?.data?.success });
       }
       if (historyRes.status === 'fulfilled' && historyRes.value.data.success) {
         const newHistory = historyRes.value.data.data || [];
@@ -688,13 +680,16 @@ const DashboardWidgets = ({ farmId, selectedHouse, alerts, dataVersion, currentH
   const [widgetOrder, setWidgetOrder] = useState(() => {
     try { return JSON.parse(localStorage.getItem(orderKey) || '[]'); } catch { return []; }
   });
-  const orderedWidgets = useMemo(() => {
+  // ★ useMemo 가 first render 의 widgets array (render closure 가 옛 latestData 캡처) 를
+  //   cache 하던 stale closure bug 제거. id 순서만 useMemo, widgets element 는 매 render 새로.
+  const orderedIds = useMemo(() => {
     const allIds = widgets.map(w => w.id);
     const inOrder = widgetOrder.filter(id => allIds.includes(id));
     const notInOrder = allIds.filter(id => !inOrder.includes(id));
-    return [...inOrder, ...notInOrder].map(id => widgets.find(w => w.id === id));
+    return [...inOrder, ...notInOrder];
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [widgetOrder, farmId, selectedHouse]);
+  const orderedWidgets = orderedIds.map(id => widgets.find(w => w.id === id));
 
   const widgetSensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 8 } })

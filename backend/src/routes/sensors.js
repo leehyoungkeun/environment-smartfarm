@@ -241,16 +241,12 @@ router.get("/latest/:farmId/:houseId", async (req, res, next) => {
 
     const latest = await SensorData.getLatest(farmId, houseId);
 
-    if (!latest) {
-      return res.status(404).json({
-        success: false,
-        error: "No sensor data found",
-      });
-    }
-
+    // ★ 데이터 없는 house 도 정상 case 로 처리 — 200 + data:null
+    //   (옛: 404 → axios reject → 사용자 console 에 빨간 에러. 매번 새로고침 마다 노출)
+    //   frontend 는 latestData.timestamp 없으면 "데이터 없음" 표시 (정상 동작)
     res.json({
       success: true,
-      data: latest,
+      data: latest || null,
     });
   } catch (error) {
     next(error);

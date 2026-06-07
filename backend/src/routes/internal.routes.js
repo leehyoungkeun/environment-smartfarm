@@ -388,8 +388,10 @@ router.post("/control-log", async (req, res) => {
     //   NR ⑤ 가 Duration 종료 OFF 도 같은 sendControlLog 로 호출 → 그대로 갱신하면
     //   lastTriggeredAt 가 OFF 시점으로 잘못 갱신되어 frontend 카운트다운이
     //   동작 종료 후에도 "▶ 동작중" 으로 N초 더 표시되는 모순 발생.
+    // ★ 거부/스킵 (success=false) 은 lastTriggered 갱신 안 함
+    //   기록은 control_logs 에 저장 (success=false + reason) → 거부 사유 추적 가능
     const TRIGGER_COMMANDS = new Set(["on", "open", "close"]);
-    if (ruleId && TRIGGER_COMMANDS.has(command)) {
+    if (ruleId && TRIGGER_COMMANDS.has(command) && success !== false) {
       await prisma.automationRule.update({
         where: { id: ruleId },
         data: {

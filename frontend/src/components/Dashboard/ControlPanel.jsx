@@ -110,6 +110,8 @@ const ControlPanel = ({ farmId, houseId, houseConfig }) => {
   const [confirmAction, setConfirmAction] = useState(null); // { title, message, onConfirm }
   const [controlStage, setControlStage] = useState({}); // { [deviceId]: 'sending' | 'executing' | 'verifying' | 'done' | 'timeout' }
   const [bidirProgress, setBidirProgress] = useState({}); // { [deviceId]: { percent: 0~100, direction: 'open'|'close' } }
+  // ★ 릴레이 모듈 list — Settings → 릴레이 모듈 관리 의 channels (8/16/32) 동적 사용
+  const [relayModules, setRelayModules] = useState([]);
   const bidirPositionKey = `bidirPosition_${farmId}_${houseId}`;
   const [bidirPosition, setBidirPosition] = useState(() => {
     try { return JSON.parse(localStorage.getItem(bidirPositionKey)) || {}; } catch { return {}; }
@@ -794,9 +796,11 @@ const ControlPanel = ({ farmId, houseId, houseConfig }) => {
       let anySuccess = false;
       const newCoils = { ...relayCoilsRef.current };
 
-      // Waveshare: FC1 (Read Coils)
+      // Waveshare: FC1 (Read Coils) — quantity 는 모듈 등록 채널수 동적
       for (const unitId of waveshareUnits) {
-        const res = await getRelayStatus(unitId, 8);
+        const mod = relayModules.find(m => Number(m.unitId) === Number(unitId) && (m.moduleType || 'waveshare') === 'waveshare');
+        const quantity = Number(mod?.channels) || 8;
+        const res = await getRelayStatus(unitId, quantity);
         if (res.success && res.data?.coils) {
           newCoils[unitId] = res.data.coils;
           anySuccess = true;
@@ -886,6 +890,21 @@ const ControlPanel = ({ farmId, houseId, houseConfig }) => {
       relayIntervalRef.current = null;
     }
   }, []);
+
+  // ★ 릴레이 모듈 list 로드 — Settings 의 channels 동적 사용
+  useEffect(() => {
+    const loadRelayModules = async () => {
+      try {
+        const token = localStorage.getItem('accessToken');
+        const res = await axios.get(`${getApiBase()}/config/${farmId}`, {
+          headers: token ? { Authorization: `Bearer ${token}` } : {},
+          timeout: 8000,
+        });
+        setRelayModules(res.data?.data?.settings?.relayModules || []);
+      } catch {}
+    };
+    loadRelayModules();
+  }, [farmId]);
 
   useEffect(() => {
     // Lambda 콜드 스타트 방지: 페이지 진입 시 미리 워밍업
@@ -1327,7 +1346,9 @@ const ControlPanel = ({ farmId, houseId, houseConfig }) => {
               // ★ WS 모드 우회 — fetchRelayStatus 는 WS 연결 시 early return 함
               //   직접 HTTP getRelayStatus 호출하여 FC1 실제 읽기 수행
               const unitId = m?.unitId || 1;
-              const res = m ? await getRelayStatus(unitId, 8) : null;
+              const mod = relayModules.find(rm => Number(rm.unitId) === Number(unitId) && (rm.moduleType || 'waveshare') === 'waveshare');
+              const quantity = Number(mod?.channels) || 8;
+              const res = m ? await getRelayStatus(unitId, quantity) : null;
               const coils = res?.success && res?.data?.coils ? res.data.coils : null;
               if (coils && m) {
                 // relayCoilsRef 도 갱신 (다른 device 의 polling 결과 캐시)

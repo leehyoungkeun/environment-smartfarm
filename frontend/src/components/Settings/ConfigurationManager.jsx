@@ -4,6 +4,7 @@ import { getApiBase, getPcApiBase, getRpiApiBase, isFarmLocalMode, setFarmLocalM
 import wsService from '../../services/wsService';
 
 const AutomationManager = lazy(() => import('../Dashboard/AutomationManager'));
+const AccessoryManager = lazy(() => import('./AccessoryManager').then(m => ({ default: m.AccessoryManager })));
 
 // 모든 요청에 자동으로 인증 토큰 추가
 const axios = axiosBase.create();
@@ -472,6 +473,7 @@ const ConfigurationManager = ({ farmId = import.meta.env.VITE_FARM_ID || 'farm_0
     { id: 'cameras', label: '카메라', icon: '📹' },
     { id: 'automation', label: '자동화규칙', icon: '🤖' },
     { id: 'alerts', label: '알림설정', icon: '🔔' },
+    { id: 'accessories', label: '부가장치', icon: '📺' },
     { id: 'system', label: '시스템', icon: '⚙️' },
   ];
 
@@ -596,6 +598,13 @@ const ConfigurationManager = ({ farmId = import.meta.env.VITE_FARM_ID || 'farm_0
       {/* 알림설정 탭 */}
       {activeTab === 'alerts' && (
         <AlertSettingsTab farmId={farmId} houses={houses} onHousesUpdate={loadHouses} />
+      )}
+
+      {/* 부가장치 탭 (전광판, 스피커 등) */}
+      {activeTab === 'accessories' && (
+        <Suspense fallback={<div className="skeleton h-64 rounded-2xl" />}>
+          <AccessoryManager farmId={farmId} />
+        </Suspense>
       )}
 
       {/* 시스템 설정 탭 */}
@@ -2195,8 +2204,9 @@ const SystemSettings = ({ farmId }) => {
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 const MODULE_TYPES = [
   { value: 'waveshare', label: 'Waveshare (FC01/FC15)', channels: 8 },
-  { value: 'eletechsup', label: 'Eletechsup (FC03/FC06)', channels: 8 },
 ];
+// ★ 채널 수 선택지 — Waveshare 8/16/32 만 사용 (양산 표준)
+const CHANNEL_OPTIONS = [8, 16, 32];
 
 const EMPTY_FORM = { name: '', unitId: '', moduleType: 'waveshare', channels: 8, description: '' };
 
@@ -2545,9 +2555,10 @@ const RelayModuleManager = ({ farmId }) => {
             </div>
             <div>
               <label className="text-xs text-gray-500 font-medium block mb-1">채널 수</label>
-              <input type="number" value={form.channels} onChange={e => setForm(f => ({ ...f, channels: e.target.value }))}
-                min={1} max={64}
-                className="w-full border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:border-blue-400" />
+              <select value={form.channels} onChange={e => setForm(f => ({ ...f, channels: Number(e.target.value) }))}
+                className="w-full border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:border-blue-400">
+                {CHANNEL_OPTIONS.map(c => <option key={c} value={c}>{c} CH</option>)}
+              </select>
             </div>
             <div className="col-span-2">
               <label className="text-xs text-gray-500 font-medium block mb-1">메모 (선택)</label>

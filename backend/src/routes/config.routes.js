@@ -482,6 +482,18 @@ router.put("/system-settings/:farmId", async (req, res) => {
       [farmId, JSON.stringify(settings)]
     );
 
+    // 부가장치 (display) 설정 → RPi 로 즉시 push (fire-and-forget)
+    const displayCfg = req.body.settings?.display || req.body.display;
+    if (displayCfg && typeof displayCfg === "object") {
+      const rpiServerBase = getRpiBase(farmId).replace(":1880", ":3001");
+      fetch(`${rpiServerBase}/local-config/display`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(displayCfg),
+        timeout: 5000,
+      }).catch((e) => logger.warn(`RPi display push 실패 (${farmId}): ${e.message}`));
+    }
+
     // 모듈 변경 감지 → RPi에 즉시 알림 (즉시 반영, 5분 검증으로 누락 보정)
     const submittedSettings = req.body.settings;
     if (

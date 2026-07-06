@@ -494,6 +494,74 @@ router.put("/system-settings/:farmId", async (req, res) => {
       }).catch((e) => logger.warn(`RPi display push 실패 (${farmId}): ${e.message}`));
     }
 
+    // sensorModules 저장 시 → farms.houses.sensors.modbus 도 동기 갱신
+    // (system_settings 와 houses.sensors 저장 위치 이원화 결함 방어)
+    const submittedSensorModules = req.body.settings?.sensorModules;
+    if (Array.isArray(submittedSensorModules)) {
+      try {
+        const modByType = {};
+        for (const mod of submittedSensorModules) {
+          if (mod?.sensorType) modByType[mod.sensorType] = mod;
+        }
+        const inferType = (sensorId) => {
+          const id = String(sensorId || "").toLowerCase();
+          if (id.startsWith("temp")) return { type: "temperature_humidity", registerIndex: 1 };
+          if (id.startsWith("humid")) return { type: "temperature_humidity", registerIndex: 0 };
+          if (id.startsWith("co2")) return { type: "co2", registerIndex: 0 };
+          if (id.startsWith("soil_temp")) return { type: "soil", registerIndex: 0 };
+          if (id.startsWith("soil_moist")) return { type: "soil", registerIndex: 1 };
+          if (id.startsWith("ec")) return { type: "ec", registerIndex: 0 };
+          if (id.startsWith("ph")) return { type: "ph", registerIndex: 0 };
+          return null;
+        };
+        const houses = await Config.find({ farmId });
+        let maxVer = 0;
+        for (const h of houses) {
+          if ((h.configVersion || 0) > maxVer) maxVer = h.configVersion || 0;
+        }
+        let syncedCount = 0;
+        for (const house of houses) {
+          let changed = false;
+          const newSensors = (house.sensors || []).map((s) => {
+            const inferred = inferType(s.sensorId);
+            if (!inferred) return s;
+            const mod = modByType[inferred.type];
+            if (!mod) return s;
+            const newModbus = {
+              unitId: mod.unitId,
+              fc: mod.fc || 3,
+              address: mod.address || 0,
+              quantity: mod.quantity || 1,
+              registerIndex: inferred.registerIndex,
+              divider: mod.divider || 1,
+              signed: mod.signed || false,
+            };
+            if (JSON.stringify(s.modbus || {}) !== JSON.stringify(newModbus)) {
+              changed = true;
+              syncedCount++;
+              return { ...s, modbus: newModbus };
+            }
+            return s;
+          });
+          if (changed) {
+            await Config.findOneAndUpdate(
+              { farmId, houseId: house.houseId },
+              { sensors: newSensors, configVersion: maxVer + 1 }
+            );
+          }
+        }
+        if (syncedCount > 0) {
+          logger.info(`✅ sensorModules → houses.sensors.modbus sync: ${syncedCount}개 (farmId=${farmId})`);
+          mqttService.publishConfigUpdate(farmId, {
+            type: "sensors_synced",
+            configVersion: maxVer + 1,
+          });
+        }
+      } catch (e) {
+        logger.warn(`sensorModules sync 실패 (farmId=${farmId}): ${e.message}`);
+      }
+    }
+
     // 모듈 변경 감지 → RPi에 즉시 알림 (즉시 반영, 5분 검증으로 누락 보정)
     const submittedSettings = req.body.settings;
     if (

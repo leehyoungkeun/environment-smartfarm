@@ -28,7 +28,7 @@ module.exports = {
   userDir: '/home/lhk/.node-red',
 
   // 플로우 파일명
-  flowFile: 'flows.json',
+  flowFile: '/home/lhk/.node-red/flows.json',
 
   // 플로우 파일 인코딩
   flowFilePretty: true,
@@ -74,6 +74,40 @@ module.exports = {
 
     // AWS IoT Core 설정
     AWS_IOT_ENDPOINT: process.env.AWS_IOT_ENDPOINT || '',
+
+    // ── 다중 하우스: 장치 키 헬퍼 ─────────────────────────────
+    // 장치 ID 는 하우스 안에서만 유일하다 (UI 가 하우스별로 fan1, cooler1 … 부여).
+    // 하우스가 2개 이상이면 deviceId 만으로 상태를 저장하면 서로 덮어쓴다.
+    // 장치 단위 전역 키는 반드시 이 헬퍼로 만들 것:
+    //   deviceStates / devicePositions / movements
+    //   modbus_cfg_ / autoStop_ / dur_  (접두사 + 키)
+    //
+    //   var dkey = global.get('dkey');
+    //   positions[dkey(houseId, devId)] = 50;   // 'house_0001:fan1'
+    //
+    // houseId 누락 시 house_0001 로 폴백 — 단일 하우스 농장 하위 호환.
+    // houseId 표기 정규화 — 'house1' / 'house_1' / 'house_0001' → 'house_0001'
+    //   웹 대시보드가 MQTT 제어 토픽에 레거시 단축형(house1)을 쓰는 반면
+    //   houseConfig / automation_rules / DB 는 house_0001 을 쓴다.
+    //   정규화하지 않으면 같은 장치의 상태가 두 키로 갈라진다.
+    hnorm: function (houseId) {
+      var h = String(houseId || 'house_0001');
+      var m = h.match(/^house_?0*(\d+)$/);
+      if (!m) return h;
+      var n = m[1];
+      while (n.length < 4) n = '0' + n;
+      return 'house_' + n;
+    },
+    dkey: function (houseId, deviceId) {
+      var h = String(houseId || 'house_0001');
+      var m = h.match(/^house_?0*(\d+)$/);
+      if (m) {
+        var n = m[1];
+        while (n.length < 4) n = '0' + n;
+        h = 'house_' + n;
+      }
+      return h + ':' + deviceId;
+    },
 
     // Node.js 내장 모듈 접근 허용
     os: require('os'),

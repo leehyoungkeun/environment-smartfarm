@@ -1,0 +1,63 @@
+# Promtail — RPi 로그 수집기 (농장 단말)
+#
+# 2026-08-26 신설. 오늘 점검에서 놓친 사고 3건 중 2건이 이 로그에 찍혀 있었다.
+#   · farm_0006 MQTT 플래핑 32만회  → node-red-out.log 에 15초마다 기록
+#   · RPi 전원 꺼짐 9일             → 로그가 0줄인 것 자체가 신호였다
+# 중앙 Loki 로 모으면 SSH 없이 조회·검색할 수 있고, SD카드가 죽어도 남는다.
+#
+# 배치: /home/lhk/smartfarm/promtail.yml
+# 실행: systemd 유닛 promtail.service
+#
+# ${FARM_ID} 는 wrapper 가 아니라 systemd 가 채운다 — 아래 -config.expand-env 참고.
+# 표준 이미지 복제 시 농장별로 farm 라벨이 자동으로 달라진다.
+
+server:
+  http_listen_port: 9081
+  grpc_listen_port: 0
+
+positions:
+  filename: /home/lhk/smartfarm/promtail-positions.yaml
+
+clients:
+  # Tailscale 경유 — 공인망을 타지 않는다
+  - url: http://100.71.181.121:3100/loki/api/v1/push
+    # SD카드 수명 보호: 배치를 크게 모아 전송 빈도를 낮춘다
+    batchwait: 5s
+    batchsize: 1048576
+    backoff_config:
+      min_period: 1s
+      max_period: 5m
+      max_retries: 10
+
+scrape_configs:
+  # ── Node-RED (제어·자동화·Modbus 의 모든 흔적) ────────────
+  - job_name: node-red
+    static_configs:
+      - targets: [localhost]
+        labels:
+          job: node-red
+          farm: ${FARM_ID}
+          host: rpi
+          __path__: /home/lhk/.pm2/logs/node-red-out.log
+    pipeline_stages:
+      # NR 로그 형식:  25 Aug 23:06:50 - [warn] [function:노드명] 메시지
+      - regex:
+          expression: '- \[(?P<level>info|warn|error)\]'
+      - labels:
+          level:
+      # 평시 대부분이 warn 레벨의 정상 동작 기록이라 그대로 두면 양이 크다.
+      # 30초마다 반복되는 릴레이 상태 발행은 버린다 (지표로 이미 감시 중).
+      - drop:
+          expression: '릴레이 상태 MQTT 발행'
+      - drop:
+          expression: 'SQLite INSERT'
+
+  # ── RPi Express (로컬 제어 API·동기화) ────────────────────
+  - job_name: rpi-server
+    static_configs:
+      - targets: [localhost]
+        labels:
+          job: rpi-server
+          farm: ${FARM_ID}
+          host: rpi
+          __path__: /home/lhk/smartfarm/logs/rpi-server-*.log

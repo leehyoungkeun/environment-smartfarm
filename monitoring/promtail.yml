@@ -1,0 +1,55 @@
+# Promtail — 서버(smartfarm-server) 로그 수집기
+#
+# 2026-08-26 신설. Loki 는 4주째 돌고 있었으나 수집기가 없어 로그가 0건이었다.
+# (labels API 가 빈 응답 → 스트림 자체가 없었음)
+#
+# 오늘 놓친 사고들이 전부 로그에는 찍혀 있었다는 점이 이 설정의 이유다.
+#   · 백엔드가 5초마다 "MQTT 미연결" 을 3주간 기록했지만 아무도 안 봄
+# 지표 알림(Prometheus)이 1차 방어선이고, 로그는 사후 추적과
+# 지표로 표현 못 하는 패턴 탐지를 맡는다.
+
+server:
+  http_listen_port: 9080
+  grpc_listen_port: 0
+
+positions:
+  # 어디까지 읽었는지 기록 — 재시작해도 중복/누락 없이 이어읽는다
+  filename: /tmp/positions.yaml
+
+clients:
+  - url: http://loki:3100/loki/api/v1/push
+
+scrape_configs:
+  # ── 백엔드 PM2 로그 ──────────────────────────────────────
+  - job_name: smartfarm-backend
+    static_configs:
+      - targets: [localhost]
+        labels:
+          job: smartfarm-backend
+          host: smartfarm-server
+          __path__: /var/log/smartfarm/backend-*.log
+    pipeline_stages:
+      # PM2 가 앞에 붙이는 타임스탬프 제거 후 레벨 추출
+      #   예) 2026-08-26 00:12:19 +00:00: 2026-08-26 09:12:19 [INFO]: 메시지
+      - regex:
+          expression: '\[(?P<level>INFO|WARN|ERROR|DEBUG)\]'
+      - labels:
+          level:
+
+  # ── 도커 컨테이너 로그 ───────────────────────────────────
+  - job_name: docker
+    static_configs:
+      - targets: [localhost]
+        labels:
+          job: docker
+          host: smartfarm-server
+          __path__: /var/lib/docker/containers/*/*-json.log
+    pipeline_stages:
+      - json:
+          expressions:
+            output: log
+            stream: stream
+      - labels:
+          stream:
+      - output:
+          source: output

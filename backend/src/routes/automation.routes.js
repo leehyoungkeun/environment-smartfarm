@@ -60,11 +60,33 @@ router.get("/:farmId/active", async (req, res) => {
 
     const settings = result.rows[0]?.settings || {};
     const automationState = settings.automationActive || {};
-    const hKey = houseId || 'all';
-    const active = !!automationState[hKey];
-    const autoDevices = active ? (automationState[`${hKey}_devices`] || []) : [];
 
-    res.json({ success: true, active, autoDevices });
+    // houseId 지정 시 — 기존 단일 하우스 응답 (하위 호환)
+    if (houseId) {
+      const active = !!automationState[houseId];
+      const autoDevices = active ? (automationState[`${houseId}_devices`] || []) : [];
+      return res.json({ success: true, active, autoDevices });
+    }
+
+    // houseId 생략 시 — 전 하우스 응답 (다중 하우스)
+    // automationActive 는 { house_0001: bool, house_0001_devices: [...] } 형태로 저장된다.
+    // `_devices` 접미사가 아닌 키를 하우스 ID 로 간주한다.
+    const houses = {};
+    Object.keys(automationState).forEach((k) => {
+      if (k.endsWith('_devices')) return;
+      const isActive = !!automationState[k];
+      houses[k] = {
+        active: isActive,
+        autoDevices: isActive ? (automationState[`${k}_devices`] || []) : [],
+      };
+    });
+
+    // 하위 호환: 옛 클라이언트가 active/autoDevices 를 그대로 읽을 수 있도록
+    // 활성 하우스가 하나라도 있으면 그 합집합을 함께 내려준다.
+    const anyActive = Object.values(houses).some((h) => h.active);
+    const flatDevices = Object.values(houses).flatMap((h) => h.autoDevices);
+
+    res.json({ success: true, active: anyActive, autoDevices: flatDevices, houses });
   } catch (error) {
     logger.error("자동화 상태 조회 실패:", error);
     res.status(500).json({ success: false, error: error.message });

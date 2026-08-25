@@ -52,6 +52,20 @@ pm2 stop all
 pm2 save --force
 sudo systemctl stop nginx
 
+# (7-1) ★필수★ flows.json placeholder 복원
+#   wrapper.sh 가 NR 시작 시 flows.json 의 ${FARM_ID} 를 .farm-id 값으로 sed 치환한다(편도).
+#   운영 중인 1호의 flows.json 은 farm_0001 로 치환된 상태이므로, 그대로 이미지를 뜨면
+#   모든 신규 농장이 farm_0001 의 MQTT 토픽을 구독한다 → 제어 오작동(치명).
+#   반드시 PM2 stop 이후에 실행할 것 (NR 이 flows.json 을 다시 쓰지 못하게).
+/home/lhk/smartfarm/scripts/regen-flows-placeholder.sh
+cp /home/lhk/smartfarm/master-template/flows.json.placeholder \
+   /home/lhk/.node-red/flows.json
+
+# 검증 1 — 14 가 나와야 한다. 0 이면 중단하고 원인부터 확인할 것.
+grep -o '\${FARM_ID}' /home/lhk/.node-red/flows.json | wc -l
+# 검증 2 — 0 이어야 한다. 1 이상이면 농장 고유값이 남은 것이다.
+grep -o 'smartfarm/farm_0001' /home/lhk/.node-red/flows.json | wc -l
+
 # (8) shutdown
 sudo poweroff
 ```

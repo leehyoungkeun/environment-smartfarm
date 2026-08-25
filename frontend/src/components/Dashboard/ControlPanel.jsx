@@ -564,6 +564,7 @@ const ControlPanel = ({ farmId, houseId, houseConfig }) => {
         const token = localStorage.getItem('accessToken');
         const res = await axios.get(`${API}/device-positions/${farmId}`, {
           headers: { Authorization: `Bearer ${token}` },
+          params: { houseId },          // 다중 하우스: 이 하우스 장치만 조회
           timeout: 3000,
         });
         if (!res.data?.success || !res.data.data) return;
@@ -623,6 +624,7 @@ const ControlPanel = ({ farmId, houseId, houseConfig }) => {
                   await sendControlCommand(cHouseId, devId, 'stop', 'auto_duration');
                   // 서버에 정지 상태 저장
                   axios.post(`${API}/device-positions/${farmId}`, {
+                    houseId,          // 다중 하우스
                     deviceId: devId, position: targetPosition, command: 'stop',
                     startPosition: targetPosition, targetPosition, duration: 0, startedAt: null,
                   }, { headers: { Authorization: `Bearer ${token}` } }).catch(() => {});
@@ -704,6 +706,7 @@ const ControlPanel = ({ farmId, houseId, houseConfig }) => {
         const token = localStorage.getItem('accessToken');
         const res = await axios.get(`${API}/device-positions/${farmId}`, {
           headers: { Authorization: `Bearer ${token}` },
+          params: { houseId },          // 다중 하우스: 이 하우스 장치만 조회
           timeout: 3000,
         });
         if (!res.data?.success || !res.data.data) return;
@@ -1206,6 +1209,7 @@ const ControlPanel = ({ farmId, houseId, houseConfig }) => {
       // backend device-positions 에 stop 상태 저장 → 다음 컴포넌트 mount 시 syncPositions 가 진행률 재시작 안 함
       const API = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3000/api';
       axios.post(`${API}/device-positions/${farmId}`, {
+        houseId,          // 다중 하우스
         deviceId, position: stoppedAt, command: 'stop',
         startPosition: stoppedAt, targetPosition: stoppedAt,
         duration: 0, startedAt: null,
@@ -1280,6 +1284,7 @@ const ControlPanel = ({ farmId, houseId, houseConfig }) => {
             // backend 에 100/0 명시 POST → DB·다른 클라이언트 동기화 보장 (RPi reportPosition 과 중복이지만 같은 값)
             const API = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3000/api';
             axios.post(`${API}/device-positions/${farmId}`, {
+              houseId,          // 다중 하우스
               deviceId, position: finalPos, command: 'stop',
               startPosition: finalPos, targetPosition: finalPos,
               duration: 0, startedAt: null,
@@ -1305,6 +1310,7 @@ const ControlPanel = ({ farmId, houseId, houseConfig }) => {
             // 서버에 동작 시작 정보 저장
             const API = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3000/api';
             axios.post(`${API}/device-positions/${farmId}`, {
+              houseId,          // 다중 하우스
               deviceId, position: curPos, command,
               startPosition: curPos, targetPosition: command === 'open' ? 100 : 0,
               duration: autoDuration, startedAt: new Date().toISOString(),
@@ -1410,6 +1416,7 @@ const ControlPanel = ({ farmId, houseId, houseConfig }) => {
             // 서버에 동작 시작 정보 저장
             const API = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3000/api';
             axios.post(`${API}/device-positions/${farmId}`, {
+              houseId,          // 다중 하우스
               deviceId, position: curPos, command,
               startPosition: curPos, targetPosition: command === 'open' ? 100 : 0,
               duration: awsDuration, startedAt: new Date().toISOString(),

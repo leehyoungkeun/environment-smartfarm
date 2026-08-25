@@ -147,33 +147,35 @@ class MqttService extends EventEmitter {
     try {
       const { deviceId, position, command, startPosition, targetPosition, duration, startedAt } = payload;
       if (!deviceId || position === undefined) return;
+      // 하위 호환: NR 이 houseId 를 아직 안 보내면 단일 하우스 기본값
+      const houseId = payload.houseId || 'house_0001';
       // open/close 시작 신호는 DB 저장 (startedAt + duration 포함) — frontend 진행률 복원 가능
       // stop 은 position 만 갱신 (기존)
       if (command === 'open' || command === 'close') {
         await pool.query(
-          `INSERT INTO device_positions (farm_id, device_id, position, command, start_position, target_position, duration, started_at, updated_at)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW())
-           ON CONFLICT (farm_id, device_id) DO UPDATE
-           SET position = $3, command = $4, start_position = $5, target_position = $6, duration = $7, started_at = $8, updated_at = NOW()`,
-          [farmId, deviceId, position, command, startPosition ?? position, targetPosition ?? (command === 'open' ? 100 : 0), duration ?? 0, startedAt || null]
+          `INSERT INTO device_positions (farm_id, house_id, device_id, position, command, start_position, target_position, duration, started_at, updated_at)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW())
+           ON CONFLICT (farm_id, house_id, device_id) DO UPDATE
+           SET position = $4, command = $5, start_position = $6, target_position = $7, duration = $8, started_at = $9, updated_at = NOW()`,
+          [farmId, houseId, deviceId, position, command, startPosition ?? position, targetPosition ?? (command === 'open' ? 100 : 0), duration ?? 0, startedAt || null]
         );
-        logger.info(`📍 장치 동작 시작: ${farmId}/${deviceId} ${command} (duration=${duration}s)`);
+        logger.info(`📍 장치 동작 시작: ${farmId}/${houseId}/${deviceId} ${command} (duration=${duration}s)`);
       } else {
         await pool.query(
-          `INSERT INTO device_positions (farm_id, device_id, position, command, updated_at)
-           VALUES ($1, $2, $3, $4, NOW())
-           ON CONFLICT (farm_id, device_id) DO UPDATE
-           SET position = $3, command = $4, updated_at = NOW()`,
-          [farmId, deviceId, position, command || 'stop']
+          `INSERT INTO device_positions (farm_id, house_id, device_id, position, command, updated_at)
+           VALUES ($1, $2, $3, $4, $5, NOW())
+           ON CONFLICT (farm_id, house_id, device_id) DO UPDATE
+           SET position = $4, command = $5, updated_at = NOW()`,
+          [farmId, houseId, deviceId, position, command || 'stop']
         );
-        logger.info(`📍 장치 위치 저장: ${farmId}/${deviceId} → ${position}%`);
+        logger.info(`📍 장치 위치 저장: ${farmId}/${houseId}/${deviceId} → ${position}%`);
       }
 
       // WebSocket broadcast → frontend ControlPanel 즉시 sync (자동화·외부 명령 결과)
       try {
         const { broadcastDevicePosition } = await import("./wsServer.js");
         broadcastDevicePosition(farmId, {
-          deviceId, position, command: command || 'stop',
+          houseId, deviceId, position, command: command || 'stop',
           startPosition, targetPosition, duration, startedAt,
         });
       } catch (e) { /* WS 발송 실패 무시 */ }

@@ -166,6 +166,72 @@ const httpRequestTotal = new promClient.Counter({
   labelNames: ["method", "route", "status"],
 });
 
+// ── 도메인 지표 ────────────────────────────────────────────
+// 2026-08-25: 감지 실패 3건(AWS MQTT 3주 / farm_0006 플래핑 3.5개월 /
+// RPi 전원 꺼짐 9일)이 전부 "로그에는 있었지만 아무도 안 봤다" 였다.
+// 아래 지표로 Prometheus 알림이 당일에 잡도록 한다.
+
+// MQTT 브로커 연결 여부 (1=연결, 0=끊김)
+new promClient.Gauge({
+  name: "smartfarm_mqtt_connected",
+  help: "AWS IoT Core MQTT connection state (1=connected, 0=disconnected)",
+  async collect() {
+    try {
+      const mqttService = (await import("./services/mqttClient.js")).default;
+      this.set(mqttService.isConnected() ? 1 : 0);
+    } catch {
+      this.set(0);
+    }
+  },
+});
+
+// 농장/하우스별 마지막 센서 수신 이후 경과 초 — 수집 중단 감지
+new promClient.Gauge({
+  name: "smartfarm_sensor_last_seen_seconds",
+  help: "Seconds since last sensor_data row per farm/house",
+  labelNames: ["farm_id", "house_id"],
+  async collect() {
+    try {
+      const { pool } = await import("./db.js");
+      const { rows } = await pool.query(
+        `SELECT farm_id, house_id,
+                EXTRACT(EPOCH FROM (now() - max(timestamp))) AS age
+           FROM sensor_data
+          WHERE timestamp > now() - interval '7 days'
+          GROUP BY farm_id, house_id`
+      );
+      this.reset();
+      rows.forEach((r) =>
+        this.set({ farm_id: r.farm_id, house_id: r.house_id }, Number(r.age) || 0)
+      );
+    } catch {
+      /* DB 오류 시 지표 미갱신 — up 지표로 별도 감지 */
+    }
+  },
+});
+
+// 농장별 릴레이 상태 수신 이후 경과 초 — MQTT 상태 발행 중단 감지
+new promClient.Gauge({
+  name: "smartfarm_relay_status_age_seconds",
+  help: "Seconds since last relay_status update per farm",
+  labelNames: ["farm_id"],
+  async collect() {
+    try {
+      const { pool } = await import("./db.js");
+      const { rows } = await pool.query(
+        `SELECT farm_id, EXTRACT(EPOCH FROM (now() - max(updated_at))) AS age
+           FROM relay_status GROUP BY farm_id`
+      );
+      this.reset();
+      rows.forEach((r) =>
+        this.set({ farm_id: r.farm_id }, Number(r.age) || 0)
+      );
+    } catch {
+      /* noop */
+    }
+  },
+});
+
 // Middleware: measure all requests
 app.use((req, res, next) => {
   if (req.path === "/metrics") return next();

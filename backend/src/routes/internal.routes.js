@@ -27,6 +27,76 @@ function resolveFarmHouse(req) {
  * 장비 상태 업데이트 (f2, f4, f6, f10)
  * Node-RED가 밸브/펌프/믹서 상태를 전송
  */
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// Alertmanager webhook 수신
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// 2026-08-25 신설. 알림 경로를 채널과 분리하기 위한 단일 수신구.
+//   Prometheus 규칙 → Alertmanager → 여기 → alerts 테이블 (+ 향후 카카오/이메일)
+// 채널을 추가/교체할 때 Alertmanager 설정은 건드리지 않고 이 함수만 고치면 된다.
+//
+// 인증: authenticateApiKey 가 req.query.apiKey 도 받으므로
+//       Alertmanager URL 에 ?apiKey=... 로 붙인다.
+router.post("/alert-webhook", async (req, res) => {
+  try {
+    const alerts = Array.isArray(req.body?.alerts) ? req.body.alerts : [];
+    if (alerts.length === 0) {
+      return res.json({ success: true, received: 0 });
+    }
+
+    const { pool } = await import("../db.js");
+    let saved = 0;
+
+    for (const a of alerts) {
+      const labels = a.labels || {};
+      const ann = a.annotations || {};
+      const alertName = labels.alertname || "UnknownAlert";
+      const status = a.status || "firing";               // firing | resolved
+      const severity = (labels.severity || "warning").toUpperCase();
+
+      // farm_id / house_id 는 NOT NULL — 라벨에 없으면 시스템 알림으로 표기
+      const farmId = labels.farm_id || labels.farm || "system";
+      const houseId = labels.house_id || "-";
+
+      const message =
+        (status === "resolved" ? "[해소] " : "") +
+        (ann.summary || alertName) +
+        (ann.description ? " — " + ann.description : "");
+
+      await pool.query(
+        `INSERT INTO alerts (farm_id, house_id, alert_type, severity, message, metadata, timestamp)
+         VALUES ($1, $2, $3, $4, $5, $6::jsonb, NOW())`,
+        [
+          farmId,
+          houseId,
+          alertName,
+          status === "resolved" ? "INFO" : severity,
+          message.slice(0, 1000),
+          JSON.stringify({
+            source: "alertmanager",
+            status,
+            labels,
+            annotations: ann,
+            startsAt: a.startsAt || null,
+            endsAt: a.endsAt || null,
+          }),
+        ]
+      );
+      saved++;
+
+      const icon = status === "resolved" ? "✅" : severity === "CRITICAL" ? "🔴" : "🟡";
+      logger.warn(`${icon} [알림] ${alertName} (${farmId}/${houseId}) — ${ann.summary || ""}`);
+    }
+
+    // TODO: 카카오 알림톡 — 발신프로필 + 템플릿 심사 완료 후 여기에 추가.
+    //       critical 만 즉시 발송, warning 은 요약 발송을 권장.
+
+    res.json({ success: true, received: alerts.length, saved });
+  } catch (error) {
+    logger.error("Alertmanager webhook 처리 실패:", error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
 router.post("/status-update", async (req, res) => {
   try {
     const { farmId, houseId } = resolveFarmHouse(req);

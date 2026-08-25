@@ -37,19 +37,16 @@ scrape_configs:
           level:
 
   # ── 도커 컨테이너 로그 ───────────────────────────────────
-  - job_name: docker
-    static_configs:
-      - targets: [localhost]
-        labels:
-          job: docker
-          host: smartfarm-server
-          __path__: /var/lib/docker/containers/*/*-json.log
-    pipeline_stages:
-      - json:
-          expressions:
-            output: log
-            stream: stream
-      - labels:
-          stream:
-      - output:
-          source: output
+  # 2026-08-26: 전체 컨테이너 수집을 중단했다.
+  #   glitchtip-worker 의 celery 작업 로그 등 대부분이 소음인데,
+  #   최초 기동 시 과거 로그를 통째로 빨아들여 Loki WAL 이 2.9GB 까지 부풀고
+  #   루트 디스크가 73%→83% 로 뛰었다.
+  #   정작 중요한 백엔드는 위의 파일 기반 job 으로 이미 수집된다.
+  # 필요해지면 특정 컨테이너만 골라 되살릴 것.
+  # - job_name: docker
+  #   static_configs:
+  #     - targets: [localhost]
+  #       labels:
+  #         job: docker
+  #         host: smartfarm-server
+  #         __path__: /var/lib/docker/containers/*/*-json.log

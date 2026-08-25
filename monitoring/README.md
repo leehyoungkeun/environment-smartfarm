@@ -121,6 +121,15 @@ cd /tmp && unzip -oq p.zip && sudo mv promtail-linux-arm64 /usr/local/bin/promta
   `/usr/share/zoneinfo` 를 마운트해야 알림 시각이 KST 로 나온다.
 - **`prometheus.yml` 변경 후 `curl -X POST localhost:9090/-/reload`** 가 필요하다.
   컨테이너 재시작만으로는 `alerting:` 섹션이 반영되지 않은 사례가 있었다.
+- **Loki 는 보존 정책이 없으면 무한 증가한다.** 도커 컨테이너 로그까지 수집했더니
+  하루 만에 3.5GB(WAL 2.9GB)가 쌓여 루트 디스크가 73%→83% 로 뛰었다.
+  `-table-manager.retention-period=720h` + `-compactor.retention-enabled=true` 로 30일 보존.
+  **retention 활성화 시 `-compactor.delete-request-store=filesystem` 이 없으면
+  CONFIG ERROR 로 기동 실패**한다.
+- **도커 컨테이너 로그는 수집 대상에서 뺐다.** celery 작업 로그 등 소음이 대부분이고
+  백엔드는 파일 기반 job 으로 이미 수집된다. 필요하면 특정 컨테이너만 되살릴 것.
+- **`docker volume rm` 은 컨테이너가 stop 상태여도 실패한다.** `docker compose rm -f`
+  로 컨테이너를 제거해야 볼륨이 지워진다 (조용히 무시되므로 크기로 확인할 것).
 - **Loki 기본 수집 한도 4MB/s 로는 부족하다.** Promtail 최초 기동 시 기존 로그
   파일(백엔드 184MB)을 따라잡는 구간에서 `429 ingestion rate limit exceeded` 가
   쏟아진다. `-distributor.ingestion-rate-limit-mb=32` 로 올려 해소했다.

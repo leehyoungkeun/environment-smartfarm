@@ -114,6 +114,13 @@ services:
       # (promtail 최초 기동 시 기존 파일을 따라잡는 구간에서 특히)
       - -distributor.ingestion-rate-limit-mb=32
       - -distributor.ingestion-burst-size-mb=64
+      # 보존 정책 — 없으면 무한 증가한다 (2026-08-26 하루 만에 3.5GB)
+      - -table-manager.retention-period=720h
+      - -table-manager.retention-deletes-enabled=true
+      - -compactor.retention-enabled=true
+      - -compactor.working-directory=/loki/compactor
+      # retention 활성화 시 필수 (없으면 CONFIG ERROR 로 기동 실패)
+      - -compactor.delete-request-store=filesystem
     ports:
       - "127.0.0.1:3100:3100"
       # RPi 가 Tailscale 로 로그를 푸시할 수 있게 테일넷 주소에만 추가 노출.

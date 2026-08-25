@@ -8,6 +8,7 @@ import { fileURLToPath } from "url";
 import { EventEmitter } from "events";
 import logger from "../utils/logger.js";
 import { pool } from "../db.js";
+import { normHouseId } from "../routes/device-positions.routes.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const CERTS_DIR = path.resolve(__dirname, "../../certs");
@@ -148,7 +149,7 @@ class MqttService extends EventEmitter {
       const { deviceId, position, command, startPosition, targetPosition, duration, startedAt } = payload;
       if (!deviceId || position === undefined) return;
       // 하위 호환: NR 이 houseId 를 아직 안 보내면 단일 하우스 기본값
-      const houseId = payload.houseId || 'house_0001';
+      const houseId = normHouseId(payload.houseId);
       // open/close 시작 신호는 DB 저장 (startedAt + duration 포함) — frontend 진행률 복원 가능
       // stop 은 position 만 갱신 (기존)
       if (command === 'open' || command === 'close') {

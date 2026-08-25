@@ -7,11 +7,21 @@ import { broadcastDevicePosition } from "../services/wsServer.js";
 
 const router = Router();
 
+// houseId 표기 정규화 — 'house1' / 'house_1' / 'house_0001' → 'house_0001'
+// 웹 대시보드가 MQTT 제어 토픽에 레거시 단축형(house1)을 쓰는 반면
+// houseConfig / automation_rules / DB 는 house_0001 을 쓴다.
+// 정규화하지 않으면 같은 장치가 두 행으로 갈라진다.
+export function normHouseId(h) {
+  const v = String(h || 'house_0001');
+  const m = v.match(/^house_?0*(\d+)$/);
+  return m ? 'house_' + m[1].padStart(4, '0') : v;
+}
+
 // GET /api/device-positions/:farmId
 router.get("/:farmId", async (req, res) => {
   try {
     // houseId 지정 시 해당 하우스만, 생략 시 전 하우스
-    const { houseId } = req.query;
+    const houseId = req.query.houseId ? normHouseId(req.query.houseId) : null;
     const params = [req.params.farmId];
     let where = `farm_id = $1`;
     if (houseId) {
@@ -60,7 +70,7 @@ router.post("/:farmId", async (req, res) => {
     }
 
     // 하위 호환: houseId 미전달 시 단일 하우스 기본값
-    const houseId = req.body.houseId || 'house_0001';
+    const houseId = normHouseId(req.body.houseId);
 
     await pool.query(
       `INSERT INTO device_positions (farm_id, house_id, device_id, position, command, start_position, target_position, duration, started_at, updated_at)

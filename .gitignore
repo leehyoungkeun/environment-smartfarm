@@ -81,3 +81,7 @@ backend/certs/
 rpi-files/farm_*-backup-*/
 rpi-files/master/*.bak.*
 download/
+# 알림 채널 웹훅 URL — 그 자체가 인증 수단이므로 커밋 금지
+monitoring/discord_webhook_url
+monitoring/*_url
+monitoring/*.bak-*

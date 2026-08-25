@@ -1,0 +1,48 @@
+global:
+  scrape_interval: 30s
+  evaluation_interval: 30s
+
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets: [alertmanager:9093]
+
+rule_files:
+  - /etc/prometheus/alert_rules.yml
+
+scrape_configs:
+  # 운영 Ubuntu 자체 (smartfarm-server)
+  - job_name: 'ops-ubuntu'
+    static_configs:
+      - targets: ['node-exporter:9100']
+        labels:
+          host: 'smartfarm-server'
+
+  # smartfarm-backend (PM2, port 3000) - /metrics endpoint 추가 시
+  - job_name: 'smartfarm-backend'
+    static_configs:
+      - targets: ['host.docker.internal:3000']
+        labels:
+          service: 'backend'
+    metrics_path: '/metrics'
+
+  # RPi 1호 (farm-0001, Tailscale)
+  - job_name: 'rpi-farm-0001'
+    static_configs:
+      - targets: ['100.104.177.84:9100']
+        labels:
+          farm: 'farm_0001'
+          host: 'rpi-1'
+
+  # RPi farm-0006 (Tailscale) — 2026-08-25 비활성화
+  #   테스트기이고 node_exporter 미설치라 TargetDown 이 영구 발동한다.
+  #   영구 발동 알림은 알림 피로를 만들어 진짜 사고를 놓치게 하므로 제외.
+  #   재개: farm_0006 에서 sudo apt-get install -y prometheus-node-exporter
+  #        실행 후 아래 주석 해제.
+  # # RPi farm-0006 (Tailscale)
+  # - job_name: 'rpi-farm-0006'
+  # static_configs:
+  # - targets: ['100.115.49.44:9100']
+  # labels:
+  # farm: 'farm_0006'
+  # host: 'rpi-pi4'

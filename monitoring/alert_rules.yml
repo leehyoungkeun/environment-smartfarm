@@ -1,0 +1,81 @@
+groups:
+  # ────────────────────────────────────────────────────────────
+  # 2026-08-25 신설.
+  # 이 날 하루에 감지 실패 3건이 드러났다 — 전부 로그에는 있었지만 아무도 안 봤다.
+  #   · AWS 계정 정지로 MQTT 단절        미탐지 3주
+  #   · farm_0006 MQTT 플래핑 32만회     미탐지 3.5개월
+  #   · RPi 전원 꺼짐(센서 9일 공백)      미탐지 9일
+  # 아래 규칙은 그 셋을 각각 분 단위로 잡는 것이 목적이다.
+  # ────────────────────────────────────────────────────────────
+  - name: smartfarm-critical
+    rules:
+      # ① AWS IoT MQTT 단절 — 클라우드 제어 경로 전체가 멈춘다
+      - alert: MqttDisconnected
+        expr: smartfarm_mqtt_connected == 0
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "AWS IoT MQTT 연결 끊김"
+          description: "백엔드가 5분 이상 MQTT 브로커에 연결하지 못하고 있습니다. 클라우드 제어와 릴레이 상태 수신이 중단됩니다. 인증서·IoT 정책·AWS 계정 상태를 확인하십시오."
+
+      # ② 센서 수집 중단 — RPi 전원/네트워크/Modbus 장애
+      - alert: SensorDataStalled
+        expr: smartfarm_sensor_last_seen_seconds > 900
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "{{ $labels.farm_id }}/{{ $labels.house_id }} 센서 수집 중단"
+          description: "마지막 센서 수신 후 {{ $value | humanizeDuration }} 경과했습니다. 정상은 1분 주기입니다. RPi 전원·네트워크·Modbus 연결을 확인하십시오."
+
+      # ③ 릴레이 상태 발행 중단 — MQTT 플래핑/NR 이상
+      - alert: RelayStatusStalled
+        expr: smartfarm_relay_status_age_seconds > 600
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "{{ $labels.farm_id }} 릴레이 상태 수신 중단"
+          description: "마지막 릴레이 상태 갱신 후 {{ $value | humanizeDuration }} 경과했습니다. 정상은 30초 주기입니다. Node-RED MQTT 연결(플래핑 포함)을 확인하십시오."
+
+      # ④ 스크레이프 대상 다운 — RPi/백엔드 자체가 응답 없음
+      - alert: TargetDown
+        expr: up == 0
+        for: 10m
+        labels:
+          severity: critical
+        annotations:
+          summary: "{{ $labels.job }} 응답 없음"
+          description: "{{ $labels.instance }} 를 10분 이상 스크레이프하지 못했습니다. 호스트 전원·네트워크·node_exporter 상태를 확인하십시오."
+
+  - name: smartfarm-resource
+    rules:
+      # ⑤ 디스크 임박 — 가득 차면 DB·백엔드가 동시에 죽는다
+      - alert: DiskSpaceLow
+        expr: (node_filesystem_avail_bytes{mountpoint="/",fstype!="tmpfs"} / node_filesystem_size_bytes{mountpoint="/",fstype!="tmpfs"}) * 100 < 15
+        for: 30m
+        labels:
+          severity: warning
+        annotations:
+          summary: "{{ $labels.host }} 루트 디스크 여유 {{ $value | printf \"%.1f\" }}%"
+          description: "여유 공간이 15% 미만입니다. 로그·도커 이미지 정리를 검토하십시오."
+
+      - alert: DiskSpaceCritical
+        expr: (node_filesystem_avail_bytes{mountpoint="/",fstype!="tmpfs"} / node_filesystem_size_bytes{mountpoint="/",fstype!="tmpfs"}) * 100 < 5
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "{{ $labels.host }} 루트 디스크 여유 {{ $value | printf \"%.1f\" }}% — 위험"
+          description: "곧 가득 찹니다. DB 쓰기 실패와 서비스 중단이 임박했습니다."
+
+      # ⑥ RPi 과열 — SD카드 수명·스로틀링
+      - alert: RpiHighTemperature
+        expr: node_hwmon_temp_celsius > 75
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "{{ $labels.host }} 온도 {{ $value | printf \"%.1f\" }}°C"
+          description: "15분 이상 75°C 를 넘고 있습니다. 스로틀링과 SD카드 수명 저하가 우려됩니다."

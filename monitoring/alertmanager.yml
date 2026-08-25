@@ -1,0 +1,55 @@
+global:
+  resolve_timeout: 5m
+
+# ────────────────────────────────────────────────────────────
+# 알림 경로를 채널과 분리한다.
+#   Alertmanager → 백엔드 webhook → (DB 기록 / GlitchTip / 카카오 / 이메일)
+# 채널을 바꿔도 이 파일은 건드리지 않는다.
+# 카카오 알림톡은 발신프로필 등록 + 템플릿 심사 + 대행사 계약이 필요해
+# 준비되는 대로 백엔드 쪽에만 추가하면 된다.
+# ────────────────────────────────────────────────────────────
+route:
+  receiver: 'backend-webhook'
+  group_by: ['alertname', 'farm_id']
+  group_wait: 30s          # 같은 사고로 여러 알림이 몰릴 때 묶어서 한 번에
+  group_interval: 5m
+  repeat_interval: 4h      # 미해결 알림 재통지 주기
+  routes:
+    # critical 은 더 빨리, 더 자주 알린다
+    - matchers:
+        - severity = "critical"
+      receiver: 'backend-webhook'
+      group_wait: 10s
+      repeat_interval: 1h
+
+receivers:
+  - name: 'backend-webhook'
+    # Discord — 사람이 즉시 보는 경로 (휴대폰 푸시)
+    # ⚠️ webhook_url 은 그 자체가 인증 수단이다. git 에 커밋하지 말 것.
+    discord_configs:
+      - webhook_url_file: /etc/alertmanager/discord_webhook_url
+        send_resolved: true
+        title: '{{ if eq .Status "firing" }}{{ if eq .CommonLabels.severity "critical" }}🔴 긴급{{ else }}🟡 주의{{ end }}{{ else }}✅ 해소{{ end }} · {{ .CommonLabels.alertname }}'
+        message: |-
+          {{ range .Alerts -}}
+          **{{ .Annotations.summary }}**
+          {{ .Annotations.description }}
+          {{ if .Labels.farm_id }}· 농장: `{{ .Labels.farm_id }}`{{ if .Labels.house_id }} / `{{ .Labels.house_id }}`{{ end }}{{ end }}
+          {{ if .Labels.instance }}· 대상: `{{ .Labels.instance }}`{{ end }}
+          · 발생: {{ .StartsAt.Local.Format "01-02 15:04:05" }}
+          {{ if eq .Status "resolved" }}· 해소: {{ .EndsAt.Local.Format "01-02 15:04:05" }}{{ end }}
+
+          {{ end -}}
+    # 백엔드 — DB 이력 보존 + 향후 카카오 알림톡 확장 지점
+    webhook_configs:
+      - url: 'http://host.docker.internal:3000/internal/alert-webhook?apiKey=smartfarm-sensor-key'
+        send_resolved: true          # 해소될 때도 통지 → "언제 복구됐는지" 추적 가능
+        max_alerts: 0
+
+inhibit_rules:
+  # 호스트가 통째로 다운이면 그 호스트의 세부 알림은 억제 (중복 소음 방지)
+  - source_matchers:
+      - alertname = "TargetDown"
+    target_matchers:
+      - severity = "warning"
+    equal: ['instance']

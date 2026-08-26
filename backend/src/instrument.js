@@ -6,7 +6,10 @@ if (process.env.GLITCHTIP_DSN) {
   Sentry.init({
     dsn: process.env.GLITCHTIP_DSN,
     environment: process.env.NODE_ENV || "development",
-    release: `smartfarm-backend@${process.env.npm_package_version || "2.0.0"}`,
+    // 커밋 해시를 릴리스로 쓴다 — 고정 버전(2.0.0)이면 모든 배포가 같은
+    // 릴리스로 묶여 "어느 배포부터 생긴 오류인가" 를 알 수 없다.
+    // GIT_SHA 는 smartfarm-deploy.sh 가 배포 때마다 backend/.env 에 기록한다.
+    release: `smartfarm-backend@${process.env.GIT_SHA || process.env.npm_package_version || "2.0.0"}`,
     integrations: [nodeProfilingIntegration()],
     tracesSampleRate: 0.1,
     profilesSampleRate: 0.1,

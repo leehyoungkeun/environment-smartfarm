@@ -6,6 +6,12 @@ import { pool } from "../db.js";
 import Alert from "../models/Alert.js";
 import logger from "../utils/logger.js";
 
+// 서킷 브레이커 계산 구간.
+// 전 기간 미확인 개수를 세면, 아무도 확인하지 않는 한 브레이커가 영원히
+// 열린 채 남아 감지 자체가 죽는다 (2026-08-26 점검에서 실제로 그랬다).
+// 최근 구간만 세면 사고가 끝난 뒤 스스로 풀린다.
+const UNACK_WINDOW_MS = 24 * 60 * 60 * 1000;
+
 // 기본 설정 (DB에 없을 때 사용)
 const DEFAULT_DEVICE_FAILURE_CONFIG = {
   enabled: true,
@@ -79,12 +85,15 @@ async function checkDeviceFailures() {
           { limit: 50 }
         );
 
-        // 서킷 브레이커: 같은 장비의 미확인 알림이 3개 이상이면 스킵
+        // 서킷 브레이커: 최근 24시간 내 같은 장비의 미확인이 3개 이상이면 스킵
+        const unackSince = Date.now() - UNACK_WINDOW_MS;
         const unackCount = recent.filter(
           (a) =>
             a.alertType === "DEVICE_FAILURE" &&
             a.sensorId === device.device_id &&
-            !a.acknowledged
+            !a.acknowledged &&
+              a.createdAt &&
+              new Date(a.createdAt).getTime() >= unackSince
         ).length;
         if (unackCount >= 3) continue;
 

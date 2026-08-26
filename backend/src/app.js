@@ -185,6 +185,89 @@ new promClient.Gauge({
   },
 });
 
+// 센서 실측값과 설정 임계값 — 임계 이탈 감지를 Prometheus 로 일원화
+//
+// 2026-08-26 감지체계 점검에서, 임계 이탈을 판정하던 sensorThresholdAlert
+// 스케줄러가 서킷 브레이커 래치로 죽어 있었고 알림을 DB 에만 넣을 뿐
+// 사람에게 전달되는 경로가 없다는 것이 드러났다.
+// 판정을 Prometheus 로 옮기면 이미 검증된 Alertmanager→Discord 경로를 탄다.
+//
+// 임계값은 농장마다 다르므로 규칙에 하드코딩할 수 없다.
+// 값과 임계값을 함께 노출하고 규칙이 둘을 비교하게 한다 —
+// 설정 권한은 그대로 앱에 남고, 규칙은 농장 수와 무관하게 하나면 된다.
+new promClient.Gauge({
+  name: "smartfarm_sensor_value",
+  help: "Latest sensor reading per farm/house/sensor",
+  labelNames: ["farm_id", "house_id", "sensor_id"],
+  async collect() {
+    try {
+      const { pool } = await import("./db.js");
+      // 하우스별 최신 1행만 — DISTINCT ON 이 인덱스(farm_id, house_id, timestamp DESC)를 탄다
+      const { rows } = await pool.query(
+        `SELECT DISTINCT ON (farm_id, house_id) farm_id, house_id, data
+           FROM sensor_data
+          WHERE timestamp > now() - interval '1 hour'
+          ORDER BY farm_id, house_id, timestamp DESC`
+      );
+      this.reset();
+      rows.forEach((r) => {
+        const data = r.data || {};
+        Object.entries(data).forEach(([sensorId, value]) => {
+          const v = Number(value);
+          if (Number.isFinite(v)) {
+            this.set({ farm_id: r.farm_id, house_id: r.house_id, sensor_id: sensorId }, v);
+          }
+        });
+      });
+    } catch {
+      /* DB 오류 시 미갱신 */
+    }
+  },
+});
+
+// house_configs.sensors 에 설정된 min/max. 값이 없는 센서는 노출하지 않는다
+// (규칙이 조인에 실패해 아무것도 발동하지 않게 되는 것이 안전한 기본값).
+function registerThresholdGauge(name, help, key) {
+  new promClient.Gauge({
+    name,
+    help,
+    labelNames: ["farm_id", "house_id", "sensor_id"],
+    async collect() {
+      try {
+        const { pool } = await import("./db.js");
+        const { rows } = await pool.query(
+          `SELECT farm_id, house_id, sensors FROM house_configs WHERE enabled = true`
+        );
+        this.reset();
+        rows.forEach((r) => {
+          const sensors = Array.isArray(r.sensors) ? r.sensors : [];
+          sensors.forEach((sc) => {
+            const sensorId = sc?.id || sc?.sensorId;
+            const raw = sc?.[key];
+            const v = Number(raw);
+            if (sensorId && raw != null && Number.isFinite(v)) {
+              this.set({ farm_id: r.farm_id, house_id: r.house_id, sensor_id: sensorId }, v);
+            }
+          });
+        });
+      } catch {
+        /* DB 오류 시 미갱신 */
+      }
+    },
+  });
+}
+
+registerThresholdGauge(
+  "smartfarm_sensor_threshold_min",
+  "Configured minimum threshold per farm/house/sensor",
+  "min"
+);
+registerThresholdGauge(
+  "smartfarm_sensor_threshold_max",
+  "Configured maximum threshold per farm/house/sensor",
+  "max"
+);
+
 // 농장/하우스별 마지막 센서 수신 이후 경과 초 — 수집 중단 감지
 new promClient.Gauge({
   name: "smartfarm_sensor_last_seen_seconds",

@@ -79,3 +79,31 @@ groups:
         annotations:
           summary: "{{ $labels.host }} 온도 {{ $value | printf \"%.1f\" }}°C"
           description: "15분 이상 75°C 를 넘고 있습니다. 스로틀링과 SD카드 수명 저하가 우려됩니다."
+
+      # ⑦ 감시에서 빠진 채 돌아가는 농장
+      #
+      # 농장 상태를 'active' 가 아닌 값으로 바꾸면 그 농장의 감지가 통째로 꺼진다 —
+      # 오프라인·임계이탈·장비고장 전부. 그런데 화면 어디에도 그 사실이 표시되지 않는다.
+      #
+      # 2026-08-26 에 실제로 두 번 일어났다. 실운영 중인 farm_0001 이 목록 조작 중
+      # 'maintenance' 로 바뀌어 40분 넘게 감시 밖에 있었고, 대시보드를 만들다 우연히
+      # 발견했다. 아무 경고도 없었다.
+      #
+      # 센서가 들어온다는 건 농장이 돌아간다는 뜻이므로, 그런 농장이 감시 대상이
+      # 아니면 그 자체가 이상 신호다. 데이터가 끊긴 농장(운영 중지)은 걸리지 않는다.
+      #
+      # ⚠ farm_0006 제외 — 시험기인데 USB-485 없이 시뮬레이션 난수를 실측처럼
+      #   저장하고 있어(2026-05-08~), 상태가 '점검중'이어도 데이터가 계속 들어온다.
+      #   그대로 두면 영구 발동해 알림 피로를 만든다.
+      #   ★ 시뮬레이션을 중단하면 이 제외 조건을 지울 것.
+      - alert: FarmUnmonitored
+        expr: |
+          (smartfarm_sensor_last_seen_seconds{farm_id!="farm_0006"} < 900)
+          unless on(farm_id, house_id)
+          (count by (farm_id, house_id) (smartfarm_sensor_value))
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "{{ $labels.farm_id }} 가 감시 대상에서 빠져 있습니다"
+          description: "센서 데이터는 정상 수신되는데 감지 대상이 아닙니다. 농장 상태가 '운전중'이 아닌지 확인하십시오 — 그 상태에서는 오프라인·임계이탈·장비고장 감지가 모두 동작하지 않습니다."

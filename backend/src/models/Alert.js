@@ -2,6 +2,7 @@
 // 알림 모델 - TimescaleDB (raw SQL) 버전
 
 import { pool } from "../db.js";
+import logger from "../utils/logger.js";
 
 function formatAlert(row) {
   if (!row) return null;
@@ -28,6 +29,85 @@ function formatAlert(row) {
   };
 }
 
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// Discord 전송
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// Alertmanager 가 쓰는 것과 같은 채널·색상 규칙을 따른다 — 인프라 알림과
+// 농장 알림을 한 곳에서 보게 하려는 것이다.
+//
+// INFO 는 보내지 않는다. 해소 통지·검증 기록 같은 것이 대부분이라
+// 그것까지 보내면 정작 중요한 알림이 묻힌다.
+const DISCORD_WEBHOOK = process.env.DISCORD_WEBHOOK_URL || "";
+const NOTIFY_SEVERITIES = new Set(["WARNING", "CRITICAL"]);
+
+const SEVERITY_STYLE = {
+  CRITICAL: { emoji: "🔴", color: 0xed4245 },
+  WARNING: { emoji: "🟡", color: 0xfee75c },
+  INFO: { emoji: "ℹ️", color: 0x5865f2 },
+};
+
+const ALERT_TYPE_LABEL = {
+  FARM_OFFLINE: "농장 오프라인",
+  SENSOR_THRESHOLD: "센서 임계 이탈",
+  DEVICE_FAILURE: "장비 고장",
+  MAINTENANCE_EXPIRY: "유지보수 만료",
+  CONTROL_FAILURE: "제어 실패",
+  MODBUS_BUS_FAILURE: "Modbus 통신 장애",
+};
+
+// 실패해도 알림 생성 자체는 막지 않는다 — 전달은 부가 기능이지 전제가 아니다
+async function notifyDiscord(alert) {
+  if (!DISCORD_WEBHOOK) return;
+  if (!NOTIFY_SEVERITIES.has(String(alert.severity || "").toUpperCase())) return;
+
+  try {
+    const sev = String(alert.severity || "WARNING").toUpperCase();
+    const style = SEVERITY_STYLE[sev] || SEVERITY_STYLE.WARNING;
+    const label = ALERT_TYPE_LABEL[alert.alertType] || alert.alertType;
+
+    const fields = [
+      { name: "농장", value: String(alert.farmId || "-"), inline: true },
+      { name: "하우스", value: String(alert.houseId || "-"), inline: true },
+      { name: "심각도", value: sev, inline: true },
+    ];
+    if (alert.sensorId) {
+      fields.push({ name: "센서", value: String(alert.sensorId), inline: true });
+    }
+    if (alert.value != null && alert.threshold != null) {
+      fields.push({
+        name: "측정값 / 기준",
+        value: `${alert.value} / ${alert.threshold}`,
+        inline: true,
+      });
+    }
+
+    const payload = {
+      embeds: [
+        {
+          title: `${style.emoji} ${label}`,
+          description: String(alert.message || "").slice(0, 3800),
+          color: style.color,
+          fields,
+          footer: { text: "SmartFarm" },
+          timestamp: new Date().toISOString(),
+        },
+      ],
+    };
+
+    const res = await fetch(DISCORD_WEBHOOK, {
+      method: "POST",
+      headers: { "Content-Type": "application/json; charset=utf-8" },
+      body: Buffer.from(JSON.stringify(payload), "utf-8"),
+      signal: AbortSignal.timeout(5000),
+    });
+    if (!res.ok) {
+      logger.warn(`Discord 알림 전송 실패 (${res.status}): ${alert.alertType}`);
+    }
+  } catch (err) {
+    logger.warn(`Discord 알림 전송 오류: ${err?.message}`);
+  }
+}
+
 const Alert = {
   async create(data) {
     const result = await pool.query(
@@ -48,7 +128,12 @@ const Alert = {
         JSON.stringify(data.metadata || {}),
       ]
     );
-    return formatAlert(result.rows[0]);
+    const alert = formatAlert(result.rows[0]);
+
+    // 전송이 느리거나 실패해도 알림 생성은 이미 끝났다 — 기다리지 않는다
+    notifyDiscord(alert).catch(() => {});
+
+    return alert;
   },
 
   async find(query = {}, { sort, limit, skip, includeDeleted } = {}) {

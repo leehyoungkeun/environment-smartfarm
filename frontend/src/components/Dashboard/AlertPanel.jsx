@@ -261,8 +261,19 @@ const AlertPanel = ({ farmId, houseId, showPanel, setShowPanel, isMobile = false
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-1.5 mb-1 flex-wrap">
               <span className="font-bold text-gray-800 text-sm">
-                {alert.metadata?.houseName || alert.houseId}
+                {alert.isFarmLevel
+                  ? '농장 전체'
+                  : (alert.metadata?.houseName || alert.houseId)}
               </span>
+              {/* 하우스가 아니라 농장·단말 수준의 알림임을 구분한다.
+                  이전에는 house_id 가 'FARM'/'-' 라 하우스 필터에 걸리지 않아
+                  화면에서 아예 사라졌고, 보이지 않으니 확인 처리도 못 해
+                  서킷 브레이커가 잠겼다 (2026-08-26). */}
+              {alert.isFarmLevel && (
+                <span className="text-xs bg-indigo-100 text-indigo-700 px-1.5 py-0.5 rounded-md font-medium">
+                  농장 단위
+                </span>
+              )}
               <span className="text-xs bg-gray-200/80 text-gray-600 px-1.5 py-0.5 rounded-md font-medium">
                 {getAlertTypeText(alert.alertType)}
               </span>

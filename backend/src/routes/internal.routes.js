@@ -59,7 +59,9 @@ router.post("/alert-webhook", async (req, res) => {
 
       // farm_id / house_id 는 NOT NULL — 라벨에 없으면 시스템 알림으로 표기
       const farmId = labels.farm_id || labels.farm || "system";
-      const houseId = labels.house_id || "-";
+      // 농장 단위 알림은 FARM 으로 통일한다 — 예전에는 "-" 를 썼는데
+      // 화면이 하우스로 걸러 조회할 때 두 값이 갈려 있으면 놓치기 쉽다.
+      const houseId = labels.house_id || "FARM";
 
       const message =
         (status === "resolved" ? "[해소] " : "") +

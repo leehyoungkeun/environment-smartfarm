@@ -4,6 +4,14 @@
 import { pool } from "../db.js";
 import logger from "../utils/logger.js";
 
+// 농장 단위 알림의 house_id — 실제 하우스가 아니라는 표시.
+//
+// 'FARM' 은 오프라인 스케줄러가, '-' 는 Alertmanager webhook 이 쓴다.
+// 값이 둘로 갈린 것은 각각 따로 만들어졌기 때문이고, 새 알림은 FARM_LEVEL
+// 하나만 쓴다. 기존 데이터 때문에 조회는 둘 다 받아준다.
+export const FARM_LEVEL = "FARM";
+const FARM_LEVEL_HOUSE_IDS = ["FARM", "-"];
+
 function formatAlert(row) {
   if (!row) return null;
   const meta = row.metadata || {};
@@ -26,6 +34,8 @@ function formatAlert(row) {
     deletedBy: meta.deletedBy || null,
     createdAt: row.timestamp,
     timestamp: row.timestamp,
+    // 하우스 알림과 구분해 표시하려고 내려보낸다
+    isFarmLevel: FARM_LEVEL_HOUSE_IDS.includes(row.house_id),
   };
 }
 
@@ -151,8 +161,12 @@ const Alert = {
       params.push(query.farmId);
     }
     if (query.houseId) {
-      sql += ` AND house_id = $${idx++}`;
-      params.push(query.houseId);
+      // 하우스를 지정해도 농장 단위 알림은 함께 보여준다.
+      // 그러지 않으면 RPi 과열·농장 오프라인 같은 알림이 화면에서 사라지고,
+      // 보이지 않으니 확인 처리도 못 해 서킷 브레이커가 영구히 잠긴다.
+      const ph = FARM_LEVEL_HOUSE_IDS.map(() => `$${idx++}`).join(",");
+      sql += ` AND (house_id = $${idx++} OR house_id IN (${ph}))`;
+      params.push(...FARM_LEVEL_HOUSE_IDS, query.houseId);
     }
     if (query.acknowledged !== undefined) {
       sql += ` AND acknowledged = $${idx++}`;
@@ -298,8 +312,10 @@ const Alert = {
       params.push(query.farmId);
     }
     if (query.houseId) {
-      sql += ` AND house_id = $${idx++}`;
-      params.push(query.houseId);
+      // find() 와 같은 규칙 — 농장 단위 알림을 함께 센다
+      const ph = FARM_LEVEL_HOUSE_IDS.map(() => `$${idx++}`).join(",");
+      sql += ` AND (house_id = $${idx++} OR house_id IN (${ph}))`;
+      params.push(...FARM_LEVEL_HOUSE_IDS, query.houseId);
     }
     if (query.acknowledged !== undefined) {
       sql += ` AND acknowledged = $${idx++}`;

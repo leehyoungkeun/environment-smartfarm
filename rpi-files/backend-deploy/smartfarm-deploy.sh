@@ -149,6 +149,19 @@ fi
 # 3. prisma generate (backend 디렉토리에서 수행, 실패해도 진행)
 run bash -c "cd '$BACKEND_DIR' && npx prisma generate" >> "$LOG_FILE" 2>&1 || log "  ⚠️ prisma generate 경고 (무시)"
 
+    # 3-1. Sentry 릴리스용 커밋 해시 기록 (2026-08-26 추가)
+    #   고정 버전이면 모든 배포가 한 릴리스로 묶여 회귀 추적이 안 된다.
+    #   pm2 reload 가 프로세스를 새로 띄우므로 dotenv 가 이 값을 다시 읽는다.
+    NEW_SHA="$(cd "$REPO_ROOT" && git rev-parse --short HEAD 2>/dev/null || echo unknown)"
+    if [ -f "$BACKEND_DIR/.env" ]; then
+        if grep -q '^GIT_SHA=' "$BACKEND_DIR/.env"; then
+            run sed -i "s/^GIT_SHA=.*/GIT_SHA=$NEW_SHA/" "$BACKEND_DIR/.env"
+        else
+            run bash -c "printf '\nGIT_SHA=%s\n' '$NEW_SHA' >> '$BACKEND_DIR/.env'"
+        fi
+        log "  ✓ GIT_SHA=$NEW_SHA (Sentry 릴리스)"
+    fi
+
 # 4. PM2 reload (graceful) → 실패 시 restart
 RELOAD_OK=0
 if run pm2 reload "$PM2_NAME" >> "$LOG_FILE" 2>&1; then

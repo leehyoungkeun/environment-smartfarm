@@ -204,10 +204,14 @@ new promClient.Gauge({
       const { pool } = await import("./db.js");
       // 하우스별 최신 1행만 — DISTINCT ON 이 인덱스(farm_id, house_id, timestamp DESC)를 탄다
       const { rows } = await pool.query(
-        `SELECT DISTINCT ON (farm_id, house_id) farm_id, house_id, data
-           FROM sensor_data
-          WHERE timestamp > now() - interval '1 hour'
-          ORDER BY farm_id, house_id, timestamp DESC`
+        // 운영 중인 농장만 — 감시 대상 판단 기준을 스케줄러와 일치시킨다
+        // (farms.status='active'). 한쪽만 거르면 중지된 농장이 규칙에 다시 걸려
+        // 오래 꺼둔 농장이 알림 소음을 만든다.
+        `SELECT DISTINCT ON (sd.farm_id, sd.house_id) sd.farm_id, sd.house_id, sd.data
+           FROM sensor_data sd
+           JOIN farms f ON f.farm_id = sd.farm_id AND f.status = 'active'
+          WHERE sd.timestamp > now() - interval '1 hour'
+          ORDER BY sd.farm_id, sd.house_id, sd.timestamp DESC`
       );
       this.reset();
       rows.forEach((r) => {
@@ -236,7 +240,11 @@ function registerThresholdGauge(name, help, key) {
       try {
         const { pool } = await import("./db.js");
         const { rows } = await pool.query(
-          `SELECT farm_id, house_id, sensors FROM house_configs WHERE enabled = true`
+          // 실측값 지표와 같은 기준(운영 중인 농장)으로 맞춘다
+          `SELECT hc.farm_id, hc.house_id, hc.sensors
+             FROM house_configs hc
+             JOIN farms f ON f.farm_id = hc.farm_id AND f.status = 'active'
+            WHERE hc.enabled = true`
         );
         this.reset();
         rows.forEach((r) => {

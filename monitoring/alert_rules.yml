@@ -47,7 +47,7 @@ groups:
           severity: critical
         annotations:
           summary: "{{ $labels.job }} 응답 없음"
-          description: "{{ $labels.instance }} 를 10분 이상 스크레이프하지 못했습니다. 호스트 전원·네트워크·node_exporter 상태를 확인하십시오."
+          description: "{{ $labels.instance }} 를 10분 이상 스크레이프하지 못했습니다. role=monitoring 이면 해당 컨테이너(docker ps)를, 아니면 호스트 전원·네트워크·node_exporter 를 확인하십시오."
 
   - name: smartfarm-resource
     rules:

@@ -1,3 +1,9 @@
+// updated_at 은 `prisma db pull` 로 introspect 된 컬럼이라 `@default(now())` 만
+// 붙어 있었다 — 즉 **입력 시각에서 멈춰 있었다.** 2026-08-27 점검에서
+// farms.updated_at(3월) 을 상태 변경 시각으로 읽고 잘못된 결론을 냈다.
+// 12개 모델에 `@updatedAt` 을 붙여 이름대로 동작하게 한다 (DDL 변경 없음,
+// 배포 시 prisma generate 가 반영).
+
 generator client {
   provider = "prisma-client-js"
 }
@@ -71,7 +77,7 @@ model businessProject {
   id        String   @id @default(dbgenerated("(gen_random_uuid())::text"))
   name      String   @unique
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
   farms     farm[]
 
   @@map("business_projects")
@@ -120,7 +126,7 @@ model farmDocument {
   uploadedBy   String?  @map("uploaded_by")
   uploaderId   String?  @map("uploader_id")
   createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt    DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
+  updatedAt    DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
   farm         farm     @relation(fields: [farmId], references: [id], onDelete: Cascade, onUpdate: NoAction)
 
   @@index([farmId, createdAt(sort: Desc)], map: "idx_farm_documents_created")
@@ -191,7 +197,7 @@ model farmNote {
   author    String?
   authorId  String?   @map("author_id")
   createdAt DateTime? @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt DateTime? @default(now()) @map("updated_at") @db.Timestamptz(6)
+  updatedAt DateTime? @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
   farm      farm      @relation(fields: [farmId], references: [id], onDelete: Cascade, onUpdate: NoAction)
 
   @@index([farmId, createdAt(sort: Desc)], map: "idx_farm_notes_farm_created")
@@ -216,7 +222,7 @@ model farmSchedule {
   recurrence  Json?
   createdBy   String?   @map("created_by")
   createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt   DateTime  @default(now()) @map("updated_at") @db.Timestamptz(6)
+  updatedAt   DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
   farm        farm      @relation(fields: [farmId], references: [id], onDelete: Cascade, onUpdate: NoAction)
 
   @@index([farmId, completed, startDate], map: "idx_farm_schedules_completed")
@@ -236,7 +242,7 @@ model farm {
   lastSeenAt         DateTime?        @map("last_seen_at") @db.Timestamptz(6)
   memo               String?
   createdAt          DateTime         @default(now()) @map("created_at")
-  updatedAt          DateTime         @default(now()) @map("updated_at")
+  updatedAt          DateTime         @default(now()) @updatedAt @map("updated_at")
   managers           Json?            @default("[]")
   registeredAt       DateTime?        @default(dbgenerated("CURRENT_DATE")) @map("registered_at") @db.Date
   maintenanceMonths  Int?             @default(12) @map("maintenance_months")
@@ -283,7 +289,7 @@ model device {
   privateKey      String?   @map("private_key")
   awsThingName    String?   @map("aws_thing_name")
   createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt       DateTime  @default(now()) @map("updated_at") @db.Timestamptz(6)
+  updatedAt       DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
   farm            farm?     @relation(fields: [farmId], references: [farmId], onDelete: SetNull, onUpdate: NoAction)
 
   @@index([farmId], map: "idx_devices_farm")
@@ -462,7 +468,7 @@ model maintenanceLog {
   technician  String?
   status      String   @default("completed")
   createdAt   DateTime @default(now()) @map("created_at")
-  updatedAt   DateTime @default(now()) @map("updated_at")
+  updatedAt   DateTime @default(now()) @updatedAt @map("updated_at")
   farm        farm     @relation(fields: [farmId], references: [id], onDelete: Cascade, onUpdate: NoAction)
 
   @@index([farmId, date], map: "idx_maintenance_logs_farm_date")
@@ -493,7 +499,7 @@ model camera {
   enabled   Boolean  @default(true)
   sortOrder Int      @default(0) @map("sort_order")
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   @@unique([farmId, camId])
   @@index([farmId])
@@ -503,7 +509,7 @@ model camera {
 model systemSetting {
   farmId    String   @id @map("farm_id")
   settings  Json     @default("{}")
-  updatedAt DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   @@map("system_settings")
 }
@@ -583,7 +589,7 @@ model nutrientConfig {
   alerts       Json     @default("{}") // {ecUpper, ecLower, ecCritical, phUpper, phLower, phCritical}
   hardware     Json     @default("{}") // {modbusUnit, ecSensorAddr, phSensorAddr, flowSensorAddr, pumpResponse, dosingPulseUnit}
   autoSchedule Json     @default("{\"items\":[],\"loop\":true}") @map("auto_schedule") // {items:[{scenarioId, repeat, enabled}], loop}
-  updatedAt    DateTime @default(now()) @map("updated_at")
+  updatedAt    DateTime @default(now()) @updatedAt @map("updated_at")
 
   @@map("nutrient_configs")
 }
@@ -635,7 +641,7 @@ model nutrientCounter {
   pumpRuntimeMin   Int       @default(0) @map("pump_runtime_min")
   filterChangeAt   DateTime? @map("filter_change_at") @db.Date
   lastResetAt      DateTime? @map("last_reset_at") @db.Timestamptz(6)
-  updatedAt        DateTime  @default(now()) @map("updated_at")
+  updatedAt        DateTime  @default(now()) @updatedAt @map("updated_at")
 
   @@map("nutrient_counters")
 }
@@ -651,7 +657,7 @@ model nutrientState {
   ecCurrent        Float?   @map("ec_current")
   phCurrent        Float?   @map("ph_current")
   solarAccumulated Float    @default(0) @map("solar_accumulated")
-  updatedAt        DateTime @default(now()) @map("updated_at")
+  updatedAt        DateTime @default(now()) @updatedAt @map("updated_at")
 
   @@map("nutrient_states")
 }

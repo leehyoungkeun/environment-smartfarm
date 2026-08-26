@@ -183,7 +183,7 @@
        "mode": "absolute",
        "steps": [
         {
-         "color": "green",
+         "color": "text",
          "value": null
         },
         {
@@ -287,7 +287,7 @@
    {
     "type": "stat",
     "title": "24시간 알림",
-    "description": "최근 24시간 생성된 알림 총계.",
+    "description": "최근 24시간 생성된 알림 총계. 많다고 나쁜 것이 아니라 감지가 돌고 있다는 뜻이라 색을 넣지 않는다.",
     "gridPos": {
      "x": 12,
      "y": 0,
@@ -309,7 +309,7 @@
      }
     ],
     "options": {
-     "colorMode": "background_solid",
+     "colorMode": "value",
      "graphMode": "none",
      "textMode": "value",
      "justifyMode": "center",
@@ -328,16 +328,8 @@
        "mode": "absolute",
        "steps": [
         {
-         "color": "green",
+         "color": "text",
          "value": null
-        },
-        {
-         "color": "yellow",
-         "value": 10
-        },
-        {
-         "color": "red",
-         "value": 30
         }
        ]
       },
@@ -397,7 +389,7 @@
        "mode": "absolute",
        "steps": [
         {
-         "color": "green",
+         "color": "text",
          "value": null
         },
         {
@@ -425,7 +417,7 @@
    {
     "type": "stat",
     "title": "24시간 제어",
-    "description": "최근 24시간 실행된 제어 명령 수.",
+    "description": "최근 24시간 실행된 제어 명령 수. 정상 운영 지표이므로 색을 넣지 않는다.",
     "gridPos": {
      "x": 18,
      "y": 0,
@@ -527,7 +519,7 @@
        "mode": "absolute",
        "steps": [
         {
-         "color": "green",
+         "color": "text",
          "value": null
         },
         {
@@ -608,7 +600,7 @@
        "uid": "bflmwho4bsnb4c"
       },
       "editorMode": "code",
-      "expr": "sum by (farm_id) ((smartfarm_sensor_value > bool on(farm_id,house_id,sensor_id) smartfarm_sensor_threshold_max) + (smartfarm_sensor_value < bool on(farm_id,house_id,sensor_id) smartfarm_sensor_threshold_min)) or (0 * max by (farm_id) (smartfarm_farm_up))",
+      "expr": "sum by (farm_id) ((smartfarm_sensor_value > bool on(farm_id,house_id,sensor_id) smartfarm_sensor_threshold_max) + (smartfarm_sensor_value < bool on(farm_id,house_id,sensor_id) smartfarm_sensor_threshold_min))",
       "format": "table",
       "instant": true,
       "legendFormat": "",
@@ -868,12 +860,12 @@
         "farm_id": "농장",
         "farm_name": "농장명",
         "status": "상태",
-        "Value #B": "센서 수신",
+        "Value #B": "센서 수신(초)",
         "Value #C": "수집/시간",
         "Value #D": "임계 이탈",
         "Value #E": "온도",
         "Value #F": "습도",
-        "Value #G": "릴레이",
+        "Value #G": "릴레이(초)",
         "Value #H": "RPi 온도",
         "Value #I": "24h 알림",
         "Value #J": "미확인",
@@ -989,12 +981,12 @@
       {
        "matcher": {
         "id": "byName",
-        "options": "센서 수신"
+        "options": "센서 수신(초)"
        },
        "properties": [
         {
          "id": "unit",
-         "value": "dtdurations"
+         "value": "none"
         },
         {
          "id": "decimals",
@@ -1017,7 +1009,7 @@
           "mode": "absolute",
           "steps": [
            {
-            "color": "green",
+            "color": "text",
             "value": null
            },
            {
@@ -1033,7 +1025,11 @@
         },
         {
          "id": "custom.width",
-         "value": 105
+         "value": 115
+        },
+        {
+         "id": "description",
+         "value": "마지막 센서 수신 이후 경과 초. 300초(5분)부터 노랑, 900초(15분)부터 빨강 — 알림 임계와 같다."
         }
        ]
       },
@@ -1059,24 +1055,31 @@
          }
         },
         {
-         "id": "thresholds",
-         "value": {
-          "mode": "absolute",
-          "steps": [
-           {
-            "color": "red",
-            "value": null
-           },
-           {
-            "color": "yellow",
-            "value": 30
-           },
-           {
-            "color": "green",
-            "value": 50
+         "id": "mappings",
+         "value": [
+          {
+           "type": "range",
+           "options": {
+            "from": 0,
+            "to": 29,
+            "result": {
+             "color": "red",
+             "index": 0
+            }
            }
-          ]
-         }
+          },
+          {
+           "type": "range",
+           "options": {
+            "from": 30,
+            "to": 49,
+            "result": {
+             "color": "yellow",
+             "index": 1
+            }
+           }
+          }
+         ]
         },
         {
          "id": "custom.width",
@@ -1084,7 +1087,7 @@
         },
         {
          "id": "description",
-         "value": "1시간 적재 건수. 1분 주기라 정상이면 60 안팎."
+         "value": "1시간 적재 건수. 1분 주기라 60 안팎이 정상. 50 미만 노랑, 30 미만 빨강."
         }
        ]
       },
@@ -1115,7 +1118,7 @@
           "mode": "absolute",
           "steps": [
            {
-            "color": "green",
+            "color": "text",
             "value": null
            },
            {
@@ -1196,12 +1199,12 @@
       {
        "matcher": {
         "id": "byName",
-        "options": "릴레이"
+        "options": "릴레이(초)"
        },
        "properties": [
         {
          "id": "unit",
-         "value": "dtdurations"
+         "value": "none"
         },
         {
          "id": "decimals",
@@ -1224,7 +1227,7 @@
           "mode": "absolute",
           "steps": [
            {
-            "color": "green",
+            "color": "text",
             "value": null
            },
            {
@@ -1240,7 +1243,11 @@
         },
         {
          "id": "custom.width",
-         "value": 95
+         "value": 105
+        },
+        {
+         "id": "description",
+         "value": "릴레이 상태 무갱신 경과 초. 600초(10분)부터 알림."
         }
        ]
       },
@@ -1275,7 +1282,7 @@
           "mode": "absolute",
           "steps": [
            {
-            "color": "green",
+            "color": "text",
             "value": null
            },
            {
@@ -1342,7 +1349,7 @@
           "mode": "absolute",
           "steps": [
            {
-            "color": "green",
+            "color": "text",
             "value": null
            },
            {
@@ -1478,7 +1485,7 @@
        "mode": "absolute",
        "steps": [
         {
-         "color": "green",
+         "color": "text",
          "value": null
         },
         {
@@ -1557,7 +1564,7 @@
          "value": 30
         },
         {
-         "color": "green",
+         "color": "text",
          "value": 50
         }
        ]
@@ -1624,7 +1631,7 @@
        "mode": "absolute",
        "steps": [
         {
-         "color": "green",
+         "color": "text",
          "value": null
         },
         {

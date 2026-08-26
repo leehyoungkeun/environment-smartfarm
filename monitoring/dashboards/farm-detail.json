@@ -1,0 +1,771 @@
+{
+ "dashboard": {
+  "uid": "smartfarm-ops",
+  "title": "농장 운영 현황",
+  "description": "농장 지표를 한 화면에서 본다. 2026-08-26 감시체계 점검에서 신설. Prometheus·Alertmanager UI 는 localhost 전용(인증 없음)이라 외부 노출 대신 여기로 모았다.",
+  "tags": [
+   "smartfarm",
+   "farm"
+  ],
+  "timezone": "Asia/Seoul",
+  "editable": true,
+  "schemaVersion": 39,
+  "refresh": "1m",
+  "templating": {
+   "list": [
+    {
+     "name": "farm",
+     "label": "농장",
+     "type": "query",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "bflmwho4bsnb4c"
+     },
+     "query": {
+      "query": "label_values(smartfarm_sensor_value, farm_id)",
+      "refId": "farm"
+     },
+     "refresh": 2,
+     "includeAll": true,
+     "allValue": ".*",
+     "multi": true,
+     "current": {
+      "text": [
+       "All"
+      ],
+      "value": [
+       "$__all"
+      ]
+     },
+     "sort": 1
+    },
+    {
+     "name": "house",
+     "label": "하우스",
+     "type": "query",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "bflmwho4bsnb4c"
+     },
+     "query": {
+      "query": "label_values(smartfarm_sensor_value{farm_id=~\"$farm\"}, house_id)",
+      "refId": "house"
+     },
+     "refresh": 2,
+     "includeAll": true,
+     "allValue": ".*",
+     "multi": true,
+     "current": {
+      "text": [
+       "All"
+      ],
+      "value": [
+       "$__all"
+      ]
+     },
+     "sort": 1
+    }
+   ]
+  },
+  "time": {
+   "from": "now-6h",
+   "to": "now"
+  },
+  "panels": [
+   {
+    "type": "stat",
+    "title": "AWS IoT MQTT",
+    "description": "0 이면 클라우드 제어가 끊긴 상태. 2026-07-31~08-25 에 3주간 0 이었고 아무도 몰랐다.",
+    "gridPos": {
+     "x": 0,
+     "y": 0,
+     "w": 4,
+     "h": 4
+    },
+    "targets": [
+     {
+      "datasource": {
+       "type": "prometheus",
+       "uid": "bflmwho4bsnb4c"
+      },
+      "editorMode": "code",
+      "expr": "smartfarm_mqtt_connected",
+      "legendFormat": "MQTT",
+      "range": true,
+      "refId": "A"
+     }
+    ],
+    "options": {
+     "colorMode": "background",
+     "graphMode": "none",
+     "textMode": "value_and_name",
+     "reduceOptions": {
+      "calcs": [
+       "lastNotNull"
+      ],
+      "fields": "",
+      "values": false
+     }
+    },
+    "fieldConfig": {
+     "defaults": {
+      "mappings": [
+       {
+        "type": "value",
+        "options": {
+         "0": {
+          "text": "끊김",
+          "color": "red",
+          "index": 0
+         },
+         "1": {
+          "text": "연결됨",
+          "color": "green",
+          "index": 1
+         }
+        }
+       }
+      ],
+      "thresholds": {
+       "mode": "absolute",
+       "steps": [
+        {
+         "color": "red",
+         "value": null
+        },
+        {
+         "color": "green",
+         "value": 1
+        }
+       ]
+      }
+     },
+     "overrides": []
+    },
+    "id": 1,
+    "datasource": {
+     "type": "prometheus",
+     "uid": "bflmwho4bsnb4c"
+    }
+   },
+   {
+    "type": "stat",
+    "title": "센서 수신 지연",
+    "description": "마지막 센서 수신 이후 경과. 15분(900초)을 넘으면 SensorDataStalled 알림이 뜬다.",
+    "gridPos": {
+     "x": 4,
+     "y": 0,
+     "w": 10,
+     "h": 4
+    },
+    "targets": [
+     {
+      "datasource": {
+       "type": "prometheus",
+       "uid": "bflmwho4bsnb4c"
+      },
+      "editorMode": "code",
+      "expr": "smartfarm_sensor_last_seen_seconds{farm_id=~\"$farm\",house_id=~\"$house\"}",
+      "legendFormat": "{{farm_id}} / {{house_id}}",
+      "range": true,
+      "refId": "A"
+     }
+    ],
+    "options": {
+     "colorMode": "background",
+     "graphMode": "area",
+     "textMode": "value_and_name",
+     "reduceOptions": {
+      "calcs": [
+       "lastNotNull"
+      ],
+      "fields": "",
+      "values": false
+     }
+    },
+    "fieldConfig": {
+     "defaults": {
+      "unit": "s",
+      "decimals": 0,
+      "thresholds": {
+       "mode": "absolute",
+       "steps": [
+        {
+         "color": "green",
+         "value": null
+        },
+        {
+         "color": "yellow",
+         "value": 300
+        },
+        {
+         "color": "red",
+         "value": 900
+        }
+       ]
+      }
+     },
+     "overrides": []
+    },
+    "id": 2,
+    "datasource": {
+     "type": "prometheus",
+     "uid": "bflmwho4bsnb4c"
+    }
+   },
+   {
+    "type": "stat",
+    "title": "릴레이 상태 갱신",
+    "description": "릴레이 상태 무갱신 경과. 10분(600초) 초과 시 RelayStatusStalled.",
+    "gridPos": {
+     "x": 14,
+     "y": 0,
+     "w": 5,
+     "h": 4
+    },
+    "targets": [
+     {
+      "datasource": {
+       "type": "prometheus",
+       "uid": "bflmwho4bsnb4c"
+      },
+      "editorMode": "code",
+      "expr": "smartfarm_relay_status_age_seconds{farm_id=~\"$farm\"}",
+      "legendFormat": "{{farm_id}}",
+      "range": true,
+      "refId": "A"
+     }
+    ],
+    "options": {
+     "colorMode": "background",
+     "graphMode": "area",
+     "textMode": "value_and_name",
+     "reduceOptions": {
+      "calcs": [
+       "lastNotNull"
+      ],
+      "fields": "",
+      "values": false
+     }
+    },
+    "fieldConfig": {
+     "defaults": {
+      "unit": "s",
+      "decimals": 0,
+      "thresholds": {
+       "mode": "absolute",
+       "steps": [
+        {
+         "color": "green",
+         "value": null
+        },
+        {
+         "color": "yellow",
+         "value": 300
+        },
+        {
+         "color": "red",
+         "value": 600
+        }
+       ]
+      }
+     },
+     "overrides": []
+    },
+    "id": 3,
+    "datasource": {
+     "type": "prometheus",
+     "uid": "bflmwho4bsnb4c"
+    }
+   },
+   {
+    "type": "stat",
+    "title": "RPi 온도",
+    "description": "80°C 부터 스로틀링. 2026-08-26 에 화면 없는 키오스크를 정지해 82→59°C 로 내려갔다.",
+    "gridPos": {
+     "x": 19,
+     "y": 0,
+     "w": 5,
+     "h": 4
+    },
+    "targets": [
+     {
+      "datasource": {
+       "type": "prometheus",
+       "uid": "bflmwho4bsnb4c"
+      },
+      "editorMode": "code",
+      "expr": "node_hwmon_temp_celsius{chip=\"thermal_thermal_zone0\",sensor=\"temp0\",farm=~\"$farm\"}",
+      "legendFormat": "{{farm}}",
+      "range": true,
+      "refId": "A"
+     }
+    ],
+    "options": {
+     "colorMode": "background",
+     "graphMode": "area",
+     "textMode": "value_and_name",
+     "reduceOptions": {
+      "calcs": [
+       "lastNotNull"
+      ],
+      "fields": "",
+      "values": false
+     }
+    },
+    "fieldConfig": {
+     "defaults": {
+      "unit": "celsius",
+      "decimals": 1,
+      "thresholds": {
+       "mode": "absolute",
+       "steps": [
+        {
+         "color": "green",
+         "value": null
+        },
+        {
+         "color": "yellow",
+         "value": 70
+        },
+        {
+         "color": "red",
+         "value": 75
+        }
+       ]
+      }
+     },
+     "overrides": []
+    },
+    "id": 4,
+    "datasource": {
+     "type": "prometheus",
+     "uid": "bflmwho4bsnb4c"
+    }
+   },
+   {
+    "type": "timeseries",
+    "title": "온도 추이 — 경보선 포함",
+    "description": "점선은 설정된 경보 상·하한. 실선이 점선을 벗어나면 SENSOR_THRESHOLD 알림이 뜬다.",
+    "gridPos": {
+     "x": 0,
+     "y": 4,
+     "w": 12,
+     "h": 9
+    },
+    "targets": [
+     {
+      "datasource": {
+       "type": "prometheus",
+       "uid": "bflmwho4bsnb4c"
+      },
+      "editorMode": "code",
+      "expr": "smartfarm_sensor_value{sensor_id=~\"temp.*\",farm_id=~\"$farm\",house_id=~\"$house\"}",
+      "legendFormat": "{{farm_id}} / {{house_id}}",
+      "range": true,
+      "refId": "A"
+     },
+     {
+      "datasource": {
+       "type": "prometheus",
+       "uid": "bflmwho4bsnb4c"
+      },
+      "editorMode": "code",
+      "expr": "smartfarm_sensor_threshold_min{sensor_id=~\"temp.*\",farm_id=~\"$farm\",house_id=~\"$house\"}",
+      "legendFormat": "경보 하한 — {{farm_id}}",
+      "range": true,
+      "refId": "B"
+     },
+     {
+      "datasource": {
+       "type": "prometheus",
+       "uid": "bflmwho4bsnb4c"
+      },
+      "editorMode": "code",
+      "expr": "smartfarm_sensor_threshold_max{sensor_id=~\"temp.*\",farm_id=~\"$farm\",house_id=~\"$house\"}",
+      "legendFormat": "경보 상한 — {{farm_id}}",
+      "range": true,
+      "refId": "C"
+     }
+    ],
+    "options": {
+     "legend": {
+      "displayMode": "list",
+      "placement": "bottom",
+      "showLegend": true
+     },
+     "tooltip": {
+      "mode": "multi",
+      "sort": "none"
+     }
+    },
+    "fieldConfig": {
+     "defaults": {
+      "unit": "celsius",
+      "decimals": 1,
+      "custom": {
+       "drawStyle": "line",
+       "lineWidth": 2,
+       "fillOpacity": 8,
+       "showPoints": "never",
+       "spanNulls": true
+      }
+     },
+     "overrides": [
+      {
+       "matcher": {
+        "id": "byRegexp",
+        "options": ".*경보 (하한|상한).*"
+       },
+       "properties": [
+        {
+         "id": "custom.lineStyle",
+         "value": {
+          "dash": [
+           8,
+           6
+          ],
+          "fill": "dash"
+         }
+        },
+        {
+         "id": "custom.lineWidth",
+         "value": 1
+        },
+        {
+         "id": "custom.fillOpacity",
+         "value": 0
+        },
+        {
+         "id": "color",
+         "value": {
+          "mode": "fixed",
+          "fixedColor": "red"
+         }
+        }
+       ]
+      }
+     ]
+    },
+    "id": 5,
+    "datasource": {
+     "type": "prometheus",
+     "uid": "bflmwho4bsnb4c"
+    }
+   },
+   {
+    "type": "timeseries",
+    "title": "습도 추이 — 경보선 포함",
+    "description": "설정 화면(센서 임계값)에서 바꾼 값이 점선에 그대로 반영된다.",
+    "gridPos": {
+     "x": 12,
+     "y": 4,
+     "w": 12,
+     "h": 9
+    },
+    "targets": [
+     {
+      "datasource": {
+       "type": "prometheus",
+       "uid": "bflmwho4bsnb4c"
+      },
+      "editorMode": "code",
+      "expr": "smartfarm_sensor_value{sensor_id=~\"humi.*\",farm_id=~\"$farm\",house_id=~\"$house\"}",
+      "legendFormat": "{{farm_id}} / {{house_id}}",
+      "range": true,
+      "refId": "A"
+     },
+     {
+      "datasource": {
+       "type": "prometheus",
+       "uid": "bflmwho4bsnb4c"
+      },
+      "editorMode": "code",
+      "expr": "smartfarm_sensor_threshold_min{sensor_id=~\"humi.*\",farm_id=~\"$farm\",house_id=~\"$house\"}",
+      "legendFormat": "경보 하한 — {{farm_id}}",
+      "range": true,
+      "refId": "B"
+     },
+     {
+      "datasource": {
+       "type": "prometheus",
+       "uid": "bflmwho4bsnb4c"
+      },
+      "editorMode": "code",
+      "expr": "smartfarm_sensor_threshold_max{sensor_id=~\"humi.*\",farm_id=~\"$farm\",house_id=~\"$house\"}",
+      "legendFormat": "경보 상한 — {{farm_id}}",
+      "range": true,
+      "refId": "C"
+     }
+    ],
+    "options": {
+     "legend": {
+      "displayMode": "list",
+      "placement": "bottom",
+      "showLegend": true
+     },
+     "tooltip": {
+      "mode": "multi",
+      "sort": "none"
+     }
+    },
+    "fieldConfig": {
+     "defaults": {
+      "unit": "humidity",
+      "decimals": 1,
+      "custom": {
+       "drawStyle": "line",
+       "lineWidth": 2,
+       "fillOpacity": 8,
+       "showPoints": "never",
+       "spanNulls": true
+      }
+     },
+     "overrides": [
+      {
+       "matcher": {
+        "id": "byRegexp",
+        "options": ".*경보 (하한|상한).*"
+       },
+       "properties": [
+        {
+         "id": "custom.lineStyle",
+         "value": {
+          "dash": [
+           8,
+           6
+          ],
+          "fill": "dash"
+         }
+        },
+        {
+         "id": "custom.lineWidth",
+         "value": 1
+        },
+        {
+         "id": "custom.fillOpacity",
+         "value": 0
+        },
+        {
+         "id": "color",
+         "value": {
+          "mode": "fixed",
+          "fixedColor": "red"
+         }
+        }
+       ]
+      }
+     ]
+    },
+    "id": 6,
+    "datasource": {
+     "type": "prometheus",
+     "uid": "bflmwho4bsnb4c"
+    }
+   },
+   {
+    "type": "table",
+    "title": "감시 중인 센서와 경보 기준",
+    "description": "여기 나오는 농장만 감시 대상이다 — farms.status='active' 인 곳. 운영을 중지한 농장은 상태를 '점검중'으로 두면 자동으로 빠진다.",
+    "gridPos": {
+     "x": 0,
+     "y": 13,
+     "w": 14,
+     "h": 8
+    },
+    "targets": [
+     {
+      "datasource": {
+       "type": "prometheus",
+       "uid": "bflmwho4bsnb4c"
+      },
+      "editorMode": "code",
+      "expr": "smartfarm_sensor_value{farm_id=~\"$farm\",house_id=~\"$house\"}",
+      "legendFormat": "",
+      "range": true,
+      "refId": "A",
+      "format": "table",
+      "instant": true
+     },
+     {
+      "datasource": {
+       "type": "prometheus",
+       "uid": "bflmwho4bsnb4c"
+      },
+      "editorMode": "code",
+      "expr": "smartfarm_sensor_threshold_min{farm_id=~\"$farm\",house_id=~\"$house\"}",
+      "legendFormat": "",
+      "range": true,
+      "refId": "B",
+      "format": "table",
+      "instant": true
+     },
+     {
+      "datasource": {
+       "type": "prometheus",
+       "uid": "bflmwho4bsnb4c"
+      },
+      "editorMode": "code",
+      "expr": "smartfarm_sensor_threshold_max{farm_id=~\"$farm\",house_id=~\"$house\"}",
+      "legendFormat": "",
+      "range": true,
+      "refId": "C",
+      "format": "table",
+      "instant": true
+     }
+    ],
+    "transformations": [
+     {
+      "id": "joinByField",
+      "options": {
+       "byField": "sensor_id",
+       "mode": "outer"
+      }
+     },
+     {
+      "id": "organize",
+      "options": {
+       "excludeByName": {
+        "Time": true,
+        "Time 1": true,
+        "Time 2": true,
+        "Time 3": true,
+        "__name__": true,
+        "__name__ 1": true,
+        "__name__ 2": true,
+        "__name__ 3": true,
+        "job": true,
+        "job 1": true,
+        "job 2": true,
+        "job 3": true,
+        "instance": true,
+        "instance 1": true,
+        "instance 2": true,
+        "instance 3": true,
+        "service": true,
+        "service 1": true,
+        "service 2": true,
+        "service 3": true,
+        "farm_id 2": true,
+        "farm_id 3": true,
+        "house_id 2": true,
+        "house_id 3": true
+       },
+       "renameByName": {
+        "farm_id 1": "농장",
+        "house_id 1": "하우스",
+        "sensor_id": "센서",
+        "Value #A": "현재값",
+        "Value #B": "경보 하한",
+        "Value #C": "경보 상한"
+       }
+      }
+     }
+    ],
+    "fieldConfig": {
+     "defaults": {
+      "decimals": 1
+     },
+     "overrides": []
+    },
+    "options": {
+     "showHeader": true
+    },
+    "id": 7,
+    "datasource": {
+     "type": "prometheus",
+     "uid": "bflmwho4bsnb4c"
+    }
+   },
+   {
+    "type": "timeseries",
+    "title": "MQTT 연결 이력",
+    "description": "끊긴 구간이 한눈에 보인다. 사후에 '언제부터 끊겼나' 를 확인할 때 쓴다.",
+    "gridPos": {
+     "x": 14,
+     "y": 13,
+     "w": 10,
+     "h": 8
+    },
+    "targets": [
+     {
+      "datasource": {
+       "type": "prometheus",
+       "uid": "bflmwho4bsnb4c"
+      },
+      "editorMode": "code",
+      "expr": "smartfarm_mqtt_connected",
+      "legendFormat": "MQTT 연결",
+      "range": true,
+      "refId": "A"
+     }
+    ],
+    "options": {
+     "legend": {
+      "displayMode": "list",
+      "placement": "bottom",
+      "showLegend": false
+     },
+     "tooltip": {
+      "mode": "single",
+      "sort": "none"
+     }
+    },
+    "fieldConfig": {
+     "defaults": {
+      "min": 0,
+      "max": 1,
+      "decimals": 0,
+      "custom": {
+       "drawStyle": "line",
+       "lineInterpolation": "stepAfter",
+       "lineWidth": 2,
+       "fillOpacity": 20,
+       "showPoints": "never",
+       "spanNulls": true
+      },
+      "mappings": [
+       {
+        "type": "value",
+        "options": {
+         "0": {
+          "text": "끊김",
+          "index": 0
+         },
+         "1": {
+          "text": "연결",
+          "index": 1
+         }
+        }
+       }
+      ],
+      "thresholds": {
+       "mode": "absolute",
+       "steps": [
+        {
+         "color": "red",
+         "value": null
+        },
+        {
+         "color": "green",
+         "value": 1
+        }
+       ]
+      },
+      "color": {
+       "mode": "thresholds"
+      }
+     },
+     "overrides": []
+    },
+    "id": 8,
+    "datasource": {
+     "type": "prometheus",
+     "uid": "bflmwho4bsnb4c"
+    }
+   }
+  ]
+ },
+ "overwrite": true,
+ "message": "농장 운영 현황 대시보드 (2026-08-26 신설)"
+}

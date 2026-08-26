@@ -1,0 +1,525 @@
+{
+ "dashboard": {
+  "uid": "smartfarm-overview",
+  "title": "농장 개요",
+  "description": "전 농장을 한 줄씩 본다. 농장명을 누르면 상세 화면으로 이동한다. 2026-08-26 신설 — 농장이 늘어나면 상세 화면 하나로는 선이 겹쳐 못 읽는다.",
+  "tags": [
+   "smartfarm",
+   "farm",
+   "overview"
+  ],
+  "timezone": "Asia/Seoul",
+  "editable": true,
+  "schemaVersion": 39,
+  "refresh": "1m",
+  "time": {
+   "from": "now-24h",
+   "to": "now"
+  },
+  "panels": [
+   {
+    "id": 1,
+    "type": "table",
+    "title": "농장 현황 — 농장명을 누르면 상세 화면으로",
+    "description": "farms.status='active' 인 농장만 나온다. 운영 중지 농장은 상태만 바꾸면 자동으로 빠진다.\n'임계 이탈' 은 설정된 경보 상·하한을 벗어난 센서 개수다.",
+    "datasource": {
+     "type": "prometheus",
+     "uid": "bflmwho4bsnb4c"
+    },
+    "gridPos": {
+     "x": 0,
+     "y": 0,
+     "w": 24,
+     "h": 12
+    },
+    "targets": [
+     {
+      "datasource": {
+       "type": "prometheus",
+       "uid": "bflmwho4bsnb4c"
+      },
+      "editorMode": "code",
+      "expr": "max by (farm_id) (smartfarm_sensor_last_seen_seconds)",
+      "format": "table",
+      "instant": true,
+      "legendFormat": "",
+      "range": false,
+      "refId": "A"
+     },
+     {
+      "datasource": {
+       "type": "prometheus",
+       "uid": "bflmwho4bsnb4c"
+      },
+      "editorMode": "code",
+      "expr": "sum by (farm_id) ((smartfarm_sensor_value > bool on(farm_id,house_id,sensor_id) smartfarm_sensor_threshold_max) + (smartfarm_sensor_value < bool on(farm_id,house_id,sensor_id) smartfarm_sensor_threshold_min))",
+      "format": "table",
+      "instant": true,
+      "legendFormat": "",
+      "range": false,
+      "refId": "B"
+     },
+     {
+      "datasource": {
+       "type": "prometheus",
+       "uid": "bflmwho4bsnb4c"
+      },
+      "editorMode": "code",
+      "expr": "max by (farm_id) (smartfarm_sensor_value{sensor_id=~\"temp.*\"})",
+      "format": "table",
+      "instant": true,
+      "legendFormat": "",
+      "range": false,
+      "refId": "C"
+     },
+     {
+      "datasource": {
+       "type": "prometheus",
+       "uid": "bflmwho4bsnb4c"
+      },
+      "editorMode": "code",
+      "expr": "max by (farm_id) (smartfarm_sensor_value{sensor_id=~\"humi.*\"})",
+      "format": "table",
+      "instant": true,
+      "legendFormat": "",
+      "range": false,
+      "refId": "D"
+     },
+     {
+      "datasource": {
+       "type": "prometheus",
+       "uid": "bflmwho4bsnb4c"
+      },
+      "editorMode": "code",
+      "expr": "max by (farm_id) (smartfarm_relay_status_age_seconds)",
+      "format": "table",
+      "instant": true,
+      "legendFormat": "",
+      "range": false,
+      "refId": "E"
+     },
+     {
+      "datasource": {
+       "type": "prometheus",
+       "uid": "bflmwho4bsnb4c"
+      },
+      "editorMode": "code",
+      "expr": "max by (farm) (node_hwmon_temp_celsius{chip=\"thermal_thermal_zone0\",sensor=\"temp0\"})",
+      "format": "table",
+      "instant": true,
+      "legendFormat": "",
+      "range": false,
+      "refId": "F"
+     }
+    ],
+    "transformations": [
+     {
+      "id": "joinByField",
+      "options": {
+       "byField": "farm_id",
+       "mode": "outer"
+      }
+     },
+     {
+      "id": "organize",
+      "options": {
+       "excludeByName": {
+        "Time": true,
+        "Time 1": true,
+        "Time 2": true,
+        "Time 3": true,
+        "Time 4": true,
+        "Time 5": true,
+        "Time 6": true,
+        "farm": true
+       },
+       "renameByName": {
+        "farm_id": "농장",
+        "Value #A": "센서 수신",
+        "Value #B": "임계 이탈",
+        "Value #C": "온도",
+        "Value #D": "습도",
+        "Value #E": "릴레이 갱신",
+        "Value #F": "RPi 온도"
+       },
+       "indexByName": {
+        "farm_id": 0,
+        "Value #A": 1,
+        "Value #B": 2,
+        "Value #C": 3,
+        "Value #D": 4,
+        "Value #E": 5,
+        "Value #F": 6
+       }
+      }
+     }
+    ],
+    "fieldConfig": {
+     "defaults": {
+      "custom": {
+       "align": "center",
+       "cellOptions": {
+        "type": "auto"
+       }
+      }
+     },
+     "overrides": [
+      {
+       "matcher": {
+        "id": "byName",
+        "options": "농장"
+       },
+       "properties": [
+        {
+         "id": "custom.width",
+         "value": 130
+        },
+        {
+         "id": "links",
+         "value": [
+          {
+           "title": "이 농장 상세 보기",
+           "url": "/d/smartfarm-ops?var-farm=${__value.text}&var-house=$__all",
+           "targetBlank": false
+          }
+         ]
+        }
+       ]
+      },
+      {
+       "matcher": {
+        "id": "byName",
+        "options": "센서 수신"
+       },
+       "properties": [
+        {
+         "id": "unit",
+         "value": "s"
+        },
+        {
+         "id": "decimals",
+         "value": 0
+        },
+        {
+         "id": "custom.cellOptions",
+         "value": {
+          "type": "color-background",
+          "mode": "gradient"
+         }
+        },
+        {
+         "id": "thresholds",
+         "value": {
+          "mode": "absolute",
+          "steps": [
+           {
+            "color": "green",
+            "value": null
+           },
+           {
+            "color": "yellow",
+            "value": 300
+           },
+           {
+            "color": "red",
+            "value": 900
+           }
+          ]
+         }
+        },
+        {
+         "id": "custom.width",
+         "value": 120
+        }
+       ]
+      },
+      {
+       "matcher": {
+        "id": "byName",
+        "options": "임계 이탈"
+       },
+       "properties": [
+        {
+         "id": "decimals",
+         "value": 0
+        },
+        {
+         "id": "custom.cellOptions",
+         "value": {
+          "type": "color-background",
+          "mode": "basic"
+         }
+        },
+        {
+         "id": "thresholds",
+         "value": {
+          "mode": "absolute",
+          "steps": [
+           {
+            "color": "green",
+            "value": null
+           },
+           {
+            "color": "red",
+            "value": 1
+           }
+          ]
+         }
+        },
+        {
+         "id": "mappings",
+         "value": [
+          {
+           "type": "value",
+           "options": {
+            "0": {
+             "text": "정상",
+             "index": 0
+            }
+           }
+          }
+         ]
+        },
+        {
+         "id": "custom.width",
+         "value": 110
+        }
+       ]
+      },
+      {
+       "matcher": {
+        "id": "byName",
+        "options": "온도"
+       },
+       "properties": [
+        {
+         "id": "unit",
+         "value": "celsius"
+        },
+        {
+         "id": "decimals",
+         "value": 1
+        },
+        {
+         "id": "custom.width",
+         "value": 100
+        }
+       ]
+      },
+      {
+       "matcher": {
+        "id": "byName",
+        "options": "습도"
+       },
+       "properties": [
+        {
+         "id": "unit",
+         "value": "humidity"
+        },
+        {
+         "id": "decimals",
+         "value": 1
+        },
+        {
+         "id": "custom.width",
+         "value": 100
+        }
+       ]
+      },
+      {
+       "matcher": {
+        "id": "byName",
+        "options": "릴레이 갱신"
+       },
+       "properties": [
+        {
+         "id": "unit",
+         "value": "s"
+        },
+        {
+         "id": "decimals",
+         "value": 0
+        },
+        {
+         "id": "custom.cellOptions",
+         "value": {
+          "type": "color-background",
+          "mode": "gradient"
+         }
+        },
+        {
+         "id": "thresholds",
+         "value": {
+          "mode": "absolute",
+          "steps": [
+           {
+            "color": "green",
+            "value": null
+           },
+           {
+            "color": "yellow",
+            "value": 300
+           },
+           {
+            "color": "red",
+            "value": 600
+           }
+          ]
+         }
+        },
+        {
+         "id": "custom.width",
+         "value": 130
+        }
+       ]
+      },
+      {
+       "matcher": {
+        "id": "byName",
+        "options": "RPi 온도"
+       },
+       "properties": [
+        {
+         "id": "unit",
+         "value": "celsius"
+        },
+        {
+         "id": "decimals",
+         "value": 1
+        },
+        {
+         "id": "custom.cellOptions",
+         "value": {
+          "type": "color-background",
+          "mode": "gradient"
+         }
+        },
+        {
+         "id": "thresholds",
+         "value": {
+          "mode": "absolute",
+          "steps": [
+           {
+            "color": "green",
+            "value": null
+           },
+           {
+            "color": "yellow",
+            "value": 70
+           },
+           {
+            "color": "red",
+            "value": 75
+           }
+          ]
+         }
+        },
+        {
+         "id": "custom.width",
+         "value": 120
+        }
+       ]
+      }
+     ]
+    },
+    "options": {
+     "showHeader": true,
+     "cellHeight": "md",
+     "footer": {
+      "show": false
+     },
+     "sortBy": [
+      {
+       "displayName": "임계 이탈",
+       "desc": true
+      }
+     ]
+    }
+   },
+   {
+    "id": 2,
+    "type": "timeseries",
+    "title": "최근 24시간 센서 임계 이탈",
+    "description": "0 이 아닌 구간이 알림이 떴던 때다. 어느 농장이 자주 벗어나는지 한눈에 보인다.",
+    "datasource": {
+     "type": "prometheus",
+     "uid": "bflmwho4bsnb4c"
+    },
+    "gridPos": {
+     "x": 0,
+     "y": 12,
+     "w": 24,
+     "h": 8
+    },
+    "targets": [
+     {
+      "datasource": {
+       "type": "prometheus",
+       "uid": "bflmwho4bsnb4c"
+      },
+      "editorMode": "code",
+      "expr": "sum by (farm_id) ((smartfarm_sensor_value > bool on(farm_id,house_id,sensor_id) smartfarm_sensor_threshold_max) + (smartfarm_sensor_value < bool on(farm_id,house_id,sensor_id) smartfarm_sensor_threshold_min))",
+      "legendFormat": "{{farm_id}}",
+      "range": true,
+      "refId": "A"
+     }
+    ],
+    "options": {
+     "legend": {
+      "displayMode": "list",
+      "placement": "bottom",
+      "showLegend": true
+     },
+     "tooltip": {
+      "mode": "multi",
+      "sort": "desc"
+     }
+    },
+    "fieldConfig": {
+     "defaults": {
+      "min": 0,
+      "decimals": 0,
+      "custom": {
+       "drawStyle": "line",
+       "lineInterpolation": "stepAfter",
+       "lineWidth": 2,
+       "fillOpacity": 25,
+       "showPoints": "never",
+       "spanNulls": true
+      },
+      "thresholds": {
+       "mode": "absolute",
+       "steps": [
+        {
+         "color": "green",
+         "value": null
+        },
+        {
+         "color": "red",
+         "value": 1
+        }
+       ]
+      },
+      "color": {
+       "mode": "thresholds"
+      }
+     },
+     "overrides": []
+    }
+   }
+  ],
+  "links": [
+   {
+    "title": "상세 화면",
+    "type": "dashboards",
+    "tags": [
+     "farm"
+    ],
+    "asDropdown": false,
+    "icon": "external link"
+   }
+  ]
+ },
+ "overwrite": true,
+ "message": "농장 개요 대시보드 (2026-08-26 신설)"
+}

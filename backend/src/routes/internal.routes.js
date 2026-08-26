@@ -553,9 +553,18 @@ router.post("/control-log/batch", async (req, res) => {
       }
 
       // 2) 실시간 경로가 이미 기록했나 (시각 오차 허용)
+      //
+      // ★ operator <> 'rpi_backfill' 조건이 반드시 있어야 한다.
+      //   없으면 방금 이 배치가 넣은 행까지 조회에 걸려 소급분끼리 서로를 지운다.
+      //   2026-08-26 첫 실행에서 실제로 그랬다 — 서버에 아무 기록도 없던
+      //   구간(~03-24)에서조차 1,252건이 "중복"으로 폐기됐다. 측창을 열었다
+      //   멈췄다 다시 여는 식의 수 초 간격 반복 조작이 통째로 사라지는 증상이었다.
+      //   각 로컬 기록은 request_id 로 이미 고유하므로(1단계), 여기서는
+      //   '실시간 경로가 남긴 행' 만 봐야 한다.
       const byWindow = await pool.query(
         `SELECT 1 FROM control_logs
           WHERE farm_id = $1 AND device_id = $2 AND command = $3
+            AND (operator IS DISTINCT FROM 'rpi_backfill')
             AND timestamp BETWEEN $4::timestamptz - ($5 || ' seconds')::interval
                               AND $4::timestamptz + ($5 || ' seconds')::interval
           LIMIT 1`,

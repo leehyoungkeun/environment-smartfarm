@@ -183,7 +183,7 @@
        "mode": "absolute",
        "steps": [
         {
-         "color": "green",
+         "color": "transparent",
          "value": null
         },
         {
@@ -252,7 +252,7 @@
          "value": null
         },
         {
-         "color": "green",
+         "color": "transparent",
          "value": 1
         }
        ]
@@ -389,7 +389,7 @@
        "mode": "absolute",
        "steps": [
         {
-         "color": "green",
+         "color": "transparent",
          "value": null
         },
         {
@@ -519,7 +519,7 @@
        "mode": "absolute",
        "steps": [
         {
-         "color": "green",
+         "color": "transparent",
          "value": null
         },
         {
@@ -1064,7 +1064,7 @@
          "id": "custom.cellOptions",
          "value": {
           "type": "gauge",
-          "mode": "gradient"
+          "mode": "basic"
          }
         },
         {
@@ -1131,7 +1131,7 @@
           "mode": "absolute",
           "steps": [
            {
-            "color": "green",
+            "color": "text",
             "value": null
            },
            {
@@ -1342,7 +1342,7 @@
           "mode": "absolute",
           "steps": [
            {
-            "color": "green",
+            "color": "text",
             "value": null
            },
            {

@@ -96,8 +96,8 @@
      }
     ],
     "options": {
-     "colorMode": "background",
-     "graphMode": "none",
+     "colorMode": "value",
+     "graphMode": "area",
      "textMode": "value_and_name",
      "reduceOptions": {
       "calcs": [
@@ -172,7 +172,7 @@
      }
     ],
     "options": {
-     "colorMode": "background",
+     "colorMode": "value",
      "graphMode": "area",
      "textMode": "value_and_name",
      "reduceOptions": {
@@ -237,7 +237,7 @@
      }
     ],
     "options": {
-     "colorMode": "background",
+     "colorMode": "value",
      "graphMode": "area",
      "textMode": "value_and_name",
      "reduceOptions": {
@@ -302,7 +302,7 @@
      }
     ],
     "options": {
-     "colorMode": "background",
+     "colorMode": "value",
      "graphMode": "area",
      "textMode": "value_and_name",
      "reduceOptions": {
@@ -405,8 +405,10 @@
       "decimals": 1,
       "custom": {
        "drawStyle": "line",
+       "lineInterpolation": "smooth",
        "lineWidth": 2,
-       "fillOpacity": 8,
+       "fillOpacity": 20,
+       "gradientMode": "opacity",
        "showPoints": "never",
        "spanNulls": true
       }
@@ -440,7 +442,7 @@
          "id": "color",
          "value": {
           "mode": "fixed",
-          "fixedColor": "red"
+          "fixedColor": "orange"
          }
         }
        ]
@@ -515,8 +517,10 @@
       "decimals": 1,
       "custom": {
        "drawStyle": "line",
+       "lineInterpolation": "smooth",
        "lineWidth": 2,
-       "fillOpacity": 8,
+       "fillOpacity": 20,
+       "gradientMode": "opacity",
        "showPoints": "never",
        "spanNulls": true
       }
@@ -550,7 +554,7 @@
          "id": "color",
          "value": {
           "mode": "fixed",
-          "fixedColor": "red"
+          "fixedColor": "orange"
          }
         }
        ]
@@ -720,7 +724,8 @@
        "drawStyle": "line",
        "lineInterpolation": "stepAfter",
        "lineWidth": 2,
-       "fillOpacity": 20,
+       "fillOpacity": 25,
+       "gradientMode": "opacity",
        "showPoints": "never",
        "spanNulls": true
       },

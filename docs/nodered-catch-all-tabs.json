@@ -1,0 +1,492 @@
+[
+  {
+    "id": "gt_link_in",
+    "type": "link in",
+    "z": "glitchtip_flow",
+    "name": "← 각 탭 예외 수집",
+    "links": [],
+    "x": 165,
+    "y": 200,
+    "wires": [
+      [
+        "gt_envelope"
+      ]
+    ]
+  },
+  {
+    "id": "gtc_startupinitflow",
+    "type": "catch",
+    "z": "startup_init_flow",
+    "name": "예외 → GlitchTip",
+    "scope": null,
+    "uncaught": true,
+    "x": 170,
+    "y": 60,
+    "wires": [
+      [
+        "gtl_startupinitflow"
+      ]
+    ]
+  },
+  {
+    "id": "gtl_startupinitflow",
+    "type": "link out",
+    "z": "startup_init_flow",
+    "name": "예외 →",
+    "mode": "link",
+    "links": [
+      "gt_link_in"
+    ],
+    "x": 360,
+    "y": 60,
+    "wires": []
+  },
+  {
+    "id": "gtc_restapiflow",
+    "type": "catch",
+    "z": "rest_api_flow",
+    "name": "예외 → GlitchTip",
+    "scope": null,
+    "uncaught": true,
+    "x": 170,
+    "y": 60,
+    "wires": [
+      [
+        "gtl_restapiflow"
+      ]
+    ]
+  },
+  {
+    "id": "gtl_restapiflow",
+    "type": "link out",
+    "z": "rest_api_flow",
+    "name": "예외 →",
+    "mode": "link",
+    "links": [
+      "gt_link_in"
+    ],
+    "x": 360,
+    "y": 60,
+    "wires": []
+  },
+  {
+    "id": "gtc_automationevalflow",
+    "type": "catch",
+    "z": "automation_eval_flow",
+    "name": "예외 → GlitchTip",
+    "scope": null,
+    "uncaught": true,
+    "x": 170,
+    "y": 60,
+    "wires": [
+      [
+        "gtl_automationevalflow"
+      ]
+    ]
+  },
+  {
+    "id": "gtl_automationevalflow",
+    "type": "link out",
+    "z": "automation_eval_flow",
+    "name": "예외 →",
+    "mode": "link",
+    "links": [
+      "gt_link_in"
+    ],
+    "x": 360,
+    "y": 60,
+    "wires": []
+  },
+  {
+    "id": "gtc_awscontrolreceiverta",
+    "type": "catch",
+    "z": "aws_control_receiver_tab",
+    "name": "예외 → GlitchTip",
+    "scope": null,
+    "uncaught": true,
+    "x": 170,
+    "y": 60,
+    "wires": [
+      [
+        "gtl_awscontrolreceiverta"
+      ]
+    ]
+  },
+  {
+    "id": "gtl_awscontrolreceiverta",
+    "type": "link out",
+    "z": "aws_control_receiver_tab",
+    "name": "예외 →",
+    "mode": "link",
+    "links": [
+      "gt_link_in"
+    ],
+    "x": 360,
+    "y": 60,
+    "wires": []
+  },
+  {
+    "id": "gtc_f8tab",
+    "type": "catch",
+    "z": "f8_tab",
+    "name": "예외 → GlitchTip",
+    "scope": null,
+    "uncaught": true,
+    "x": 170,
+    "y": 60,
+    "wires": [
+      [
+        "gtl_f8tab"
+      ]
+    ]
+  },
+  {
+    "id": "gtl_f8tab",
+    "type": "link out",
+    "z": "f8_tab",
+    "name": "예외 →",
+    "mode": "link",
+    "links": [
+      "gt_link_in"
+    ],
+    "x": 360,
+    "y": 60,
+    "wires": []
+  },
+  {
+    "id": "gtc_collectionofflineflo",
+    "type": "catch",
+    "z": "collection_offline_flow",
+    "name": "예외 → GlitchTip",
+    "scope": null,
+    "uncaught": true,
+    "x": 170,
+    "y": 60,
+    "wires": [
+      [
+        "gtl_collectionofflineflo"
+      ]
+    ]
+  },
+  {
+    "id": "gtl_collectionofflineflo",
+    "type": "link out",
+    "z": "collection_offline_flow",
+    "name": "예외 →",
+    "mode": "link",
+    "links": [
+      "gt_link_in"
+    ],
+    "x": 360,
+    "y": 60,
+    "wires": []
+  },
+  {
+    "id": "gtc_healthmonitorflow",
+    "type": "catch",
+    "z": "health_monitor_flow",
+    "name": "예외 → GlitchTip",
+    "scope": null,
+    "uncaught": true,
+    "x": 170,
+    "y": 60,
+    "wires": [
+      [
+        "gtl_healthmonitorflow"
+      ]
+    ]
+  },
+  {
+    "id": "gtl_healthmonitorflow",
+    "type": "link out",
+    "z": "health_monitor_flow",
+    "name": "예외 →",
+    "mode": "link",
+    "links": [
+      "gt_link_in"
+    ],
+    "x": 360,
+    "y": 60,
+    "wires": []
+  },
+  {
+    "id": "gtc_configcrudflow",
+    "type": "catch",
+    "z": "config_crud_flow",
+    "name": "예외 → GlitchTip",
+    "scope": null,
+    "uncaught": true,
+    "x": 170,
+    "y": 60,
+    "wires": [
+      [
+        "gtl_configcrudflow"
+      ]
+    ]
+  },
+  {
+    "id": "gtl_configcrudflow",
+    "type": "link out",
+    "z": "config_crud_flow",
+    "name": "예외 →",
+    "mode": "link",
+    "links": [
+      "gt_link_in"
+    ],
+    "x": 360,
+    "y": 60,
+    "wires": []
+  },
+  {
+    "id": "gtc_sqliteinitflow",
+    "type": "catch",
+    "z": "sqlite_init_flow",
+    "name": "예외 → GlitchTip",
+    "scope": null,
+    "uncaught": true,
+    "x": 170,
+    "y": 60,
+    "wires": [
+      [
+        "gtl_sqliteinitflow"
+      ]
+    ]
+  },
+  {
+    "id": "gtl_sqliteinitflow",
+    "type": "link out",
+    "z": "sqlite_init_flow",
+    "name": "예외 →",
+    "mode": "link",
+    "links": [
+      "gt_link_in"
+    ],
+    "x": 360,
+    "y": 60,
+    "wires": []
+  },
+  {
+    "id": "gtc_syncflow",
+    "type": "catch",
+    "z": "sync_flow",
+    "name": "예외 → GlitchTip",
+    "scope": null,
+    "uncaught": true,
+    "x": 170,
+    "y": 60,
+    "wires": [
+      [
+        "gtl_syncflow"
+      ]
+    ]
+  },
+  {
+    "id": "gtl_syncflow",
+    "type": "link out",
+    "z": "sync_flow",
+    "name": "예외 →",
+    "mode": "link",
+    "links": [
+      "gt_link_in"
+    ],
+    "x": 360,
+    "y": 60,
+    "wires": []
+  },
+  {
+    "id": "gtc_relayresetflow",
+    "type": "catch",
+    "z": "relay_reset_flow",
+    "name": "예외 → GlitchTip",
+    "scope": null,
+    "uncaught": true,
+    "x": 170,
+    "y": 60,
+    "wires": [
+      [
+        "gtl_relayresetflow"
+      ]
+    ]
+  },
+  {
+    "id": "gtl_relayresetflow",
+    "type": "link out",
+    "z": "relay_reset_flow",
+    "name": "예외 →",
+    "mode": "link",
+    "links": [
+      "gt_link_in"
+    ],
+    "x": 360,
+    "y": 60,
+    "wires": []
+  },
+  {
+    "id": "gtc_watchdogflow",
+    "type": "catch",
+    "z": "watchdog_flow",
+    "name": "예외 → GlitchTip",
+    "scope": null,
+    "uncaught": true,
+    "x": 170,
+    "y": 60,
+    "wires": [
+      [
+        "gtl_watchdogflow"
+      ]
+    ]
+  },
+  {
+    "id": "gtl_watchdogflow",
+    "type": "link out",
+    "z": "watchdog_flow",
+    "name": "예외 →",
+    "mode": "link",
+    "links": [
+      "gt_link_in"
+    ],
+    "x": 360,
+    "y": 60,
+    "wires": []
+  },
+  {
+    "id": "gtc_dc65c22bb240477e",
+    "type": "catch",
+    "z": "dc65c22bb240477e",
+    "name": "예외 → GlitchTip",
+    "scope": null,
+    "uncaught": true,
+    "x": 170,
+    "y": 60,
+    "wires": [
+      [
+        "gtl_dc65c22bb240477e"
+      ]
+    ]
+  },
+  {
+    "id": "gtl_dc65c22bb240477e",
+    "type": "link out",
+    "z": "dc65c22bb240477e",
+    "name": "예외 →",
+    "mode": "link",
+    "links": [
+      "gt_link_in"
+    ],
+    "x": 360,
+    "y": 60,
+    "wires": []
+  },
+  {
+    "id": "gtc_tabmodulessync",
+    "type": "catch",
+    "z": "tab_modules_sync",
+    "name": "예외 → GlitchTip",
+    "scope": null,
+    "uncaught": true,
+    "x": 170,
+    "y": 60,
+    "wires": [
+      [
+        "gtl_tabmodulessync"
+      ]
+    ]
+  },
+  {
+    "id": "gtl_tabmodulessync",
+    "type": "link out",
+    "z": "tab_modules_sync",
+    "name": "예외 →",
+    "mode": "link",
+    "links": [
+      "gt_link_in"
+    ],
+    "x": 360,
+    "y": 60,
+    "wires": []
+  },
+  {
+    "id": "gtc_tabsensorquery",
+    "type": "catch",
+    "z": "tab_sensor_query",
+    "name": "예외 → GlitchTip",
+    "scope": null,
+    "uncaught": true,
+    "x": 170,
+    "y": 60,
+    "wires": [
+      [
+        "gtl_tabsensorquery"
+      ]
+    ]
+  },
+  {
+    "id": "gtl_tabsensorquery",
+    "type": "link out",
+    "z": "tab_sensor_query",
+    "name": "예외 →",
+    "mode": "link",
+    "links": [
+      "gt_link_in"
+    ],
+    "x": 360,
+    "y": 60,
+    "wires": []
+  },
+  {
+    "id": "gtc_tabsyncmqtt",
+    "type": "catch",
+    "z": "tab_sync_mqtt",
+    "name": "예외 → GlitchTip",
+    "scope": null,
+    "uncaught": true,
+    "x": 170,
+    "y": 60,
+    "wires": [
+      [
+        "gtl_tabsyncmqtt"
+      ]
+    ]
+  },
+  {
+    "id": "gtl_tabsyncmqtt",
+    "type": "link out",
+    "z": "tab_sync_mqtt",
+    "name": "예외 →",
+    "mode": "link",
+    "links": [
+      "gt_link_in"
+    ],
+    "x": 360,
+    "y": 60,
+    "wires": []
+  },
+  {
+    "id": "gtc_tabsystemmqtt",
+    "type": "catch",
+    "z": "tab_system_mqtt",
+    "name": "예외 → GlitchTip",
+    "scope": null,
+    "uncaught": true,
+    "x": 170,
+    "y": 60,
+    "wires": [
+      [
+        "gtl_tabsystemmqtt"
+      ]
+    ]
+  },
+  {
+    "id": "gtl_tabsystemmqtt",
+    "type": "link out",
+    "z": "tab_system_mqtt",
+    "name": "예외 →",
+    "mode": "link",
+    "links": [
+      "gt_link_in"
+    ],
+    "x": 360,
+    "y": 60,
+    "wires": []
+  }
+]

@@ -2,7 +2,7 @@
  "dashboard": {
   "uid": "smartfarm-overview",
   "title": "농장 개요",
-  "description": "전 농장을 한 줄씩 본다. 농장명을 누르면 상세 화면으로 이동한다. 2026-08-26 신설 — 농장이 늘어나면 상세 화면 하나로는 선이 겹쳐 못 읽는다.",
+  "description": "전체 통계와 농장별 현황. 농장 ID 를 누르면 상세 화면으로 이동한다.",
   "tags": [
    "smartfarm",
    "farm",
@@ -18,19 +18,14 @@
   },
   "panels": [
    {
-    "id": 1,
-    "type": "table",
-    "title": "농장 현황 — 농장명을 누르면 상세 화면으로",
-    "description": "farms.status='active' 인 농장만 나온다. 운영 중지 농장은 상태만 바꾸면 자동으로 빠진다.\n'임계 이탈' 은 설정된 경보 상·하한을 벗어난 센서 개수다.",
-    "datasource": {
-     "type": "prometheus",
-     "uid": "bflmwho4bsnb4c"
-    },
+    "type": "stat",
+    "title": "감시 중인 농장",
+    "description": "farms.status='active' 인 농장 수. 운영 중지 농장은 감시에서 빠진다.",
     "gridPos": {
      "x": 0,
      "y": 0,
-     "w": 24,
-     "h": 12
+     "w": 3,
+     "h": 4
     },
     "targets": [
      {
@@ -39,7 +34,542 @@
        "uid": "bflmwho4bsnb4c"
       },
       "editorMode": "code",
-      "expr": "max by (farm_id) (smartfarm_sensor_last_seen_seconds)",
+      "expr": "count(smartfarm_farm_up == 1) or vector(0)",
+      "instant": true,
+      "legendFormat": "",
+      "range": false,
+      "refId": "A"
+     }
+    ],
+    "options": {
+     "colorMode": "value",
+     "graphMode": "none",
+     "textMode": "value",
+     "justifyMode": "center",
+     "reduceOptions": {
+      "calcs": [
+       "lastNotNull"
+      ],
+      "fields": "",
+      "values": false
+     }
+    },
+    "fieldConfig": {
+     "defaults": {
+      "decimals": 0,
+      "thresholds": {
+       "mode": "absolute",
+       "steps": [
+        {
+         "color": "text",
+         "value": null
+        }
+       ]
+      },
+      "color": {
+       "mode": "thresholds"
+      }
+     },
+     "overrides": []
+    },
+    "id": 1,
+    "datasource": {
+     "type": "prometheus",
+     "uid": "bflmwho4bsnb4c"
+    }
+   },
+   {
+    "type": "stat",
+    "title": "등록 농장",
+    "description": "삭제되지 않은 전체 농장. 감시 중인 수와 차이가 나면 중지된 농장이 있다는 뜻.",
+    "gridPos": {
+     "x": 3,
+     "y": 0,
+     "w": 3,
+     "h": 4
+    },
+    "targets": [
+     {
+      "datasource": {
+       "type": "prometheus",
+       "uid": "bflmwho4bsnb4c"
+      },
+      "editorMode": "code",
+      "expr": "count(smartfarm_farm_up) or vector(0)",
+      "instant": true,
+      "legendFormat": "",
+      "range": false,
+      "refId": "A"
+     }
+    ],
+    "options": {
+     "colorMode": "value",
+     "graphMode": "none",
+     "textMode": "value",
+     "justifyMode": "center",
+     "reduceOptions": {
+      "calcs": [
+       "lastNotNull"
+      ],
+      "fields": "",
+      "values": false
+     }
+    },
+    "fieldConfig": {
+     "defaults": {
+      "decimals": 0,
+      "thresholds": {
+       "mode": "absolute",
+       "steps": [
+        {
+         "color": "text",
+         "value": null
+        }
+       ]
+      },
+      "color": {
+       "mode": "thresholds"
+      }
+     },
+     "overrides": []
+    },
+    "id": 2,
+    "datasource": {
+     "type": "prometheus",
+     "uid": "bflmwho4bsnb4c"
+    }
+   },
+   {
+    "type": "stat",
+    "title": "임계 이탈 농장",
+    "description": "온·습도가 설정된 경보 범위를 벗어난 농장 수. 0 이 정상.",
+    "gridPos": {
+     "x": 6,
+     "y": 0,
+     "w": 3,
+     "h": 4
+    },
+    "targets": [
+     {
+      "datasource": {
+       "type": "prometheus",
+       "uid": "bflmwho4bsnb4c"
+      },
+      "editorMode": "code",
+      "expr": "count(sum by (farm_id) ((smartfarm_sensor_value > bool on(farm_id,house_id,sensor_id) smartfarm_sensor_threshold_max) + (smartfarm_sensor_value < bool on(farm_id,house_id,sensor_id) smartfarm_sensor_threshold_min)) > 0) or vector(0)",
+      "instant": true,
+      "legendFormat": "",
+      "range": false,
+      "refId": "A"
+     }
+    ],
+    "options": {
+     "colorMode": "background_solid",
+     "graphMode": "none",
+     "textMode": "value",
+     "justifyMode": "center",
+     "reduceOptions": {
+      "calcs": [
+       "lastNotNull"
+      ],
+      "fields": "",
+      "values": false
+     }
+    },
+    "fieldConfig": {
+     "defaults": {
+      "decimals": 0,
+      "thresholds": {
+       "mode": "absolute",
+       "steps": [
+        {
+         "color": "green",
+         "value": null
+        },
+        {
+         "color": "red",
+         "value": 1
+        }
+       ]
+      },
+      "color": {
+       "mode": "thresholds"
+      }
+     },
+     "overrides": []
+    },
+    "id": 3,
+    "datasource": {
+     "type": "prometheus",
+     "uid": "bflmwho4bsnb4c"
+    }
+   },
+   {
+    "type": "stat",
+    "title": "MQTT",
+    "description": "AWS IoT 연결. 2026-07-31~08-25 에 3주간 끊겨 있었고 아무도 몰랐다.",
+    "gridPos": {
+     "x": 9,
+     "y": 0,
+     "w": 3,
+     "h": 4
+    },
+    "targets": [
+     {
+      "datasource": {
+       "type": "prometheus",
+       "uid": "bflmwho4bsnb4c"
+      },
+      "editorMode": "code",
+      "expr": "smartfarm_mqtt_connected",
+      "instant": true,
+      "legendFormat": "",
+      "range": false,
+      "refId": "A"
+     }
+    ],
+    "options": {
+     "colorMode": "background_solid",
+     "graphMode": "none",
+     "textMode": "value",
+     "justifyMode": "center",
+     "reduceOptions": {
+      "calcs": [
+       "lastNotNull"
+      ],
+      "fields": "",
+      "values": false
+     }
+    },
+    "fieldConfig": {
+     "defaults": {
+      "decimals": 0,
+      "thresholds": {
+       "mode": "absolute",
+       "steps": [
+        {
+         "color": "red",
+         "value": null
+        },
+        {
+         "color": "green",
+         "value": 1
+        }
+       ]
+      },
+      "color": {
+       "mode": "thresholds"
+      },
+      "mappings": [
+       {
+        "type": "value",
+        "options": {
+         "0": {
+          "text": "끊김",
+          "index": 0
+         },
+         "1": {
+          "text": "연결",
+          "index": 1
+         }
+        }
+       }
+      ]
+     },
+     "overrides": []
+    },
+    "id": 4,
+    "datasource": {
+     "type": "prometheus",
+     "uid": "bflmwho4bsnb4c"
+    }
+   },
+   {
+    "type": "stat",
+    "title": "24시간 알림",
+    "description": "최근 24시간 생성된 알림 총계.",
+    "gridPos": {
+     "x": 12,
+     "y": 0,
+     "w": 3,
+     "h": 4
+    },
+    "targets": [
+     {
+      "datasource": {
+       "type": "prometheus",
+       "uid": "bflmwho4bsnb4c"
+      },
+      "editorMode": "code",
+      "expr": "sum(smartfarm_alerts_24h) or vector(0)",
+      "instant": true,
+      "legendFormat": "",
+      "range": false,
+      "refId": "A"
+     }
+    ],
+    "options": {
+     "colorMode": "background_solid",
+     "graphMode": "none",
+     "textMode": "value",
+     "justifyMode": "center",
+     "reduceOptions": {
+      "calcs": [
+       "lastNotNull"
+      ],
+      "fields": "",
+      "values": false
+     }
+    },
+    "fieldConfig": {
+     "defaults": {
+      "decimals": 0,
+      "thresholds": {
+       "mode": "absolute",
+       "steps": [
+        {
+         "color": "green",
+         "value": null
+        },
+        {
+         "color": "yellow",
+         "value": 10
+        },
+        {
+         "color": "red",
+         "value": 30
+        }
+       ]
+      },
+      "color": {
+       "mode": "thresholds"
+      }
+     },
+     "overrides": []
+    },
+    "id": 5,
+    "datasource": {
+     "type": "prometheus",
+     "uid": "bflmwho4bsnb4c"
+    }
+   },
+   {
+    "type": "stat",
+    "title": "미확인 알림",
+    "description": "확인 처리하지 않은 알림. 농장·유형당 3건이 쌓이면 서킷 브레이커가 감지를 멈춘다 — 쌓이면 확인할 것.",
+    "gridPos": {
+     "x": 15,
+     "y": 0,
+     "w": 3,
+     "h": 4
+    },
+    "targets": [
+     {
+      "datasource": {
+       "type": "prometheus",
+       "uid": "bflmwho4bsnb4c"
+      },
+      "editorMode": "code",
+      "expr": "sum(smartfarm_alerts_unacknowledged) or vector(0)",
+      "instant": true,
+      "legendFormat": "",
+      "range": false,
+      "refId": "A"
+     }
+    ],
+    "options": {
+     "colorMode": "background_solid",
+     "graphMode": "none",
+     "textMode": "value",
+     "justifyMode": "center",
+     "reduceOptions": {
+      "calcs": [
+       "lastNotNull"
+      ],
+      "fields": "",
+      "values": false
+     }
+    },
+    "fieldConfig": {
+     "defaults": {
+      "decimals": 0,
+      "thresholds": {
+       "mode": "absolute",
+       "steps": [
+        {
+         "color": "green",
+         "value": null
+        },
+        {
+         "color": "yellow",
+         "value": 3
+        },
+        {
+         "color": "red",
+         "value": 10
+        }
+       ]
+      },
+      "color": {
+       "mode": "thresholds"
+      }
+     },
+     "overrides": []
+    },
+    "id": 6,
+    "datasource": {
+     "type": "prometheus",
+     "uid": "bflmwho4bsnb4c"
+    }
+   },
+   {
+    "type": "stat",
+    "title": "24시간 제어",
+    "description": "최근 24시간 실행된 제어 명령 수.",
+    "gridPos": {
+     "x": 18,
+     "y": 0,
+     "w": 3,
+     "h": 4
+    },
+    "targets": [
+     {
+      "datasource": {
+       "type": "prometheus",
+       "uid": "bflmwho4bsnb4c"
+      },
+      "editorMode": "code",
+      "expr": "sum(smartfarm_controls_24h) or vector(0)",
+      "instant": true,
+      "legendFormat": "",
+      "range": false,
+      "refId": "A"
+     }
+    ],
+    "options": {
+     "colorMode": "value",
+     "graphMode": "none",
+     "textMode": "value",
+     "justifyMode": "center",
+     "reduceOptions": {
+      "calcs": [
+       "lastNotNull"
+      ],
+      "fields": "",
+      "values": false
+     }
+    },
+    "fieldConfig": {
+     "defaults": {
+      "decimals": 0,
+      "thresholds": {
+       "mode": "absolute",
+       "steps": [
+        {
+         "color": "text",
+         "value": null
+        }
+       ]
+      },
+      "color": {
+       "mode": "thresholds"
+      }
+     },
+     "overrides": []
+    },
+    "id": 7,
+    "datasource": {
+     "type": "prometheus",
+     "uid": "bflmwho4bsnb4c"
+    }
+   },
+   {
+    "type": "stat",
+    "title": "제어 실패",
+    "description": "24시간 내 실패한 제어. 30분에 같은 장비 3회면 장비 고장 알림이 뜬다.",
+    "gridPos": {
+     "x": 21,
+     "y": 0,
+     "w": 3,
+     "h": 4
+    },
+    "targets": [
+     {
+      "datasource": {
+       "type": "prometheus",
+       "uid": "bflmwho4bsnb4c"
+      },
+      "editorMode": "code",
+      "expr": "sum(smartfarm_controls_24h{result=\"failure\"}) or vector(0)",
+      "instant": true,
+      "legendFormat": "",
+      "range": false,
+      "refId": "A"
+     }
+    ],
+    "options": {
+     "colorMode": "background_solid",
+     "graphMode": "none",
+     "textMode": "value",
+     "justifyMode": "center",
+     "reduceOptions": {
+      "calcs": [
+       "lastNotNull"
+      ],
+      "fields": "",
+      "values": false
+     }
+    },
+    "fieldConfig": {
+     "defaults": {
+      "decimals": 0,
+      "thresholds": {
+       "mode": "absolute",
+       "steps": [
+        {
+         "color": "green",
+         "value": null
+        },
+        {
+         "color": "yellow",
+         "value": 1
+        },
+        {
+         "color": "red",
+         "value": 5
+        }
+       ]
+      },
+      "color": {
+       "mode": "thresholds"
+      }
+     },
+     "overrides": []
+    },
+    "id": 8,
+    "datasource": {
+     "type": "prometheus",
+     "uid": "bflmwho4bsnb4c"
+    }
+   },
+   {
+    "type": "table",
+    "title": "농장별 현황 — 농장 ID 를 누르면 상세 화면으로",
+    "description": "값이 없는 칸(—)은 감시 대상이 아니거나 데이터가 없는 것이다. 색은 이상 여부만 나타낸다.",
+    "gridPos": {
+     "x": 0,
+     "y": 4,
+     "w": 24,
+     "h": 11
+    },
+    "targets": [
+     {
+      "datasource": {
+       "type": "prometheus",
+       "uid": "bflmwho4bsnb4c"
+      },
+      "editorMode": "code",
+      "expr": "smartfarm_farm_up",
       "format": "table",
       "instant": true,
       "legendFormat": "",
@@ -52,7 +582,7 @@
        "uid": "bflmwho4bsnb4c"
       },
       "editorMode": "code",
-      "expr": "sum by (farm_id) ((smartfarm_sensor_value > bool on(farm_id,house_id,sensor_id) smartfarm_sensor_threshold_max) + (smartfarm_sensor_value < bool on(farm_id,house_id,sensor_id) smartfarm_sensor_threshold_min))",
+      "expr": "max by (farm_id) (smartfarm_sensor_last_seen_seconds)",
       "format": "table",
       "instant": true,
       "legendFormat": "",
@@ -65,7 +595,7 @@
        "uid": "bflmwho4bsnb4c"
       },
       "editorMode": "code",
-      "expr": "max by (farm_id) (smartfarm_sensor_value{sensor_id=~\"temp.*\"})",
+      "expr": "sum by (farm_id) (smartfarm_sensor_rows_1h)",
       "format": "table",
       "instant": true,
       "legendFormat": "",
@@ -78,7 +608,7 @@
        "uid": "bflmwho4bsnb4c"
       },
       "editorMode": "code",
-      "expr": "max by (farm_id) (smartfarm_sensor_value{sensor_id=~\"humi.*\"})",
+      "expr": "sum by (farm_id) ((smartfarm_sensor_value > bool on(farm_id,house_id,sensor_id) smartfarm_sensor_threshold_max) + (smartfarm_sensor_value < bool on(farm_id,house_id,sensor_id) smartfarm_sensor_threshold_min)) or (0 * max by (farm_id) (smartfarm_farm_up))",
       "format": "table",
       "instant": true,
       "legendFormat": "",
@@ -91,7 +621,7 @@
        "uid": "bflmwho4bsnb4c"
       },
       "editorMode": "code",
-      "expr": "max by (farm_id) (smartfarm_relay_status_age_seconds)",
+      "expr": "max by (farm_id) (smartfarm_sensor_value{sensor_id=~\"temp.*\"})",
       "format": "table",
       "instant": true,
       "legendFormat": "",
@@ -104,12 +634,90 @@
        "uid": "bflmwho4bsnb4c"
       },
       "editorMode": "code",
-      "expr": "max by (farm) (node_hwmon_temp_celsius{chip=\"thermal_thermal_zone0\",sensor=\"temp0\"})",
+      "expr": "max by (farm_id) (smartfarm_sensor_value{sensor_id=~\"humi.*\"})",
       "format": "table",
       "instant": true,
       "legendFormat": "",
       "range": false,
       "refId": "F"
+     },
+     {
+      "datasource": {
+       "type": "prometheus",
+       "uid": "bflmwho4bsnb4c"
+      },
+      "editorMode": "code",
+      "expr": "max by (farm_id) (smartfarm_relay_status_age_seconds)",
+      "format": "table",
+      "instant": true,
+      "legendFormat": "",
+      "range": false,
+      "refId": "G"
+     },
+     {
+      "datasource": {
+       "type": "prometheus",
+       "uid": "bflmwho4bsnb4c"
+      },
+      "editorMode": "code",
+      "expr": "label_replace(max by (farm) (node_hwmon_temp_celsius{chip=\"thermal_thermal_zone0\",sensor=\"temp0\"}), \"farm_id\", \"$1\", \"farm\", \"(.*)\")",
+      "format": "table",
+      "instant": true,
+      "legendFormat": "",
+      "range": false,
+      "refId": "H"
+     },
+     {
+      "datasource": {
+       "type": "prometheus",
+       "uid": "bflmwho4bsnb4c"
+      },
+      "editorMode": "code",
+      "expr": "sum by (farm_id) (smartfarm_alerts_24h)",
+      "format": "table",
+      "instant": true,
+      "legendFormat": "",
+      "range": false,
+      "refId": "I"
+     },
+     {
+      "datasource": {
+       "type": "prometheus",
+       "uid": "bflmwho4bsnb4c"
+      },
+      "editorMode": "code",
+      "expr": "max by (farm_id) (smartfarm_alerts_unacknowledged)",
+      "format": "table",
+      "instant": true,
+      "legendFormat": "",
+      "range": false,
+      "refId": "J"
+     },
+     {
+      "datasource": {
+       "type": "prometheus",
+       "uid": "bflmwho4bsnb4c"
+      },
+      "editorMode": "code",
+      "expr": "sum by (farm_id) (smartfarm_controls_24h)",
+      "format": "table",
+      "instant": true,
+      "legendFormat": "",
+      "range": false,
+      "refId": "K"
+     },
+     {
+      "datasource": {
+       "type": "prometheus",
+       "uid": "bflmwho4bsnb4c"
+      },
+      "editorMode": "code",
+      "expr": "max by (farm_id) (smartfarm_device_count)",
+      "format": "table",
+      "instant": true,
+      "legendFormat": "",
+      "range": false,
+      "refId": "L"
      }
     ],
     "transformations": [
@@ -131,25 +739,162 @@
         "Time 4": true,
         "Time 5": true,
         "Time 6": true,
-        "farm": true
+        "Time 7": true,
+        "Time 8": true,
+        "Time 9": true,
+        "Time 10": true,
+        "Time 11": true,
+        "Time 12": true,
+        "__name__": true,
+        "__name__ 1": true,
+        "__name__ 2": true,
+        "__name__ 3": true,
+        "__name__ 4": true,
+        "__name__ 5": true,
+        "__name__ 6": true,
+        "__name__ 7": true,
+        "__name__ 8": true,
+        "__name__ 9": true,
+        "__name__ 10": true,
+        "__name__ 11": true,
+        "__name__ 12": true,
+        "job": true,
+        "job 1": true,
+        "job 2": true,
+        "job 3": true,
+        "job 4": true,
+        "job 5": true,
+        "job 6": true,
+        "job 7": true,
+        "job 8": true,
+        "job 9": true,
+        "job 10": true,
+        "job 11": true,
+        "job 12": true,
+        "instance": true,
+        "instance 1": true,
+        "instance 2": true,
+        "instance 3": true,
+        "instance 4": true,
+        "instance 5": true,
+        "instance 6": true,
+        "instance 7": true,
+        "instance 8": true,
+        "instance 9": true,
+        "instance 10": true,
+        "instance 11": true,
+        "instance 12": true,
+        "service": true,
+        "service 1": true,
+        "service 2": true,
+        "service 3": true,
+        "service 4": true,
+        "service 5": true,
+        "service 6": true,
+        "service 7": true,
+        "service 8": true,
+        "service 9": true,
+        "service 10": true,
+        "service 11": true,
+        "service 12": true,
+        "host": true,
+        "host 1": true,
+        "host 2": true,
+        "host 3": true,
+        "host 4": true,
+        "host 5": true,
+        "host 6": true,
+        "host 7": true,
+        "host 8": true,
+        "host 9": true,
+        "host 10": true,
+        "host 11": true,
+        "host 12": true,
+        "farm": true,
+        "farm 1": true,
+        "farm 2": true,
+        "farm 3": true,
+        "farm 4": true,
+        "farm 5": true,
+        "farm 6": true,
+        "farm 7": true,
+        "farm 8": true,
+        "farm 9": true,
+        "farm 10": true,
+        "farm 11": true,
+        "farm 12": true,
+        "severity": true,
+        "severity 1": true,
+        "severity 2": true,
+        "severity 3": true,
+        "severity 4": true,
+        "severity 5": true,
+        "severity 6": true,
+        "severity 7": true,
+        "severity 8": true,
+        "severity 9": true,
+        "severity 10": true,
+        "severity 11": true,
+        "severity 12": true,
+        "result": true,
+        "result 1": true,
+        "result 2": true,
+        "result 3": true,
+        "result 4": true,
+        "result 5": true,
+        "result 6": true,
+        "result 7": true,
+        "result 8": true,
+        "result 9": true,
+        "result 10": true,
+        "result 11": true,
+        "result 12": true,
+        "enabled": true,
+        "enabled 1": true,
+        "enabled 2": true,
+        "enabled 3": true,
+        "enabled 4": true,
+        "enabled 5": true,
+        "enabled 6": true,
+        "enabled 7": true,
+        "enabled 8": true,
+        "enabled 9": true,
+        "enabled 10": true,
+        "enabled 11": true,
+        "enabled 12": true,
+        "Value #A": true
        },
        "renameByName": {
         "farm_id": "농장",
-        "Value #A": "센서 수신",
-        "Value #B": "임계 이탈",
-        "Value #C": "온도",
-        "Value #D": "습도",
-        "Value #E": "릴레이 갱신",
-        "Value #F": "RPi 온도"
+        "farm_name": "농장명",
+        "status": "상태",
+        "Value #B": "센서 수신",
+        "Value #C": "수집/시간",
+        "Value #D": "임계 이탈",
+        "Value #E": "온도",
+        "Value #F": "습도",
+        "Value #G": "릴레이",
+        "Value #H": "RPi 온도",
+        "Value #I": "24h 알림",
+        "Value #J": "미확인",
+        "Value #K": "24h 제어",
+        "Value #L": "장치"
        },
        "indexByName": {
         "farm_id": 0,
-        "Value #A": 1,
-        "Value #B": 2,
-        "Value #C": 3,
-        "Value #D": 4,
-        "Value #E": 5,
-        "Value #F": 6
+        "farm_name": 1,
+        "status": 2,
+        "Value #B": 3,
+        "Value #C": 4,
+        "Value #D": 5,
+        "Value #E": 6,
+        "Value #F": 7,
+        "Value #G": 8,
+        "Value #H": 9,
+        "Value #I": 10,
+        "Value #J": 11,
+        "Value #K": 12,
+        "Value #L": 13
        }
       }
      }
@@ -172,7 +917,7 @@
        "properties": [
         {
          "id": "custom.width",
-         "value": 130
+         "value": 110
         },
         {
          "id": "links",
@@ -189,22 +934,81 @@
       {
        "matcher": {
         "id": "byName",
+        "options": "농장명"
+       },
+       "properties": [
+        {
+         "id": "custom.width",
+         "value": 120
+        }
+       ]
+      },
+      {
+       "matcher": {
+        "id": "byName",
+        "options": "상태"
+       },
+       "properties": [
+        {
+         "id": "custom.width",
+         "value": 95
+        },
+        {
+         "id": "custom.cellOptions",
+         "value": {
+          "type": "color-text"
+         }
+        },
+        {
+         "id": "mappings",
+         "value": [
+          {
+           "type": "value",
+           "options": {
+            "active": {
+             "text": "운전중",
+             "color": "green",
+             "index": 0
+            },
+            "maintenance": {
+             "text": "점검중",
+             "color": "orange",
+             "index": 1
+            },
+            "expired": {
+             "text": "계약만료",
+             "color": "text",
+             "index": 2
+            }
+           }
+          }
+         ]
+        }
+       ]
+      },
+      {
+       "matcher": {
+        "id": "byName",
         "options": "센서 수신"
        },
        "properties": [
         {
          "id": "unit",
-         "value": "s"
+         "value": "dtdurations"
         },
         {
          "id": "decimals",
          "value": 0
         },
         {
+         "id": "noValue",
+         "value": "—"
+        },
+        {
          "id": "custom.cellOptions",
          "value": {
           "type": "color-background",
-          "mode": "gradient"
+          "mode": "basic"
          }
         },
         {
@@ -229,7 +1033,58 @@
         },
         {
          "id": "custom.width",
-         "value": 120
+         "value": 105
+        }
+       ]
+      },
+      {
+       "matcher": {
+        "id": "byName",
+        "options": "수집/시간"
+       },
+       "properties": [
+        {
+         "id": "decimals",
+         "value": 0
+        },
+        {
+         "id": "noValue",
+         "value": "—"
+        },
+        {
+         "id": "custom.cellOptions",
+         "value": {
+          "type": "color-background",
+          "mode": "basic"
+         }
+        },
+        {
+         "id": "thresholds",
+         "value": {
+          "mode": "absolute",
+          "steps": [
+           {
+            "color": "red",
+            "value": null
+           },
+           {
+            "color": "yellow",
+            "value": 30
+           },
+           {
+            "color": "green",
+            "value": 50
+           }
+          ]
+         }
+        },
+        {
+         "id": "custom.width",
+         "value": 95
+        },
+        {
+         "id": "description",
+         "value": "1시간 적재 건수. 1분 주기라 정상이면 60 안팎."
         }
        ]
       },
@@ -242,6 +1097,10 @@
         {
          "id": "decimals",
          "value": 0
+        },
+        {
+         "id": "noValue",
+         "value": "—"
         },
         {
          "id": "custom.cellOptions",
@@ -282,7 +1141,7 @@
         },
         {
          "id": "custom.width",
-         "value": 110
+         "value": 95
         }
        ]
       },
@@ -301,8 +1160,12 @@
          "value": 1
         },
         {
+         "id": "noValue",
+         "value": "—"
+        },
+        {
          "id": "custom.width",
-         "value": 100
+         "value": 85
         }
        ]
       },
@@ -321,30 +1184,38 @@
          "value": 1
         },
         {
+         "id": "noValue",
+         "value": "—"
+        },
+        {
          "id": "custom.width",
-         "value": 100
+         "value": 85
         }
        ]
       },
       {
        "matcher": {
         "id": "byName",
-        "options": "릴레이 갱신"
+        "options": "릴레이"
        },
        "properties": [
         {
          "id": "unit",
-         "value": "s"
+         "value": "dtdurations"
         },
         {
          "id": "decimals",
          "value": 0
         },
         {
+         "id": "noValue",
+         "value": "—"
+        },
+        {
          "id": "custom.cellOptions",
          "value": {
           "type": "color-background",
-          "mode": "gradient"
+          "mode": "basic"
          }
         },
         {
@@ -369,7 +1240,7 @@
         },
         {
          "id": "custom.width",
-         "value": 130
+         "value": 95
         }
        ]
       },
@@ -388,10 +1259,14 @@
          "value": 1
         },
         {
+         "id": "noValue",
+         "value": "—"
+        },
+        {
          "id": "custom.cellOptions",
          "value": {
           "type": "color-background",
-          "mode": "gradient"
+          "mode": "basic"
          }
         },
         {
@@ -416,7 +1291,118 @@
         },
         {
          "id": "custom.width",
-         "value": 120
+         "value": 100
+        }
+       ]
+      },
+      {
+       "matcher": {
+        "id": "byName",
+        "options": "24h 알림"
+       },
+       "properties": [
+        {
+         "id": "decimals",
+         "value": 0
+        },
+        {
+         "id": "noValue",
+         "value": "—"
+        },
+        {
+         "id": "custom.width",
+         "value": 90
+        }
+       ]
+      },
+      {
+       "matcher": {
+        "id": "byName",
+        "options": "미확인"
+       },
+       "properties": [
+        {
+         "id": "decimals",
+         "value": 0
+        },
+        {
+         "id": "noValue",
+         "value": "—"
+        },
+        {
+         "id": "custom.cellOptions",
+         "value": {
+          "type": "color-background",
+          "mode": "basic"
+         }
+        },
+        {
+         "id": "thresholds",
+         "value": {
+          "mode": "absolute",
+          "steps": [
+           {
+            "color": "green",
+            "value": null
+           },
+           {
+            "color": "yellow",
+            "value": 3
+           },
+           {
+            "color": "red",
+            "value": 10
+           }
+          ]
+         }
+        },
+        {
+         "id": "custom.width",
+         "value": 85
+        },
+        {
+         "id": "description",
+         "value": "3건이 쌓이면 서킷 브레이커가 감지를 멈춘다."
+        }
+       ]
+      },
+      {
+       "matcher": {
+        "id": "byName",
+        "options": "24h 제어"
+       },
+       "properties": [
+        {
+         "id": "decimals",
+         "value": 0
+        },
+        {
+         "id": "noValue",
+         "value": "—"
+        },
+        {
+         "id": "custom.width",
+         "value": 90
+        }
+       ]
+      },
+      {
+       "matcher": {
+        "id": "byName",
+        "options": "장치"
+       },
+       "properties": [
+        {
+         "id": "decimals",
+         "value": 0
+        },
+        {
+         "id": "noValue",
+         "value": "—"
+        },
+        {
+         "id": "custom.width",
+         "value": 75
         }
        ]
       }
@@ -430,25 +1416,25 @@
      },
      "sortBy": [
       {
-       "displayName": "임계 이탈",
-       "desc": true
+       "displayName": "상태",
+       "desc": false
       }
      ]
-    }
-   },
-   {
-    "id": 2,
-    "type": "timeseries",
-    "title": "최근 24시간 센서 임계 이탈",
-    "description": "0 이 아닌 구간이 알림이 떴던 때다. 어느 농장이 자주 벗어나는지 한눈에 보인다.",
+    },
+    "id": 9,
     "datasource": {
      "type": "prometheus",
      "uid": "bflmwho4bsnb4c"
-    },
+    }
+   },
+   {
+    "type": "timeseries",
+    "title": "임계 이탈 추이",
+    "description": "0 이 아닌 구간이 경보 범위를 벗어났던 때다.",
     "gridPos": {
      "x": 0,
-     "y": 12,
-     "w": 24,
+     "y": 15,
+     "w": 8,
      "h": 8
     },
     "targets": [
@@ -477,16 +1463,17 @@
     },
     "fieldConfig": {
      "defaults": {
-      "min": 0,
       "decimals": 0,
       "custom": {
        "drawStyle": "line",
        "lineInterpolation": "stepAfter",
        "lineWidth": 2,
-       "fillOpacity": 25,
+       "fillOpacity": 18,
        "showPoints": "never",
        "spanNulls": true
       },
+      "max": 3,
+      "min": 0,
       "thresholds": {
        "mode": "absolute",
        "steps": [
@@ -505,21 +1492,165 @@
       }
      },
      "overrides": []
+    },
+    "id": 10,
+    "datasource": {
+     "type": "prometheus",
+     "uid": "bflmwho4bsnb4c"
     }
-   }
-  ],
-  "links": [
+   },
    {
-    "title": "상세 화면",
-    "type": "dashboards",
-    "tags": [
-     "farm"
+    "type": "timeseries",
+    "title": "센서 수집률 (1시간 적재 건수)",
+    "description": "1분 주기라 60 안팎이 정상. 떨어지면 수집이 성기다는 뜻이다.",
+    "gridPos": {
+     "x": 8,
+     "y": 15,
+     "w": 8,
+     "h": 8
+    },
+    "targets": [
+     {
+      "datasource": {
+       "type": "prometheus",
+       "uid": "bflmwho4bsnb4c"
+      },
+      "editorMode": "code",
+      "expr": "sum by (farm_id) (smartfarm_sensor_rows_1h)",
+      "legendFormat": "{{farm_id}}",
+      "range": true,
+      "refId": "A"
+     }
     ],
-    "asDropdown": false,
-    "icon": "external link"
+    "options": {
+     "legend": {
+      "displayMode": "list",
+      "placement": "bottom",
+      "showLegend": true
+     },
+     "tooltip": {
+      "mode": "multi",
+      "sort": "desc"
+     }
+    },
+    "fieldConfig": {
+     "defaults": {
+      "decimals": 0,
+      "custom": {
+       "drawStyle": "line",
+       "lineInterpolation": "stepAfter",
+       "lineWidth": 2,
+       "fillOpacity": 18,
+       "showPoints": "never",
+       "spanNulls": true
+      },
+      "min": 0,
+      "thresholds": {
+       "mode": "absolute",
+       "steps": [
+        {
+         "color": "red",
+         "value": null
+        },
+        {
+         "color": "yellow",
+         "value": 30
+        },
+        {
+         "color": "green",
+         "value": 50
+        }
+       ]
+      },
+      "color": {
+       "mode": "thresholds"
+      }
+     },
+     "overrides": []
+    },
+    "id": 11,
+    "datasource": {
+     "type": "prometheus",
+     "uid": "bflmwho4bsnb4c"
+    }
+   },
+   {
+    "type": "timeseries",
+    "title": "미확인 알림 누적",
+    "description": "3건이 쌓이면 서킷 브레이커가 감지를 멈춘다. 오르면 확인 처리할 것.",
+    "gridPos": {
+     "x": 16,
+     "y": 15,
+     "w": 8,
+     "h": 8
+    },
+    "targets": [
+     {
+      "datasource": {
+       "type": "prometheus",
+       "uid": "bflmwho4bsnb4c"
+      },
+      "editorMode": "code",
+      "expr": "sum by (farm_id) (smartfarm_alerts_unacknowledged)",
+      "legendFormat": "{{farm_id}}",
+      "range": true,
+      "refId": "A"
+     }
+    ],
+    "options": {
+     "legend": {
+      "displayMode": "list",
+      "placement": "bottom",
+      "showLegend": true
+     },
+     "tooltip": {
+      "mode": "multi",
+      "sort": "desc"
+     }
+    },
+    "fieldConfig": {
+     "defaults": {
+      "decimals": 0,
+      "custom": {
+       "drawStyle": "line",
+       "lineInterpolation": "stepAfter",
+       "lineWidth": 2,
+       "fillOpacity": 18,
+       "showPoints": "never",
+       "spanNulls": true
+      },
+      "min": 0,
+      "thresholds": {
+       "mode": "absolute",
+       "steps": [
+        {
+         "color": "green",
+         "value": null
+        },
+        {
+         "color": "yellow",
+         "value": 3
+        },
+        {
+         "color": "red",
+         "value": 10
+        }
+       ]
+      },
+      "color": {
+       "mode": "thresholds"
+      }
+     },
+     "overrides": []
+    },
+    "id": 12,
+    "datasource": {
+     "type": "prometheus",
+     "uid": "bflmwho4bsnb4c"
+    }
    }
   ]
  },
  "overwrite": true,
- "message": "농장 개요 대시보드 (2026-08-26 신설)"
+ "message": "농장 개요 v2 — 전체 통계 + 농장별 현황"
 }

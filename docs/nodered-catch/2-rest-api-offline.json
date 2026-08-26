@@ -1,0 +1,30 @@
+[
+  {
+    "id": "gtc_rest_api_flow",
+    "type": "catch",
+    "z": "rest_api_flow",
+    "name": "예외 → GlitchTip",
+    "scope": null,
+    "uncaught": true,
+    "x": 180,
+    "y": 40,
+    "wires": [
+      [
+        "gtl_rest_api_flow"
+      ]
+    ]
+  },
+  {
+    "id": "gtl_rest_api_flow",
+    "type": "link out",
+    "z": "rest_api_flow",
+    "name": "예외 →",
+    "mode": "link",
+    "links": [
+      "gt_link_in"
+    ],
+    "x": 380,
+    "y": 40,
+    "wires": []
+  }
+]

@@ -1,0 +1,30 @@
+[
+  {
+    "id": "gtc_watchdog_flow",
+    "type": "catch",
+    "z": "watchdog_flow",
+    "name": "예외 → GlitchTip",
+    "scope": null,
+    "uncaught": true,
+    "x": 180,
+    "y": 40,
+    "wires": [
+      [
+        "gtl_watchdog_flow"
+      ]
+    ]
+  },
+  {
+    "id": "gtl_watchdog_flow",
+    "type": "link out",
+    "z": "watchdog_flow",
+    "name": "예외 →",
+    "mode": "link",
+    "links": [
+      "gt_link_in"
+    ],
+    "x": 380,
+    "y": 40,
+    "wires": []
+  }
+]

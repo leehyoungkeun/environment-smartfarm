@@ -1,0 +1,30 @@
+[
+  {
+    "id": "gtc_aws_control_receiv",
+    "type": "catch",
+    "z": "aws_control_receiver_tab",
+    "name": "예외 → GlitchTip",
+    "scope": null,
+    "uncaught": true,
+    "x": 180,
+    "y": 40,
+    "wires": [
+      [
+        "gtl_aws_control_receiv"
+      ]
+    ]
+  },
+  {
+    "id": "gtl_aws_control_receiv",
+    "type": "link out",
+    "z": "aws_control_receiver_tab",
+    "name": "예외 →",
+    "mode": "link",
+    "links": [
+      "gt_link_in"
+    ],
+    "x": 380,
+    "y": 40,
+    "wires": []
+  }
+]

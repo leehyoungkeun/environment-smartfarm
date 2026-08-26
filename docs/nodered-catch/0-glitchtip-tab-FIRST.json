@@ -1,0 +1,22 @@
+[
+  {
+    "id": "gt_link_in",
+    "type": "link in",
+    "z": "glitchtip_flow",
+    "name": "← 각 탭 예외 수집",
+    "links": [
+      "gtl_aws_control_receiv",
+      "gtl_rest_api_flow",
+      "gtl_automation_eval_fl",
+      "gtl_collection_offline",
+      "gtl_watchdog_flow"
+    ],
+    "x": 165,
+    "y": 200,
+    "wires": [
+      [
+        "gt_envelope"
+      ]
+    ]
+  }
+]

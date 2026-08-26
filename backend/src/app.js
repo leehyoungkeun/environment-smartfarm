@@ -274,9 +274,13 @@ new promClient.Gauge({
     try {
       const { pool } = await import("./db.js");
       const { rows } = await pool.query(
+        // soft-delete 된 알림은 화면에서 사라진 것이므로 지표에서도 빼야 한다.
+        // 빠뜨리면 사용자가 알림을 지운 뒤에도 대시보드 숫자가 그대로 남아
+        // 화면과 지표가 어긋난다 (2026-08-26 실제로 그랬다).
         `SELECT farm_id, COALESCE(severity, 'UNKNOWN') AS severity, count(*) AS n
            FROM alerts
           WHERE timestamp > now() - interval '24 hours'
+            AND (metadata->>'deleted') IS DISTINCT FROM 'true'
           GROUP BY farm_id, severity`
       );
       this.reset();
@@ -299,9 +303,13 @@ new promClient.Gauge({
     try {
       const { pool } = await import("./db.js");
       const { rows } = await pool.query(
+        // 서킷 브레이커가 세는 것과 같은 기준이어야 한다 —
+        // 삭제된 알림은 브레이커도 세지 않는다(Alert.find 가 제외한다).
         `SELECT farm_id, count(*) AS n
            FROM alerts
-          WHERE NOT acknowledged AND timestamp > now() - interval '24 hours'
+          WHERE NOT acknowledged
+            AND timestamp > now() - interval '24 hours'
+            AND (metadata->>'deleted') IS DISTINCT FROM 'true'
           GROUP BY farm_id`
       );
       this.reset();

@@ -15,6 +15,10 @@ const router = express.Router();
 const DEFAULT_FARM_ID = process.env.FARM_ID || "farm_0001";
 const DEFAULT_HOUSE_ID = process.env.HOUSE_ID || "house_0001";
 
+// 서킷 브레이커가 미확인 알림을 세는 구간.
+// 전 기간을 세면 영구 래치되어 감지가 죽는다 (스케줄러 3종과 동일한 이유).
+const ALARM_UNACK_WINDOW_MS = 24 * 60 * 60 * 1000;
+
 function resolveFarmHouse(req) {
   return {
     farmId: req.body?.farmId || req.query?.farmId || DEFAULT_FARM_ID,
@@ -217,8 +221,16 @@ router.post("/alarm", async (req, res) => {
 
     logger.warn("경보 수신:", alertType, severity, alarm.message);
 
-    // 서킷 브레이커: 같은 유형의 미확인 알림이 3개 이상이면 추가 생성 차단
+    // 서킷 브레이커: 최근 24시간 내 같은 유형의 미확인 알림이 3개 이상이면 차단
+    //
+    // ★ 시간 조건이 반드시 있어야 한다.
+    //   전 기간 미확인을 세면, 아무도 확인 버튼을 누르지 않는 한 브레이커가
+    //   영원히 열린 채 남아 감지 자체가 죽는다. 스케줄러 3종에서 실제로 그랬고
+    //   (farm_0001 은 07-18 이후 오프라인 감지 정지), 이 라우트도 같은 구조였다.
+    //   여기는 그동안 호출 경로가 404 라 알림이 쌓이지 않아 드러나지 않았을 뿐이다.
+    //   2026-08-26 경로를 고치면서 함께 수정한다.
     const maxUnacknowledged = alarm.maxUnacknowledged || 3;
+    const unackSince = Date.now() - ALARM_UNACK_WINDOW_MS;
     const unackAlerts = await Alert.find(
       { farmId, houseId: alarm.houseId || houseId },
       { limit: 50 }
@@ -227,7 +239,9 @@ router.post("/alarm", async (req, res) => {
       (a) =>
         a.alertType === alertType &&
         (!alarm.sensorId || a.sensorId === alarm.sensorId) &&
-        !a.acknowledged
+        !a.acknowledged &&
+        a.createdAt &&
+        new Date(a.createdAt).getTime() >= unackSince
     ).length;
     if (unackCount >= maxUnacknowledged) {
       return res.json({ success: true, skipped: true, reason: "circuit_breaker", unackCount });

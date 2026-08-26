@@ -479,6 +479,138 @@ router.post("/control-log", async (req, res) => {
 });
 
 /**
+ * POST /internal/control-log/batch
+ * RPi 로컬 SQLite 의 제어 이력 소급/재전송 (Node-RED 데이터 동기화 탭)
+ *
+ * 왜 필요한가 —
+ *   NR 자동화는 제어 실행 시점에 POST /internal/control-log 로 실시간 전송하는데,
+ *   그 호출이 실패하면(오프라인·서버 재시작 등) 기록이 RPi 로컬에만 남는다.
+ *   2026-08-26 점검에서 로컬 10,106건 중 983건(18.4%)이 서버에 없는 것을 확인했다.
+ *   로컬 control_logs 에는 전송 갈래가 아예 구현된 적이 없어 synced 가 100% 0 이었다.
+ *
+ * 멱등성 — 재시도해도 중복이 생기지 않아야 한다. 두 단계로 거른다.
+ *   1) request_id 일치        → 이전에 이 엔드포인트가 이미 넣은 것
+ *   2) 같은 (농장,장치,명령) 이 ±TOLERANCE_SEC 안에 존재 → 실시간 경로가 이미 기록한 것
+ *   둘 다 아니면 삽입. idx_control_logs_farm_device 인덱스를 그대로 탄다.
+ *
+ * house_id — RPi 로컬 테이블에는 house_id 컬럼이 없다(다중하우스 전환 8/25 이전 기록).
+ *   같은 기간 서버 기록 9,600건이 100% house_0001 이고, 현재 제어 장치가 있는
+ *   하우스도 house_0001 뿐이라 그것으로 채운다. 추정을 숨기지 않으려고
+ *   operator='rpi_backfill' 로 표시해 두므로, 판단이 바뀌면 한 번의 UPDATE 로 정정된다.
+ *
+ * payload: { farmId?, houseId?, logs: [{ localId, timestamp, deviceId, command, source }] }
+ */
+const BACKFILL_TOLERANCE_SEC = 15;
+const BACKFILL_MAX_BATCH = 500;
+
+router.post("/control-log/batch", async (req, res) => {
+  try {
+    const { farmId, houseId } = resolveFarmHouse(req);
+    const logs = Array.isArray(req.body?.logs) ? req.body.logs : [];
+
+    if (logs.length === 0) {
+      return res.json({ success: true, received: 0, inserted: 0, skipped: 0, results: [] });
+    }
+    if (logs.length > BACKFILL_MAX_BATCH) {
+      return res.status(413).json({
+        success: false,
+        error: `한 번에 ${BACKFILL_MAX_BATCH}건까지 — 받은 건수 ${logs.length}`,
+      });
+    }
+
+    const results = [];
+    let inserted = 0;
+    let skipped = 0;
+
+    for (const row of logs) {
+      const localId = row?.localId;
+      const deviceId = row?.deviceId;
+      const command = row?.command;
+      const ts = row?.timestamp;
+
+      if (localId === undefined || localId === null || !deviceId || !command || !ts) {
+        results.push({ localId: localId ?? null, status: "invalid" });
+        continue;
+      }
+
+      const when = new Date(ts);
+      if (Number.isNaN(when.getTime())) {
+        results.push({ localId, status: "invalid" });
+        continue;
+      }
+
+      const requestId = `rpi:${farmId}:${localId}`;
+
+      // 1) 이 엔드포인트가 이미 넣었나 (재시도 안전)
+      const byReq = await pool.query(
+        "SELECT 1 FROM control_logs WHERE request_id = $1 LIMIT 1",
+        [requestId]
+      );
+      if (byReq.rowCount > 0) {
+        skipped++;
+        results.push({ localId, status: "duplicate_request" });
+        continue;
+      }
+
+      // 2) 실시간 경로가 이미 기록했나 (시각 오차 허용)
+      const byWindow = await pool.query(
+        `SELECT 1 FROM control_logs
+          WHERE farm_id = $1 AND device_id = $2 AND command = $3
+            AND timestamp BETWEEN $4::timestamptz - ($5 || ' seconds')::interval
+                              AND $4::timestamptz + ($5 || ' seconds')::interval
+          LIMIT 1`,
+        [farmId, deviceId, command, when.toISOString(), String(BACKFILL_TOLERANCE_SEC)]
+      );
+      if (byWindow.rowCount > 0) {
+        skipped++;
+        results.push({ localId, status: "duplicate_realtime" });
+        continue;
+      }
+
+      // source 가 'local' 이면 사람이 누른 것, 나머지(automation*)는 자동화
+      const src = String(row.source || "");
+      const isAuto = src.startsWith("automation");
+
+      await pool.query(
+        `INSERT INTO control_logs
+           (timestamp, farm_id, house_id, device_id, device_type, device_name,
+            command, success, request_id, operator, operator_name,
+            is_automatic, automation_reason, created_at)
+         VALUES ($1, $2, $3, $4, 'relay', $4, $5, true, $6, 'rpi_backfill', $7, $8, $9, NOW())`,
+        [
+          when.toISOString(),
+          farmId,
+          houseId,
+          deviceId,
+          command,
+          requestId,
+          isAuto ? "자동화(소급)" : "로컬 제어(소급)",
+          isAuto,
+          src ? `RPi 로컬 기록 소급 (source=${src})` : "RPi 로컬 기록 소급",
+        ]
+      );
+      inserted++;
+      results.push({ localId, status: "inserted" });
+    }
+
+    logger.info(
+      `제어 이력 소급 수신 (${farmId}/${houseId}): ${logs.length}건 → 삽입 ${inserted} / 중복 ${skipped}`
+    );
+
+    res.json({
+      success: true,
+      received: logs.length,
+      inserted,
+      skipped,
+      results,
+    });
+  } catch (error) {
+    logger.error("제어 이력 배치 저장 실패:", error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+/**
  * POST /internal/step-status
  * NR ⑤ stepped step 발사 / 완료 알림 (frontend NextRunCountdown 동기화용)
  *

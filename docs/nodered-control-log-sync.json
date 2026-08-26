@@ -1,0 +1,480 @@
+[
+  {
+    "id": "cl_comment",
+    "type": "comment",
+    "z": "sync_flow",
+    "name": "━━━ 제어 이력 동기화 (2026-08-26 신설) ━━━",
+    "info": "로컬 control_logs 는 전송 갈래가 아예 없어 synced 가 100% 0 이었다.\n2026-08-26 점검에서 로컬 10,106건 중 983건(18.4%)이 서버에 없음을 확인.\n\n· 서버 수신: POST /internal/control-log/batch  (멱등 — 재시도 안전)\n· 기본은 '중지' 상태 — 설정 화면에서 명시적으로 시작해야 흐른다.\n  10,106건이 한꺼번에 올라가므로 자동 시작시키지 않는다.",
+    "x": 200,
+    "y": 1400,
+    "wires": []
+  },
+  {
+    "id": "cl_inject_periodic",
+    "type": "inject",
+    "z": "sync_flow",
+    "name": "5분 간격 제어이력 동기화",
+    "props": [
+      {
+        "p": "payload"
+      }
+    ],
+    "repeat": "300",
+    "crontab": "",
+    "once": true,
+    "onceDelay": "20",
+    "topic": "",
+    "payload": "",
+    "payloadType": "date",
+    "x": 210,
+    "y": 1450,
+    "wires": [
+      [
+        "cl_check"
+      ]
+    ]
+  },
+  {
+    "id": "cl_inject_manual",
+    "type": "inject",
+    "z": "sync_flow",
+    "name": "제어이력 수동 동기화",
+    "props": [
+      {
+        "p": "payload"
+      }
+    ],
+    "repeat": "",
+    "crontab": "",
+    "once": false,
+    "onceDelay": 0.1,
+    "topic": "",
+    "payload": "",
+    "payloadType": "date",
+    "x": 200,
+    "y": 1495,
+    "wires": [
+      [
+        "cl_check"
+      ]
+    ]
+  },
+  {
+    "id": "cl_check",
+    "type": "function",
+    "z": "sync_flow",
+    "name": "온라인 체크 (제어이력)",
+    "func": "// 오프라인이거나 사용자가 시작하지 않았으면 흐르지 않는다.\n// 센서 동기화와 같은 규칙 — 자동으로 켜지지 않게 한다.\nconst mode = global.get('operationMode') || 'online';\nif (mode !== 'online') {\n    node.status({ fill: 'yellow', shape: 'ring', text: '오프라인 - 대기' });\n    return null;\n}\n\nconst paused = flow.get('ctrlSyncPaused');\nif (paused === undefined || paused === null || paused === true) {\n    node.status({ fill: 'grey', shape: 'ring', text: '대기 (수동 시작 필요)' });\n    return null;\n}\n\n// 한 번에 200건 — 서버 배치 상한(500)보다 낮게 잡아 여유를 둔다.\n// 다 보내면 '다음 배치' 가 이 노드로 되돌려 나머지를 이어서 처리한다.\nmsg.topic = `SELECT id, timestamp, device_id, command, source\nFROM control_logs\nWHERE synced IS NULL OR synced = 0\nORDER BY timestamp ASC\nLIMIT 200`;\n\nnode.status({ fill: 'blue', shape: 'ring', text: '미동기화 조회 중...' });\nreturn msg;\n",
+    "outputs": 1,
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "libs": [],
+    "x": 470,
+    "y": 1450,
+    "wires": [
+      [
+        "cl_query"
+      ]
+    ]
+  },
+  {
+    "id": "cl_query",
+    "type": "sqlite",
+    "z": "sync_flow",
+    "mydb": "sqlite_db",
+    "sqlquery": "msg.topic",
+    "sql": "",
+    "name": "미동기화 제어이력 조회",
+    "x": 700,
+    "y": 1450,
+    "wires": [
+      [
+        "cl_prepare"
+      ]
+    ]
+  },
+  {
+    "id": "cl_prepare",
+    "type": "function",
+    "z": "sync_flow",
+    "name": "제어이력 배치 준비",
+    "func": "const rows = msg.payload || [];\n\nif (rows.length === 0) {\n    flow.set('ctrlSyncRunning', false);\n    node.status({ fill: 'green', shape: 'dot', text: '동기화 완료 (남은 건 없음)' });\n    return null;\n}\n\nconst SERVER_URL = env.get('SERVER_URL') || 'https://api.smartgreen.kr';\nconst API_KEY = env.get('SENSOR_API_KEY') || '';\nconst FARM_ID = env.get('FARM_ID') || 'farm_0001';\n\n// 로컬 테이블에는 house_id 컬럼이 없다 (다중하우스 전환 이전 기록).\n// 같은 기간 서버 기록이 100% house_0001 이고 제어 장치가 있는 하우스도 그곳뿐이라\n// 서버가 house_0001 로 채운다. 여기서는 굳이 보내지 않는다.\nmsg.url = SERVER_URL + '/internal/control-log/batch';\nmsg.method = 'POST';\nmsg.headers = { 'Content-Type': 'application/json', 'x-api-key': API_KEY };\nmsg.payload = {\n    farmId: FARM_ID,\n    logs: rows.map(function (r) {\n        return {\n            localId: r.id,\n            timestamp: r.timestamp,\n            deviceId: r.device_id,\n            command: r.command,\n            source: r.source\n        };\n    })\n};\n\nmsg._ctrlIds = rows.map(function (r) { return r.id; });\nmsg._ctrlCount = rows.length;\n\nnode.status({ fill: 'blue', shape: 'dot', text: '전송 중: ' + rows.length + '건' });\nreturn msg;\n",
+    "outputs": 1,
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "libs": [],
+    "x": 930,
+    "y": 1450,
+    "wires": [
+      [
+        "cl_send"
+      ]
+    ]
+  },
+  {
+    "id": "cl_send",
+    "type": "http request",
+    "z": "sync_flow",
+    "name": "서버 제어이력 전송",
+    "method": "use",
+    "ret": "obj",
+    "paytoqs": "ignore",
+    "url": "",
+    "tls": "",
+    "persist": false,
+    "proxy": "",
+    "insecureHTTPParser": false,
+    "authType": "",
+    "senderr": true,
+    "headers": [],
+    "x": 1160,
+    "y": 1450,
+    "wires": [
+      [
+        "cl_result"
+      ]
+    ]
+  },
+  {
+    "id": "cl_result",
+    "type": "function",
+    "z": "sync_flow",
+    "name": "제어이력 동기화 결과",
+    "func": "// 서버는 멱등이라 이미 있는 건 skipped 로 돌려준다.\n// 삽입이든 중복이든 '서버가 확인함' 이므로 로컬은 synced=1 로 마킹한다.\nif (msg.statusCode === 200 || msg.statusCode === 201) {\n    const body = msg.payload || {};\n    const ids = msg._ctrlIds || [];\n    const count = msg._ctrlCount || ids.length || 0;\n\n    if (ids.length === 0) { return [null, null]; }\n\n    const safeIds = ids.filter(function (id) { return Number.isInteger(id) && id > 0; });\n    if (safeIds.length === 0) { return [null, null]; }\n\n    const placeholders = safeIds.map(function (_, i) { return '$' + (i + 1); }).join(',');\n    msg.topic = 'UPDATE control_logs SET synced = 1 WHERE id IN (' + placeholders + ')';\n    msg.payload = safeIds;\n\n    const soFar = (flow.get('ctrlSyncedSoFar') || 0) + count;\n    flow.set('ctrlSyncedSoFar', soFar);\n\n    const ins = body.inserted || 0;\n    const skp = body.skipped || 0;\n    global.set('lastCtrlSyncResult', {\n        time: new Date().toISOString(), success: true,\n        count: count, inserted: ins, skipped: skp\n    });\n\n    node.warn('✅ 제어이력 동기화: ' + count + '건 (신규 ' + ins + ' / 중복 ' + skp + ', 누적 ' + soFar + ')');\n    node.status({ fill: 'green', shape: 'dot', text: '누적: ' + soFar + '건' });\n    return [msg, null];\n}\n\n// 실패 — 로컬을 마킹하지 않으므로 다음 주기에 그대로 재시도된다\nflow.set('ctrlSyncRunning', false);\nglobal.set('lastCtrlSyncResult', {\n    time: new Date().toISOString(), success: false, count: 0, error: msg.statusCode\n});\nnode.warn('⚠️ 제어이력 동기화 실패 (' + msg.statusCode + '): 다음 주기에 재시도');\nnode.status({ fill: 'red', shape: 'ring', text: '실패: ' + msg.statusCode });\nreturn [null, null];\n",
+    "outputs": 2,
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "libs": [],
+    "x": 1390,
+    "y": 1450,
+    "wires": [
+      [
+        "cl_mark"
+      ],
+      []
+    ],
+    "outputLabels": [
+      "synced 마킹",
+      "(미사용)"
+    ]
+  },
+  {
+    "id": "cl_mark",
+    "type": "sqlite",
+    "z": "sync_flow",
+    "mydb": "sqlite_db",
+    "sqlquery": "msg.topic",
+    "sql": "",
+    "name": "제어이력 synced=1",
+    "x": 1620,
+    "y": 1450,
+    "wires": [
+      [
+        "cl_next"
+      ]
+    ]
+  },
+  {
+    "id": "cl_next",
+    "type": "function",
+    "z": "sync_flow",
+    "name": "제어이력 다음 배치",
+    "func": "// 아직 남았을 수 있으니 조회 노드로 되돌린다.\n// 남은 게 없으면 '배치 준비' 가 null 을 반환하며 루프가 끝난다.\nif (flow.get('ctrlSyncPaused')) {\n    flow.set('ctrlSyncRunning', false);\n    node.status({ fill: 'yellow', shape: 'ring', text: '중지됨' });\n    return null;\n}\n\n// 서버·SD카드에 여유를 주려고 약간 텀을 둔다\nsetTimeout(function () { node.send({ payload: 'next' }); }, 500);\nreturn null;\n",
+    "outputs": 1,
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "libs": [],
+    "x": 1850,
+    "y": 1450,
+    "wires": [
+      [
+        "cl_check"
+      ]
+    ]
+  },
+  {
+    "id": "cl_http_status",
+    "type": "http in",
+    "z": "sync_flow",
+    "name": "GET /api/sync/control/status",
+    "url": "/api/sync/control/status",
+    "method": "get",
+    "upload": false,
+    "swaggerDoc": "",
+    "x": 250,
+    "y": 1570,
+    "wires": [
+      [
+        "cl_status_q"
+      ]
+    ]
+  },
+  {
+    "id": "cl_status_q",
+    "type": "function",
+    "z": "sync_flow",
+    "name": "제어이력 상태 쿼리",
+    "func": "msg.topic = `SELECT\n  SUM(CASE WHEN synced = 1 THEN 1 ELSE 0 END) as synced,\n  SUM(CASE WHEN synced IS NULL OR synced = 0 THEN 1 ELSE 0 END) as unsynced,\n  COUNT(*) as total,\n  MIN(CASE WHEN synced IS NULL OR synced = 0 THEN timestamp END) as oldest_unsynced\nFROM control_logs`;\nreturn msg;\n",
+    "outputs": 1,
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "libs": [],
+    "x": 540,
+    "y": 1570,
+    "wires": [
+      [
+        "cl_status_sql"
+      ]
+    ]
+  },
+  {
+    "id": "cl_status_sql",
+    "type": "sqlite",
+    "z": "sync_flow",
+    "mydb": "sqlite_db",
+    "sqlquery": "msg.topic",
+    "sql": "",
+    "name": "제어이력 상태 SQL",
+    "x": 760,
+    "y": 1570,
+    "wires": [
+      [
+        "cl_status_resp"
+      ]
+    ]
+  },
+  {
+    "id": "cl_status_resp",
+    "type": "function",
+    "z": "sync_flow",
+    "name": "제어이력 상태 응답",
+    "func": "const row = (msg.payload || [])[0] || {};\nconst unsynced = row.unsynced || 0;\n\n// 시작 버튼이 초기 건수를 잡을 때 쓴다\nglobal.set('ctrlTotalUnsynced', unsynced);\n\nmsg.payload = {\n    success: true,\n    data: {\n        kind: 'control',\n        total: row.total || 0,\n        synced: row.synced || 0,\n        unsynced: unsynced,\n        oldestUnsynced: row.oldest_unsynced || null,\n        operationMode: global.get('operationMode') || 'unknown',\n        syncPaused: flow.get('ctrlSyncPaused') !== false,\n        syncRunning: flow.get('ctrlSyncRunning') || false,\n        syncInitialCount: flow.get('ctrlSyncInitialCount') || 0,\n        syncedSoFar: flow.get('ctrlSyncedSoFar') || 0,\n        lastSyncResult: global.get('lastCtrlSyncResult') || null\n    }\n};\nmsg.headers = { 'Access-Control-Allow-Origin': '*' };\nreturn msg;\n",
+    "outputs": 1,
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "libs": [],
+    "x": 980,
+    "y": 1570,
+    "wires": [
+      [
+        "cl_http_status_res"
+      ]
+    ]
+  },
+  {
+    "id": "cl_http_status_res",
+    "type": "http response",
+    "z": "sync_flow",
+    "name": "상태 응답",
+    "statusCode": "",
+    "headers": {},
+    "x": 1200,
+    "y": 1570,
+    "wires": []
+  },
+  {
+    "id": "cl_http_start",
+    "type": "http in",
+    "z": "sync_flow",
+    "name": "POST /api/sync/control/start",
+    "url": "/api/sync/control/start",
+    "method": "post",
+    "upload": false,
+    "swaggerDoc": "",
+    "x": 250,
+    "y": 1640,
+    "wires": [
+      [
+        "cl_start"
+      ]
+    ]
+  },
+  {
+    "id": "cl_start",
+    "type": "function",
+    "z": "sync_flow",
+    "name": "제어이력 동기화 시작",
+    "func": "flow.set('ctrlSyncPaused', false);\nflow.set('ctrlSyncRunning', true);\nflow.set('ctrlSyncedSoFar', 0);\n\nconst total = global.get('ctrlTotalUnsynced') || 0;\nflow.set('ctrlSyncInitialCount', total);\n\nnode.warn('▶️ 제어이력 동기화 시작 (미동기화: ' + total + '건)');\n\nmsg.payload = { success: true, message: '제어 이력 동기화를 시작합니다 (' + total + '건)' };\nmsg.headers = { 'Access-Control-Allow-Origin': '*' };\n\n// 응답은 즉시, 전송 루프는 두 번째 출력으로 바로 착수\nnode.send([null, { payload: 'start' }]);\nreturn [msg, null];\n",
+    "outputs": 2,
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "libs": [],
+    "x": 560,
+    "y": 1640,
+    "wires": [
+      [
+        "cl_http_ctl_res"
+      ],
+      [
+        "cl_check"
+      ]
+    ],
+    "outputLabels": [
+      "HTTP 응답",
+      "전송 시작"
+    ]
+  },
+  {
+    "id": "cl_http_stop",
+    "type": "http in",
+    "z": "sync_flow",
+    "name": "POST /api/sync/control/stop",
+    "url": "/api/sync/control/stop",
+    "method": "post",
+    "upload": false,
+    "swaggerDoc": "",
+    "x": 250,
+    "y": 1690,
+    "wires": [
+      [
+        "cl_stop"
+      ]
+    ]
+  },
+  {
+    "id": "cl_stop",
+    "type": "function",
+    "z": "sync_flow",
+    "name": "제어이력 동기화 중지",
+    "func": "flow.set('ctrlSyncPaused', true);\nflow.set('ctrlSyncRunning', false);\nnode.warn('⏸️ 제어이력 동기화 중지');\nmsg.payload = { success: true, message: '제어 이력 동기화를 중지했습니다' };\nmsg.headers = { 'Access-Control-Allow-Origin': '*' };\nreturn msg;\n",
+    "outputs": 1,
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "libs": [],
+    "x": 560,
+    "y": 1690,
+    "wires": [
+      [
+        "cl_http_ctl_res"
+      ]
+    ]
+  },
+  {
+    "id": "cl_http_skip",
+    "type": "http in",
+    "z": "sync_flow",
+    "name": "POST /api/sync/control/skip",
+    "url": "/api/sync/control/skip",
+    "method": "post",
+    "upload": false,
+    "swaggerDoc": "",
+    "x": 250,
+    "y": 1740,
+    "wires": [
+      [
+        "cl_skip"
+      ]
+    ]
+  },
+  {
+    "id": "cl_skip",
+    "type": "function",
+    "z": "sync_flow",
+    "name": "제어이력 스킵",
+    "func": "// 서버로 보내지 않고 '처리됨' 으로만 표시한다.\n// 되돌릴 수 없으므로 화면에서 확인을 받은 뒤 호출된다.\nflow.set('ctrlSyncPaused', true);\nflow.set('ctrlSyncRunning', false);\nmsg.topic = 'UPDATE control_logs SET synced = 1 WHERE synced IS NULL OR synced = 0';\nreturn msg;\n",
+    "outputs": 1,
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "libs": [],
+    "x": 540,
+    "y": 1740,
+    "wires": [
+      [
+        "cl_skip_sql"
+      ]
+    ]
+  },
+  {
+    "id": "cl_skip_sql",
+    "type": "sqlite",
+    "z": "sync_flow",
+    "mydb": "sqlite_db",
+    "sqlquery": "msg.topic",
+    "sql": "",
+    "name": "제어이력 스킵 실행",
+    "x": 760,
+    "y": 1740,
+    "wires": [
+      [
+        "cl_skip_resp"
+      ]
+    ]
+  },
+  {
+    "id": "cl_skip_resp",
+    "type": "function",
+    "z": "sync_flow",
+    "name": "제어이력 스킵 응답",
+    "func": "node.warn('⏭️ 제어 이력 미동기화분을 동기화 안함으로 처리');\nmsg.payload = { success: true, message: '제어 이력 미동기화분을 동기화 안함으로 처리했습니다' };\nmsg.headers = { 'Access-Control-Allow-Origin': '*' };\nreturn msg;\n",
+    "outputs": 1,
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "libs": [],
+    "x": 980,
+    "y": 1740,
+    "wires": [
+      [
+        "cl_http_ctl_res"
+      ]
+    ]
+  },
+  {
+    "id": "cl_http_ctl_res",
+    "type": "http response",
+    "z": "sync_flow",
+    "name": "제어 응답",
+    "statusCode": "",
+    "headers": {},
+    "x": 1200,
+    "y": 1690,
+    "wires": []
+  },
+  {
+    "id": "cl_catch",
+    "type": "catch",
+    "z": "sync_flow",
+    "name": "제어이력 전송 에러 캐치",
+    "scope": [
+      "cl_send",
+      "cl_query",
+      "cl_mark",
+      "cl_skip_sql",
+      "cl_status_sql"
+    ],
+    "uncaught": false,
+    "x": 470,
+    "y": 1800,
+    "wires": [
+      [
+        "cl_catch_fn"
+      ]
+    ]
+  },
+  {
+    "id": "cl_catch_fn",
+    "type": "function",
+    "z": "sync_flow",
+    "name": "제어이력 에러 처리",
+    "func": "// 로컬을 마킹하지 않았으므로 데이터는 그대로 남는다 — 다음 주기에 재시도된다\nflow.set('ctrlSyncRunning', false);\nglobal.set('lastCtrlSyncResult', {\n    time: new Date().toISOString(),\n    success: false,\n    count: 0,\n    error: (msg.error && msg.error.message) || 'unknown'\n});\nnode.warn('❌ 제어이력 동기화 오류: ' + ((msg.error && msg.error.message) || 'unknown'));\nnode.status({ fill: 'red', shape: 'dot', text: '오류 — 재시도 대기' });\nreturn null;\n",
+    "outputs": 1,
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "libs": [],
+    "x": 740,
+    "y": 1800,
+    "wires": [
+      []
+    ]
+  }
+]

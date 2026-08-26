@@ -185,6 +185,211 @@ new promClient.Gauge({
   },
 });
 
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// 농장 운영 지표
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// 대시보드에 올릴 것이 MQTT·수신지연·센서값뿐이라 너무 적었다.
+// 농장이 실제로 어떻게 돌아가는지 — 알림이 몇 건 났는지, 제어가 얼마나
+// 이뤄졌는지, 장치가 몇 개인지 — 는 DB 에만 있고 지표로 나오지 않았다.
+//
+// 스크레이프는 30초 주기다. 농장별로 쿼리를 쪼개면 농장 수만큼 늘어나므로
+// 한 번의 GROUP BY 로 모아 담는다.
+
+// 농장 자체의 존재와 상태. status 라벨이 붙어 있어 대시보드에서
+// '운전중이 아닌 농장' 을 그대로 걸러낼 수 있다.
+new promClient.Gauge({
+  name: "smartfarm_farm_up",
+  help: "1 per registered farm (labels carry name and status)",
+  labelNames: ["farm_id", "farm_name", "status"],
+  async collect() {
+    try {
+      const { pool } = await import("./db.js");
+      const { rows } = await pool.query(
+        "SELECT farm_id, name, status FROM farms WHERE status <> 'deleted'"
+      );
+      this.reset();
+      rows.forEach((r) =>
+        this.set(
+          { farm_id: r.farm_id, farm_name: r.name || r.farm_id, status: r.status || "unknown" },
+          r.status === "active" ? 1 : 0
+        )
+      );
+    } catch {
+      /* DB 오류 시 미갱신 */
+    }
+  },
+});
+
+// 하우스·장치 구성 — 규모를 한눈에 보고, 갑자기 줄면 설정 사고를 의심할 수 있다
+new promClient.Gauge({
+  name: "smartfarm_house_count",
+  help: "Enabled houses per farm",
+  labelNames: ["farm_id"],
+  async collect() {
+    try {
+      const { pool } = await import("./db.js");
+      const { rows } = await pool.query(
+        `SELECT hc.farm_id, count(*) AS n
+           FROM house_configs hc
+           JOIN farms f ON f.farm_id = hc.farm_id AND f.status = 'active'
+          WHERE hc.enabled = true
+          GROUP BY hc.farm_id`
+      );
+      this.reset();
+      rows.forEach((r) => this.set({ farm_id: r.farm_id }, Number(r.n) || 0));
+    } catch {
+      /* noop */
+    }
+  },
+});
+
+new promClient.Gauge({
+  name: "smartfarm_device_count",
+  help: "Configured control devices per farm",
+  labelNames: ["farm_id"],
+  async collect() {
+    try {
+      const { pool } = await import("./db.js");
+      const { rows } = await pool.query(
+        `SELECT hc.farm_id, COALESCE(sum(jsonb_array_length(hc.devices)), 0) AS n
+           FROM house_configs hc
+           JOIN farms f ON f.farm_id = hc.farm_id AND f.status = 'active'
+          WHERE hc.enabled = true
+          GROUP BY hc.farm_id`
+      );
+      this.reset();
+      rows.forEach((r) => this.set({ farm_id: r.farm_id }, Number(r.n) || 0));
+    } catch {
+      /* noop */
+    }
+  },
+});
+
+// 최근 24시간 알림 — 심각도별. 어느 농장이 시끄러운지 바로 드러난다
+new promClient.Gauge({
+  name: "smartfarm_alerts_24h",
+  help: "Alerts raised in the last 24h per farm and severity",
+  labelNames: ["farm_id", "severity"],
+  async collect() {
+    try {
+      const { pool } = await import("./db.js");
+      const { rows } = await pool.query(
+        `SELECT farm_id, COALESCE(severity, 'UNKNOWN') AS severity, count(*) AS n
+           FROM alerts
+          WHERE timestamp > now() - interval '24 hours'
+          GROUP BY farm_id, severity`
+      );
+      this.reset();
+      rows.forEach((r) =>
+        this.set({ farm_id: r.farm_id, severity: r.severity }, Number(r.n) || 0)
+      );
+    } catch {
+      /* noop */
+    }
+  },
+});
+
+// 미확인 알림 — 서킷 브레이커가 이 값을 보고 감지를 멈춘다(농장·유형당 3건).
+// 쌓이는 것을 눈으로 보게 해두면 2026-08-26 같은 5주 침묵을 다시 겪지 않는다.
+new promClient.Gauge({
+  name: "smartfarm_alerts_unacknowledged",
+  help: "Unacknowledged alerts per farm (circuit breaker counts these)",
+  labelNames: ["farm_id"],
+  async collect() {
+    try {
+      const { pool } = await import("./db.js");
+      const { rows } = await pool.query(
+        `SELECT farm_id, count(*) AS n
+           FROM alerts
+          WHERE NOT acknowledged AND timestamp > now() - interval '24 hours'
+          GROUP BY farm_id`
+      );
+      this.reset();
+      rows.forEach((r) => this.set({ farm_id: r.farm_id }, Number(r.n) || 0));
+    } catch {
+      /* noop */
+    }
+  },
+});
+
+// 최근 24시간 제어 횟수와 실패 — 장비 고장 감지의 재료이기도 하다
+new promClient.Gauge({
+  name: "smartfarm_controls_24h",
+  help: "Control commands in the last 24h per farm",
+  labelNames: ["farm_id", "result"],
+  async collect() {
+    try {
+      const { pool } = await import("./db.js");
+      const { rows } = await pool.query(
+        `SELECT farm_id,
+                CASE WHEN success THEN 'success' ELSE 'failure' END AS result,
+                count(*) AS n
+           FROM control_logs
+          WHERE timestamp > now() - interval '24 hours'
+          GROUP BY farm_id, 2`
+      );
+      this.reset();
+      rows.forEach((r) =>
+        this.set({ farm_id: r.farm_id, result: r.result }, Number(r.n) || 0)
+      );
+    } catch {
+      /* noop */
+    }
+  },
+});
+
+// 최근 1시간 센서 적재 건수 — 수집이 '끊겼는지' 가 아니라 '성긴지' 를 본다.
+// 1분 주기이므로 정상이면 하우스당 60 안팎이다. 30 이면 절반을 놓치고 있다는 뜻.
+new promClient.Gauge({
+  name: "smartfarm_sensor_rows_1h",
+  help: "sensor_data rows stored in the last hour per farm/house",
+  labelNames: ["farm_id", "house_id"],
+  async collect() {
+    try {
+      const { pool } = await import("./db.js");
+      const { rows } = await pool.query(
+        `SELECT sd.farm_id, sd.house_id, count(*) AS n
+           FROM sensor_data sd
+           JOIN farms f ON f.farm_id = sd.farm_id AND f.status = 'active'
+          WHERE sd.timestamp > now() - interval '1 hour'
+          GROUP BY sd.farm_id, sd.house_id`
+      );
+      this.reset();
+      rows.forEach((r) =>
+        this.set({ farm_id: r.farm_id, house_id: r.house_id }, Number(r.n) || 0)
+      );
+    } catch {
+      /* noop */
+    }
+  },
+});
+
+// 자동화 규칙 — 몇 개가 켜져 있는지. 0 이면 자동제어가 꺼진 농장이다
+new promClient.Gauge({
+  name: "smartfarm_automation_rules",
+  help: "Automation rules per farm by enabled state",
+  labelNames: ["farm_id", "enabled"],
+  async collect() {
+    try {
+      const { pool } = await import("./db.js");
+      const { rows } = await pool.query(
+        `SELECT ar.farm_id,
+                CASE WHEN ar.enabled THEN 'true' ELSE 'false' END AS enabled,
+                count(*) AS n
+           FROM automation_rules ar
+           JOIN farms f ON f.farm_id = ar.farm_id AND f.status = 'active'
+          GROUP BY ar.farm_id, 2`
+      );
+      this.reset();
+      rows.forEach((r) =>
+        this.set({ farm_id: r.farm_id, enabled: r.enabled }, Number(r.n) || 0)
+      );
+    } catch {
+      /* noop */
+    }
+  },
+});
+
 // 센서 실측값과 설정 임계값 — 임계 이탈 감지를 Prometheus 로 일원화
 //
 // 2026-08-26 감지체계 점검에서, 임계 이탈을 판정하던 sensorThresholdAlert

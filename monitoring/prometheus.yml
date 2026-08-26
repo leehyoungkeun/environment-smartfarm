@@ -40,6 +40,25 @@ scrape_configs:
   #   재개: farm_0006 에서 sudo apt-get install -y prometheus-node-exporter
   #        실행 후 아래 주석 해제.
   # # RPi farm-0006 (Tailscale)
+  # ── 감시 장치 자신 (2026-08-27 추가) ──────────────────────
+  # 컨테이너 11개 중 감시받는 것이 3개뿐이었다. 이들이 죽으면 알림이
+  # 통째로 멈추는데 아무 신호가 없다 — Loki 가 4주간 로그 0건이었던
+  # 것도 이 사각지대 때문이다(컨테이너는 내내 Up 이었다).
+  # 넷 다 자기 /metrics 를 노출하므로 대상에 넣으면 TargetDown 이 적용된다.
+  #
+  # ⚠ Prometheus 자신이 죽는 것은 이것으로 못 잡는다(자기참조).
+  #   GlitchTip 업타임 모니터나 외부 서비스로 별도 감시가 필요하다.
+  - job_name: 'monitoring-self'
+    static_configs:
+      - targets:
+          - 'prometheus:9090'
+          - 'alertmanager:9093'
+          - 'loki:3100'
+          - 'grafana:3000'
+        labels:
+          host: 'smartfarm-server'
+          role: 'monitoring'
+
   # - job_name: 'rpi-farm-0006'
   # static_configs:
   # - targets: ['100.115.49.44:9100']

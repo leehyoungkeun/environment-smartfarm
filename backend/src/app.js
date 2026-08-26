@@ -215,7 +215,9 @@ new promClient.Gauge({
         )
       );
     } catch {
-      /* DB 오류 시 미갱신 */
+      // 실패하면 값을 지운다 — 남겨두면 마지막 정상값이 계속 보고돼
+      // 장애 중에도 정상으로 보인다. 부재 자체는 smartfarm_db_up 이 알린다.
+      this.reset();
     }
   },
 });
@@ -238,7 +240,8 @@ new promClient.Gauge({
       this.reset();
       rows.forEach((r) => this.set({ farm_id: r.farm_id }, Number(r.n) || 0));
     } catch {
-      /* noop */
+      // 실패 시 값 제거 (마지막 정상값이 남아 거짓 신호가 되는 것 방지)
+      this.reset();
     }
   },
 });
@@ -260,7 +263,8 @@ new promClient.Gauge({
       this.reset();
       rows.forEach((r) => this.set({ farm_id: r.farm_id }, Number(r.n) || 0));
     } catch {
-      /* noop */
+      // 실패 시 값 제거 (마지막 정상값이 남아 거짓 신호가 되는 것 방지)
+      this.reset();
     }
   },
 });
@@ -288,7 +292,8 @@ new promClient.Gauge({
         this.set({ farm_id: r.farm_id, severity: r.severity }, Number(r.n) || 0)
       );
     } catch {
-      /* noop */
+      // 실패 시 값 제거 (마지막 정상값이 남아 거짓 신호가 되는 것 방지)
+      this.reset();
     }
   },
 });
@@ -315,7 +320,8 @@ new promClient.Gauge({
       this.reset();
       rows.forEach((r) => this.set({ farm_id: r.farm_id }, Number(r.n) || 0));
     } catch {
-      /* noop */
+      // 실패 시 값 제거 (마지막 정상값이 남아 거짓 신호가 되는 것 방지)
+      this.reset();
     }
   },
 });
@@ -341,7 +347,8 @@ new promClient.Gauge({
         this.set({ farm_id: r.farm_id, result: r.result }, Number(r.n) || 0)
       );
     } catch {
-      /* noop */
+      // 실패 시 값 제거 (마지막 정상값이 남아 거짓 신호가 되는 것 방지)
+      this.reset();
     }
   },
 });
@@ -367,7 +374,8 @@ new promClient.Gauge({
         this.set({ farm_id: r.farm_id, house_id: r.house_id }, Number(r.n) || 0)
       );
     } catch {
-      /* noop */
+      // 실패 시 값 제거 (마지막 정상값이 남아 거짓 신호가 되는 것 방지)
+      this.reset();
     }
   },
 });
@@ -393,7 +401,8 @@ new promClient.Gauge({
         this.set({ farm_id: r.farm_id, enabled: r.enabled }, Number(r.n) || 0)
       );
     } catch {
-      /* noop */
+      // 실패 시 값 제거 (마지막 정상값이 남아 거짓 신호가 되는 것 방지)
+      this.reset();
     }
   },
 });
@@ -437,7 +446,9 @@ new promClient.Gauge({
         });
       });
     } catch {
-      /* DB 오류 시 미갱신 */
+      // 실패하면 값을 지운다 — 남겨두면 마지막 정상값이 계속 보고돼
+      // 장애 중에도 정상으로 보인다. 부재 자체는 smartfarm_db_up 이 알린다.
+      this.reset();
     }
   },
 });
@@ -472,7 +483,8 @@ function registerThresholdGauge(name, help, key) {
           });
         });
       } catch {
-        /* DB 오류 시 미갱신 */
+        // 실패 시 값 제거 (마지막 정상값이 남아 거짓 신호가 되는 것 방지)
+        this.reset();
       }
     },
   });
@@ -488,6 +500,26 @@ registerThresholdGauge(
   "Configured maximum threshold per farm/house/sensor",
   "max"
 );
+
+// DB 생존 신호.
+//
+// 나머지 지표들은 DB 조회가 실패하면 값을 지운다(아래 catch). 그런데
+// **값이 사라지는 것만으로는 알림이 뜨지 않는다** — Prometheus 규칙은
+// 존재하는 시계열을 평가하기 때문이다. 그래서 "살아 있다"는 양의 신호를
+// 따로 둔다. 이것이 0 이 되면 DatabaseDown 규칙이 발동한다.
+new promClient.Gauge({
+  name: "smartfarm_db_up",
+  help: "1 if the backend can query PostgreSQL, 0 otherwise",
+  async collect() {
+    try {
+      const { pool } = await import("./db.js");
+      await pool.query("SELECT 1");
+      this.set(1);
+    } catch {
+      this.set(0);
+    }
+  },
+});
 
 // 농장/하우스별 마지막 센서 수신 이후 경과 초 — 수집 중단 감지
 new promClient.Gauge({
@@ -531,7 +563,8 @@ new promClient.Gauge({
         this.set({ farm_id: r.farm_id }, Number(r.age) || 0)
       );
     } catch {
-      /* noop */
+      // 실패 시 값 제거 (마지막 정상값이 남아 거짓 신호가 되는 것 방지)
+      this.reset();
     }
   },
 });

@@ -1082,6 +1082,18 @@
          ]
         },
         {
+         "id": "thresholds",
+         "value": {
+          "mode": "absolute",
+          "steps": [
+           {
+            "color": "text",
+            "value": null
+           }
+          ]
+         }
+        },
+        {
          "id": "custom.width",
          "value": 95
         },

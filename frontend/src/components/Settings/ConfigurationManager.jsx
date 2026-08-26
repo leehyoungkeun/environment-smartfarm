@@ -3919,10 +3919,17 @@ const ControlLogSyncPanel = ({ farmId }) => {
   const [actionLoading, setActionLoading] = useState(null);
   const [actionMsg, setActionMsg] = useState(null);
 
+  // 클라우드 모드에서는 브라우저가 RPi 에 직접 닿지 못한다
+  // (getRpiApiBase() 가 그 모드에선 백엔드를 가리킨다).
+  // 그래서 평소엔 백엔드 프록시를 쓰고, farmLocal 모드에서만 RPi 를 직접 부른다.
   const loadStatus = useCallback(async () => {
     try {
-      const rpiUrl = getRpiApiBase();
-      const res = await axiosBase.get(`${rpiUrl}/sync/control/status`, { timeout: 5000 });
+      let res;
+      if (isFarmLocalMode()) {
+        res = await axiosBase.get(`${getRpiApiBase()}/sync/control/status`, { timeout: 5000 });
+      } else {
+        res = await axiosBase.get(`${getApiBase()}/config/control-sync-status/${farmId}`, { timeout: 8000 });
+      }
       if (res.data?.success) setStatus(res.data.data);
     } catch (err) {
       console.warn('[ControlLogSyncPanel] status load failed:', err.message);
@@ -3954,8 +3961,11 @@ const ControlLogSyncPanel = ({ farmId }) => {
     setActionMsg(null);
     const labels = { start: '동기화 시작', stop: '동기화 중지', skip: '동기화 안함' };
     try {
-      const rpiUrl = getRpiApiBase();
-      await axiosBase.post(`${rpiUrl}/sync/control/${action}`, {}, { timeout: 10000 });
+      if (isFarmLocalMode()) {
+        await axiosBase.post(`${getRpiApiBase()}/sync/control/${action}`, {}, { timeout: 10000 });
+      } else {
+        await axiosBase.post(`${getApiBase()}/config/control-sync-action/${farmId}`, { action }, { timeout: 15000 });
+      }
       setActionMsg({ type: 'success', text: `${labels[action]} 명령 전송됨` });
       setTimeout(loadStatus, 500);
       setTimeout(loadStatus, 2500);

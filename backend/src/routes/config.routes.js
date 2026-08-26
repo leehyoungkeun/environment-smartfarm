@@ -703,4 +703,42 @@ router.post("/sync-action/:farmId", async (req, res) => {
   }
 });
 
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// 제어 이력 동기화 프록시 (2026-08-26 신설)
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// 위의 센서 동기화 프록시와 같은 구조다.
+// 클라우드 모드에서는 브라우저가 RPi 에 직접 닿을 수 없으므로 백엔드가 중계한다
+// (getRpiApiBase() 가 클라우드 모드에서 백엔드를 가리키기 때문).
+router.get("/control-sync-status/:farmId", async (req, res) => {
+  try {
+    const rpiBase = getRpiBase(req.params.farmId);
+    const response = await fetch(`${rpiBase}/api/sync/control/status`, { timeout: 5000 });
+    const data = await response.json();
+    res.json(data);
+  } catch (error) {
+    logger.warn(`RPi control-sync-status 조회 실패 (${req.params.farmId}):`, error.message);
+    res.json({ success: false, error: "RPi 연결 실패" });
+  }
+});
+
+router.post("/control-sync-action/:farmId", async (req, res) => {
+  try {
+    const { action } = req.body;
+    if (!["start", "stop", "skip"].includes(action)) {
+      return res.status(400).json({ success: false, error: "Invalid action" });
+    }
+    const rpiBase = getRpiBase(req.params.farmId);
+    const response = await fetch(`${rpiBase}/api/sync/control/${action}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      timeout: 10000,
+    });
+    const data = await response.json();
+    res.json(data);
+  } catch (error) {
+    logger.warn(`RPi control-sync-action 실패 (${req.params.farmId}):`, error.message);
+    res.status(502).json({ success: false, error: "RPi 연결 실패" });
+  }
+});
+
 export default router;

@@ -148,6 +148,12 @@ router.post("/glitchtip-to-telegram", verifyTokenTelegram, async (req, res) => {
 
 // GlitchTip → Discord
 // 2026-08-26 신설. 운영 알림 채널을 Discord 로 통일하기 위함.
+//
+// ⚠ 2026-08-27 사용 중지 — GlitchTip 이 Discord 를 네이티브로 지원한다(RecipientType.DISCORD).
+//   이 변환기는 GlitchTip 의 Slack 호환 페이로드(`attachments[].title`)를 `issue.title` 로
+//   추측해 읽어 실제로는 항상 폴백("GlitchTip alert / error / 1")만 보냈다 — 오류가 무엇인지,
+//   어느 서비스인지, 링크가 어디인지 전부 잃었다. 수신처를 GlitchTip 안에서 discord 타입으로
+//   바꿔 제목·culprit·프로젝트·service/farm_id 태그·링크가 그대로 간다. 라우트는 호환용으로 남긴다.
 //   Prometheus/Alertmanager 알림도 같은 채널로 가므로 한 곳에서 다 본다.
 // Discord embed 스펙: description 4096자, 필드값 1024자, embed 최대 10개.
 router.post("/glitchtip-to-discord", verifyTokenDiscord, async (req, res) => {

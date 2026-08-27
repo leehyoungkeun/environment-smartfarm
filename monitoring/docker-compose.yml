@@ -37,6 +37,10 @@ services:
       GLITCHTIP_DOMAIN: https://sentry.smartgreen.kr
       ENABLE_OPEN_USER_REGISTRATION: "false"
       EMAIL_URL: consolemail://
+      # 업타임 체커가 사설 IP(도커 내부 172.18.x) 를 SSRF 보호로 막는다 (기본 false).
+      # Prometheus·Alertmanager·Loki 는 localhost 전용이라 내부 이름으로만 감시할 수 있다.
+      # 단일 사용자 자체 호스팅 — 모니터를 만드는 사람이 곧 운영자라 SSRF 위험이 없다. (2026-08-27)
+      GLITCHTIP_UPTIME_ALLOW_PRIVATE_IPS: "true"
     ports:
       - "127.0.0.1:8000:8000"
     restart: unless-stopped
@@ -56,6 +60,10 @@ services:
       DATABASE_URL: postgres://postgres:${GT_DB_PASSWORD}@glitchtip-postgres/glitchtip
       SECRET_KEY: ${GT_SECRET}
       REDIS_URL: redis://glitchtip-redis/0
+      # 업타임 체커가 사설 IP(도커 내부 172.18.x) 를 SSRF 보호로 막는다 (기본 false).
+      # Prometheus·Alertmanager·Loki 는 localhost 전용이라 내부 이름으로만 감시할 수 있다.
+      # 단일 사용자 자체 호스팅 — 모니터를 만드는 사람이 곧 운영자라 SSRF 위험이 없다. (2026-08-27)
+      GLITCHTIP_UPTIME_ALLOW_PRIVATE_IPS: "true"
     restart: unless-stopped
     networks:
       - monitoring

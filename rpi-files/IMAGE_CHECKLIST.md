@@ -66,6 +66,10 @@ grep -o '\${FARM_ID}' /home/lhk/.node-red/flows.json | wc -l
 # 검증 2 — 0 이어야 한다. 1 이상이면 농장 고유값이 남은 것이다.
 grep -o 'smartfarm/farm_0001' /home/lhk/.node-red/flows.json | wc -l
 
+# (7-2) 카메라 정보 비우기 — 카메라는 농장마다 다르다
+python3 -c "import yaml;p='/home/lhk/smartfarm/go2rtc.yaml';d=yaml.safe_load(open(p));d['streams']={};yaml.safe_dump(d,open(p,'w'))"
+sudo truncate -s0 /etc/smartfarm/cameras.conf
+
 # (8) shutdown
 sudo poweroff
 ```
@@ -96,6 +100,9 @@ sudo poweroff
    - first-boot.sh: SSH host key + machine-id 재생성
    - setup.js: 인증서 다운로드 + FARM_ID 설정
    - 다음 부팅: Tailscale 자동 등록 (hostname=farm-XXXX)
+6. 카메라 (있으면): Tapo 앱에서 '카메라 계정' 생성(유저명 8자+) → RPi 에서
+   `smartfarm-camera-setup.sh list` 로 MAC 확인 → `smartfarm-camera-setup.sh add cam1 <MAC> <user> <pass>`
+   → 출력된 **공유기 DHCP 예약** 을 반드시 설정 (안 하면 IP 표류로 다시 죽는다)
 
 ---
 
@@ -152,6 +159,7 @@ sudo poweroff
 - [ ] `cat /sys/bus/usb/devices/*/power/control` → 모두 `on`
 - [ ] backend 에서 농장 last_seen_at 갱신 확인 (5분 이내)
 - [ ] 프론트 대시보드에 농장 카드 표시 확인
+- [ ] (카메라) `smartfarm-camera-setup.sh check` → 설정/실제 IP 일치 + 프레임 ✓, 공유기 예약 완료
 
 ---
 
@@ -161,6 +169,10 @@ sudo poweroff
 |---|---|---|
 | `flows.json` | Node-RED 마스터 (439 노드) | 1호에 의미 있는 변경 후 |
 | `settings.js` | Node-RED 설정 | adminAuth/path 변경 시 |
+| `smartfarm-camera-probe.sh` | 카메라 도달성·IP 표류 프로브 (root cron 매분) | 프로브 로직 변경 시 |
+| `onvif-discover.py` | ONVIF 탐색 (setup·probe 공용) | — |
+| `go2rtc.yaml.example` | go2rtc 템플릿 (스트림 비움) | 포트/옵션 변경 시 |
+| `etc/journald-50-smartfarm-persistent.conf` | 저널 영속화 (RPi OS 휘발 강제 덮음) | — |
 
 갱신 명령:
 ```bash

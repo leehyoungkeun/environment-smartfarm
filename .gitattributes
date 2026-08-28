@@ -1,0 +1,5 @@
+# RPi 로 scp 되는 스크립트는 Windows 작업본도 LF 여야 한다 (CRLF 면 bash: $'\r': command not found)
+*.sh   text eol=lf
+*.py   text eol=lf
+*.yaml text eol=lf
+*.yml  text eol=lf

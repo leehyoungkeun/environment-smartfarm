@@ -1,0 +1,16 @@
+# → /home/lhk/smartfarm/go2rtc.yaml   (pm2 go2rtc: /usr/local/bin/go2rtc -c 이 파일)
+# 카메라 IP 는 공유기 DHCP 예약과 반드시 일치해야 한다 — 2026-08-28 사고:
+#   Tapo C200 이 lease 갱신으로 .39→.36 으로 옮겨가 며칠간 "되다 안 되다".
+#   smartfarm-camera-probe.sh 가 매분 ONVIF 탐색으로 표류를 감지해 CameraIpDrift 알림을 낸다.
+# Tapo 함정: RTSP 는 앱 "카메라 계정" 을 만들어야 열리고, 유저명 8~32자 필수.
+# 스트림은 현장에서 smartfarm-camera-setup.sh add 로 넣는다 (이미지에는 비워둔다)
+streams: {}
+
+api:
+  listen: ':1984'
+
+rtsp:
+  listen: ':8554'
+
+webrtc:
+  listen: ':8555'

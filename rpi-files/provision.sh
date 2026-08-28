@@ -434,6 +434,21 @@ else
   warn "usb-stability/install.sh 없음 — USB 안정화 스킵"
 fi
 
+# ── 9b. 카메라 감시 프로브 + 설치 도구 ──
+# 카메라는 공유기 DHCP 를 받아 IP 가 바뀐다(2026-08-28 사고). 프로브가 매분 실제 프레임과
+# ONVIF 탐색 IP 를 node_exporter 로 내고, 서버 규칙 CameraUnreachable/CameraIpDrift 가 알린다.
+# 카메라 자체 등록은 현장에서: smartfarm-camera-setup.sh add cam1 <MAC> <user> <pass>
+info "=== 9b: 카메라 프로브 + smartfarm-camera-setup.sh + 저널 영속화 ==="
+mkdir -p /usr/local/lib/smartfarm /etc/smartfarm /var/lib/prometheus/node-exporter /etc/systemd/journald.conf.d
+install -m 644 "${SCRIPT_DIR}/master/onvif-discover.py"        /usr/local/lib/smartfarm/onvif-discover.py
+install -m 755 "${SCRIPT_DIR}/master/smartfarm-camera-probe.sh" /usr/local/bin/smartfarm-camera-probe.sh
+install -m 755 "${SCRIPT_DIR}/scripts/smartfarm-camera-setup.sh" /usr/local/bin/smartfarm-camera-setup.sh
+install -m 644 "${SCRIPT_DIR}/master/etc/journald-50-smartfarm-persistent.conf" /etc/systemd/journald.conf.d/50-smartfarm-persistent.conf
+touch /etc/smartfarm/cameras.conf
+echo "* * * * * root /usr/local/bin/smartfarm-camera-probe.sh" > /etc/cron.d/smartfarm-camera-probe
+[ -f "${SMARTFARM_HOME}/smartfarm/go2rtc.yaml" ] || sudo -u "$SMARTFARM_USER" cp "${SCRIPT_DIR}/master/go2rtc.yaml.example" "${SMARTFARM_HOME}/smartfarm/go2rtc.yaml"
+log "카메라 프로브·설치 도구·저널 영속화 설치 완료"
+
 # ── 10/10. 마스터 flows + settings 복원 (있으면) ──
 # Node-RED 가 실행 중이면 의미 없으므로 설치 직후/처음 부팅 전에만 적용.
 if [ -f "${SCRIPT_DIR}/master/flows.json" ]; then

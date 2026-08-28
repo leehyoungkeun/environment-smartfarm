@@ -125,3 +125,26 @@ groups:
         annotations:
           summary: "백엔드가 데이터베이스에 접속하지 못하고 있습니다"
           description: "2분 이상 PostgreSQL 조회가 실패하고 있습니다. 센서 저장·제어 이력·알림이 모두 멈춥니다. postgres17 컨테이너 상태와 디스크를 확인하십시오."
+
+      # ⑩ 카메라 — 2026-08-28 추가
+      #
+      # Tapo C200 이 공유기 DHCP(lease 2시간)로 .39→.36 으로 옮겨갔는데 go2rtc.yaml 은 .39 고정.
+      # 며칠간 "되다 안 되다" 를 반복했고 아무 지표가 없어 사용자가 화면을 보고 알았다.
+      # RPi 의 root cron 프로브(smartfarm-camera-probe.sh)가 매분 ping·RTSP·실제 프레임·
+      # ONVIF 탐색 IP 를 node_exporter 텍스트파일로 낸다. 근본 조치는 공유기 DHCP 예약.
+      - alert: CameraUnreachable
+        expr: smartfarm_camera_frame_up == 0
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "카메라 영상이 10분째 나오지 않습니다"
+          description: "{{ $labels.farm }} go2rtc 가 {{ $labels.cam }} 프레임을 받지 못합니다. ip_match 가 0 이면 카메라 IP 가 바뀐 것(공유기 DHCP 예약 확인), 1 이면 카메라 전원·WiFi 를 확인하십시오."
+      - alert: CameraIpDrift
+        expr: smartfarm_camera_ip_match == 0 and on(farm, cam) smartfarm_camera_info > 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "카메라 IP 가 설정과 다릅니다"
+          description: "{{ $labels.farm }} {{ $labels.cam }} — ONVIF 탐색 결과가 go2rtc 설정 IP 와 5분째 다릅니다. 공유기에서 카메라 MAC 의 DHCP 예약을 확인하고 go2rtc.yaml 을 맞추십시오."

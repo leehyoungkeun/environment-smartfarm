@@ -3,12 +3,13 @@
 `https://grafana.smartgreen.kr` 에 등록되어 있다. 이 폴더는 **서버가 날아가도
 되살릴 수 있게** 두는 사본이다 (`monitoring/` 의 다른 파일들과 같은 목적).
 
-## 두 화면
+## 세 화면
 
 | 화면 | uid | 용도 |
 |---|---|---|
 | 농장 개요 | `smartfarm-overview` | 전 농장을 한 줄씩. 이상 있는 곳만 색으로 표시 |
 | 농장 운영 현황 | `smartfarm-ops` | 한 농장의 상세 추이. 개요에서 농장명을 누르면 이동 |
+| 서버·컨테이너 | `smartfarm-server` | 서버 호스트 + 컨테이너 13개(cAdvisor) + 백엔드 프로세스(prom-client) + DB 내부(postgres-exporter). `ContainerMissing`·`PostgresConnectionsHigh` 규칙과 짝 아래에 백업(NAS 실물)·감시 체계 생존 신호 행 |
 
 농장이 늘어나면 상세 화면 하나로는 선이 겹쳐 못 읽는다. 개요에서 이상을
 찾고 상세로 들어가는 구성이다.

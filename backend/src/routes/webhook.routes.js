@@ -147,57 +147,85 @@ router.post("/glitchtip-to-telegram", verifyTokenTelegram, async (req, res) => {
 });
 
 // GlitchTip → Discord
-// 2026-08-26 신설. 운영 알림 채널을 Discord 로 통일하기 위함.
+// ── GlitchTip → Discord (한글) ─────────────────────────────────────────
+// 2026-08-26 신설, 2026-08-28 재작성.
 //
-// ⚠ 2026-08-27 사용 중지 — GlitchTip 이 Discord 를 네이티브로 지원한다(RecipientType.DISCORD).
-//   이 변환기는 GlitchTip 의 Slack 호환 페이로드(`attachments[].title`)를 `issue.title` 로
-//   추측해 읽어 실제로는 항상 폴백("GlitchTip alert / error / 1")만 보냈다 — 오류가 무엇인지,
-//   어느 서비스인지, 링크가 어디인지 전부 잃었다. 수신처를 GlitchTip 안에서 discord 타입으로
-//   바꿔 제목·culprit·프로젝트·service/farm_id 태그·링크가 그대로 간다. 라우트는 호환용으로 남긴다.
-//   Prometheus/Alertmanager 알림도 같은 채널로 가므로 한 곳에서 다 본다.
-// Discord embed 스펙: description 4096자, 필드값 1024자, embed 최대 10개.
+// GlitchTip 의 "General webhook" 은 Slack 호환 형식으로 보낸다:
+//   { text: "GlitchTip Alert" | "GlitchTip Alert (N issues)" | "GlitchTip Uptime Alert",
+//     attachments: [{ title, title_link, text(=culprit 또는 업타임 문장), color("#hex"),
+//                     fields: [{ title: "Project"|"Environment"|"Server Name"|"Release"|<tag>, value, short }] }] }
+// 처음 만든 변환기는 이 형식을 모른 채 issue.title 같은 필드를 추측해 읽어 **항상 폴백만** 보냈다
+// ("GlitchTip alert / error / 1"). 하루 GlitchTip 네이티브 Discord 로 돌렸더니 내용은 다 오지만 전부 영어다.
+// 그래서 실제 형식을 그대로 파싱해 한글로 꾸민다. 형식은 GlitchTip 소스 apps/alerts/webhooks.py 와
+// apps/uptime/webhooks.py 에서 확인했다.
+
+const FIELD_KO = {
+  Project: "프로젝트",
+  Environment: "환경",
+  "Server Name": "서버",
+  Release: "릴리스",
+  Service: "서비스",
+  Farm_id: "농장",
+  Hostname: "호스트",
+};
+
+function hexToInt(hex, fallback) {
+  const m = /^#?([0-9a-f]{6})$/i.exec(String(hex || ""));
+  return m ? parseInt(m[1], 16) : fallback;
+}
+
+/** GlitchTip 웹훅 본문 → Discord 메시지. 순수 함수라 테스트할 수 있다. */
+export function formatGlitchTipForDiscord(body) {
+  const header = String(body?.text || "");
+  const atts = Array.isArray(body?.attachments) ? body.attachments : [];
+
+  // ── 업타임 (Heartbeat 포함) ──
+  if (/uptime/i.test(header)) {
+    const embeds = atts.slice(0, 10).map((a) => {
+      const down = /gone down/i.test(a.text || "");
+      return {
+        title: `${down ? "🔴 다운" : "✅ 복구"} · ${String(a.title || "모니터").slice(0, 240)}`,
+        url: a.title_link || undefined,
+        description: down
+          ? "감시 대상이 응답하지 않습니다. 5분 안에 다시 확인됩니다."
+          : "감시 대상이 다시 응답합니다.",
+        color: down ? 0xed4245 : 0x57f287,
+        footer: { text: "GlitchTip 업타임" },
+        timestamp: new Date().toISOString(),
+      };
+    });
+    return { content: undefined, embeds, summary: embeds.map((e) => e.title).join(" | ") };
+  }
+
+  // ── 오류 이슈 ──
+  const countMatch = /\((\d+) issues?\)/.exec(header);
+  const content = countMatch ? `오류 ${countMatch[1]}건` : undefined;
+  const embeds = atts.slice(0, 10).map((a) => {
+    const fields = (a.fields || []).slice(0, 25).map((f) => ({
+      name: FIELD_KO[f.title] || String(f.title || "—").slice(0, 256),
+      value: String(f.value ?? "—").slice(0, 1024) || "—",
+      inline: f.short !== false,
+    }));
+    return {
+      title: `🚨 ${String(a.title || "오류").slice(0, 240)}`,
+      url: a.title_link || undefined,
+      description: a.text ? `위치: \`${String(a.text).slice(0, 300)}\`` : undefined,
+      color: hexToInt(a.color, 0xed4245),
+      fields,
+      footer: { text: "GlitchTip" },
+      timestamp: new Date().toISOString(),
+    };
+  });
+  if (embeds.length === 0) {
+    embeds.push({ title: "🚨 GlitchTip 알림", description: header || "(내용 없음)", color: 0xed4245 });
+  }
+  return { content, embeds, summary: embeds.map((e) => e.title).join(" | ") };
+}
+
 router.post("/glitchtip-to-discord", verifyTokenDiscord, async (req, res) => {
   try {
-    const body = req.body || {};
-    const issue = body.issue || body.data?.issue || body;
-    const title = issue.title || body.title || body.message || "GlitchTip alert";
-    const culprit = issue.culprit || issue.metadata?.function || issue.metadata?.filename || "";
-    const url = issue.web_url || body.web_url || "";
-    const project = issue.project_name || body.project_name || body.project || "";
-    const level = issue.level || body.level || "error";
-    const count = issue.count || body.count || 1;
-
-    // Alertmanager 쪽 색상 규칙과 맞춘다 (빨강=긴급, 노랑=주의)
-    const levelMeta = {
-      error: { emoji: "🚨", color: 0xed4245 },
-      fatal: { emoji: "💥", color: 0x992d22 },
-      warning: { emoji: "⚠️", color: 0xfee75c },
-      info: { emoji: "ℹ️", color: 0x5865f2 },
-      debug: { emoji: "🐛", color: 0x99aab5 },
-    }[level] || { emoji: "🚨", color: 0xed4245 };
-
-    const fields = [
-      { name: "프로젝트", value: String(project || "—").slice(0, 1024), inline: true },
-      { name: "레벨", value: String(level).slice(0, 1024), inline: true },
-      { name: "이벤트", value: String(count).slice(0, 1024), inline: true },
-    ];
-    if (culprit) {
-      fields.push({ name: "위치", value: "`" + String(culprit).slice(0, 200) + "`", inline: false });
-    }
-
-    const payload = {
-      embeds: [
-        {
-          title: `${levelMeta.emoji} ${String(title).slice(0, 250)}`,
-          url: url || undefined,
-          color: levelMeta.color,
-          fields,
-          footer: { text: "GlitchTip" },
-          timestamp: new Date().toISOString(),
-        },
-      ],
-    };
-
+    const { content, embeds, summary } = formatGlitchTipForDiscord(req.body || {});
+    const payload = content ? { content, embeds } : { embeds };
     const response = await fetch(DISCORD_WEBHOOK, {
       method: "POST",
       headers: { "Content-Type": "application/json; charset=utf-8" },
@@ -208,7 +236,7 @@ router.post("/glitchtip-to-discord", verifyTokenDiscord, async (req, res) => {
       const t = await response.text().catch(() => "");
       throw new Error(`Discord ${response.status}: ${t}`);
     }
-    logger.info(`GlitchTip → Discord 전송: ${title}`);
+    logger.info(`GlitchTip → Discord 전송: ${summary}`);
     res.json({ ok: true });
   } catch (err) {
     logger.error(`glitchtip-to-discord 전송 실패: ${err.message}`);

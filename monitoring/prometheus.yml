@@ -59,6 +59,20 @@ scrape_configs:
           host: 'smartfarm-server'
           role: 'monitoring'
 
+  # ── 컨테이너 지표 (cAdvisor, 2026-08-28) ──
+  - job_name: 'cadvisor'
+    static_configs:
+      - targets: ['cadvisor:8080']
+        labels:
+          host: 'smartfarm-server'
+
+  # ── 운영 DB 내부 지표 (postgres-exporter, 2026-08-28) ──
+  - job_name: 'postgres'
+    static_configs:
+      - targets: ['postgres-exporter:9187']
+        labels:
+          host: 'smartfarm-server'
+
   # - job_name: 'rpi-farm-0006'
   # static_configs:
   # - targets: ['100.115.49.44:9100']

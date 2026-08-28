@@ -98,6 +98,8 @@ services:
       - ./alertmanager.yml:/etc/alertmanager/alertmanager.yml
       # Discord 웹훅 URL — 인증 수단이므로 설정과 분리해 git 에 넣지 않는다.
       - ./discord_webhook_url:/etc/alertmanager/discord_webhook_url:ro
+      # dead man's switch — GlitchTip Heartbeat URL (git 제외, 644 여야 alertmanager(nobody) 가 읽는다)
+      - ./heartbeat_url:/etc/alertmanager/heartbeat_url:ro
       - alertmanager-data:/alertmanager
       # 컨테이너에 tzdata 가 없어 TZ 만으로는 KST 가 적용되지 않는다.
       # 호스트의 시간대 DB 를 읽기전용으로 마운트해야 템플릿의 .Local 이 한국시간이 된다.
@@ -181,14 +183,62 @@ services:
     container_name: node-exporter
     command:
       - '--path.rootfs=/host'
+      # afocus 프로브(백업 등)가 쓰는 텍스트파일 지표 — ./textfile/*.prom
+      - '--collector.textfile.directory=/textfile'
     pid: host
     volumes:
       - '/:/host:ro,rslave'
+      - './textfile:/textfile:ro'
     ports:
       - "127.0.0.1:9100:9100"
     restart: unless-stopped
     networks:
       - monitoring
+
+  # ── cAdvisor — 컨테이너별 상태·CPU·메모리 (2026-08-28) ──
+  # 그전까지 Prometheus 는 컨테이너 4개(자기 자신들)만 HTTP 로 찔러봤다. 나머지 7개
+  # (postgres17·GlitchTip 4·promtail·node-exporter)는 죽어도 지표가 없었다.
+  # cAdvisor 가 docker 소켓을 읽어 12개 전부를 container_last_seen 등으로 낸다.
+  cadvisor:
+    image: gcr.io/cadvisor/cadvisor:v0.52.1
+    container_name: cadvisor
+    environment:
+      # Docker 29 는 API 1.44 미만을 거부한다. 클라이언트 기본값(1.41)을 올린다.
+      DOCKER_API_VERSION: "1.44"
+    privileged: true
+    devices:
+      - /dev/kmsg
+    volumes:
+      - /:/rootfs:ro
+      - /var/run:/var/run:ro
+      - /sys:/sys:ro
+      - /var/lib/docker/:/var/lib/docker:ro
+    command:
+      - '--docker_only=true'
+      - '--housekeeping_interval=30s'
+      - '--store_container_labels=false'
+      - '--whitelisted_container_labels=com.docker.compose.project,com.docker.compose.service'
+      - '--disable_metrics=advtcp,cpu_topology,cpuset,hugetlb,memory_numa,percpu,process,referenced_memory,resctrl,sched,tcp,udp'
+    restart: unless-stopped
+    networks:
+      - monitoring
+
+  # ── postgres-exporter — 운영 DB 내부 지표 (2026-08-28) ──
+  # 접속 수·트랜잭션·캐시 적중·용량·락. 읽기 전용 롤 exporter(pg_monitor) 로 붙는다.
+  # DSN 은 .env 의 PG_EXPORTER_DSN (git 에 올리지 말 것). postgres17 은 다른 compose 라
+  # 그쪽 네트워크(postgres17_default)에 external 로 같이 들어간다.
+  postgres-exporter:
+    image: prometheuscommunity/postgres-exporter:v0.16.0
+    container_name: postgres-exporter
+    environment:
+      DATA_SOURCE_NAME: ${PG_EXPORTER_DSN}
+    command:
+      # PG17 은 pg_stat_bgwriter 컬럼이 pg_stat_checkpointer 로 옮겨가 이 수집기가 매번 실패 로그를 낸다
+      - '--no-collector.stat_bgwriter'
+    restart: unless-stopped
+    networks:
+      - monitoring
+      - postgres17
 
 volumes:
   promtail-positions:
@@ -201,3 +251,6 @@ volumes:
 networks:
   monitoring:
     driver: bridge
+  postgres17:
+    external: true
+    name: postgres17_default

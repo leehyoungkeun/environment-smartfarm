@@ -148,3 +148,66 @@ groups:
         annotations:
           summary: "카메라 IP 가 설정과 다릅니다"
           description: "{{ $labels.farm }} {{ $labels.cam }} — ONVIF 탐색 결과가 go2rtc 설정 IP 와 5분째 다릅니다. 공유기에서 카메라 MAC 의 DHCP 예약을 확인하고 go2rtc.yaml 을 맞추십시오."
+
+      # ⑪ 서버 컨테이너 소실 — 2026-08-28 추가 (cAdvisor)
+      #
+      # 컨테이너가 죽거나 지워지면 그 시계열이 사라진다. 사라진 것은 규칙으로 못 잡으므로
+      # "살아 있는 개수" 로 판단한다. 컨테이너를 추가/제거하면 이 숫자를 함께 고칠 것
+      # (현재 13: postgres17, glitchtip×4, prometheus, alertmanager, loki, promtail, grafana,
+      #  node-exporter, cadvisor, postgres-exporter).
+      # ⑫ DB 접속 포화 — 2026-08-28 추가 (postgres-exporter)
+      # max_connections=100. 백엔드 풀이 새거나 잠긴 쿼리가 쌓이면 여기서 먼저 보인다.
+      - alert: PostgresConnectionsHigh
+        expr: sum(pg_stat_activity_count{datname="smartfarm_db"}) / max(pg_settings_max_connections) > 0.8
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "DB 접속이 상한의 {{ $value | humanizePercentage }} 입니다"
+          description: "smartfarm_db 접속 수가 max_connections 의 80% 를 5분 넘게 초과합니다. 백엔드 커넥션 풀 누수나 오래 잠긴 트랜잭션을 확인하십시오 (Grafana 서버·컨테이너 → DB 행)."
+      - alert: ContainerMissing
+        expr: count(container_last_seen{name!=""}) < 13
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "서버 컨테이너가 {{ $value }}개만 살아 있습니다 (정상 13)"
+          description: "docker ps 로 어느 컨테이너가 빠졌는지 확인하십시오. Grafana '서버·컨테이너' 대시보드에 상태표가 있습니다."
+
+  - name: smartfarm-meta
+    rules:
+      # ⑬ 항상 발동하는 생존 신호 — Alertmanager 가 GlitchTip Heartbeat 로 넘긴다 (dead man's switch)
+      - alert: Watchdog
+        expr: vector(1)
+        labels:
+          severity: none
+        annotations:
+          summary: "감시 체계 생존 신호 (항상 발동, Discord 로 가지 않음)"
+
+      # ⑭ 백업 — 2026-08-28. 그전까지 백업 실패는 로그에만 남았다.
+      # afocus cron 프로브가 10분마다 NAS 의 최신 백업 파일 나이·크기를 텍스트파일로 낸다.
+      # 스크립트 성공 로그가 아니라 **NAS 에 실제로 있는 파일** 을 본다 (파이프라인 끝).
+      - alert: BackupStale
+        expr: smartfarm_backup_nas_latest_age_seconds > 26 * 3600
+        for: 30m
+        labels:
+          severity: critical
+        annotations:
+          summary: "NAS 최신 백업이 {{ $value | humanizeDuration }} 전입니다"
+          description: "매일 03:00 UTC 백업이 NAS 에 도착하지 않았습니다. /var/log/smartfarm-backup.log 와 NAS 용량·SSH 키를 확인하십시오."
+      - alert: BackupTooSmall
+        expr: smartfarm_backup_nas_latest_size_bytes < 1024 * 1024
+        for: 30m
+        labels:
+          severity: critical
+        annotations:
+          summary: "NAS 최신 백업이 {{ $value | humanize1024 }}B 뿐입니다"
+          description: "pg_dump 가 부실하게 끝났을 수 있습니다 (정상 5MB 안팎). 복구 테스트(server/postgres17/restore-test.sh)로 확인하십시오."
+      - alert: BackupProbeFailed
+        expr: smartfarm_backup_probe_ok == 0
+        for: 1h
+        labels:
+          severity: warning
+        annotations:
+          summary: "NAS 백업 확인 자체가 1시간째 실패합니다"
+          description: "프로브가 NAS(100.125.93.50)에 SSH 로 닿지 못합니다. Tailscale·NAS 전원·키(~/.ssh/smartgreen_backups)를 확인하십시오. 백업 상태를 모르는 상태입니다."

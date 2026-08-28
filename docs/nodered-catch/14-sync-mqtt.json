@@ -1,0 +1,30 @@
+[
+  {
+    "id": "gtc_sync_mqtt",
+    "type": "catch",
+    "z": "tab_sync_mqtt",
+    "name": "예외 → GlitchTip",
+    "scope": null,
+    "uncaught": true,
+    "x": 180,
+    "y": 40,
+    "wires": [
+      [
+        "gtl_sync_mqtt"
+      ]
+    ]
+  },
+  {
+    "id": "gtl_sync_mqtt",
+    "type": "link out",
+    "z": "tab_sync_mqtt",
+    "name": "예외 →",
+    "mode": "link",
+    "links": [
+      "gt_link_in"
+    ],
+    "x": 380,
+    "y": 40,
+    "wires": []
+  }
+]

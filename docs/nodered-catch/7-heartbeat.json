@@ -1,0 +1,30 @@
+[
+  {
+    "id": "gtc_heartbeat",
+    "type": "catch",
+    "z": "f8_tab",
+    "name": "예외 → GlitchTip",
+    "scope": null,
+    "uncaught": true,
+    "x": 180,
+    "y": 40,
+    "wires": [
+      [
+        "gtl_heartbeat"
+      ]
+    ]
+  },
+  {
+    "id": "gtl_heartbeat",
+    "type": "link out",
+    "z": "f8_tab",
+    "name": "예외 →",
+    "mode": "link",
+    "links": [
+      "gt_link_in"
+    ],
+    "x": 380,
+    "y": 40,
+    "wires": []
+  }
+]

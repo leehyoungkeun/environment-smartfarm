@@ -1,0 +1,30 @@
+[
+  {
+    "id": "gtc_relay_reset",
+    "type": "catch",
+    "z": "relay_reset_flow",
+    "name": "예외 → GlitchTip",
+    "scope": null,
+    "uncaught": true,
+    "x": 180,
+    "y": 40,
+    "wires": [
+      [
+        "gtl_relay_reset"
+      ]
+    ]
+  },
+  {
+    "id": "gtl_relay_reset",
+    "type": "link out",
+    "z": "relay_reset_flow",
+    "name": "예외 →",
+    "mode": "link",
+    "links": [
+      "gt_link_in"
+    ],
+    "x": 380,
+    "y": 40,
+    "wires": []
+  }
+]

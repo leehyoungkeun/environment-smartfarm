@@ -19,6 +19,16 @@ GlitchTip 탭에 몰렸다(Ctrl+Z 한 번으로 되돌림).
 | 3 | `3-automation-eval.json` | **자동화 평가** | 규칙 실행 |
 | 4 | `4-sensor-collect.json` | **센서 수집** | Modbus 읽기 |
 | 5 | `5-relay-watchdog.json` | **릴레이 워치독** | 릴레이 상태 감시 |
+| 6 | `6-startup-init.json` | **시작 초기화** | 2026-08-28 감사에서 Catch 없음 |
+| 7 | `7-heartbeat.json` | **Heartbeat** | 2026-08-28 감사에서 Catch 없음 |
+| 8 | `8-config-crud.json` | **Config CRUD API** | 2026-08-28 감사에서 Catch 없음 |
+| 9 | `9-sqlite-init.json` | **SQLite 초기화** | 2026-08-28 감사에서 Catch 없음 |
+| 10 | `10-relay-reset.json` | **릴레이 초기화** | 2026-08-28 감사에서 Catch 없음 |
+| 11 | `11-relay-mqtt-status.json` | **릴레이 MQTT 상태** | 2026-08-28 감사에서 Catch 없음 |
+| 12 | `12-modules-sync.json` | **모듈 동기화** | 2026-08-28 감사에서 Catch 없음 |
+| 13 | `13-sensor-mqtt-query.json` | **센서 MQTT 조회** | 2026-08-28 감사에서 Catch 없음 |
+| 14 | `14-sync-mqtt.json` | **동기화 MQTT** | 2026-08-28 감사에서 Catch 없음 |
+| 15 | `15-system-mqtt.json` | **시스템 상태 MQTT** | 2026-08-28 감사에서 Catch 없음 |
 
 각 파일마다:
 
@@ -27,7 +37,7 @@ GlitchTip 탭에 몰렸다(Ctrl+Z 한 번으로 되돌림).
 3. ☰ → 가져오기 → 붙여넣기 → 가져오기
 4. 노드가 그 탭에 놓였는지 확인
 
-다섯 탭을 다 넣은 뒤 **한 번만 배포**해도 된다.
+탭을 다 넣은 뒤 **한 번만 배포**해도 된다. (6~15 는 2026-08-28 감사에서 추가 — 나머지 탭 전부)
 
 ## 확인
 

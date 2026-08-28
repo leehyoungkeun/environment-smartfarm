@@ -1,0 +1,46 @@
+[
+  {
+    "id": "modsync_mqtt_in_one",
+    "type": "mqtt in",
+    "z": "tab_modules_sync",
+    "name": "config/update 수신 (단일)",
+    "topic": "smartfarm/farm_0001/config/update",
+    "qos": "1",
+    "datatype": "auto-detect",
+    "broker": "mqtt_broker_aws",
+    "nl": false,
+    "rap": true,
+    "rh": 0,
+    "inputs": 0,
+    "x": 160,
+    "y": 200,
+    "wires": [
+      [
+        "modsync_type_switch"
+      ]
+    ]
+  },
+  {
+    "id": "modsync_type_switch",
+    "type": "function",
+    "z": "tab_modules_sync",
+    "name": "type 분기 (modules → 1, house_* → 2)",
+    "func": "// config/update 는 한 곳에서만 구독한다 (2026-08-28). 전에는 mqtt in 두 개가 같은 토픽을 받아\n// 설정 변경 한 번에 system-settings GET 이 두 번 나갔다(house_* 이벤트에도).\nlet data = msg.payload;\nif (typeof data === 'string') { try { data = JSON.parse(data); } catch (e) { node.warn('config/update JSON 파싱 실패: ' + e.message); return null; } }\nif (!data || typeof data !== 'object') return null;\nmsg.payload = data;\nconst type = String(data.type || '');\nif (type.startsWith('house_')) return [null, msg];   // → houseConfig refresh\nreturn [msg, null];                                   // modules_changed 등 → system-settings\n",
+    "outputs": 2,
+    "timeout": 0,
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "libs": [],
+    "x": 420,
+    "y": 200,
+    "wires": [
+      [
+        "modsync_trigger_target_REWIRE"
+      ],
+      [
+        "hcs_filter_target_REWIRE"
+      ]
+    ]
+  }
+]

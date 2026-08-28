@@ -1,0 +1,67 @@
+[
+  {
+    "id": "sysip_inject",
+    "type": "inject",
+    "z": "startup_init_flow",
+    "name": "시작 5초 후 (IP)",
+    "props": [
+      {
+        "p": "payload"
+      }
+    ],
+    "repeat": "",
+    "crontab": "",
+    "once": true,
+    "onceDelay": "5",
+    "topic": "",
+    "payload": "",
+    "payloadType": "date",
+    "x": 160,
+    "y": 400,
+    "wires": [
+      [
+        "sysip_exec"
+      ]
+    ]
+  },
+  {
+    "id": "sysip_exec",
+    "type": "exec",
+    "z": "startup_init_flow",
+    "command": "hostname -I",
+    "addpay": "",
+    "append": "",
+    "useSpawn": "false",
+    "timer": "5",
+    "winHide": false,
+    "oldrc": false,
+    "name": "hostname -I",
+    "x": 360,
+    "y": 400,
+    "wires": [
+      [
+        "sysip_set"
+      ],
+      [],
+      []
+    ]
+  },
+  {
+    "id": "sysip_set",
+    "type": "function",
+    "z": "startup_init_flow",
+    "name": "global.systemIp 저장",
+    "func": "// RPi 의 실제 LAN IP 를 global 에 둔다 (2026-08-28). 그전엔 '192.168.137.30'(이사 전 주소)이\n// 센서 페이로드·배치 deviceInfo 에 박혀 서버로 갔다. 사용: global.get('systemIp')\nconst first = String(msg.payload || '').trim().split(/\\s+/).filter(ip => /^\\d+\\.\\d+\\.\\d+\\.\\d+$/.test(ip) && !ip.startsWith('100.') && !ip.startsWith('169.254.'))[0];\nif (first) { global.set('systemIp', first); node.status({ fill: 'green', shape: 'dot', text: first }); }\nelse { node.warn('systemIp 판별 실패: ' + msg.payload); }\nreturn null;\n",
+    "outputs": 1,
+    "timeout": 0,
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "libs": [],
+    "x": 580,
+    "y": 400,
+    "wires": [
+      []
+    ]
+  }
+]

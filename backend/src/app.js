@@ -675,8 +675,8 @@ app.use("/api/devices", devicesRoutes);
 app.use("/api/deploy", deployRoutes);
 app.use("/api/kakao", kakaoRoutes);
 app.use("/api/cameras", authenticate, camerasRoutes);
-app.use("/api/device-positions", devicePositionsRoutes);
-app.use("/api/relay-status", relayStatusRoutes);
+app.use("/api/device-positions", authenticate, enforceTenant, devicePositionsRoutes); // 2026-08-29 N3: 무인증 노출 차단
+app.use("/api/relay-status", authenticate, enforceTenant, relayStatusRoutes); // 2026-08-29 N3: 무인증 노출 차단
 
 // 농장 관리 API (JWT 인증)
 app.use("/api/farms", authenticate, farmsRoutes);

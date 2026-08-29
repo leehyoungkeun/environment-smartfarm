@@ -96,6 +96,9 @@ router.post("/collect", async (req, res, next) => {
     broadcastFarmStatus(farmId, timestamp);
 
     // 4. 알림 체크 (비동기, 실패 시 카운터 기록)
+    //    시뮬레이션 값(quality=simulated)으로는 경보하지 않는다 — 저장 직후의 이 인라인 검사는
+    //    임계 스케줄러와 별개 경로라 여기서도 걸러야 한다 (2026-08-29 B4).
+    if (reportedQuality !== "simulated")
     checkAndCreateAlerts(farmId, houseId, data, config).catch((err) => {
       alertFailureCount++;
       lastAlertFailure = new Date();

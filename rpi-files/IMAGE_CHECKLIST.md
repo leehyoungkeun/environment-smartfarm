@@ -96,6 +96,14 @@ sudo poweroff
 
 ### A-3. 새 농장 배포
 
+⚠ **재설치 시 (2026-08-29 N2)**: setup 은 1회용이다 — `devices.installed_at` 이 차 있으면 키·인증서를 안 내려준다.
+이미 배포했던 장비를 다시 설치하려면 서버에서 그 장비를 재설치 가능 상태로 되돌린다:
+```sql
+-- 그 장비코드만. 인증서를 새로 발급했다면 cert_pem/private_key 도 함께 갱신.
+UPDATE devices SET installed_at = NULL WHERE device_code = '<코드>';
+```
+
+
 1. 사무실 PC: 농장 등록 → 장비코드 발급
 2. AWS IoT: Thing 생성 + 인증서 발급 → 관리자 웹에서 cert+key 업로드
 3. RPi Imager: `.img` → 새 SD/SSD 굽기

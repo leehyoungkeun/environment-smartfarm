@@ -191,12 +191,16 @@ router.post("/:code/setup", async (req, res) => {
         farmInfo = {
           farmId: farm.farmId,
           farmName: farm.name,
-          apiKey: farm.apiKey,
+          apiKey: firstSetup ? farm.apiKey : undefined, // 최초 설치 때만 (N2)
         };
       }
     }
 
     // RPi 정보 업데이트
+    // setup 1회성 (2026-08-29 N2): 장비코드(화면 평문 6자)만으로 농장 키·인증서를 인터넷에서
+    // 꺼낼 수 있었다. 최초 1회(installedAt 없을 때)만 비밀을 내려주고 그 뒤엔 상태만 반환.
+    const firstSetup = !device.installedAt;
+    if (!firstSetup) logger.warn(`장비 재-setup 시도 (이미 설치됨): ${req.params.code} from ${req.ip}`);
     const { rpiSerial, ipAddress } = req.body;
     await prisma.device.update({
       where: { deviceCode: req.params.code },
@@ -205,6 +209,7 @@ router.post("/:code/setup", async (req, res) => {
         rpiSerial: rpiSerial || device.rpiSerial,
         ipAddress: ipAddress || req.ip,
         lastSeenAt: new Date(),
+        installedAt: device.installedAt || new Date(),
         updatedAt: new Date(),
       },
     });
@@ -221,9 +226,9 @@ router.post("/:code/setup", async (req, res) => {
         serverUrl: "https://api.smartgreen.kr",
         mqttBroker: "a2ybxz5mrpnfww-ats.iot.ap-northeast-2.amazonaws.com",
         // AWS IoT 인증서 (base64)
-        certificates: device.certPem ? {
-          certPem: device.certPem,
-          privateKey: device.privateKey,
+        certificates: (firstSetup && device.certPem) ? { // 최초 설치 때만 (N2)
+        certPem: device.certPem,
+        privateKey: device.privateKey,
         } : null,
       },
     });

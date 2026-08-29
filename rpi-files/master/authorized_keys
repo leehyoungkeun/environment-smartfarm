@@ -1,0 +1,5 @@
+# → /home/lhk/.ssh/authorized_keys (600, 소유 lhk). 공개키만 — 커밋해도 안전.
+# 현장 AS 노트북(jamesnote@NOTEBOOK)과 사무실 PC. provision 9c 가 이 파일을 심은 뒤에야 비밀번호 로그인을 끈다.
+# 기기를 잃어버리면 여기서 그 줄을 지우고 재배포. (2026-08-29)
+ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAINUEo+muFQk5ihLzz9QjF2PzrlZL4TIJjDTeADD9rO0I jamesnote@NOTEBOOK
+ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQDoMkMW78J3il5m37Ju5Jit2MJhYjNUCq9STP8B931aTPaa6H1zwsIA3X+CCp4DLU/TFoSGTWaT7KoR7ZZYQ6Q8Y4wq8YGBNmahH51gBqLMJMxsIBQogwdkxYl96g2sUKtVkY0fQMlvrCq5YwQoiJcxWb70MbiS9o8yWk3sA/lc55yNc6mt43Ajcm4fS4YVDakluhn0EXJV8byi6xlmEj51HoavtoDCDqbnVU3DDw7+atyDMaeJJrNIoIDimBONjjOIIL20UfwPWaJ6Od7h7QKYlcKYRFeR5Q8yprOlVy2VJnmogAkAXSJs1ETNG2M4ZF+5ANlrO9U8ALYuy5E0Z8KqH14iaOyfhIC3/JhfZVBFwqTc7eV+QKS9MjS46xpscHgqq8jzw+bs0juFYDOD1TfAln76NQ589DeuGLfPcVetPh99znmfDs8peJNXrKWNtW3RaL3jqGzGEIWQDh5gHRv9AE0CWvyAt3AebDs3tjNc282e2P++q4E6IwnbWh9g4Tc= James@DESKTOP-180UQ1B

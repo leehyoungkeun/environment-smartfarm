@@ -86,3 +86,4 @@ monitoring/discord_webhook_url
 monitoring/*_url
 monitoring/*.bak-*
 monitoring/textfile/
+__pycache__/

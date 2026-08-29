@@ -63,6 +63,15 @@ const apiKey = env.get('SENSOR_API_KEY') || global.get('sensorApiKey') || '';
 같은 패턴 `global.get('sensorApiKey') || 'smartfarm-sensor-key'` → `env.get('SENSOR_API_KEY') || global.get('sensorApiKey') || ''`.
 탭이 비활성이라 급하지 않지만 재활성 전 필수.
 
+## ⚠ 7. 탭 환경변수가 process.env 를 덮는다 — 반드시 삭제
+
+`REST API (오프라인)` · `자동화 평가` · `센서 수집` · `온/오프라인 감지` · `데이터 동기화` 다섯 탭의 **탭 속성 → 환경 변수** 에
+`SENSOR_API_KEY = smartfarm-sensor-key` 가 정의돼 있다. Node-RED 의 `env.get()` 은 **탭(flow) 환경변수를 process.env 보다 먼저** 보므로,
+ecosystem 이 주입한 농장 키가 있어도 이 다섯 탭 안의 함수는 전부 공통 키를 받는다. (2026-08-29 실측: 서버 로그 `apiKey=smartfarm-…`)
+
+탭 이름 더블클릭(또는 탭 우클릭 → 편집) → **환경 변수** 섹션 → `SENSOR_API_KEY` 행의 × → 완료. 다섯 탭 모두. `SERVER_URL` 은 그대로 둔다.
+같은 자리의 `HOUSE_ID = house_0001` 도 다중 하우스에서 문제가 되므로 함께 지우는 것이 맞다(폴백 `|| 'house_0001'` 이 코드에 있어 동작은 유지됨).
+
 ## 검증
 
 ```bash

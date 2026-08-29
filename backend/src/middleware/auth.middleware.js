@@ -240,7 +240,7 @@ export const authenticateApiKey = async (req, res, next) => {
       const k = req.farmId; const now = Date.now();
       if (!legacyKeyWarnedAt.has(k) || now - legacyKeyWarnedAt.get(k) > 10 * 60 * 1000) {
         legacyKeyWarnedAt.set(k, now);
-        logger.warn(`[legacy-key] 공통 SENSOR_API_KEY 사용: farm=${k} from=${req.socket?.remoteAddress || "?"} ${req.method} ${req.originalUrl}`);
+        logger.warn(`[legacy-key] 공통 SENSOR_API_KEY 사용: farm=${k} from=${req.socket?.remoteAddress || "?"} cf-ip=${req.headers["cf-connecting-ip"] || "-"} ua=${String(req.headers["user-agent"] || "-").slice(0, 40)} ${req.method} ${req.originalUrl}`);
       }
       return next();
     }

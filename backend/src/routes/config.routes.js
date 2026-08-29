@@ -674,6 +674,14 @@ router.post("/:farmId/rpi-ack", async (req, res) => {
 // farm_0001 → http://farm-0001:1880  (RPi 가 Tailscale 가입돼 있어야)
 // IP 변경·재부팅·이사 무관 (Tailscale 이 자동 추적)
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// RPi 로컬 API 는 2026-08-29 부터 농장 키 또는 키오스크(localhost)만 받는다 (B1).
+// 서버가 Tailscale 로 RPi 를 부를 때는 그 농장의 api_key 를 붙인다.
+async function rpiHeaders(farmId, extra = {}) {
+  const row = await pool.query("SELECT api_key FROM farms WHERE farm_id = $1", [farmId]).catch(() => ({ rows: [] }));
+  const key = row.rows[0]?.api_key;
+  return { ...extra, ...(key ? { "x-api-key": key } : {}) };
+}
+
 function getRpiBase(farmId) {
   // 환경변수 우선 (개발·테스트용 단일 RPi 강제 지정)
   if (process.env.RPI_URL) return process.env.RPI_URL;
@@ -686,7 +694,7 @@ function getRpiBase(farmId) {
 router.get("/sync-status/:farmId", async (req, res) => {
   try {
     const rpiBase = getRpiBase(req.params.farmId);
-    const response = await fetch(`${rpiBase}/api/sync/status`, { timeout: 5000 });
+    const response = await fetch(`${rpiBase}/api/sync/status`, { timeout: 5000, headers: await rpiHeaders(req.params.farmId) });
     const data = await response.json();
     res.json(data);
   } catch (error) {
@@ -708,7 +716,7 @@ router.post("/sync-action/:farmId", async (req, res) => {
     else if (action === "stop") { url = `${rpiBase}/api/sync/stop`; method = "POST"; }
     else { url = `${rpiBase}/api/sync/skip`; method = "POST"; }
 
-    const response = await fetch(url, { method, headers: { "Content-Type": "application/json" }, timeout: 10000 });
+    const response = await fetch(url, { method, headers: await rpiHeaders(req.params.farmId, { "Content-Type": "application/json" }), timeout: 10000 });
     const data = await response.json();
     res.json(data);
   } catch (error) {
@@ -726,7 +734,7 @@ router.post("/sync-action/:farmId", async (req, res) => {
 router.get("/control-sync-status/:farmId", async (req, res) => {
   try {
     const rpiBase = getRpiBase(req.params.farmId);
-    const response = await fetch(`${rpiBase}/api/sync/control/status`, { timeout: 5000 });
+    const response = await fetch(`${rpiBase}/api/sync/control/status`, { timeout: 5000, headers: await rpiHeaders(req.params.farmId) });
     const data = await response.json();
     res.json(data);
   } catch (error) {
@@ -744,7 +752,7 @@ router.post("/control-sync-action/:farmId", async (req, res) => {
     const rpiBase = getRpiBase(req.params.farmId);
     const response = await fetch(`${rpiBase}/api/sync/control/${action}`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: await rpiHeaders(req.params.farmId, { "Content-Type": "application/json" }),
       timeout: 10000,
     });
     const data = await response.json();

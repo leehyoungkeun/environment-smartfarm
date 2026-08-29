@@ -24,6 +24,30 @@ module.exports = {
     methods: "GET,PUT,POST,PATCH,DELETE",
     allowedHeaders: "Content-Type,x-api-key,Authorization"
   },
+  // ── 로컬 API 인증 게이트 (2026-08-29, B1 최소안) ─────────────────────────
+  // http in 노드로 들어오는 모든 /api/* 요청이 여기를 먼저 지난다. 인터넷 없이 RPi 혼자 판정한다.
+  //   통과: ① 키오스크 — nginx 를 거쳐 온 요청이고 원 주소가 127.0.0.1 (RPi 안의 크롬)
+  //         ② x-api-key 가 이 농장의 키 (자동화·헬스체크·서버가 Tailscale 로 부르는 동기화)
+  //         ③ /api/health, /api/system/ip, OPTIONS(프리플라이트)
+  //   그 외(같은 WiFi 의 태블릿·PC·낯선 기기)는 401 — 그 기기들은 서버(클라우드 JWT) 경유로 제어한다.
+  // X-Real-IP 는 소켓이 루프백(=nginx)일 때만 믿는다. LAN 에서 :1880 으로 직접 오면서 헤더를 꾸며도 소용없다.
+  httpNodeMiddleware: function (req, res, next) {
+    var path = req.path || req.url || '';
+    if (req.method === 'OPTIONS' || path === '/api/health' || path === '/api/system/ip') return next();
+    if (!path.startsWith('/api/')) return next();
+
+    var sock = (req.socket && req.socket.remoteAddress) || '';
+    var isLoop = function (ip) { return ip === '127.0.0.1' || ip === '::1' || ip === '::ffff:127.0.0.1'; };
+    var realIp = req.headers['x-real-ip'];
+    if (isLoop(sock) && (!realIp || isLoop(realIp))) return next();          // ① 키오스크 / RPi 내부
+
+    var farmKey = process.env.SENSOR_API_KEY || '';
+    var given = req.headers['x-api-key'] || (req.query && req.query.apiKey) || '';
+    if (farmKey && given && given === farmKey) return next();                // ② 농장 키
+
+    res.status(401).json({ success: false, error: '인증 필요 — 키오스크 또는 농장 키', path: path });
+  },
+
   // 사용자 데이터 디렉토리 (플로우 파일, 노드 모듈 등 저장)
   userDir: '/home/lhk/.node-red',
 

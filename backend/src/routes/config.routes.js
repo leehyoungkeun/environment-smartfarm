@@ -456,9 +456,23 @@ router.put("/system-settings/:farmId", async (req, res) => {
       if (Object.keys(cfg).length > 0) settings.alertConfig = cfg;
     }
 
-    // settings 통째 병합 (relayModules 등 프론트엔드 확장 필드)
-    if (req.body.settings !== undefined && typeof req.body.settings === 'object') {
-      Object.assign(settings, { settings: req.body.settings });
+    // settings 병합 — 반드시 **깊은** 병합이어야 한다.
+    //
+    // 아래 SQL 의 `system_settings.settings || $2` 는 jsonb 얕은 병합이라 최상위 키만 합치고,
+    // 중첩된 `settings` 객체는 통째로 교체된다. 그래서 전광판 화면이 `{ settings: { display } }` 만
+    // 보내면 같은 객체 안의 relayModules·sensorModules 가 사라졌다 (2026-08-29 확인 — 릴레이 모듈
+    // 등록이 '어느 날 지워지는' 원인). 여기서 기존 값을 읽어 한 단계 안쪽을 합친 뒤 쓴다.
+    // 배열(relayModules 등)은 키 단위로 교체된다 — 삭제는 프론트가 전체 배열을 보내는 방식 그대로.
+    if (req.body.settings !== undefined && typeof req.body.settings === 'object' && req.body.settings !== null) {
+      const cur = await pool.query(
+        `SELECT settings->'settings' AS nested FROM system_settings WHERE farm_id = $1`,
+        [farmId]
+      );
+      const existingNested = (cur.rows[0] && cur.rows[0].nested && typeof cur.rows[0].nested === 'object') ? cur.rows[0].nested : {};
+      const merged = { ...existingNested, ...req.body.settings };
+      settings.settings = merged;
+      const cnt = (k) => (Array.isArray(merged[k]) ? merged[k].length : '-');
+      logger.info(`system-settings 저장 (farmId=${farmId}) keys=${Object.keys(req.body.settings).join(',')} → relayModules=${cnt('relayModules')} sensorModules=${cnt('sensorModules')}`);
     }
 
     // collectionConfig 처리

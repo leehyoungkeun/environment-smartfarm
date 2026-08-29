@@ -4,6 +4,9 @@
 import express from "express";
 import crypto from "crypto";
 import logger from "../utils/logger.js";
+import { pool } from "../db.js";
+import Alert from "../models/Alert.js";
+import { gatherEvidence } from "../services/diagnosisAgent.js";
 
 const router = express.Router();
 
@@ -34,6 +37,66 @@ function rateLimited(ip) {
   return false;
 }
 
+// ━━━ 농장 연동 (2단계, 2026-08-30) ━━━
+// 오픈빌더 userRequest.user.id ↔ farm_id (kakao_links 테이블).
+// 대화 상태(등록 코드 대기, 접수 증상 대기)는 메모리 — 단일 프로세스라 충분하고,
+// 재시작하면 "농장 등록" 부터 다시 하면 된다 (연동 자체는 DB 라 유지).
+const TEST_MODE = process.env.NODE_ENV === "test";
+
+/** 테스트 전용 — 레이트리밋·대화 상태 초기화 (한 파일이 30+ 요청을 쏘면 자기 리밋에 걸린다) */
+export function _resetKakaoStateForTest() {
+  rateMap.clear();
+  pendingState.clear();
+  codeTries.clear();
+}
+
+/** 테스트 전용 — 레이트리밋만 초기화 (무차별 대입 테스트가 코드 시도 카운터는 유지해야) */
+export function _resetKakaoRateForTest() {
+  rateMap.clear();
+}
+const pendingState = new Map(); // kakaoUserId -> { mode: "await_code" | "await_report" }
+const codeTries = new Map();    // kakaoUserId -> { n, resetAt } — 등록 코드 무차별 대입 방어
+
+function codeGuard(uid) {
+  const now = Date.now();
+  let t = codeTries.get(uid);
+  if (!t || now > t.resetAt) t = { n: 0, resetAt: now + 3600 * 1000 };
+  t.n++;
+  codeTries.set(uid, t);
+  return t.n <= 5;
+}
+
+async function getLinkedFarm(kakaoUserId) {
+  try {
+    const { rows } = await pool.query(
+      "SELECT k.farm_id, f.name FROM kakao_links k JOIN farms f ON f.farm_id = k.farm_id WHERE k.kakao_user_id = $1",
+      [kakaoUserId]
+    );
+    return rows[0] || null;
+  } catch {
+    return null;
+  }
+}
+
+const fmtAge = (sec) =>
+  sec == null ? "기록 없음" : sec < 120 ? `${sec}초 전` : sec < 7200 ? `${Math.round(sec / 60)}분 전` : `${Math.round(sec / 3600)}시간 전`;
+
+/** 증거 -> LLM 프롬프트에 붙일 실시간 상태 요약 (짧게 — 토큰 비용) */
+export function buildSnapshotText(ev) {
+  const L = [];
+  if (ev.sensor && !ev.sensor.error) L.push(`센서 마지막 수신: ${fmtAge(ev.sensor.age_sec)} (최근 1시간 ${ev.sensor.rows_1h ?? 0}행, 정상≈60)`);
+  if (ev.latestValues) {
+    const vals = Object.entries(ev.latestValues).slice(0, 6).map(([k, v]) => `${k}=${v}`).join(", ");
+    if (vals) L.push(`최신 측정값: ${vals}`);
+  }
+  L.push(`제어기(RPi): ${ev.rpi?.reachable ? "응답함" : "응답 없음"}`);
+  if (Array.isArray(ev.controlFailures) && ev.controlFailures.length)
+    L.push(`최근 30분 제어 실패: ${ev.controlFailures.map((c) => `${c.device_id}x${c.n}`).join(", ")}`);
+  if (Array.isArray(ev.unackAlerts) && ev.unackAlerts.length)
+    L.push(`미확인 알림 24시간: ${ev.unackAlerts.length}건 (${ev.unackAlerts.slice(0, 3).map((a) => a.alert_type).join(", ")})`);
+  return L.join("\n");
+}
+
 const DEEPSEEK_KEY = process.env.DEEPSEEK_API_KEY || "";
 const GEMINI_KEY = process.env.GEMINI_API_KEY || "";
 
@@ -59,7 +122,7 @@ const SYSTEM_PROMPT = `당신은 "스마트그린" AI 상담사입니다. 두 �
 - 한국어로만 답변`;
 
 // DeepSeek 호출
-async function askDeepSeek(message) {
+async function askDeepSeek(message, snapshot = "") {
   const res = await fetch("https://api.deepseek.com/chat/completions", {
     method: "POST",
     headers: {
@@ -69,7 +132,7 @@ async function askDeepSeek(message) {
     body: JSON.stringify({
       model: "deepseek-chat",
       messages: [
-        { role: "system", content: SYSTEM_PROMPT },
+        { role: "system", content: SYSTEM_PROMPT + snapshot },
         { role: "user", content: message },
       ],
       max_tokens: 1024,
@@ -82,7 +145,7 @@ async function askDeepSeek(message) {
 }
 
 // Gemini 폴백
-async function askGemini(message) {
+async function askGemini(message, snapshot = "") {
   const res = await fetch(
     `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_KEY}`,
     {
@@ -90,7 +153,7 @@ async function askGemini(message) {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         contents: [{ parts: [{ text: message }] }],
-        systemInstruction: { parts: [{ text: SYSTEM_PROMPT }] },
+        systemInstruction: { parts: [{ text: SYSTEM_PROMPT + snapshot }] },
         generationConfig: { maxOutputTokens: 1024, thinkingConfig: { thinkingBudget: 0 } },
       }),
     }
@@ -119,13 +182,95 @@ router.post("/chat/:secret", async (req, res) => {
 
     logger.info(`[카카오챗봇] 질문: ${utterance}`);
 
+    // ━━━ 농장 연동 대화 (2단계) ━━━
+    const kakaoUserId = req.body?.userRequest?.user?.id || null;
+    const cmd = utterance.trim();
+
+    if (kakaoUserId) {
+      const st = pendingState.get(kakaoUserId);
+
+      if (cmd === "농장 등록" || cmd === "농장등록") {
+        pendingState.set(kakaoUserId, { mode: "await_code" });
+        return res.json(kakaoResponse("농장 등록 코드 6자리를 입력해 주세요.\n(설치 시 안내받은 코드 — 모르시면 관리자에게 문의)"));
+      }
+      if (cmd === "농장 해제" || cmd === "농장해제") {
+        await pool.query("DELETE FROM kakao_links WHERE kakao_user_id = $1", [kakaoUserId]).catch(() => {});
+        pendingState.delete(kakaoUserId);
+        return res.json(kakaoResponse("농장 연동을 해제했습니다."));
+      }
+
+      if (st?.mode === "await_code") {
+        pendingState.delete(kakaoUserId);
+        if (!codeGuard(kakaoUserId)) {
+          return res.json(kakaoResponse("시도 횟수를 초과했습니다. 1시간 후 '농장 등록' 으로 다시 시도해 주세요."));
+        }
+        const code = cmd.toUpperCase();
+        const linkQ = await pool
+          .query("SELECT farm_id, name FROM farms WHERE kakao_link_code = $1 AND status = 'active'", [code])
+          .catch(() => ({ rows: [] }));
+        if (!linkQ.rows[0]) {
+          return res.json(kakaoResponse("코드가 올바르지 않습니다. '농장 등록' 을 입력해 다시 시도해 주세요."));
+        }
+        await pool.query(
+          `INSERT INTO kakao_links (kakao_user_id, farm_id, linked_at) VALUES ($1, $2, now())
+           ON CONFLICT (kakao_user_id) DO UPDATE SET farm_id = $2, linked_at = now()`,
+          [kakaoUserId, linkQ.rows[0].farm_id]
+        );
+        logger.info(`[카카오챗봇] 농장 연동: ${linkQ.rows[0].farm_id}`);
+        return res.json(kakaoResponse(`✅ '${linkQ.rows[0].name}' 농장이 연동되었습니다.\n이제 "지금 상태 어때?" 처럼 물어보시면 실시간 상태로 답해 드립니다.\n장애 접수는 '접수' 라고 입력해 주세요.`));
+      }
+
+      if (st?.mode === "await_report") {
+        pendingState.delete(kakaoUserId);
+        const link = await getLinkedFarm(kakaoUserId);
+        if (link) {
+          // 접수 -> 알림 생성 -> 기존 경로로 Discord 까지 자동 전달 (3단계)
+          await Alert.create({
+            farmId: link.farm_id,
+            houseId: "FARM",
+            alertType: "CUSTOMER_REPORT",
+            severity: "WARNING",
+            message: `[고객 접수] ${cmd}`,
+            metadata: { source: "kakao", kakaoUserId },
+          }).catch((e) => logger.error(`[카카오챗봇] 접수 저장 실패: ${e.message}`));
+          return res.json(kakaoResponse("✅ 접수되었습니다. 관리자에게 바로 전달했습니다.\n확인 후 연락드리겠습니다."));
+        }
+        return res.json(kakaoResponse("농장 연동이 필요합니다. '농장 등록' 을 먼저 진행해 주세요."));
+      }
+
+      if (cmd === "접수") {
+        const link = await getLinkedFarm(kakaoUserId);
+        if (!link) return res.json(kakaoResponse("농장 연동 후 이용할 수 있습니다. '농장 등록' 을 입력해 주세요."));
+        pendingState.set(kakaoUserId, { mode: "await_report" });
+        return res.json(kakaoResponse("증상을 한 줄로 입력해 주세요. 그대로 관리자에게 전달됩니다."));
+      }
+    }
+
+    // ━━━ 연동된 농장이면 실시간 상태를 프롬프트에 주입 ━━━
+    let snapshot = "";
+    if (kakaoUserId) {
+      const link = await getLinkedFarm(kakaoUserId);
+      if (link) {
+        try {
+          const ev = await gatherEvidence(link.farm_id, { rpiTimeoutMs: 2000 }); // 카카오 5초 예산
+          snapshot = `\n\n[고객 농장 '${link.name}' 실시간 상태 — 상태·장애 질문이면 이 데이터를 근거로 답하라]\n` + buildSnapshotText(ev);
+        } catch (e) {
+          logger.warn(`[카카오챗봇] 상태 수집 실패 (${link.farm_id}): ${e.message}`);
+        }
+      }
+    }
+
     let reply;
+    if (TEST_MODE) {
+      // 테스트는 실제 LLM 을 부르지 않는다 — 분기·형식만 검증
+      return res.json(kakaoResponse(`(테스트 응답)${snapshot ? " [상태연동]" : ""}`));
+    }
     try {
-      reply = DEEPSEEK_KEY ? await askDeepSeek(utterance) : await askGemini(utterance);
+      reply = DEEPSEEK_KEY ? await askDeepSeek(utterance, snapshot) : await askGemini(utterance, snapshot);
     } catch (e1) {
       logger.warn(`[카카오챗봇] 1차 실패 (${e1.message}), 폴백 시도`);
       try {
-        reply = GEMINI_KEY ? await askGemini(utterance) : "AI 서비스에 일시적인 문제가 있습니다.";
+        reply = GEMINI_KEY ? await askGemini(utterance, snapshot) : "AI 서비스에 일시적인 문제가 있습니다.";
       } catch (e2) {
         reply = "죄송합니다. 잠시 후 다시 질문해주세요.";
       }

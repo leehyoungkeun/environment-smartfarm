@@ -11,7 +11,7 @@ set -u
 cd "$(dirname "$0")/.." || exit 1
 
 BK=$(mktemp -d)
-FILES=(src/app.js src/routes/devices.routes.js src/routes/sensors.js src/routes/config.routes.js src/routes/internal.routes.js src/routes/farms.routes.js src/schedulers/sensorThresholdAlert.js src/schedulers/offlineAlert.js src/models/Alert.js src/services/mqttClient.js src/services/diagnosisAgent.js src/routes/device-positions.routes.js prisma/migration-device-positions.sql ../rpi-files/master/flows.json)
+FILES=(src/app.js src/routes/devices.routes.js src/routes/sensors.js src/routes/config.routes.js src/routes/internal.routes.js src/routes/farms.routes.js src/schedulers/sensorThresholdAlert.js src/schedulers/offlineAlert.js src/models/Alert.js src/services/mqttClient.js src/services/diagnosisAgent.js src/routes/kakao.routes.js src/routes/device-positions.routes.js prisma/migration-device-positions.sql ../rpi-files/master/flows.json)
 flat() { echo "$1" | tr '/.' '__'; }  # ../ 가 있어도 백업 디렉터리를 벗어나지 않게 평탄화
 for f in "${FILES[@]}"; do cp "$f" "$BK/$(flat "$f")"; done
 restore() { for f in "${FILES[@]}"; do cp "$BK/$(flat "$f")" "$f"; done; }
@@ -166,6 +166,10 @@ case "${DATABASE_URL:-}" in
     probe "relay_status UPSERT 갱신 파괴 (stale 상태 박제)" src/services/mqttClient.js       "ON CONFLICT (farm_id, unit_id) DO UPDATE"       "ON CONFLICT (farm_id, unit_id) DO NOTHING --"
 
     probe "device_positions 입력 가드 제거" src/services/mqttClient.js       "if (!deviceId || position === undefined) return;"       ";"
+
+    probe "등록 코드 무차별 대입 방어 제거 (남의 농장 상태 유출)" src/routes/kakao.routes.js       "return t.n <= 5;"       "return true;"
+
+    probe "중지 농장 코드 연동 허용" src/routes/kakao.routes.js       "AND status = 'active'"       ""
 
     probe "인라인 10분 쿨다운 기록 제거 (알림 폭주)" src/routes/sensors.js       "alertCooldowns.set(cooldownKey, Date.now());"       ";"
     ;;

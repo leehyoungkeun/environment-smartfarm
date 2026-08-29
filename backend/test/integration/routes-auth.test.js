@@ -151,6 +151,23 @@ describe("카카오 스킬 — 비밀 URL 만 통한다 (AI 비용 노출 차단
     assert.ok(res.body.template?.outputs?.[0]?.simpleText, "오픈빌더가 못 읽는 형식이면 챗봇이 침묵한다");
   });
 
+  test("미연동 사용자 질문 → 상태 주입 없이 테스트 응답 (LLM 미호출)", async () => {
+    const res = await request(app)
+      .post("/api/kakao/chat/test-kakao-skill-secret")
+      .send({ userRequest: { user: { id: "stub-user" }, utterance: "안녕하세요" } });
+    assert.equal(res.status, 200);
+    const text = res.body?.template?.outputs?.[0]?.simpleText?.text || "";
+    assert.match(text, /테스트 응답/, "TEST_MODE 가 실제 LLM 을 불렀다");
+    assert.ok(!text.includes("[상태연동]"), "미연동인데 상태가 주입됐다");
+  });
+
+  test("'농장 등록' 은 LLM 없이 코드 안내로 응답한다", async () => {
+    const res = await request(app)
+      .post("/api/kakao/chat/test-kakao-skill-secret")
+      .send({ userRequest: { user: { id: "stub-user2" }, utterance: "농장 등록" } });
+    assert.match(res.body?.template?.outputs?.[0]?.simpleText?.text || "", /등록 코드/);
+  });
+
   test("분당 10회 초과 → AI 호출 없이 안내 응답 (과금 상한)", async () => {
     let limited = false;
     for (let i = 0; i < 12; i++) {

@@ -48,10 +48,23 @@ async function q(sql, params) {
   }
 }
 
-export async function gatherEvidence(farmId) {
+export async function gatherEvidence(farmId, opts = {}) {
+  const rpiTimeoutMs = opts.rpiTimeoutMs || 4000; // 카톡 경로(5초 제한)는 2초로 줄여 부른다
   const ev = { farmId, collectedAt: new Date().toISOString() };
 
-  const [farm, sensor, relays, alerts, ctrlFail, lastCtrl] = await Promise.all([
+  // RPi 프로브는 DB 조회와 병렬 — 총 소요를 max(DB, RPi)로 (카톡 5초 예산)
+  const rpiProbe = (async () => {
+    try {
+      const res = await fetch(`${getRpiBase(farmId)}/api/health`, {
+        signal: AbortSignal.timeout(rpiTimeoutMs),
+      });
+      return res.ok ? { reachable: true, ...(await res.json()) } : { reachable: false, status: res.status };
+    } catch (e) {
+      return { reachable: false, error: e?.message || "unreachable" };
+    }
+  })();
+
+  const [farm, sensor, latest, relays, alerts, ctrlFail, lastCtrl] = await Promise.all([
     q(`SELECT name, status, last_seen_at FROM farms WHERE farm_id = $1`, [farmId]),
     q(
       `SELECT max(timestamp) AS last_at,
@@ -60,6 +73,13 @@ export async function gatherEvidence(farmId) {
          FROM sensor_data
         WHERE farm_id = $1 AND timestamp > now() - interval '7 days'
           AND (metadata->>'quality') IS DISTINCT FROM 'simulated'`,
+      [farmId]
+    ),
+    q(
+      `SELECT data FROM sensor_data
+        WHERE farm_id = $1 AND timestamp > now() - interval '1 hour'
+          AND (metadata->>'quality') IS DISTINCT FROM 'simulated'
+        ORDER BY timestamp DESC LIMIT 1`,
       [farmId]
     ),
     q(
@@ -93,20 +113,12 @@ export async function gatherEvidence(farmId) {
 
   ev.farm = Array.isArray(farm) ? farm[0] || null : farm;
   ev.sensor = Array.isArray(sensor) ? sensor[0] || null : sensor;
+  ev.latestValues = Array.isArray(latest) ? latest[0]?.data || null : null; // 현재 온습도 등
   ev.relays = relays;
   ev.unackAlerts = alerts;
   ev.controlFailures = ctrlFail;
   ev.recentControls = lastCtrl;
-
-  // RPi 응답성 — Tailscale 경유 NR 헬스 (읽기 전용 GET, 4초 제한)
-  try {
-    const res = await fetch(`${getRpiBase(farmId)}/api/health`, {
-      signal: AbortSignal.timeout(4000),
-    });
-    ev.rpi = res.ok ? { reachable: true, ...(await res.json()) } : { reachable: false, status: res.status };
-  } catch (e) {
-    ev.rpi = { reachable: false, error: e?.message || "unreachable" };
-  }
+  ev.rpi = await rpiProbe;
 
   return ev;
 }

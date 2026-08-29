@@ -176,3 +176,11 @@ cd backend && npm run test:db
 (실패 시 결정적 폴백) → Discord. **읽기 전용 불변식을 정적으로 잠근다** (쓰기 SQL 이
 소스에 생기면 실패 — 자동 조치 금지 원칙). 쿨다운 10분·동시 1건, 테스트 환경 가드.
 훅: `Alert.create`(CRITICAL) + `internal /alert-webhook`(Alertmanager CRITICAL, system 제외).
+
+### 카카오 농장 연동 2·3단계 (2026-08-30 추가)
+
+`db/kakao-links.test.js` (9, DB) — 등록 코드 검증(대소문자·중지 농장 거부), **무차별 대입
+5회 잠금**(6자리 코드 유출 = 남의 농장 상태 유출), 연동 시 상태 스냅샷 주입([상태연동]),
+해제, 접수→CUSTOMER_REPORT 알림(→Discord). TEST_MODE 가 실 LLM 호출 차단.
+integration 2건: 미연동 무주입·등록 안내. 신규 테이블은 `migration-kakao-links.sql`
+(farms.kakao_link_code 포함) — test-db.sh/schema-complete 의 수동 목록에 등록.

@@ -11,7 +11,7 @@ set -u
 cd "$(dirname "$0")/.." || exit 1
 
 BK=$(mktemp -d)
-FILES=(src/app.js src/routes/devices.routes.js src/routes/sensors.js src/routes/config.routes.js src/routes/internal.routes.js src/routes/farms.routes.js src/schedulers/sensorThresholdAlert.js src/schedulers/offlineAlert.js src/models/Alert.js src/services/mqttClient.js src/routes/device-positions.routes.js prisma/migration-device-positions.sql ../rpi-files/master/flows.json)
+FILES=(src/app.js src/routes/devices.routes.js src/routes/sensors.js src/routes/config.routes.js src/routes/internal.routes.js src/routes/farms.routes.js src/schedulers/sensorThresholdAlert.js src/schedulers/offlineAlert.js src/models/Alert.js src/services/mqttClient.js src/services/diagnosisAgent.js src/routes/device-positions.routes.js prisma/migration-device-positions.sql ../rpi-files/master/flows.json)
 flat() { echo "$1" | tr '/.' '__'; }  # ../ 가 있어도 백업 디렉터리를 벗어나지 않게 평탄화
 for f in "${FILES[@]}"; do cp "$f" "$BK/$(flat "$f")"; done
 restore() { for f in "${FILES[@]}"; do cp "$BK/$(flat "$f")" "$f"; done; }
@@ -119,6 +119,12 @@ probe "로컬 제어 명령 허용목록 제거" ../rpi-files/master/flows.json 
 echo "━━ MQTT 수신 계층 변이 검사 ━━"
 
 probe "normHouseId 정규화 무력화 (house1/house_0001 분열 재발)" src/routes/device-positions.routes.js   "const m = v.match(/^house_?0*(\d+)$/);"   "const m = null;"
+
+echo "━━ L1 자동 진단 변이 검사 ━━"
+
+probe "진단 쿨다운 제거 (알림 폭주 → 진단 폭주)" src/services/diagnosisAgent.js   "if (now - last < COOLDOWN_MS) return false;"   "if (false) return false;"
+
+probe "진단 테스트 가드 제거 (테스트가 실 Discord/RPi 를 두드림)" src/services/diagnosisAgent.js   'if (process.env.NODE_ENV === "test") return;'   ";"
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # DB 가 필요한 검사 — 테스트 전용 Postgres 가 있을 때만 돈다

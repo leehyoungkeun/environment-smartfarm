@@ -143,6 +143,13 @@ const Alert = {
     // 전송이 느리거나 실패해도 알림 생성은 이미 끝났다 — 기다리지 않는다
     notifyDiscord(alert).catch(() => {});
 
+    // CRITICAL 이면 L1 자동 진단 (읽기 전용, 비동기, 실패 무해 — 2026-08-30)
+    if (String(data.severity || "").toUpperCase() === "CRITICAL") {
+      import("../services/diagnosisAgent.js")
+        .then((m) => m.runDiagnosis(alert))
+        .catch(() => {});
+    }
+
     return alert;
   },
 

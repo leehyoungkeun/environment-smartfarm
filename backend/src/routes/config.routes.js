@@ -682,7 +682,8 @@ async function rpiHeaders(farmId, extra = {}) {
   return { ...extra, ...(key ? { "x-api-key": key } : {}) };
 }
 
-function getRpiBase(farmId) {
+// 진단 에이전트(services/diagnosisAgent.js)도 쓰므로 export (2026-08-30)
+export function getRpiBase(farmId) {
   // 환경변수 우선 (개발·테스트용 단일 RPi 강제 지정)
   if (process.env.RPI_URL) return process.env.RPI_URL;
   // farm_0001 → farm-0001 hostname (Tailscale MagicDNS)

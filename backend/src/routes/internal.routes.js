@@ -91,6 +91,14 @@ router.post("/alert-webhook", async (req, res) => {
 
       const icon = status === "resolved" ? "✅" : severity === "CRITICAL" ? "🔴" : "🟡";
       logger.warn(`${icon} [알림] ${alertName} (${farmId}/${houseId}) — ${ann.summary || ""}`);
+
+      // CRITICAL(발화)이고 실제 농장이면 L1 자동 진단 (읽기 전용, 비동기 — 2026-08-30).
+      // farm_id 라벨이 없는 인프라 알림("system")은 농장 증거가 없어 제외.
+      if (status !== "resolved" && severity === "CRITICAL" && farmId !== "system") {
+        import("../services/diagnosisAgent.js")
+          .then((m) => m.runDiagnosis({ farmId, alertType: alertName, severity, message }))
+          .catch(() => {});
+      }
     }
 
     // TODO: 카카오 알림톡 — 발신프로필 + 템플릿 심사 완료 후 여기에 추가.

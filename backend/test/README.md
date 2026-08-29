@@ -169,3 +169,10 @@ cd backend && npm run test:db
 8/26 사고의 RPi 쪽 절반: **실패 시 마킹 금지**(유실 방지), id 정수 필터, 자동 시작 금지
 (paused 기본값 = 대기), 배치 상한 ≤ 서버 500, /internal 경로, 두 배치 완주 시나리오.
 서버 쪽 절반(소급 중복판정)은 db/control-log-backfill.test.js 가 잠근다.
+
+### L1 자동 진단 (2026-08-30 추가)
+
+`unit/diagnosis-agent.test.js` (8) — CRITICAL 알림 → 읽기 전용 증거 수집 → Gemini 요약
+(실패 시 결정적 폴백) → Discord. **읽기 전용 불변식을 정적으로 잠근다** (쓰기 SQL 이
+소스에 생기면 실패 — 자동 조치 금지 원칙). 쿨다운 10분·동시 1건, 테스트 환경 가드.
+훅: `Alert.create`(CRITICAL) + `internal /alert-webhook`(Alertmanager CRITICAL, system 제외).

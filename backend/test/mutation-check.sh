@@ -11,9 +11,10 @@ set -u
 cd "$(dirname "$0")/.." || exit 1
 
 BK=$(mktemp -d)
-FILES=(src/app.js src/routes/devices.routes.js src/routes/sensors.js src/routes/config.routes.js src/routes/internal.routes.js src/routes/farms.routes.js prisma/migration-device-positions.sql)
-for f in "${FILES[@]}"; do mkdir -p "$BK/$(dirname "$f")"; cp "$f" "$BK/$f"; done
-restore() { for f in "${FILES[@]}"; do cp "$BK/$f" "$f"; done; }
+FILES=(src/app.js src/routes/devices.routes.js src/routes/sensors.js src/routes/config.routes.js src/routes/internal.routes.js src/routes/farms.routes.js prisma/migration-device-positions.sql ../rpi-files/master/flows.json)
+flat() { echo "$1" | tr '/.' '__'; }  # ../ 가 있어도 백업 디렉터리를 벗어나지 않게 평탄화
+for f in "${FILES[@]}"; do cp "$f" "$BK/$(flat "$f")"; done
+restore() { for f in "${FILES[@]}"; do cp "$BK/$(flat "$f")" "$f"; done; }
 trap 'restore; rm -rf "$BK"' EXIT
 
 probe() { # $1=설명 $2=파일 $3=원본 $4=치환
@@ -76,6 +77,20 @@ probe "device_positions DDL 손상 (새 서버 설치 불가)" prisma/migration-
 probe "코드가 스키마에 없는 테이블을 쓴다" src/routes/farms.routes.js \
   "FROM sensor_data" \
   "FROM sensor_data_archive sd"
+
+echo "━━ NR 자동화 엔진 변이 검사 (flows.json 실제 코드) ━━"
+
+probe "② 같은 분 dedup 제거 (릴레이 중복 명령)" ../rpi-files/master/flows.json   'cleaned[minuteKey] = true;'   ';'
+
+probe "② 시간 전용 규칙 스킵 제거 (④ 와 이중 실행)" ../rpi-files/master/flows.json   'if (timeConds.length > 0 && sensorConds.length === 0) {'   'if (false) {'
+
+probe "④ RS-485 stagger 제거 (동시 발화 충돌)" ../rpi-files/master/flows.json   'var actualDelay = delay + staggerMs;'   'var actualDelay = delay;'
+
+probe "④ 30초 실행 dedup 제거 (Deploy 후 중복 실행)" ../rpi-files/master/flows.json   'if (Date.now() - lastExec < 30000) return;'   'if (false) return;'
+
+probe "⑤ stepped 완료 시 명시적 stop 제거 (6/3 coil stuck 재현)" ../rpi-files/master/flows.json   'node.send([stopMsg, null, null, null, null]);'   ';'
+
+probe "⑤ 하우스 한정 탐색 제거 (다른 하우스 릴레이 오작동)" ../rpi-files/master/flows.json   'if (houses[i].houseId !== HOUSE_ID) continue;'   ';'
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # DB 가 필요한 검사 — 테스트 전용 Postgres 가 있을 때만 돈다

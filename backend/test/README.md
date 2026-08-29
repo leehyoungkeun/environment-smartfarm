@@ -106,3 +106,27 @@ cd backend && npm run test:db
 `daily_summaries` — `POST /internal/daily-summary` 가 쓰는 테이블이 리포에도 운영 DB 에도 없다.
 호출되면 항상 500 이고, 로그상 호출된 적이 없다(레거시 NR f7). 표를 만들지 엔드포인트를 지울지
 결정이 필요하다. `unit/schema-source.test.js` 의 `KNOWN_MISSING` 에 이유와 함께 남겨 두었다.
+
+---
+
+## Node-RED 자동화 엔진 테스트 (2026-08-29 추가)
+
+`test/nr/` — **밤새 사람 없이 모터를 돌리는 코드**인데 커버리지가 0 이었다.
+`docs/nodered-*.js` 사본은 3~5월 것이라 이미 표류했으므로, 하네스(`nr/harness.js`)가
+**실제로 도는 코드** — `rpi-files/master/flows.json` (RPi 1호 동기화본) — 에서 함수
+본문을 노드 id 로 꺼내, 가짜 NR 런타임(node/global/context/flow/env/RED) + 조작 가능한
+시계·타이머 위에서 실행한다. DB 불필요 — 배포 게이트에서 항상 돈다.
+
+| 파일 | 대상 노드 | 근거가 된 실제 사고 |
+|---|---|---|
+| `nr/rule-evaluator.test.js` | `fn_evaluate_rules` (② 규칙 평가) | 자정 넘기기 구간 분할, 같은 분 중복 발화, 수동 모드 침범, bidir stall |
+| `nr/scheduler.test.js` | `fn_scheduler` (④ 시간 스케줄러) | 자정 넘기기 다음 슬롯, 동시 발화 RS-485 충돌(stagger), Deploy 후 중복 실행(30초 dedup) |
+| `nr/scheduled-executor.test.js` | `fn_scheduled_executor` (⑤ 실행 핸들러) | 6/3 coil stuck(명시적 stop), FC15 통일, unitId 동적, 하우스 한정 탐색(8/25), /internal 경로 |
+
+주의:
+- **flows.json 은 NR 에디터에서만 수정한다** (scp 덮어쓰기 금지). 에디터에서 고친 뒤
+  `rpi-files/scripts/master-flows-sync.py` 로 마스터를 갱신하면 테스트가 새 코드를 본다.
+- 노드 id (`fn_evaluate_rules` 등) 가 바뀌면 하네스가 명시적 에러를 낸다 — 테스트의 id 를 갱신할 것.
+- vm 경계를 넘어온 객체·배열은 `assert.deepEqual`(strict) 의 프로토타입 검사에 걸린다.
+  키/JSON 비교를 쓸 것.
+- 시간 테스트는 `new Date(y,m,d,h,mm)` 로컬 생성자를 쓴다 — 머신 TZ 와 무관하게 동작한다.

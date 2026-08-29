@@ -45,11 +45,19 @@ if (files.length === 0) {
 // DB 테스트(test/db/)는 테스트 전용 Postgres 가 있을 때만 돈다.
 // DATABASE_URL 이 127.0.0.1:5433 이 아니면 setup.js 가 스텁으로 바꾸므로 실행해도 의미가 없다.
 const dbDir = join(here, "db");
+const nrDir = join(here, "nr");
 const TEST_DB = /^postgres(ql)?:\/\/[^@]*@(127\.0\.0\.1|localhost):5433\//.test(process.env.DATABASE_URL || "");
 
 if (existsSync(intDir)) {
   for (const f of readdirSync(intDir).filter((x) => x.endsWith(".test.js"))) {
     files.push(relative(root, join(intDir, f)));
+  }
+}
+
+// Node-RED 함수 노드 테스트 — flows.json 은 리포에 있으므로 DB 없이 항상 돈다
+if (existsSync(nrDir)) {
+  for (const f of readdirSync(nrDir).filter((x) => x.endsWith(".test.js"))) {
+    files.push(relative(root, join(nrDir, f)));
   }
 }
 

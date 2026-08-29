@@ -2,9 +2,37 @@
 // 카카오톡 챗봇 스킬 서버 (카카오 i 오픈빌더 연동)
 
 import express from "express";
+import crypto from "crypto";
 import logger from "../utils/logger.js";
 
 const router = express.Router();
+
+// ━━━ 스킬 인증 (2026-08-29) ━━━
+// 카카오 오픈빌더는 요청 서명(HMAC)을 지원하지 않는다 — 표준 해법은 스킬 URL 에
+// 비밀 조각을 넣는 것이다. 이전에는 이 엔드포인트가 인터넷에 무인증으로 열려 있어
+// 누구나 우리 API 키 비용으로 DeepSeek/Gemini 를 호출할 수 있었다.
+// KAKAO_SKILL_SECRET 미설정이면 전부 거부한다 — 열린 기본값 금지.
+const SKILL_SECRET = process.env.KAKAO_SKILL_SECRET || "";
+
+function secretOk(given) {
+  if (!SKILL_SECRET || !given) return false;
+  const a = Buffer.from(String(given));
+  const b = Buffer.from(SKILL_SECRET);
+  return a.length === b.length && crypto.timingSafeEqual(a, b);
+}
+
+// 간단 IP 레이트리밋 (분당 10회) — 시크릿이 새어도 과금에 상한을 둔다.
+// 별도 저장소 없이 메모리 Map — 카카오 챗봇 트래픽 규모(단일 채널)에 충분하다.
+const rateMap = new Map();
+function rateLimited(ip) {
+  if (rateMap.size > 500) rateMap.clear(); // 폭주 시 메모리 상한
+  const now = Date.now();
+  const recent = (rateMap.get(ip) || []).filter((t) => now - t < 60000);
+  if (recent.length >= 10) { rateMap.set(ip, recent); return true; }
+  recent.push(now);
+  rateMap.set(ip, recent);
+  return false;
+}
 
 const DEEPSEEK_KEY = process.env.DEEPSEEK_API_KEY || "";
 const GEMINI_KEY = process.env.GEMINI_API_KEY || "";
@@ -61,9 +89,17 @@ async function askGemini(message) {
 
 // ━━━ 카카오 스킬 엔드포인트 ━━━
 // 카카오 오픈빌더는 POST로 요청, 특정 JSON 형식으로 응답해야 함
-router.post("/chat", async (req, res) => {
+router.post("/chat/:secret", async (req, res) => {
+  // 시크릿 불일치는 404 — 엔드포인트의 존재 자체를 드러내지 않는다
+  if (!secretOk(req.params.secret)) return res.status(404).end();
+  const ip = req.headers["cf-connecting-ip"] || req.ip || req.socket?.remoteAddress || "?";
+  if (rateLimited(String(ip))) {
+    logger.warn(`[카카오챗봇] 레이트리밋: ${ip}`);
+    return res.json(kakaoResponse("요청이 많습니다. 잠시 후 다시 질문해주세요."));
+  }
   try {
-    const utterance = req.body?.userRequest?.utterance;
+    let utterance = req.body?.userRequest?.utterance;
+    if (utterance) utterance = String(utterance).slice(0, 500); // 발화 길이 상한 — 토큰 비용 상한
     if (!utterance) {
       return res.json(kakaoResponse("질문을 입력해주세요."));
     }
@@ -110,5 +146,8 @@ function kakaoResponse(text) {
     },
   };
 }
+
+// 옛 무인증 경로 — 404 로 잠금 (2026-08-29). 오픈빌더 URL 을 새 주소로 교체할 것.
+router.post("/chat", (req, res) => res.status(404).end());
 
 export default router;

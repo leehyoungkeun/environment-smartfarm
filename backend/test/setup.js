@@ -29,6 +29,9 @@ process.env.JWT_REFRESH_SECRET ||= "test-only-refresh-secret-not-used-elsewhere-
 // 쏘는 사고를 막기 위해 빈 값으로 못 박는다 — dotenv 는 이미 설정된 키를 덮지 않는다.
 process.env.DISCORD_WEBHOOK_URL = "";
 
+// 카카오 스킬 시크릿 — 테스트 전용 값으로 고정해 어느 환경에서든 같은 검증
+process.env.KAKAO_SKILL_SECRET = "test-kakao-skill-secret";
+
 const url = process.env.DATABASE_URL || "";
 const TEST_DB = /^postgres(ql)?:\/\/[^@]*@(127\.0\.0\.1|localhost):5433\//.test(url);
 

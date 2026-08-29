@@ -132,6 +132,35 @@ describe("/metrics 는 내부 전용", () => {
   });
 });
 
+describe("카카오 스킬 — 비밀 URL 만 통한다 (AI 비용 노출 차단)", () => {
+  test("옛 무인증 경로 → 404", async () => {
+    const res = await request(app).post("/api/kakao/chat").send({ userRequest: { utterance: "질문" } });
+    assert.equal(res.status, 404, "무인증 경로가 열려 있다 — 누구나 우리 비용으로 AI 를 부른다");
+  });
+
+  test("틀린 시크릿 → 404 (존재를 드러내지 않는다)", async () => {
+    const res = await request(app).post("/api/kakao/chat/wrong-secret").send({});
+    assert.equal(res.status, 404);
+  });
+
+  test("올바른 시크릿 → 카카오 2.0 형식 응답", async () => {
+    // utterance 없는 요청 — AI 호출 없이 형식만 검증한다
+    const res = await request(app).post("/api/kakao/chat/test-kakao-skill-secret").send({});
+    assert.equal(res.status, 200);
+    assert.equal(res.body.version, "2.0");
+    assert.ok(res.body.template?.outputs?.[0]?.simpleText, "오픈빌더가 못 읽는 형식이면 챗봇이 침묵한다");
+  });
+
+  test("분당 10회 초과 → AI 호출 없이 안내 응답 (과금 상한)", async () => {
+    let limited = false;
+    for (let i = 0; i < 12; i++) {
+      const res = await request(app).post("/api/kakao/chat/test-kakao-skill-secret").send({});
+      if (res.body?.template?.outputs?.[0]?.simpleText?.text?.includes("요청이 많습니다")) limited = true;
+    }
+    assert.ok(limited, "레이트리밋이 없다 — 시크릿이 새면 과금 폭주");
+  });
+});
+
 describe("공개여야 하는 것은 열려 있다", () => {
   test("GET /health → 200", async () => {
     const res = await request(app).get("/health");

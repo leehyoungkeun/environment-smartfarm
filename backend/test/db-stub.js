@@ -11,8 +11,38 @@ function record(name, args) {
   __calls.push({ name, args });
 }
 
+// 통합 테스트가 심어 두는 행. 예: __seed.user.set("u1", { id:"u1", role:"owner", ... })
+// 비워 두면 모든 조회가 null 이라 인증이 401 로 떨어진다 — 기본값이 "거부" 인 것이 안전하다.
+export const __seed = {
+  user: new Map(),
+  farm: new Map(),
+  userFarm: new Map(), // 키: `${userId}:${farmId}`
+  clear() {
+    this.user.clear();
+    this.farm.clear();
+    this.userFarm.clear();
+  },
+};
+
+/** where 절에서 조회 키를 뽑는다 (id, userId_farmId 복합키 등) */
+function seedLookup(name, args) {
+  const w = args?.where || {};
+  if (name === "userFarm" && w.userId_farmId) {
+    return __seed.userFarm.get(`${w.userId_farmId.userId}:${w.userId_farmId.farmId}`) ?? null;
+  }
+  const bag = __seed[name];
+  if (!bag) return null;
+  for (const key of ["id", "farmId", "apiKey", "username"]) {
+    if (w[key] !== undefined) {
+      for (const v of bag.values()) if (v?.[key] === w[key]) return v;
+      return null;
+    }
+  }
+  return null;
+}
+
 const model = (name) => ({
-  async findUnique(args) { record(`${name}.findUnique`, args); return null; },
+  async findUnique(args) { record(`${name}.findUnique`, args); return seedLookup(name, args); },
   async findFirst(args) { record(`${name}.findFirst`, args); return null; },
   async findMany(args) { record(`${name}.findMany`, args); return []; },
   async create(args) { record(`${name}.create`, args); return { id: "stub" }; },

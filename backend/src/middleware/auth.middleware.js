@@ -154,11 +154,31 @@ export const authorize = (...roles) => {
  * API Key(디바이스) 요청은 farmId 검증을 건너뜀
  * 멀티팜: UserFarm 테이블 조회로 다중 농장 접근 지원
  */
+/**
+ * URL 에서 농장 ID 를 찾는다.
+ *
+ * ⚠ 2026-08-29 발견: 이 미들웨어는 `app.use("/api/alerts", authenticate, enforceTenant, ...)`
+ * 형태로 마운트돼 있는데, 그 시점에는 하위 라우터의 `/:farmId` 가 아직 파싱되지 않아
+ * `req.params.farmId` 가 undefined 였다. 그래서 위의 `if (!paramFarmId) return next();`
+ * 가 항상 참이 되어 **테넌트 격리가 9개 마운트 전부에서 작동하지 않았다**(통합 테스트로 확인:
+ * farm_0001 사용자가 /api/relay-status/farm_0006 을 200 으로 받아갔다).
+ *
+ * 라우트 9개를 각각 고치는 대신 여기서 URL 을 직접 본다 — 마운트 형태와 무관하게 동작한다.
+ */
+function farmIdFromRequest(req) {
+  if (req.params?.farmId) return req.params.farmId;
+  // /api/alerts/farm_0006, /api/journal/farm_0006/entries ... 어느 위치든 첫 farm_* 세그먼트
+  const path = req.originalUrl || req.url || "";
+  const m = path.split("?")[0].match(/\/(farm_[A-Za-z0-9_-]+)(?:\/|$)/);
+  if (m) return m[1];
+  return req.body?.farmId || req.query?.farmId || null;
+}
+
 export const enforceTenant = async (req, res, next) => {
   // 디바이스(API Key) 요청은 통과
   if (req.isDevice) return next();
 
-  const paramFarmId = req.params.farmId;
+  const paramFarmId = farmIdFromRequest(req);
   if (!paramFarmId) return next();
 
   // 시스템 전역 역할(superadmin, manager)은 모든 farmId 접근 가능

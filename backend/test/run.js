@@ -23,6 +23,10 @@ if (!existsSync(unitDir)) {
   process.exit(1);
 }
 
+// 통합 테스트는 app.js 를 import 한다. 그 안에서 import 되는 모듈 일부가 타이머·핸들을
+// 열어두어 테스트가 끝나도 프로세스가 안 죽는다(2026-08-29 확인). --test-force-exit 로 끝낸다.
+const intDir = join(here, "integration");
+
 const files = readdirSync(unitDir)
   .filter((f) => f.endsWith(".test.js"))
   .map((f) => relative(root, join(unitDir, f)));
@@ -32,6 +36,12 @@ if (files.length === 0) {
   process.exit(1);
 }
 
-const args = ["--test", "--import=./test/setup.js", ...process.argv.slice(2), ...files];
+if (existsSync(intDir)) {
+  for (const f of readdirSync(intDir).filter((x) => x.endsWith(".test.js"))) {
+    files.push(relative(root, join(intDir, f)));
+  }
+}
+
+const args = ["--test", "--test-force-exit", "--import=./test/setup.js", ...process.argv.slice(2), ...files];
 const r = spawnSync(process.execPath, args, { cwd: root, stdio: "inherit" });
 process.exit(r.status ?? 1);

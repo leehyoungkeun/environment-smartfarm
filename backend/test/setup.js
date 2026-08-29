@@ -16,6 +16,10 @@ import { pathToFileURL } from "node:url";
 
 process.env.NODE_ENV = "test";
 
+// app.js 를 import 해도 서버·MQTT·스케줄러가 뜨지 않게 한다 (통합 테스트용).
+// NODE_ENV 가 아니라 전용 변수 — 운영에서 실수로 발동할 수 없다.
+process.env.SMARTFARM_NO_LISTEN = "1";
+
 // 인증 미들웨어는 로드 시점에 필수 환경변수를 검증하고 없으면 process.exit(1) 한다.
 // 테스트에서는 실제 비밀이 필요 없으므로 더미를 넣는다 (운영 값과 무관·무해).
 process.env.JWT_SECRET ||= "test-only-secret-not-used-anywhere-else-0123456789";

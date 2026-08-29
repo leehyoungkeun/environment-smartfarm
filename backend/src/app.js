@@ -891,7 +891,13 @@ async function startServer() {
   }
 }
 
-startServer();
+// 통합 테스트가 이 모듈을 import 할 때만 서버·DB·MQTT·스케줄러를 띄우지 않는다 (2026-08-29).
+// supertest 가 app 을 직접 호출하므로 포트가 필요 없다.
+//
+// NODE_ENV 가 아니라 전용 변수를 쓰는 이유: NODE_ENV 는 여러 도구가 건드리는 값이라
+// 어딘가에서 test 로 설정되면 운영 백엔드가 조용히 안 뜬다. 이 변수는 test/setup.js 에서만
+// 설정하므로 운영에서는 절대 발동하지 않는다.
+if (!process.env.SMARTFARM_NO_LISTEN) startServer();
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // 프로세스 안정성: 예외 핸들러

@@ -186,10 +186,20 @@ UPDATE devices SET installed_at = NULL WHERE device_code = '<코드>';
 | `go2rtc.yaml.example` | go2rtc 템플릿 (스트림 비움) | 포트/옵션 변경 시 |
 | `etc/journald-50-smartfarm-persistent.conf` | 저널 영속화 (RPi OS 휘발 강제 덮음) | — |
 
-갱신 명령:
+갱신 명령 (1호 IP 는 현재 192.168.0.38):
+
 ```bash
-scp lhk@192.168.137.30:/home/lhk/.node-red/flows.json rpi-files/master/flows.json
-scp lhk@192.168.137.30:/home/lhk/smartfarm/node-red/settings.js rpi-files/master/settings.js
+# flows.json — ⚠ 직접 scp 금지.
+#   wrapper.sh 가 ${FARM_ID} 를 farm_0001 로 치환한 편도 상태라, 그대로 복사하면
+#   모든 신규 농장이 farm_0001 토픽을 구독한다(제어 오작동).
+#   아래 스크립트가 mqtt in 의 topic 만 역치환하고 함수 코드의 || 'farm_0001' 폴백은 보존한다.
+scp lhk@192.168.0.38:/home/lhk/.node-red/flows.json /tmp/live-flows.json
+python rpi-files/scripts/master-flows-sync.py /tmp/live-flows.json rpi-files/master/flows.json --write
+#   출력에서 [chk] OK · topic converted 13 · nodes 500+ 을 반드시 확인할 것
+
+# settings.js / ecosystem.config.js — 치환 대상이 없으므로 그대로 복사
+scp lhk@192.168.0.38:/home/lhk/smartfarm/node-red/settings.js  rpi-files/master/settings.js
+scp lhk@192.168.0.38:/home/lhk/smartfarm/ecosystem.config.js   rpi-files/master/ecosystem.config.js
 ```
 
 ⚠️ **주의**: `master/` 의 사본을 운영 중인 RPi 에 scp 로 덮어쓰지 말 것 — 항상 1호 에디터에서 변경 → 마스터 백업 갱신 순서.

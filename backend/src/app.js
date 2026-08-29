@@ -582,7 +582,25 @@ app.use((req, res, next) => {
   next();
 });
 
+// /metrics 는 내부 전용이다. 2026-08-29 점검에서 api.smartgreen.kr/metrics 가 인터넷에 200 으로
+// 열려 있었다 — 전 농장의 센서값·임계값·장치 수가 그대로 나갔다 (고객 데이터).
+// Prometheus 는 같은 호스트의 도커 네트워크(172.x → host.docker.internal)에서 긁으므로
+// 사설망·루프백·Tailscale 만 허용하고, Cloudflare 터널을 거쳐 온 요청(cf-connecting-ip 헤더)은 거부한다.
+// trust proxy 가 켜져 있어 req.ip 는 X-Forwarded-For 를 따르므로 소켓 주소를 직접 본다.
+const METRICS_ALLOWED = [
+  /^127\./, /^::1$/, /^::ffff:127\./,
+  /^10\./, /^::ffff:10\./,
+  /^172\.(1[6-9]|2\d|3[01])\./, /^::ffff:172\.(1[6-9]|2\d|3[01])\./,
+  /^192\.168\./, /^::ffff:192\.168\./,
+  /^100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\./, /^::ffff:100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\./,
+];
 app.get("/metrics", async (req, res) => {
+  const remote = req.socket?.remoteAddress || "";
+  const viaTunnel = Boolean(req.headers["cf-connecting-ip"]);
+  if (viaTunnel || !METRICS_ALLOWED.some((re) => re.test(remote))) {
+    logger.warn(`/metrics 거부: remote=${remote} tunnel=${viaTunnel} cf-ip=${req.headers["cf-connecting-ip"] || "-"}`);
+    return res.status(404).end();
+  }
   res.set("Content-Type", promClient.register.contentType);
   res.end(await promClient.register.metrics());
 });

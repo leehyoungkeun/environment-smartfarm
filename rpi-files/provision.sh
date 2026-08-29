@@ -449,6 +449,16 @@ echo "* * * * * root /usr/local/bin/smartfarm-camera-probe.sh" > /etc/cron.d/sma
 [ -f "${SMARTFARM_HOME}/smartfarm/go2rtc.yaml" ] || sudo -u "$SMARTFARM_USER" cp "${SCRIPT_DIR}/master/go2rtc.yaml.example" "${SMARTFARM_HOME}/smartfarm/go2rtc.yaml"
 log "카메라 프로브·설치 도구·저널 영속화 설치 완료"
 
+# ── 9c. 접근면 축소 (SSH 키 전용 · VNC 는 사설망/Tailscale 만 · rpcbind 끔) ──
+# 판매용 기기는 농가 WiFi 에 놓인다. 비밀번호 로그인이 곧 제어 권한이 되지 않게 한다 (2026-08-29).
+# 전제: provision 전에 authorized_keys 가 들어가 있어야 한다 (없으면 SSH 가 막힌다).
+if [ -s "${SMARTFARM_HOME}/.ssh/authorized_keys" ]; then
+  info "=== 9c: 접근면 축소 ==="
+  bash "${SCRIPT_DIR}/scripts/harden-access.sh" || warn "접근면 축소 일부 실패 (수동 확인)"
+else
+  warn "authorized_keys 없음 — SSH 비밀번호 로그인을 끄지 않음 (harden-access.sh 수동 실행 필요)"
+fi
+
 # ── 10/10. 마스터 flows + settings 복원 (있으면) ──
 # Node-RED 가 실행 중이면 의미 없으므로 설치 직후/처음 부팅 전에만 적용.
 if [ -f "${SCRIPT_DIR}/master/flows.json" ]; then

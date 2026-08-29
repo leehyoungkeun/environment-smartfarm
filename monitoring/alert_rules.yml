@@ -92,13 +92,10 @@ groups:
       # 센서가 들어온다는 건 농장이 돌아간다는 뜻이므로, 그런 농장이 감시 대상이
       # 아니면 그 자체가 이상 신호다. 데이터가 끊긴 농장(운영 중지)은 걸리지 않는다.
       #
-      # ⚠ farm_0006 제외 — 시험기인데 USB-485 없이 시뮬레이션 난수를 실측처럼
-      #   저장하고 있어(2026-05-08~), 상태가 '점검중'이어도 데이터가 계속 들어온다.
-      #   그대로 두면 영구 발동해 알림 피로를 만든다.
-      #   ★ 시뮬레이션을 중단하면 이 제외 조건을 지울 것.
+      # (2026-08-29) 지표 자체가 status='active' 농장만 내므로 점검중 농장은 여기 걸리지 않는다.
       - alert: FarmUnmonitored
         expr: |
-          (smartfarm_sensor_last_seen_seconds{farm_id!="farm_0006"} < 900)
+          (smartfarm_sensor_last_seen_seconds < 900)
           unless on(farm_id, house_id)
           (count by (farm_id, house_id) (smartfarm_sensor_value))
         for: 10m

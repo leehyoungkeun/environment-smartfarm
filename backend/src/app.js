@@ -535,17 +535,18 @@ new promClient.Gauge({
       const { rows } = await pool.query(
         `SELECT farm_id, house_id,
                 EXTRACT(EPOCH FROM (now() - max(timestamp))) AS age
-           FROM sensor_data
-          WHERE timestamp > now() - interval '7 days'
-           AND (metadata->>'quality') IS DISTINCT FROM 'simulated'  -- 시뮬레이션 제외 (B4)
-          GROUP BY farm_id, house_id`
+           FROM sensor_data sd
+           JOIN farms f ON f.farm_id = sd.farm_id AND f.status = 'active'  -- 점검중·중지 농장 제외 → SensorDataStalled 안 울림 (2026-08-29)
+           WHERE sd.timestamp > now() - interval '7 days'
+           AND (sd.metadata->>'quality') IS DISTINCT FROM 'simulated'  -- 시뮬레이션 제외 (B4)
+           GROUP BY sd.farm_id, sd.house_id`
       );
       this.reset();
       rows.forEach((r) =>
         this.set({ farm_id: r.farm_id, house_id: r.house_id }, Number(r.age) || 0)
       );
     } catch {
-      /* DB 오류 시 지표 미갱신 — up 지표로 별도 감지 */
+      this.reset(); // 실패 시 값 제거 — 마지막 정상값이 남아 거짓 신호가 되는 것 방지
     }
   },
 });
@@ -559,8 +560,10 @@ new promClient.Gauge({
     try {
       const { pool } = await import("./db.js");
       const { rows } = await pool.query(
-        `SELECT farm_id, EXTRACT(EPOCH FROM (now() - max(updated_at))) AS age
-           FROM relay_status GROUP BY farm_id`
+        `SELECT rs.farm_id, EXTRACT(EPOCH FROM (now() - max(rs.updated_at))) AS age
+        FROM relay_status rs
+        JOIN farms f ON f.farm_id = rs.farm_id AND f.status = 'active'  -- 점검중 농장 제외 (2026-08-29)
+        GROUP BY rs.farm_id`
       );
       this.reset();
       rows.forEach((r) =>

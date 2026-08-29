@@ -44,8 +44,11 @@ async function checkOfflineFarms() {
     const offlineConfigs = await loadOfflineConfigs();
 
     const farms = await prisma.farm.findMany({
-      where: { status: "active", lastSeenAt: { not: null } },
-      select: { farmId: true, name: true, lastSeenAt: true },
+      // 모든 농장을 본다 — 장치 online/offline 표시는 상태와 무관하게 사실이어야 한다 (2026-08-29).
+      // 전에는 active 만 돌아서 점검중 농장의 장치가 꺼진 뒤에도 영원히 "온라인" 으로 남았다(farm_0006).
+      // 알림은 아래에서 active 농장에만 낸다.
+      where: { lastSeenAt: { not: null } },
+      select: { farmId: true, name: true, lastSeenAt: true, status: true },
     });
 
     const now = Date.now();
@@ -67,6 +70,9 @@ async function checkOfflineFarms() {
         [farm.farmId]
       ).catch(() => {});
       broadcastFarmStatus(farm.farmId, null);
+
+      // 여기부터는 알림 — 운영 중(active) 농장만. 점검중·중지 농장은 장치 상태만 갱신하고 끝.
+      if (farm.status !== "active") continue;
 
       const cooldownMs = cfg.cooldownMinutes * 60 * 1000;
 

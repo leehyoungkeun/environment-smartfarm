@@ -437,7 +437,7 @@ export function getAlertHealth() {
   return { failureCount: alertFailureCount, lastFailure: lastAlertFailure, cooldownMapSize: alertCooldowns.size };
 }
 
-async function checkAndCreateAlerts(farmId, houseId, data, config) {
+export async function checkAndCreateAlerts(farmId, houseId, data, config) {
   try {
     const sensors = Array.isArray(config.sensors) ? config.sensors : [];
 

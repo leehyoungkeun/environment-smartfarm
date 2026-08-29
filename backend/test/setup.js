@@ -25,6 +25,10 @@ process.env.SMARTFARM_NO_LISTEN = "1";
 process.env.JWT_SECRET ||= "test-only-secret-not-used-anywhere-else-0123456789";
 process.env.JWT_REFRESH_SECRET ||= "test-only-refresh-secret-not-used-elsewhere-9876543210";
 
+// 알림 모듈은 import 시점에 DISCORD_WEBHOOK_URL 을 읽는다. 테스트가 진짜 채널로
+// 쏘는 사고를 막기 위해 빈 값으로 못 박는다 — dotenv 는 이미 설정된 키를 덮지 않는다.
+process.env.DISCORD_WEBHOOK_URL = "";
+
 const url = process.env.DATABASE_URL || "";
 const TEST_DB = /^postgres(ql)?:\/\/[^@]*@(127\.0\.0\.1|localhost):5433\//.test(url);
 

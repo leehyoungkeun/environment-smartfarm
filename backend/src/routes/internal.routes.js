@@ -335,29 +335,11 @@ router.get("/daily-summary-data", async (req, res) => {
   }
 });
 
-/**
- * POST /internal/daily-summary
- * 일일 집계 저장 (f7 일일집계)
- */
-router.post("/daily-summary", async (req, res) => {
-  try {
-    const { farmId, houseId } = resolveFarmHouse(req);
-    const summary = req.body;
-    logger.info("일일 집계 수신:", summary.date);
-
-    await pool.query(
-      `INSERT INTO daily_summaries (farm_id, house_id, date, summary_data, created_at)
-       VALUES ($1, $2, $3, $4, NOW())
-       ON CONFLICT (farm_id, house_id, date) DO UPDATE SET summary_data = $4`,
-      [farmId, houseId, summary.date, JSON.stringify(summary)]
-    );
-
-    res.json({ success: true, message: "일일 집계 저장 완료" });
-  } catch (error) {
-    logger.error("일일 집계 저장 실패:", error);
-    res.status(500).json({ success: false, error: error.message });
-  }
-});
+// POST /internal/daily-summary 는 2026-08-29 삭제했다.
+// 쓰던 daily_summaries 테이블이 리포에도 운영 DB 에도 없어 호출되면 항상 500 이었고,
+// 로그상 호출된 적도 없다 (호출자였던 NR f7 일일집계 탭은 삭제 예정 레거시).
+// 일일 통계 조회(GET /internal/daily-summary)는 sensor_data 실시간 집계라 영향 없다.
+// 필요해지면 그때 테이블 DDL 과 함께 다시 만든다.
 
 /**
  * POST /internal/farm-event

@@ -80,7 +80,27 @@ class MqttService extends EventEmitter {
       });
     });
 
-    this.client.on("message", (topic, message) => {
+    this.client.on("message", (topic, message) => this._handleMessage(topic, message));
+
+    this.client.on("error", (err) => {
+      logger.error("MQTT 에러:", err.message);
+    });
+
+    this.client.on("offline", () => {
+      this.connected = false;
+      logger.warn("⚠️ MQTT 오프라인");
+    });
+
+    this.client.on("reconnect", () => {
+      logger.info("🔄 MQTT 재연결 시도...");
+    });
+
+    return this;
+  }
+
+  // MQTT 메시지 분배 — connect() 의 on("message") 에서 분리 (2026-08-29).
+  // 브로커·인증서 없이 토픽 분배·캐시 로직을 테스트하기 위한 추출이다. 로직 무변경.
+  _handleMessage(topic, message) {
       try {
         const payload = JSON.parse(message.toString());
         const parts = topic.split("/");
@@ -125,22 +145,6 @@ class MqttService extends EventEmitter {
       } catch (e) {
         logger.warn("MQTT 메시지 파싱 실패:", e.message);
       }
-    });
-
-    this.client.on("error", (err) => {
-      logger.error("MQTT 에러:", err.message);
-    });
-
-    this.client.on("offline", () => {
-      this.connected = false;
-      logger.warn("⚠️ MQTT 오프라인");
-    });
-
-    this.client.on("reconnect", () => {
-      logger.info("🔄 MQTT 재연결 시도...");
-    });
-
-    return this;
   }
 
   // 장치 위치 DB 저장

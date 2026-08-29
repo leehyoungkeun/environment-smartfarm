@@ -73,13 +73,8 @@ const NOT_TABLES = new Set([
 ]);
 
 // 리포에도 운영 DB 에도 없는 테이블 — 호출되면 반드시 실패한다. 숨기지 않고 이유와 함께 남긴다.
-const KNOWN_MISSING = new Map([
-  [
-    "daily_summaries",
-    "POST /internal/daily-summary (레거시 NR f7 일일집계). 운영 DB 에도 테이블이 없어 호출되면 항상 500. " +
-      "로그상 호출된 적이 없다. 표를 만들 것인지 엔드포인트를 지울 것인지 결정 필요 (2026-08-29 발견).",
-  ],
-]);
+// (2026-08-29: daily_summaries 는 죽은 엔드포인트 POST /internal/daily-summary 와 함께 삭제 — 목록 비움)
+const KNOWN_MISSING = new Map([]);
 
 describe("스키마가 단일 출처다", () => {
   test("Prisma 모델과 마이그레이션에서 테이블 선언을 읽어낸다", () => {
@@ -113,11 +108,8 @@ describe("스키마가 단일 출처다", () => {
     );
   });
 
-  test("이미 아는 결손 목록이 늘지 않았다", () => {
-    assert.deepEqual(
-      [...KNOWN_MISSING.keys()],
-      ["daily_summaries"],
-      "결손 목록이 바뀌었다 — 해결했으면 지우고, 새로 생겼으면 원인을 적을 것"
-    );
+  test("아는 결손이 없다 — 새 결손이 생기면 위 검사가 잡고, 여기 목록에 이유를 적는다", () => {
+    assert.deepEqual([...KNOWN_MISSING.keys()], [],
+      "결손 목록이 생겼다 — 원인을 적을 것 (마지막 항목 daily_summaries 는 2026-08-29 엔드포인트 삭제로 해소)");
   });
 });

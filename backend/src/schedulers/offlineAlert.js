@@ -39,7 +39,7 @@ async function loadOfflineConfigs() {
   return configs;
 }
 
-async function checkOfflineFarms() {
+export async function checkOfflineFarms() {
   try {
     const offlineConfigs = await loadOfflineConfigs();
 

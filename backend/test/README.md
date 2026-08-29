@@ -130,3 +130,42 @@ cd backend && npm run test:db
 - vm 경계를 넘어온 객체·배열은 `assert.deepEqual`(strict) 의 프로토타입 검사에 걸린다.
   키/JSON 비교를 쓸 것.
 - 시간 테스트는 `new Date(y,m,d,h,mm)` 로컬 생성자를 쓴다 — 머신 TZ 와 무관하게 동작한다.
+
+---
+
+## 경보 판정 테스트 (2026-08-29 추가)
+
+- `unit/alert-judgment.test.js` (23) — 임계값 우선순위·타입 추론·criticalRatio 심각도.
+  **측정범위 함정** 포함: 기본 임계값이 센서 측정 한계(온도 80°C, 습도 100%)면 경보가
+  물리적으로 불가능하다. min-only 임계값은 range≤0 이라 CRITICAL 불가(현재 동작 고정).
+- `db/alert-schedulers.test.js` (22, DB 필요) — 스케줄러 내부 함수를 export 해 실제 DB 로 실행.
+  feedback_alert_system_traps 4가지 전부: ① 브레이커 24시간 창 (영구 래치 방지 — 25시간
+  지난 미확인은 다시 경보), ② 농장단위 알림(FARM/'-')의 하우스 화면 표시, ③ soft-delete
+  가 판정·조회에서 제외, ④ 점검중 농장 — 장치 상태는 갱신하되 알림은 없음.
+  주의: `checkSensorThresholds` 는 모듈 상태(lastRunTime)로 재실행을 막으므로 **한 번만
+  호출**하고 하우스별 시나리오로 나눠 판정한다. `setup.js` 가 `DISCORD_WEBHOOK_URL=""` 로
+  못 박아 테스트가 실제 채널로 쏘는 것을 막는다.
+
+### 수동 제어 경로 (2026-08-29 추가)
+
+| 파일 | 대상 노드 | 근거 |
+|---|---|---|
+| `nr/parse-control.test.js` (11) | `parse_control_command` | 4/5-seg 토픽, schedule-off 등록·취소·교체·만료 (FC15), delay 범위 |
+| `nr/execute-control.test.js` (17) | `execute_control` | FC15 코일 조합, unitId 동적(하드코딩 사고), `_modbusLastWriteAt` mutex(6/3), 복합키 캐시, 자동정지·위치 계산(9초/30초=30%) |
+| `nr/control-handler.test.js` (8, todo 1) | `control_handler` | 키오스크 오프라인 제어(B1) 검증·3갈래 출력. **todo: `house_id` 기본값이 레거시 `house1`** — 정규형 `house_0001` 과 복합키 분열 (에디터 수정 대기) |
+
+### MQTT 수신 계층 (2026-08-29 추가)
+
+- `unit/mqtt-dispatch.test.js` (13) — `_handleMessage` 로 추출한 분배 로직: 토픽→캐시/emit,
+  깨진 JSON 내성, 농장·unitId 격리. connect() 는 인증서·브로커 필요라 추출 후 직접 호출.
+- `unit/norm-house-id.test.js` (10) — houseId 정규화 규칙. NR 쪽(2026-08-29 에디터 수정)과
+  같은 규칙이어야 분열이 재발하지 않는다 (NR 은 nr/parse-control 이 잠금).
+- `db/mqtt-persistence.test.js` (7, DB) — relay_status UPSERT(행 부재 = farm_0006 3.5개월 미탐지의
+  전제 조건), fan-out 오염 가드, device_positions 저장·레거시 house1 정규화.
+
+### 제어이력 동기화 — RPi 쪽 (2026-08-29 추가)
+
+`nr/control-log-sync.test.js` (14) — cl_check→cl_prepare→cl_result→cl_next 루프.
+8/26 사고의 RPi 쪽 절반: **실패 시 마킹 금지**(유실 방지), id 정수 필터, 자동 시작 금지
+(paused 기본값 = 대기), 배치 상한 ≤ 서버 500, /internal 경로, 두 배치 완주 시나리오.
+서버 쪽 절반(소급 중복판정)은 db/control-log-backfill.test.js 가 잠근다.

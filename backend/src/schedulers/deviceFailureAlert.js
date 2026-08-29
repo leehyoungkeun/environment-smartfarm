@@ -41,7 +41,7 @@ async function loadDeviceFailureConfigs() {
   return configs;
 }
 
-async function checkDeviceFailures() {
+export async function checkDeviceFailures() {
   try {
     const deviceFailureConfigs = await loadDeviceFailureConfigs();
 

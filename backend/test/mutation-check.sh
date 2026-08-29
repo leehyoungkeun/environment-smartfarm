@@ -11,7 +11,7 @@ set -u
 cd "$(dirname "$0")/.." || exit 1
 
 BK=$(mktemp -d)
-FILES=(src/app.js src/routes/devices.routes.js src/routes/sensors.js src/routes/config.routes.js src/routes/internal.routes.js src/routes/farms.routes.js prisma/migration-device-positions.sql ../rpi-files/master/flows.json)
+FILES=(src/app.js src/routes/devices.routes.js src/routes/sensors.js src/routes/config.routes.js src/routes/internal.routes.js src/routes/farms.routes.js src/schedulers/sensorThresholdAlert.js src/schedulers/offlineAlert.js src/models/Alert.js src/services/mqttClient.js src/routes/device-positions.routes.js prisma/migration-device-positions.sql ../rpi-files/master/flows.json)
 flat() { echo "$1" | tr '/.' '__'; }  # ../ 가 있어도 백업 디렉터리를 벗어나지 않게 평탄화
 for f in "${FILES[@]}"; do cp "$f" "$BK/$(flat "$f")"; done
 restore() { for f in "${FILES[@]}"; do cp "$BK/$(flat "$f")" "$f"; done; }
@@ -92,6 +92,34 @@ probe "⑤ stepped 완료 시 명시적 stop 제거 (6/3 coil stuck 재현)" ../
 
 probe "⑤ 하우스 한정 탐색 제거 (다른 하우스 릴레이 오작동)" ../rpi-files/master/flows.json   'if (houses[i].houseId !== HOUSE_ID) continue;'   ';'
 
+echo "━━ NR 수동 제어 경로 변이 검사 ━━"
+
+probe "schedule-off 취소가 타이머를 안 지운다 (자다가 꺼짐)" ../rpi-files/master/flows.json   "clearTimeout(sched[key].timerId);"   ";"
+
+probe "schedule-off delay 범위 검증 제거" ../rpi-files/master/flows.json   "if (delaySec <= 0 || delaySec > 86400) {"   "if (false) {"
+
+probe "자동 정지 write 의 mutex 제거 (write-read race)" ../rpi-files/master/flows.json   "global.set('_modbusLastWriteAt', Date.now());   // ★ MUTEX (자동정지)"   ";"
+
+probe "unitId 하드코딩 재현 (전체 OFF stale 사고 패턴)" ../rpi-files/master/flows.json   "const unitId = modbus.unitId || 2;"   "const unitId = 2;"
+
+probe "bidir open 코일 조합 오류 (양쪽 코일 동시 ON)" ../rpi-files/master/flows.json   "value: [true, false] };"   "value: [true, true] };"
+
+probe "houseId 정규화 제거 (수동·자동화 평행 세계 회귀)" ../rpi-files/master/flows.json   "if (hm) houseId = "   "if (false) houseId = "
+
+probe "동기화 성공 마킹 소실 (synced=1 이 안 나감)" ../rpi-files/master/flows.json   "const ids = msg._ctrlIds || [];"   "const ids = [];"
+
+probe "동기화 id 정수 필터 제거" ../rpi-files/master/flows.json   "const safeIds = ids.filter"   "const safeIds = ids; void ids.filter"
+
+probe "동기화 기본값을 자동 시작으로 (자동 모드 전환 금지 위반)" ../rpi-files/master/flows.json   "const paused = flow.get('ctrlSyncPaused');"   "const paused = false;"
+
+probe "배치 크기 서버 상한 초과 (413 전멸)" ../rpi-files/master/flows.json   "FROM control_logs\nWHERE synced IS NULL OR synced = 0\nORDER BY timestamp ASC\nLIMIT 200"   "FROM control_logs\nWHERE synced IS NULL OR synced = 0\nORDER BY timestamp ASC\nLIMIT 900"
+
+probe "로컬 제어 명령 허용목록 제거" ../rpi-files/master/flows.json   "if (!ALLOWED_COMMANDS.includes(command)) {"   "if (false) {"
+
+echo "━━ MQTT 수신 계층 변이 검사 ━━"
+
+probe "normHouseId 정규화 무력화 (house1/house_0001 분열 재발)" src/routes/device-positions.routes.js   "const m = v.match(/^house_?0*(\d+)$/);"   "const m = null;"
+
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # DB 가 필요한 검사 — 테스트 전용 Postgres 가 있을 때만 돈다
 #   서버에서: bash server/postgres17/test-db.sh up
@@ -113,6 +141,27 @@ case "${DATABASE_URL:-}" in
       "JOIN farms f ON f.farm_id = rs.farm_id AND f.status = 'active'" \
       ""
 
+
+    echo "  -- 경보 판정 (feedback_alert_system_traps 4가지) --"
+
+    probe "브레이커 24시간 창 제거 → 영구 래치 (AWS 3주 단절의 원인)" src/schedulers/sensorThresholdAlert.js       "new Date(a.createdAt).getTime() >= unackSince"       "true"
+
+    probe "임계 스케줄러의 시뮬레이션 제외 삭제" src/schedulers/sensorThresholdAlert.js       "AND (metadata->>'quality') IS DISTINCT FROM 'simulated'"       ""
+
+    probe "점검중 농장에도 오프라인 알림" src/schedulers/offlineAlert.js       'if (farm.status !== "active") continue;'       ";"
+
+    probe "Alert.find 의 soft-delete 필터 제거" src/models/Alert.js       "if (!includeDeleted) {"       "if (false) {"
+
+    probe "농장단위 알림의 하우스 화면 표시 제거" src/models/Alert.js       'const FARM_LEVEL_HOUSE_IDS = ["FARM", "-"];'       'const FARM_LEVEL_HOUSE_IDS = ["NONE"];'
+
+    probe "인라인 CRITICAL 판정(x1.2) 무력화" src/routes/sensors.js       'severity = value > sensor.max * 1.2 ? "CRITICAL" : "WARNING";'       'severity = "WARNING";'
+
+    # 가드 제거는 스키마(NOT NULL)가 막아 관측 불가 — UPSERT 갱신 파괴로 교체 (2026-08-29)
+    probe "relay_status UPSERT 갱신 파괴 (stale 상태 박제)" src/services/mqttClient.js       "ON CONFLICT (farm_id, unit_id) DO UPDATE"       "ON CONFLICT (farm_id, unit_id) DO NOTHING --"
+
+    probe "device_positions 입력 가드 제거" src/services/mqttClient.js       "if (!deviceId || position === undefined) return;"       ";"
+
+    probe "인라인 10분 쿨다운 기록 제거 (알림 폭주)" src/routes/sensors.js       "alertCooldowns.set(cooldownKey, Date.now());"       ";"
     ;;
   *)
     echo "━━ DB 변이 검사 건너뜀 — 테스트 DB 미지정 (server/postgres17/test-db.sh up) ━━"

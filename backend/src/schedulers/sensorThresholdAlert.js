@@ -21,7 +21,7 @@ const DEFAULT_ALERT_CONFIG = {
 };
 
 // sensorId에 키워드 없을 때 사용할 기본 임계값
-const DEFAULT_THRESHOLDS = {
+export const DEFAULT_THRESHOLDS = {
   temperature: { min: 5, max: 40 },
   humidity:    { min: 20, max: 95 },
   co2:         { min: 0, max: 3000 },
@@ -38,14 +38,14 @@ const SENSOR_PATTERNS = [
   { pattern: /ph[_\d]|^ph$/i, type: "ph" },
 ];
 
-function guessSensorType(sensorId) {
+export function guessSensorType(sensorId) {
   for (const { pattern, type } of SENSOR_PATTERNS) {
     if (pattern.test(sensorId)) return type;
   }
   return null;
 }
 
-function getThresholds(sensorCfg, sensorId) {
+export function getThresholds(sensorCfg, sensorId) {
   // 1) house_configs.sensors에 min/max가 설정되어 있으면 우선
   if (sensorCfg?.min != null || sensorCfg?.max != null) {
     return { min: sensorCfg.min ?? null, max: sensorCfg.max ?? null };
@@ -58,7 +58,7 @@ function getThresholds(sensorCfg, sensorId) {
   return null; // 임계값 판단 불가 → 스킵
 }
 
-function calcSeverity(value, min, max, criticalRatio = 0.5) {
+export function calcSeverity(value, min, max, criticalRatio = 0.5) {
   // range의 criticalRatio 이상 벗어나면 CRITICAL
   const range = (max ?? 0) - (min ?? 0);
   if (range <= 0) return "WARNING";
@@ -92,7 +92,7 @@ async function loadFarmAlertConfigs() {
 // 동적 실행 주기 제어
 let lastRunTime = 0;
 
-async function checkSensorThresholds() {
+export async function checkSensorThresholds() {
   try {
     // 농장별 알림 설정 로드
     const farmAlertConfigs = await loadFarmAlertConfigs();

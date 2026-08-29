@@ -149,6 +149,25 @@ fi
 # 3. prisma generate (backend 디렉토리에서 수행, 실패해도 진행)
 run bash -c "cd '$BACKEND_DIR' && npx prisma generate" >> "$LOG_FILE" 2>&1 || log "  ⚠️ prisma generate 경고 (무시)"
 
+# 3-0. 테스트 게이트 (2026-08-29 추가)
+#   배포는 GitHub Actions 가 아니라 이 cron 스크립트가 한다. 게이트는 여기 있어야 실효가 있다.
+#   단위 테스트는 DB·네트워크가 필요 없고 3초면 끝난다(test/setup.js 가 운영 DB 접속을 차단).
+#   실패하면 pm2 reload 하지 않고 직전 커밋으로 되돌린다 — 깨진 코드가 운영에 올라가지 않는다.
+#   테스트 파일이 없는 옛 커밋으로 롤백된 경우를 위해, test 스크립트가 없으면 건너뛴다.
+if [ -d "$BACKEND_DIR/test" ] && grep -q '"test"' "$BACKEND_DIR/package.json" 2>/dev/null; then
+    if run bash -c "cd '$BACKEND_DIR' && timeout 120 npm test" >> "$LOG_FILE" 2>&1; then
+        log "  ✓ 테스트 통과"
+    else
+        log "  ❌ 테스트 실패 — 배포 중단, rollback to $SHORT_PREV"
+        run git reset --hard "$PREV_COMMIT" 2>>"$LOG_FILE"
+        run bash -c "cd '$BACKEND_DIR' && npx prisma generate" >> "$LOG_FILE" 2>&1 || true
+        log "  ↩️ Rollback 완료 (테스트 단계) — pm2 는 건드리지 않았다"
+        exit 1
+    fi
+else
+    log "  ⏭  테스트 없음 — 게이트 건너뜀"
+fi
+
     # 3-1. Sentry 릴리스용 커밋 해시 기록 (2026-08-26 추가)
     #   고정 버전이면 모든 배포가 한 릴리스로 묶여 회귀 추적이 안 된다.
     #   pm2 reload 가 프로세스를 새로 띄우므로 dotenv 가 이 값을 다시 읽는다.

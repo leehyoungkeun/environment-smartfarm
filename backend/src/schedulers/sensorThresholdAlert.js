@@ -142,6 +142,7 @@ async function checkSensorThresholds() {
       const { rows } = await pool.query(
         `SELECT data, timestamp FROM sensor_data
          WHERE farm_id = $1 AND house_id = $2
+           AND (metadata->>'quality') IS DISTINCT FROM 'simulated'  -- 시뮬레이션 값으로 경보하지 않는다 (B4)
          ORDER BY timestamp DESC LIMIT 1`,
         [house.farmId, house.houseId]
       );

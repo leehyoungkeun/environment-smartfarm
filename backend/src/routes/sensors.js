@@ -18,7 +18,7 @@ const router = express.Router();
  */
 router.post("/collect", async (req, res, next) => {
   try {
-    const { farmId, houseId, data, deviceInfo } = req.body;
+    const { farmId, houseId, data, deviceInfo, quality: reportedQuality } = req.body;
 
     if (!farmId || !houseId || !data) {
       return res.status(400).json({
@@ -61,7 +61,9 @@ router.post("/collect", async (req, res, next) => {
       configVersion: config.configVersion,
       collectionMethod: "http",
       deviceInfo: deviceInfo || {},
-      quality: validationErrors.length > 0 ? "warning" : "good",
+      // RPi 가 시뮬레이션 값이라고 밝히면(quality=simulated) 그대로 기록한다 — 지표·임계 알림이 제외한다 (2026-08-29, B4).
+      // 그전엔 USB-485 없는 farm_0006 의 시뮬레이션 값이 실측처럼 13만 행 쌓였다.
+      quality: reportedQuality === "simulated" ? "simulated" : (validationErrors.length > 0 ? "warning" : "good"),
     };
 
     if (validationErrors.length > 0) {

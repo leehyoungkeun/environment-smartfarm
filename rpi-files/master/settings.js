@@ -54,6 +54,11 @@ module.exports = {
   // 플로우 파일명
   flowFile: '/home/lhk/.node-red/flows.json',
 
+  // 자격증명 암호화 키 — ecosystem 이 농장마다 생성해 주입 (2026-08-29, B5).
+  // 미설정이면 .config.runtime.json 의 시스템 키를 쓰는데, 이미지 복제 시 전 농장이 같은 키를 공유하고
+  // 그 파일이 사라지면 복구 불가였다. flows_cred.json 은 비워 두므로(Basic 인증 해제) 값이 바뀌어도 잃을 것이 없다.
+  credentialSecret: process.env.NR_CREDENTIAL_SECRET || false,
+
   // 플로우 파일 인코딩
   flowFilePretty: true,
 

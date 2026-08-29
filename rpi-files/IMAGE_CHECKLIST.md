@@ -66,6 +66,10 @@ grep -o '\${FARM_ID}' /home/lhk/.node-red/flows.json | wc -l
 # 검증 2 — 0 이어야 한다. 1 이상이면 농장 고유값이 남은 것이다.
 grep -o 'smartfarm/farm_0001' /home/lhk/.node-red/flows.json | wc -l
 
+# (7-1b) 2026-08-29 부터 아래 농장 고유 파일은 clone-image.sh 가 지운다 (수동 확인용 목록):
+#   .sensor-api-key(농장 키) · .sim-mode · .nr-credential-secret · flows_cred.json · .config.runtime.json · cameras.conf
+#   → 새 농장: setup 이 키를 받고, ecosystem 이 credentialSecret 을 새로 만든다. 절대 이 파일들을 이미지에 남기지 말 것.
+
 # (7-2) 카메라 정보 비우기 — 카메라는 농장마다 다르다
 python3 -c "import yaml;p='/home/lhk/smartfarm/go2rtc.yaml';d=yaml.safe_load(open(p));d['streams']={};yaml.safe_dump(d,open(p,'w'))"
 sudo truncate -s0 /etc/smartfarm/cameras.conf

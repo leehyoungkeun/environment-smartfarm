@@ -106,6 +106,12 @@ done
 # ── 3. AWS IoT 인증서 삭제 ──
 log "AWS IoT 인증서 삭제"
 # AmazonRootCA1.pem 은 전 농장 공통이므로 보존한다 (.crt/.key/.pem.private 만 삭제)
+# 농장 고유 비밀·모드 파일 (2026-08-29): 새 농장은 setup 이 키를 받고, ecosystem 이 credentialSecret 을 새로 만든다
+rm -f "${SMARTFARM_HOME}/smartfarm/.sensor-api-key"
+rm -f "${SMARTFARM_HOME}/smartfarm/.sim-mode"
+rm -f "${SMARTFARM_HOME}/smartfarm/.nr-credential-secret"
+rm -f "${SMARTFARM_HOME}/.node-red/flows_cred.json" "${SMARTFARM_HOME}/.node-red/.config.runtime.json"
+truncate -s0 /etc/smartfarm/cameras.conf 2>/dev/null || true
 rm -f "${SMARTFARM_HOME}/certs"/*.crt
 rm -f "${SMARTFARM_HOME}/certs"/*.key
 rm -f "${SMARTFARM_HOME}/certs"/*.pem.private

@@ -368,6 +368,7 @@ new promClient.Gauge({
            FROM sensor_data sd
            JOIN farms f ON f.farm_id = sd.farm_id AND f.status = 'active'
           WHERE sd.timestamp > now() - interval '1 hour'
+           AND (sd.metadata->>'quality') IS DISTINCT FROM 'simulated'  -- 시뮬레이션 제외 (B4)
           GROUP BY sd.farm_id, sd.house_id`
       );
       this.reset();
@@ -434,6 +435,7 @@ new promClient.Gauge({
            FROM sensor_data sd
            JOIN farms f ON f.farm_id = sd.farm_id AND f.status = 'active'
           WHERE sd.timestamp > now() - interval '1 hour'
+           AND (sd.metadata->>'quality') IS DISTINCT FROM 'simulated'  -- 시뮬레이션 제외 (B4)
           ORDER BY sd.farm_id, sd.house_id, sd.timestamp DESC`
       );
       this.reset();
@@ -535,6 +537,7 @@ new promClient.Gauge({
                 EXTRACT(EPOCH FROM (now() - max(timestamp))) AS age
            FROM sensor_data
           WHERE timestamp > now() - interval '7 days'
+           AND (metadata->>'quality') IS DISTINCT FROM 'simulated'  -- 시뮬레이션 제외 (B4)
           GROUP BY farm_id, house_id`
       );
       this.reset();

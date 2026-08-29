@@ -19,6 +19,12 @@ function readFarmId() {
     }
 }
 const FARM_ID = readFarmId();
+// 농장별 API 키 (2026-08-29, B2). setup.js 가 장비코드 적용 때 쓴다. 없으면 빈 값 — 서버가
+// 이행 기간엔 공통 키를 경고와 함께 받지만, NR 함수의 공통 키 폴백은 제거해 간다.
+function readSensorApiKey() {
+    try { return require('fs').readFileSync('/home/lhk/smartfarm/.sensor-api-key', 'utf8').trim(); } catch (e) { return ''; }
+}
+const SENSOR_API_KEY = readSensorApiKey();
 // clientId 는 NR 시작 시 ecosystem.config.js 가 evaluate 되는 시점의 timestamp 사용
 // (NR 재시작마다 변경되어 AWS IoT 의 stale connection 충돌 회피)
 const NR_MQTT_CLIENT_ID = 'MyFarmPi_' + FARM_ID + '_pi_nodered_pri_' + Date.now();
@@ -27,6 +33,7 @@ const commonEnv = {
     NODE_ENV: 'production',
     FARM_ID,
     NR_MQTT_CLIENT_ID,
+    SENSOR_API_KEY,
 };
 
 module.exports = {

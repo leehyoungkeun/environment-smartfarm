@@ -100,6 +100,7 @@ services:
       - ./discord_webhook_url:/etc/alertmanager/discord_webhook_url:ro
       # dead man's switch — GlitchTip Heartbeat URL (git 제외, 644 여야 alertmanager(nobody) 가 읽는다)
       - ./heartbeat_url:/etc/alertmanager/heartbeat_url:ro
+      - ./internal_webhook_url:/etc/alertmanager/internal_webhook_url:ro
       - alertmanager-data:/alertmanager
       # 컨테이너에 tzdata 가 없어 TZ 만으로는 KST 가 적용되지 않는다.
       # 호스트의 시간대 DB 를 읽기전용으로 마운트해야 템플릿의 .Local 이 한국시간이 된다.

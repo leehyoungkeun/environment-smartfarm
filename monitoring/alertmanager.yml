@@ -58,7 +58,8 @@ receivers:
           {{ end -}}
     # 백엔드 — DB 이력 보존 + 향후 카카오 알림톡 확장 지점
     webhook_configs:
-      - url: 'http://host.docker.internal:3000/internal/alert-webhook?apiKey=smartfarm-sensor-key'
+      # 내부 전용 키(INTERNAL_API_KEY)가 URL 에 들어 있어 파일로 둔다 (monitoring/*_url 은 git 제외, 2026-08-29)
+      - url_file: /etc/alertmanager/internal_webhook_url
         send_resolved: true          # 해소될 때도 통지 → "언제 복구됐는지" 추적 가능
         max_alerts: 0
 

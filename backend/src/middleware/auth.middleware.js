@@ -5,6 +5,10 @@
 import jwt from "jsonwebtoken";
 import User, { ROLE_HIERARCHY, SYSTEM_WIDE_ROLES } from "../models/User.js";
 import { prisma } from "../db.js";
+import logger from "../utils/logger.js";
+
+// 공통 키 폴백 사용 경고를 농장당 10분에 한 번만 남기기 위한 마지막 경고 시각
+const legacyKeyWarnedAt = new Map();
 
 const JWT_SECRET = process.env.JWT_SECRET;
 const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || "24h";
@@ -200,6 +204,9 @@ export const authenticateApiKey = async (req, res, next) => {
     try {
       const farm = await prisma.farm.findUnique({ where: { apiKey } });
       if (farm) {
+        if (farm.status === "retired") {
+          return res.status(403).json({ success: false, error: "폐기된 농장의 키입니다" });
+        }
         req.isDevice = true;
         req.farmId = farm.farmId;
         // lastSeenAt 비동기 업데이트 (응답 차단 안 함)
@@ -213,12 +220,28 @@ export const authenticateApiKey = async (req, res, next) => {
       // Farm 테이블 없으면 env 폴백
     }
 
-    // 2) env SENSOR_API_KEY 폴백 (기존 RPi 호환)
-    const validApiKey = process.env.SENSOR_API_KEY;
-    if (validApiKey && apiKey === validApiKey) {
+    // 2) 서버 내부 호출자 전용 키 (Alertmanager 등, 같은 호스트). farmId 는 요청에서 — 내부 신뢰.
+    const internalKey = process.env.INTERNAL_API_KEY;
+    if (internalKey && apiKey === internalKey) {
       req.isDevice = true;
-      // farmId를 요청에서 추출 (URL 파라미터 > body > query > env 기본값)
+      req.isInternal = true;
+      req.farmId = req.params?.farmId || req.body?.farmId || req.query?.farmId || null;
+      return next();
+    }
+
+    // 3) 공통 키 폴백 — 2026-08-29 부터 **이행 기간 전용**.
+    //    전 농장이 같은 키를 쓰고 farmId 를 요청에서 믿는 구조라, 한 농장이 뚫리면 전부 뚫린다(B2).
+    //    농장별 키(farms.api_key, 위 1번)로 옮긴 뒤 ALLOW_LEGACY_SENSOR_KEY=false 로 끈다.
+    //    그때까지는 누가 아직 쓰는지 보이도록 농장·주소를 경고로 남긴다(농장당 10분에 한 번).
+    const validApiKey = process.env.SENSOR_API_KEY;
+    if (validApiKey && apiKey === validApiKey && process.env.ALLOW_LEGACY_SENSOR_KEY !== "false") {
+      req.isDevice = true;
       req.farmId = req.params?.farmId || req.body?.farmId || req.query?.farmId || process.env.FARM_ID || "farm_0001";
+      const k = req.farmId; const now = Date.now();
+      if (!legacyKeyWarnedAt.has(k) || now - legacyKeyWarnedAt.get(k) > 10 * 60 * 1000) {
+        legacyKeyWarnedAt.set(k, now);
+        logger.warn(`[legacy-key] 공통 SENSOR_API_KEY 사용: farm=${k} from=${req.socket?.remoteAddress || "?"} ${req.method} ${req.originalUrl}`);
+      }
       return next();
     }
   }

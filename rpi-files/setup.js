@@ -17,6 +17,7 @@ const ECOSYSTEM_PATHS = [
   '/home/lhk/smartfarm/scripts/ecosystem.config.js',
 ];
 const FARM_ID_PATH = '/home/lhk/smartfarm/.farm-id';
+const API_KEY_PATH = '/home/lhk/smartfarm/.sensor-api-key';
 const ENV_PATH = '/home/lhk/smartfarm/rpi-server/.env';
 const SERVER_URL = 'https://api.smartgreen.kr';
 
@@ -254,6 +255,16 @@ router.post('/apply', async (req, res) => {
     // 2.5 .farm-id 파일 갱신 (system-api.js GET /api/system/info 가 동적 반환)
     try {
       fs.writeFileSync(FARM_ID_PATH, farmId);
+
+      // 3.1 농장별 API 키 — 인증서와 같은 통로로 1회 전달된다 (2026-08-29, B2).
+      //     ecosystem.config.js 가 이 파일을 읽어 SENSOR_API_KEY 로 모든 앱에 주입한다.
+      //     그전까지는 전 농장이 'smartfarm-sensor-key' 하나를 썼다.
+      if (farm && farm.apiKey) {
+        fs.writeFileSync(API_KEY_PATH, farm.apiKey, { mode: 0o600 });
+        steps.push({ ok: true, text: '농장 API 키 저장 (.sensor-api-key)' });
+      } else {
+        steps.push({ ok: false, text: '서버 응답에 농장 API 키 없음 — 농장 미배정?' });
+      }
       steps.push({ ok: true, text: '.farm-id = ' + farmId });
     } catch (e) {
       steps.push({ ok: false, text: '.farm-id 수정 실패: ' + e.message });

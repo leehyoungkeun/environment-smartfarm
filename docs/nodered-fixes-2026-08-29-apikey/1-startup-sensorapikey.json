@@ -1,0 +1,35 @@
+[
+  {
+    "id": "apikey_inject",
+    "type": "inject",
+    "z": "startup_init_flow",
+    "name": "시작 3초 후 (API 키)",
+    "props": [{ "p": "payload" }],
+    "repeat": "",
+    "crontab": "",
+    "once": true,
+    "onceDelay": "3",
+    "topic": "",
+    "payload": "",
+    "payloadType": "date",
+    "x": 160,
+    "y": 460,
+    "wires": [["apikey_set"]]
+  },
+  {
+    "id": "apikey_set",
+    "type": "function",
+    "z": "startup_init_flow",
+    "name": "sensorApiKey → global (env)",
+    "func": "// 농장별 API 키를 env 에서 global 로 (2026-08-29, B2).\n// ecosystem.config.js 가 /home/lhk/smartfarm/.sensor-api-key 를 SENSOR_API_KEY 로 주입한다.\n// global.get('sensorApiKey') 를 쓰는 함수들이 이 값을 받는다. 없으면 경고만 — 공통 키로 폴백하지 않는다.\nconst key = env.get('SENSOR_API_KEY');\nif (key && key.length >= 32) {\n    global.set('sensorApiKey', key);\n    node.status({ fill: 'green', shape: 'dot', text: '농장 키 ' + key.slice(0, 6) + '…' });\n} else {\n    global.set('sensorApiKey', null);\n    node.warn('SENSOR_API_KEY 없음 — .sensor-api-key 파일과 ecosystem 확인 (장비코드 setup 미완?)');\n    node.status({ fill: 'red', shape: 'ring', text: '농장 키 없음' });\n}\nreturn null;",
+    "outputs": 1,
+    "timeout": 0,
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "libs": [],
+    "x": 400,
+    "y": 460,
+    "wires": [[]]
+  }
+]

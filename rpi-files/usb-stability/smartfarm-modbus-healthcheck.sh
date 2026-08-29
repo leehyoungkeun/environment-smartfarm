@@ -13,7 +13,7 @@ LOG="/home/lhk/smartfarm/logs/modbus-healthcheck.log"
 FARM_ID_FILE="/home/lhk/smartfarm/.farm-id"
 FARM_ID="$(cat "$FARM_ID_FILE" 2>/dev/null || echo farm_0001)"
 BACKEND="https://api.smartgreen.kr/api/internal/farm-event"
-API_KEY="$(grep -E '^SENSOR_API_KEY=' /home/lhk/smartfarm/.env 2>/dev/null | cut -d= -f2- || echo smartfarm-sensor-key)"
+API_KEY="$(cat /home/lhk/smartfarm/.sensor-api-key 2>/dev/null || grep -E '^SENSOR_API_KEY=' /home/lhk/smartfarm/.env 2>/dev/null | cut -d= -f2-)"
 THRESHOLD=3
 
 mkdir -p "$(dirname "$LOG")"

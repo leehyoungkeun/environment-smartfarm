@@ -51,6 +51,7 @@ import { startTrashCleanupScheduler } from "./schedulers/trashCleanup.js";
 import { startSensorThresholdScheduler } from "./schedulers/sensorThresholdAlert.js";
 import { start as startNutrientAutoScheduler } from "./services/nutrientAutoScheduler.js";
 import { startDeviceFailureScheduler } from "./schedulers/deviceFailureAlert.js";
+import crypto from "crypto";
 
 const app = express();
 app.set("trust proxy", 1);
@@ -790,7 +791,7 @@ async function ensureAdmin() {
           create: {
             farmId: defaultFarmId,
             name: "스마트팜",
-            apiKey: process.env.SENSOR_API_KEY || "smartfarm-sensor-key",
+            apiKey: crypto.randomBytes(32).toString("hex"), // 농장별 키 — 공통 키 금지 (2026-08-29)
             status: "active",
           },
         });

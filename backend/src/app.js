@@ -533,8 +533,8 @@ new promClient.Gauge({
     try {
       const { pool } = await import("./db.js");
       const { rows } = await pool.query(
-        `SELECT farm_id, house_id,
-                EXTRACT(EPOCH FROM (now() - max(timestamp))) AS age
+        `SELECT sd.farm_id, sd.house_id,
+                EXTRACT(EPOCH FROM (now() - max(sd.timestamp))) AS age
            FROM sensor_data sd
            JOIN farms f ON f.farm_id = sd.farm_id AND f.status = 'active'  -- 점검중·중지 농장 제외 → SensorDataStalled 안 울림 (2026-08-29)
            WHERE sd.timestamp > now() - interval '7 days'

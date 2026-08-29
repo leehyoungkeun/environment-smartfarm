@@ -11,7 +11,7 @@ set -u
 cd "$(dirname "$0")/.." || exit 1
 
 BK=$(mktemp -d)
-FILES=(src/app.js src/routes/devices.routes.js src/routes/sensors.js src/routes/config.routes.js)
+FILES=(src/app.js src/routes/devices.routes.js src/routes/sensors.js src/routes/config.routes.js src/routes/internal.routes.js src/routes/farms.routes.js prisma/migration-device-positions.sql)
 for f in "${FILES[@]}"; do mkdir -p "$BK/$(dirname "$f")"; cp "$f" "$BK/$f"; done
 restore() { for f in "${FILES[@]}"; do cp "$BK/$f" "$f"; done; }
 trap 'restore; rm -rf "$BK"' EXIT
@@ -68,6 +68,41 @@ probe "B4 시뮬레이션 경보 스킵 제거" src/routes/sensors.js \
 probe "설정 저장 얕은 병합 회귀" src/routes/config.routes.js \
   '{ ...existingNested, ...req.body.settings }' \
   '{ ...req.body.settings }'
+
+probe "device_positions DDL 손상 (새 서버 설치 불가)" prisma/migration-device-positions.sql \
+  "CREATE TABLE IF NOT EXISTS device_positions" \
+  "CREATE TABLE IF NOT EXISTS device_positions_broken"
+
+probe "코드가 스키마에 없는 테이블을 쓴다" src/routes/farms.routes.js \
+  "FROM sensor_data" \
+  "FROM sensor_data_archive sd"
+
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# DB 가 필요한 검사 — 테스트 전용 Postgres 가 있을 때만 돈다
+#   서버에서: bash server/postgres17/test-db.sh up
+#   여기서:   DATABASE_URL=postgresql://postgres:test@127.0.0.1:5433/smartfarm_test bash test/mutation-check.sh
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+case "${DATABASE_URL:-}" in
+  postgres*://*@127.0.0.1:5433/*|postgres*://*@localhost:5433/*)
+    echo "━━ DB 변이 검사 (실제 SQL 을 돌려 확인) ━━"
+
+    probe "소급 중복판정에서 rpi_backfill 제외 삭제 (1,474건 유실)" src/routes/internal.routes.js \
+      "AND (operator IS DISTINCT FROM 'rpi_backfill')" \
+      ""
+
+    probe "센서 지표에서 시뮬레이션 제외 삭제 (B4)" src/app.js \
+      "AND (sd.metadata->>'quality') IS DISTINCT FROM 'simulated'" \
+      ""
+
+    probe "릴레이 지표에서 점검중 농장 제외 삭제" src/app.js \
+      "JOIN farms f ON f.farm_id = rs.farm_id AND f.status = 'active'" \
+      ""
+
+    ;;
+  *)
+    echo "━━ DB 변이 검사 건너뜀 — 테스트 DB 미지정 (server/postgres17/test-db.sh up) ━━"
+    ;;
+esac
 
 echo "━━ 원복 확인 ━━"
 restore

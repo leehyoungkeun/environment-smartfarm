@@ -15,6 +15,7 @@
     "db:init-timescale": "psql -U smartfarm -d smartfarm_db -f prisma/init-timescale.sql",
     "setup": "npm run db:generate && npm run db:push && npm run db:init-timescale",
     "test": "node test/run.js",
+    "test:db": "node test/run.js --db",
     "test:watch": "node test/run.js --watch"
   },
   "dependencies": {

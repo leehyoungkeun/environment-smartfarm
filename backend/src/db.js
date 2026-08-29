@@ -39,12 +39,45 @@ if (process.env.NODE_ENV !== "production") {
 // pg Pool (시계열 raw SQL)
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
+// 연결 설정이 두 갈래다 — Prisma 는 DATABASE_URL, raw SQL 풀은 DB_HOST/DB_PORT/....
+// 한쪽만 바꾸면 (DB 이사, 포트 변경 등) 조용히 서로 다른 DB 를 보게 된다.
+// 그래서 DATABASE_URL 을 기본값으로 삼고, DB_* 는 명시적 재정의로만 취급한다.
+// 둘이 어긋나면 시작 시 경고를 남긴다 (2026-08-29).
+function dbUrlParts() {
+  try {
+    const u = new URL(process.env.DATABASE_URL || "");
+    if (!/^postgres/.test(u.protocol)) return {};
+    return {
+      host: u.hostname || undefined,
+      port: u.port ? parseInt(u.port) : undefined,
+      user: u.username ? decodeURIComponent(u.username) : undefined,
+      password: u.password ? decodeURIComponent(u.password) : undefined,
+      database: u.pathname ? u.pathname.replace(/^\//, "") : undefined,
+    };
+  } catch {
+    return {};
+  }
+}
+const urlParts = dbUrlParts();
+const poolConfig = {
+  host: process.env.DB_HOST || urlParts.host || "localhost",
+  port: parseInt(process.env.DB_PORT) || urlParts.port || 5432,
+  user: process.env.DB_USER || urlParts.user || "smartfarm",
+  password: process.env.DB_PASSWORD || urlParts.password || "",
+  database: process.env.DB_NAME || urlParts.database || "smartfarm_db",
+};
+for (const [k, v] of Object.entries(urlParts)) {
+  if (k === "password" || v === undefined) continue;
+  if (String(poolConfig[k]) !== String(v)) {
+    logger.warn(
+      `DB 설정 불일치: raw SQL 풀은 ${k}=${poolConfig[k]}, DATABASE_URL 은 ${k}=${v} — ` +
+        "Prisma 와 raw SQL 이 서로 다른 DB 를 본다. .env 의 DB_* 와 DATABASE_URL 을 맞출 것."
+    );
+  }
+}
+
 const pool = new Pool({
-  host: process.env.DB_HOST || "localhost",
-  port: parseInt(process.env.DB_PORT) || 5432,
-  user: process.env.DB_USER || "smartfarm",
-  password: process.env.DB_PASSWORD || "",
-  database: process.env.DB_NAME || "smartfarm_db",
+  ...poolConfig,
   max: 20,
   idleTimeoutMillis: 30000,
   connectionTimeoutMillis: 5000,

@@ -60,3 +60,49 @@ cd backend && bash test/mutation-check.sh
 - **CI 게이트** — `.github/workflows/deploy-backend.yml` 의 deploy job 앞에 test job 을 넣고
   `needs: test` 로 묶으면 테스트 실패 시 배포가 막힌다. 테스트가 안정된 뒤에 건다.
 - **프론트엔드** — 4,700줄짜리 컴포넌트가 있는 상태에선 분리가 먼저다.
+
+---
+
+## DB 테스트 (2026-08-29 추가)
+
+`test/db/` 는 **테스트 전용 Postgres** 가 있을 때만 돈다. 없으면 러너가 건너뛴다 —
+배포 게이트는 DB 없이 돌아야 하기 때문이다 (`npm test` = 70개, `npm run test:db` = 113개).
+
+### 왜 필요했나
+
+단위 테스트는 전부 스텁 위에서 돌아 **SQL 이 실제로 실행되는지**를 보지 못했다.
+2026-08-29 오전의 15분 감시 정지가 정확히 그 사각지대였다 — `JOIN farms` 를 넣으면서
+`SELECT farm_id` 를 한정하지 않아 "column reference farm_id is ambiguous" 가 났고,
+`collect()` 의 catch 가 조용히 삼켜서 **지표가 그냥 사라졌다**. 문자열 검사는 통과했다.
+
+### 띄우는 법
+
+```bash
+# 서버(192.168.0.24)에서 — 운영 DB(5432)와 완전히 분리된 별개 컨테이너, tmpfs, 127.0.0.1 전용
+bash server/postgres17/test-db.sh up      # 컨테이너 + prisma db push + 수동 마이그레이션
+bash server/postgres17/test-db.sh status
+bash server/postgres17/test-db.sh down
+
+# 개발 PC 에서 — SSH 터널을 열고
+ssh -N -L 5433:127.0.0.1:5433 afocus@192.168.0.24 &
+cd backend && npm run test:db
+```
+
+`setup.js` 는 `DATABASE_URL` 이 `127.0.0.1:5433` 일 때만 스텁을 끄고, 그때 `DB_*` 도
+같은 곳을 보게 맞춘다(raw SQL 풀이 별도 환경변수를 쓰기 때문). `REMOTE_DB_ENABLED` 도 끈다.
+
+### 무엇을 지키는가
+
+| 파일 | 지키는 것 | 근거가 된 사고 |
+|---|---|---|
+| `db/metric-queries.test.js` | app.js 의 지표 SQL 을 뽑아 **실제로 실행**. 시뮬레이션·점검중 농장 제외를 sensor_data 를 읽는 모든 지표에 대해 일괄 확인 | 8/29 15분 감시 정지, farm_0006 시뮬레이션 값 |
+| `db/settings-merge.test.js` | 실제 `PUT /api/config/system-settings/:farmId` 호출 — 전광판 저장이 릴레이·센서 모듈을 지우지 않는가 | 릴레이 모듈이 '어느 날 사라진' 사고 |
+| `db/control-log-backfill.test.js` | 소급 전송의 중복 판정 SQL 을 소스에서 뽑아 실행 — 소급분끼리 서로를 지우지 않는가 | 8/26 1,474건 유실 |
+| `db/schema-complete.test.js` | 수동 마이그레이션이 빈 DB 에서 실제로 도는가, PK 에 house_id 가 있는가 | device_positions DDL 부재 |
+| `unit/schema-source.test.js` | (DB 불필요) 코드가 쓰는 테이블이 **리포에 선언돼 있는가** | 운영 DB 만 손으로 고친 흔적 |
+
+### 미해결로 기록된 것
+
+`daily_summaries` — `POST /internal/daily-summary` 가 쓰는 테이블이 리포에도 운영 DB 에도 없다.
+호출되면 항상 500 이고, 로그상 호출된 적이 없다(레거시 NR f7). 표를 만들지 엔드포인트를 지울지
+결정이 필요하다. `unit/schema-source.test.js` 의 `KNOWN_MISSING` 에 이유와 함께 남겨 두었다.

@@ -7,24 +7,33 @@
 // 2026-08-29 에 인터넷에서 토큰 없이 GET /api/relay-status/farm_0001 이 200 을 냈다(N3).
 // 그때 이 테스트가 있었다면 배포 전에 401 을 기대하며 실패했을 것이다.
 //
-// DB 는 스텁이라 조회는 빈 결과를 돌려준다. 인증·격리는 DB 이전 단계에서 판정되므로
-// 상태 코드 검증에 문제가 없다.
+// 평소에는 DB 스텁 위에서 돈다 — 인증·격리는 DB 조회 이전 단계에서 판정되므로
+// 상태 코드 검증에 문제가 없다. 테스트 전용 Postgres 가 떠 있으면 진짜 행으로 같은 검증을 한다
+// (test/seed.js 가 두 경우를 흡수한다).
 
-import { test, describe, before } from "node:test";
+import { test, describe, before, after } from "node:test";
 import assert from "node:assert/strict";
 import request from "supertest";
 import jwt from "jsonwebtoken";
 
 let app;
-let seed;
+let cleanup = async () => {};
 before(async () => {
   // setup.js 가 SMARTFARM_NO_LISTEN 을 설정하므로 서버는 뜨지 않는다
   app = (await import("../../src/app.js")).default;
-  // authenticate 는 토큰을 검증한 뒤 DB 에서 사용자를 다시 조회한다.
-  // 스텁은 기본이 "없음" 이라 401 이 된다 — 테스트가 쓸 사용자만 심는다.
-  seed = (await import("../db-stub.js")).__seed;
-  seed.user.set("u1", { id: "u1", username: "tester", role: "owner", farmId: "farm_0001", enabled: true });
-  seed.user.set("admin1", { id: "admin1", username: "admin", role: "superadmin", farmId: null, enabled: true });
+  // authenticate 는 토큰을 검증한 뒤 DB 에서 사용자를 다시 조회한다 — 그 사용자를 심는다
+  const { seedUsers } = await import("../seed.js");
+  cleanup = await seedUsers(
+    [
+      { id: "u1", username: "tester", role: "owner", farmId: "farm_0001" },
+      { id: "admin1", username: "admin-test", role: "superadmin", farmId: "farm_0001" },
+    ],
+    [{ farmId: "farm_0001" }, { farmId: "farm_0006" }]
+  );
+});
+
+after(async () => {
+  await cleanup();
 });
 
 /** 실제 서명된 토큰을 만든다 — 미들웨어의 검증 경로를 그대로 지난다 */

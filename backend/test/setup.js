@@ -28,7 +28,18 @@ process.env.JWT_REFRESH_SECRET ||= "test-only-refresh-secret-not-used-elsewhere-
 const url = process.env.DATABASE_URL || "";
 const TEST_DB = /^postgres(ql)?:\/\/[^@]*@(127\.0\.0\.1|localhost):5433\//.test(url);
 
-if (!TEST_DB) {
+if (TEST_DB) {
+  // 테스트 전용 DB — raw SQL 풀도 같은 곳을 보게 한다.
+  // db.js 의 풀은 DB_HOST/DB_PORT/... 를 쓰므로, .env 에 남아 있는 운영 값이
+  // 그대로 적용되면 Prisma 만 테스트 DB 를 보고 raw SQL 은 운영 DB 로 간다.
+  const u = new URL(url);
+  process.env.DB_HOST = u.hostname;
+  process.env.DB_PORT = u.port || "5432";
+  process.env.DB_USER = decodeURIComponent(u.username);
+  process.env.DB_PASSWORD = decodeURIComponent(u.password);
+  process.env.DB_NAME = u.pathname.replace(/^\//, "");
+  process.env.REMOTE_DB_ENABLED = "false"; // 이중 저장 끄기 — 테스트가 114 서버에 쓰면 안 된다
+} else {
   // 운영·개발 DB 주소이거나 미설정 → db.js 를 스텁으로 대체
   process.env.DATABASE_URL = "postgresql://stub:stub@127.0.0.1:1/none";
   register("./db-stub-hook.js", pathToFileURL(import.meta.filename));

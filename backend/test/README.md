@@ -16,6 +16,7 @@ npm run test:watch
 | `unit/tenant-isolation.test.js` | 한 농가 사용자가 다른 농장 자원에 못 닿는다 | 2026-08-29 `relay-status`·`device-positions` 가 인증 없이 마운트돼 인터넷에서 남의 농장 릴레이 상태가 200 으로 열렸다 |
 | `unit/alert-format.test.js` | Discord 알림에 오류 이름·위치·서비스·농장·링크가 담긴다 | 2026-08-26~29 변환기가 페이로드 형식을 추측해 항상 "GlitchTip alert / error / 1" 폴백만 보냈다. 도달은 되니 아무도 몰랐다 |
 | `unit/metric-queries.test.js` | 지표 SQL 이 실패해 **지표가 통째로 사라지는** 일이 없다 | 2026-08-29 `JOIN farms` 를 넣으며 `SELECT farm_id` 를 한정하지 않아 ambiguous → catch 의 reset() 이 전 농장 지표를 지웠고, 15분간 `SensorDataStalled` 가 어느 농장에도 울릴 수 없었다 |
+| `unit/security-invariants.test.js` | 라우트 추가 시 인증·테넌트 격리를 잊지 않는다. `/metrics` 내부 전용, setup 비밀은 1회만, 시뮬레이션으로 경보 안 함, 설정 저장이 남의 키를 안 지움 | 2026-08-29 2차 점검의 N2·N3, B3·B4, 전광판 저장이 릴레이 모듈을 지운 사고 |
 
 ## 안전 설계
 
@@ -26,19 +27,29 @@ npm run test:watch
   SQL 을 정적 검사한다. (`app.js` 는 로드 시 `startServer()` 가 실행되므로)
 - **비밀이 필요 없다.** `JWT_SECRET` 등은 setup 에서 더미를 넣는다. 운영 값과 무관하다.
 
-## 테스트가 진짜 작동하는지 확인하는 법
+## 테스트가 진짜 작동하는지 확인하는 법 — 변이 검사
 
-통과만으로는 부족하다. 규칙을 일부러 깨뜨려 **실패하는지** 봐야 한다:
+통과만으로는 부족하다. 규칙을 일부러 깨뜨려 **실패하는지** 봐야 한다. 자동화해 두었다:
 
 ```bash
-# 예: 테넌트 격리를 깨뜨린다
-#   auth.middleware.js 의 `if (req.user && req.user.farmId === paramFarmId)` 를
-#   `if (req.user)` 로 바꾸면 → 2개 실패해야 정상
-npm test
-git checkout -- src/middleware/auth.middleware.js
+cd backend && bash test/mutation-check.sh
 ```
 
-2026-08-29 에 이 방식으로 세 테스트 모두 검증했다(격리 2개 실패, 지표 1개 실패).
+오늘 실제로 났던 결함 7가지를 하나씩 되살려 테스트가 잡는지 확인하고 원복한다.
+2026-08-29 결과 — **7/7 검출**:
+
+```
+✅ N3 relay-status 인증 제거            → 2개 실패
+✅ N3 테넌트 격리만 제거                 → 1개 실패
+✅ B3 /metrics 터널 판정 제거            → 1개 실패
+✅ 지표 SQL 컬럼 미한정 (15분 감시 정지)  → 1개 실패
+✅ N2 setup 키를 항상 반환               → 1개 실패
+✅ B4 시뮬레이션 경보 스킵 제거           → 1개 실패
+✅ 설정 저장 얕은 병합 회귀               → 1개 실패
+```
+
+새 테스트를 넣으면 이 스크립트에도 해당 변이를 추가한다. 잡지 못하는 변이가 나오면
+그 테스트는 아무것도 지키지 못하는 것이다. 코드가 바뀌어 앵커를 못 찾으면 `⚠` 로 알려준다.
 
 ## 아직 없는 것
 

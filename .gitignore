@@ -87,3 +87,6 @@ monitoring/*_url
 monitoring/*.bak-*
 monitoring/textfile/
 __pycache__/
+
+# Office 잠금 파일
+~$*

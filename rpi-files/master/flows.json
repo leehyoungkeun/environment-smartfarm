@@ -167,6 +167,14 @@
         "info": "Phase 3.1 골격 — 시뮬레이터 모드로 검증 후 하드웨어 도착 시 Modbus·Serial 노드 활성화\n\n구조:\n  ① 센서 수집 (5초): inject → simulator/Modbus → safety → telemetry POST\n  ② 시나리오 트리거 (1분): inject → trigger-evaluator → cycle-runner\n  ③ 설정 동기화 (5분): inject → config-fetcher → response-handler → global\n  ④ 사이클 실행 시: cycle-runner → Modbus 릴레이 + backend POST\n\nfunction 노드 5개의 코드는 docs/nodered-nutrient-*.js 에서 복사:\n  - nodered-nutrient-simulator.js\n  - nodered-nutrient-telemetry-publisher.js\n  - nodered-nutrient-safety-interlock.js\n  - nodered-nutrient-trigger-evaluator.js\n  - nodered-nutrient-cycle-runner.js\n  - nodered-nutrient-config-fetcher.js"
     },
     {
+        "id": "ks3267_tab",
+        "type": "tab",
+        "label": "KS X 3267 표준노드",
+        "disabled": false,
+        "info": "KS X 3267:2022 온실통합제어기 표준 노드 경로 (P3, 2026-08-30).\nks3267d 데몬(127.0.0.1:3002)이 별도 RS485 포트의 표준 노드를 상대하고, 이 탭은 오케스트레이션만 한다.\n- 상태 수신: 데몬 → POST /api/ks3267/status → deviceStates/ks3267Readings\n- 명령: execute_control 3번 출력(link) → 표준 명령 조립 → 데몬 → 결과·이력\n- 프록시: GET /api/ks3267/:action (읽기 전용) → 데몬\n탭 env 를 넣지 말 것. Catch 는 이 탭 전용.",
+        "env": []
+    },
+    {
         "id": "sqlite_db",
         "type": "sqlitedb",
         "db": "/home/lhk/.node-red/smartfarm.db",
@@ -2523,8 +2531,8 @@
         "type": "function",
         "z": "aws_control_receiver_tab",
         "name": "제어 실행 (릴레이)",
-        "func": "// Modbus 릴레이 제어 — Waveshare FC15 (8CH coil) only\n// 출력 1: Modbus Flex Write\n// 출력 2: MQTT out (장치 위치 보고)\n//\n// ★ 2026-06-03 근본 단순화 + MUTEX 패치\n//   - eletechsup 분기 제거 — 메모리: 2026-05-08 HW 제거됨 (MEMORY.md \"Modbus 릴레이 제어\")\n//   - default unitId 1→2 (Waveshare default, 옛 unitId 하드코딩 사고 패턴 제거)\n//   - write 발사 직전 _modbusLastWriteAt 갱신 → \"제어 후 상태 발행\"이 SAFE_GAP_MS(500ms)\n//     후 read 발사 → RS-485 single bus 의 write-read race 차단\nconst ctrl = msg.control || {};\nconst pl = msg.payload || {};\nvar modbus = pl.modbus || msg.modbus || ctrl.modbus;\nconst command = ctrl.command || pl.command || 'stop';\nconst duration = ctrl.duration || pl.duration || 0;\n\nconst deviceId = ctrl.deviceId || pl.deviceId || pl.window_id || pl.device_id || 'unknown';\nconst reqId = msg._requestId || null;\n\n// -- 다중 하우스: 장치 키 --------------------------------\n// 장치 ID 는 하우스 안에서만 유일하므로 (house_0001/fan1, house_0002/fan1)\n// 장치 단위 전역 키는 반드시 houseId 를 포함해야 한다.\nconst houseId = ctrl.houseId || pl.houseId || 'house_0001';\nconst dkey = global.get('dkey') || function (h, dv) { return (h || 'house_0001') + ':' + dv; };\n\nnode.warn('📦 수신 duration=' + duration + ' command=' + command + ' deviceId=' + deviceId);\n\n// === 장치 상태 기록 함수 ===\nfunction saveDeviceState(devId, cmd, cType, msgDuration) {\n    var DK = dkey(houseId, devId);\n    var states = global.get('deviceStates') || {};\n    if (cType === 'bidir') {\n        var positions = global.get('devicePositions') || {};\n        var moves = global.get('movements') || {};\n        if (cmd === 'open' || cmd === 'close') {\n            states[DK] = cmd === 'open' ? 'open' : 'closed';\n            var startPosNow = positions[DK] !== undefined ? positions[DK] : (cmd === 'open' ? 0 : 100);\n            moves[DK] = { startedAt: Date.now(), startPos: startPosNow, command: cmd };\n            global.set('movements', moves);\n            var modbusCfgStart = global.get('modbus_cfg_' + DK);\n            var fullDurStart = modbusCfgStart ? (cmd === 'open' ? modbusCfgStart.openDuration : modbusCfgStart.closeDuration) : 0;\n            var actualDurStart, targetPosStart;\n            if (msgDuration && msgDuration > 0 && fullDurStart > 0 && msgDuration < fullDurStart) {\n                actualDurStart = msgDuration;\n                var deltaPctStart = Math.round(100 * msgDuration / fullDurStart);\n                targetPosStart = cmd === 'open'\n                    ? Math.min(100, startPosNow + deltaPctStart)\n                    : Math.max(0, startPosNow - deltaPctStart);\n                if (targetPosStart >= 95) targetPosStart = 100;\n                if (targetPosStart <= 5) targetPosStart = 0;\n            } else {\n                var remainRatioStart = cmd === 'open' ? (100 - startPosNow) / 100 : startPosNow / 100;\n                actualDurStart = fullDurStart > 0 ? Math.max(1, Math.round(fullDurStart * remainRatioStart)) : 0;\n                targetPosStart = cmd === 'open' ? 100 : 0;\n            }\n            var fidStart = global.get('FARM_ID') || env.get('FARM_ID') || 'farm_0001';\n            node.send([null, {\n                topic: 'smartfarm/' + fidStart + '/device/position',\n                payload: JSON.stringify({\n                    houseId: houseId,\n                    deviceId: devId,\n                    position: startPosNow,\n                    command: cmd,\n                    startPosition: startPosNow,\n                    targetPosition: targetPosStart,\n                    duration: actualDurStart,\n                    startedAt: new Date().toISOString()\n                })\n            }]);\n        } else if (cmd === 'stop') {\n            var move = moves[DK];\n            var modbusCfg = global.get('modbus_cfg_' + DK);\n            var newPos = positions[DK] !== undefined ? positions[DK] : 0;\n            if (move && move.startedAt && modbusCfg) {\n                var elapsed = (Date.now() - move.startedAt) / 1000;\n                var fullDur = move.command === 'open' ? modbusCfg.openDuration : modbusCfg.closeDuration;\n                if (fullDur > 0) {\n                    var deltaPctStop = Math.round(100 * Math.min(elapsed, fullDur) / fullDur);\n                    if (move.command === 'open') {\n                        newPos = Math.min(100, move.startPos + deltaPctStop);\n                    } else {\n                        newPos = Math.max(0, move.startPos - deltaPctStop);\n                    }\n                    if (newPos <= 5) newPos = 0;\n                    if (newPos >= 95) newPos = 100;\n                    positions[DK] = newPos;\n                    global.set('devicePositions', positions);\n                    node.warn('📍 Duration 위치 계산: ' + devId + ' ' + move.startPos + '% → ' + newPos + '% (' + elapsed.toFixed(1) + 's / ' + fullDur + 's)');\n                }\n            }\n            if (newPos === 100) states[DK] = 'open';\n            else if (newPos === 0) states[DK] = 'closed';\n            else states[DK] = 'idle';\n            delete moves[DK];\n            global.set('movements', moves);\n            var fid = global.get('FARM_ID') || env.get('FARM_ID') || 'farm_0001';\n            node.send([null, {\n                topic: 'smartfarm/' + fid + '/device/position',\n                payload: JSON.stringify({ houseId: houseId, deviceId: devId, position: newPos, command: 'stop' })\n            }]);\n        }\n    } else {\n        if (cmd === 'on' || cmd === 'open') states[DK] = 'on';\n        else states[DK] = 'off';\n    }\n    global.set('deviceStates', states);\n}\n\n// === MQTT 위치 보고 함수 ===\nfunction reportPosition(devId, pos) {\n    var farmId = global.get('FARM_ID') || env.get('FARM_ID') || 'farm_0001';\n    node.send([null, {\n        topic: 'smartfarm/' + farmId + '/device/position',\n        payload: JSON.stringify({ houseId: houseId, deviceId: devId, position: pos, command: 'stop' })\n    }]);\n    node.warn('📍 MQTT 위치 보고: ' + farmId + '/' + houseId + '/' + devId + ' → ' + pos + '%');\n}\n\n// === duration 자동 정지 함수 (Waveshare FC15) ===\nfunction scheduleAutoStop(devId, uId, addr, dur, cmd) {\n    if (dur <= 0) return;\n    var DK2 = dkey(houseId, devId);\n    var timerKey = 'autoStop_' + DK2;\n    var existing = global.get(timerKey);\n    if (existing) clearTimeout(existing);\n\n    var timer = setTimeout(function() {\n        // Waveshare FC15 — bidir 두 coil 한 번에 OFF\n        var stopMsg = RED.util.cloneMessage(msg);\n        stopMsg.payload = { fc: 15, unitid: uId, address: addr, quantity: 2, value: [false, false] };\n        global.set('_modbusLastWriteAt', Date.now());   // ★ MUTEX (자동정지)\n        node.send([stopMsg, null]);\n        global.set(timerKey, null);\n\n        // 위치 갱신 — 부분 동작 vs 한계까지 구분\n        var positions = global.get('devicePositions') || {};\n        var moves = global.get('movements') || {};\n        var move = moves[DK2];\n        var modbusForCalc = global.get('modbus_cfg_' + DK2);\n        var newPos;\n        if (modbusForCalc && (cmd === 'open' || cmd === 'close')) {\n            var fullDurCalc = cmd === 'open' ? (modbusForCalc.openDuration || 0) : (modbusForCalc.closeDuration || 0);\n            if (fullDurCalc > 0 && dur > 0 && dur < fullDurCalc) {\n                var startPosCalc = (move && typeof move.startPos === 'number') ? move.startPos : (cmd === 'open' ? 0 : 100);\n                var deltaPctCalc = Math.round(100 * dur / fullDurCalc);\n                if (cmd === 'open') newPos = Math.min(100, startPosCalc + deltaPctCalc);\n                else newPos = Math.max(0, startPosCalc - deltaPctCalc);\n                if (newPos >= 95) newPos = 100;\n                if (newPos <= 5) newPos = 0;\n            } else {\n                newPos = (cmd === 'open') ? 100 : 0;\n            }\n        } else {\n            newPos = (cmd === 'open') ? 100 : 0;\n        }\n        positions[DK2] = newPos;\n        global.set('devicePositions', positions);\n        delete moves[DK2];\n        global.set('movements', moves);\n        saveDeviceState(devId, 'stop', 'bidir');\n        reportPosition(devId, positions[DK2]);\n        node.warn('⏱️ 자동 정지: ' + DK2 + ' (' + dur + '초) → 위치: ' + positions[DK2] + '%');\n        node.status({ fill: 'grey', shape: 'ring', text: '자동 정지: ' + devId + ' ' + positions[DK2] + '%' });\n    }, dur * 1000);\n\n    global.set(timerKey, timer);\n    node.warn('⏱️ 자동 정지 예약: ' + devId + ' → ' + dur + '초 후');\n}\n\n// === Modbus 설정 캐시 ===\nif (modbus) {\n    global.set('modbus_cfg_' + dkey(houseId, deviceId), modbus);\n} else {\n    modbus = global.get('modbus_cfg_' + dkey(houseId, deviceId));\n    if (modbus) {\n        node.warn('[Modbus] ' + deviceId + ': 캐시에서 modbus 설정 로드');\n    }\n}\n\nflow.set('lastControl', { deviceId: deviceId, command: command, houseId: houseId });\n\nif (!modbus || modbus.address === null || modbus.address === undefined) {\n    node.warn('[Modbus] ' + deviceId + ': modbus 설정 없음 — 무시');\n    node.status({ fill: 'yellow', shape: 'ring', text: deviceId + ': modbus 미설정' });\n    return null;\n}\n\n// unitId default 2 (Waveshare) — 미설정 시 경고 후 default 적용\nif (!modbus.unitId) {\n    node.warn('⚠️ [Modbus] ' + deviceId + ': unitId 미설정 — Waveshare default uid:2 적용');\n}\nconst unitId = modbus.unitId || 2;\nconst controlType = modbus.controlType || 'single';\nconst address = modbus.address;\nconst address2 = modbus.address2;\n\nnode.warn('[Modbus] waveshare uid:' + unitId + ' ' + deviceId + ' ' + command + ' (' + controlType + ') duration=' + duration);\n\n// stop 명령 시 기존 자동 정지 타이머 취소\nif (command === 'stop') {\n    var timerKey = 'autoStop_' + dkey(houseId, deviceId);\n    var existing = global.get(timerKey);\n    if (existing) {\n        clearTimeout(existing);\n        global.set(timerKey, null);\n        node.warn('⏱️ 자동 정지 취소: ' + deviceId + ' (수동 정지)');\n    }\n}\n\n// Waveshare FC15 — bidir 2채널 또는 single 1채널\nif (controlType === 'bidir') {\n    if (command === 'open') {\n        msg.payload = { fc: 15, unitid: unitId, address: address, quantity: 2, value: [true, false] };\n        node.status({ fill: 'green', shape: 'dot', text: 'FC15 열기: uid' + unitId + ' ch' + address });\n    } else if (command === 'close') {\n        msg.payload = { fc: 15, unitid: unitId, address: address, quantity: 2, value: [false, true] };\n        node.status({ fill: 'green', shape: 'dot', text: 'FC15 닫기: uid' + unitId + ' ch' + address2 });\n    } else {\n        msg.payload = { fc: 15, unitid: unitId, address: address, quantity: 2, value: [false, false] };\n        node.status({ fill: 'grey', shape: 'dot', text: 'FC15 정지: ALL OFF' });\n    }\n} else {\n    var on = (command === 'on' || command === 'open');\n    msg.payload = { fc: 15, unitid: unitId, address: address, quantity: 1, value: [on] };\n    node.status({ fill: 'green', shape: 'dot', text: 'FC15 uid' + unitId + ' ch' + address + '=' + (on ? 'ON' : 'OFF') });\n}\nglobal.set('_pendingModbus', { requestId: reqId, isLastWrite: true });\nsaveDeviceState(deviceId, command, controlType, duration);\nif (controlType === 'bidir' && (command === 'open' || command === 'close')) {\n    scheduleAutoStop(deviceId, unitId, address, duration, command);\n}\nglobal.set('_modbusLastWriteAt', Date.now());   // ★ MUTEX\nreturn [msg, null];\n",
-        "outputs": 2,
+        "func": "// ============================================================\n// \"제어 실행 (릴레이)\" (execute_control) — KS X 3267 분기 추가본 (2026-08-30 P3)\n// 위치: NR 에디터 \"AWS IoT 제어 수신\" 탭 → \"제어 실행 (릴레이)\" 노드\n// 적용: 코드 전체 교체 + **출력 개수 2 → 3** + 3번 출력을 새 link out(\"→ KS3267 명령\")에 연결\n// 변경: (1) modbus.protocol==='ks3267' 이면 3번 출력으로 (vendor 경로 무수정)\n//       (2) 모든 return/node.send 를 3-슬롯으로 (1·2번 출력 동작 동일)\n// ============================================================\n// Modbus 릴레이 제어 — Waveshare FC15 (8CH coil) only\n// 출력 1: Modbus Flex Write\n// 출력 2: MQTT out (장치 위치 보고)\n//\n// ★ 2026-06-03 근본 단순화 + MUTEX 패치\n//   - eletechsup 분기 제거 — 메모리: 2026-05-08 HW 제거됨 (MEMORY.md \"Modbus 릴레이 제어\")\n//   - default unitId 1→2 (Waveshare default, 옛 unitId 하드코딩 사고 패턴 제거)\n//   - write 발사 직전 _modbusLastWriteAt 갱신 → \"제어 후 상태 발행\"이 SAFE_GAP_MS(500ms)\n//     후 read 발사 → RS-485 single bus 의 write-read race 차단\nconst ctrl = msg.control || {};\nconst pl = msg.payload || {};\nvar modbus = pl.modbus || msg.modbus || ctrl.modbus;\nconst command = ctrl.command || pl.command || 'stop';\nconst duration = ctrl.duration || pl.duration || 0;\n\nconst deviceId = ctrl.deviceId || pl.deviceId || pl.window_id || pl.device_id || 'unknown';\nconst reqId = msg._requestId || null;\n\n// -- 다중 하우스: 장치 키 --------------------------------\n// 장치 ID 는 하우스 안에서만 유일하므로 (house_0001/fan1, house_0002/fan1)\n// 장치 단위 전역 키는 반드시 houseId 를 포함해야 한다.\nconst houseId = ctrl.houseId || pl.houseId || 'house_0001';\nconst dkey = global.get('dkey') || function (h, dv) { return (h || 'house_0001') + ':' + dv; };\n\nnode.warn('📦 수신 duration=' + duration + ' command=' + command + ' deviceId=' + deviceId);\n\n// === 장치 상태 기록 함수 ===\nfunction saveDeviceState(devId, cmd, cType, msgDuration) {\n    var DK = dkey(houseId, devId);\n    var states = global.get('deviceStates') || {};\n    if (cType === 'bidir') {\n        var positions = global.get('devicePositions') || {};\n        var moves = global.get('movements') || {};\n        if (cmd === 'open' || cmd === 'close') {\n            states[DK] = cmd === 'open' ? 'open' : 'closed';\n            var startPosNow = positions[DK] !== undefined ? positions[DK] : (cmd === 'open' ? 0 : 100);\n            moves[DK] = { startedAt: Date.now(), startPos: startPosNow, command: cmd };\n            global.set('movements', moves);\n            var modbusCfgStart = global.get('modbus_cfg_' + DK);\n            var fullDurStart = modbusCfgStart ? (cmd === 'open' ? modbusCfgStart.openDuration : modbusCfgStart.closeDuration) : 0;\n            var actualDurStart, targetPosStart;\n            if (msgDuration && msgDuration > 0 && fullDurStart > 0 && msgDuration < fullDurStart) {\n                actualDurStart = msgDuration;\n                var deltaPctStart = Math.round(100 * msgDuration / fullDurStart);\n                targetPosStart = cmd === 'open'\n                    ? Math.min(100, startPosNow + deltaPctStart)\n                    : Math.max(0, startPosNow - deltaPctStart);\n                if (targetPosStart >= 95) targetPosStart = 100;\n                if (targetPosStart <= 5) targetPosStart = 0;\n            } else {\n                var remainRatioStart = cmd === 'open' ? (100 - startPosNow) / 100 : startPosNow / 100;\n                actualDurStart = fullDurStart > 0 ? Math.max(1, Math.round(fullDurStart * remainRatioStart)) : 0;\n                targetPosStart = cmd === 'open' ? 100 : 0;\n            }\n            var fidStart = global.get('FARM_ID') || env.get('FARM_ID') || 'farm_0001';\n            node.send([null, {\n                topic: 'smartfarm/' + fidStart + '/device/position',\n                payload: JSON.stringify({\n                    houseId: houseId,\n                    deviceId: devId,\n                    position: startPosNow,\n                    command: cmd,\n                    startPosition: startPosNow,\n                    targetPosition: targetPosStart,\n                    duration: actualDurStart,\n                    startedAt: new Date().toISOString()\n                })\n            }, null]);\n        } else if (cmd === 'stop') {\n            var move = moves[DK];\n            var modbusCfg = global.get('modbus_cfg_' + DK);\n            var newPos = positions[DK] !== undefined ? positions[DK] : 0;\n            if (move && move.startedAt && modbusCfg) {\n                var elapsed = (Date.now() - move.startedAt) / 1000;\n                var fullDur = move.command === 'open' ? modbusCfg.openDuration : modbusCfg.closeDuration;\n                if (fullDur > 0) {\n                    var deltaPctStop = Math.round(100 * Math.min(elapsed, fullDur) / fullDur);\n                    if (move.command === 'open') {\n                        newPos = Math.min(100, move.startPos + deltaPctStop);\n                    } else {\n                        newPos = Math.max(0, move.startPos - deltaPctStop);\n                    }\n                    if (newPos <= 5) newPos = 0;\n                    if (newPos >= 95) newPos = 100;\n                    positions[DK] = newPos;\n                    global.set('devicePositions', positions);\n                    node.warn('📍 Duration 위치 계산: ' + devId + ' ' + move.startPos + '% → ' + newPos + '% (' + elapsed.toFixed(1) + 's / ' + fullDur + 's)');\n                }\n            }\n            if (newPos === 100) states[DK] = 'open';\n            else if (newPos === 0) states[DK] = 'closed';\n            else states[DK] = 'idle';\n            delete moves[DK];\n            global.set('movements', moves);\n            var fid = global.get('FARM_ID') || env.get('FARM_ID') || 'farm_0001';\n            node.send([null, {\n                topic: 'smartfarm/' + fid + '/device/position',\n                payload: JSON.stringify({ houseId: houseId, deviceId: devId, position: newPos, command: 'stop' })\n            }, null]);\n        }\n    } else {\n        if (cmd === 'on' || cmd === 'open') states[DK] = 'on';\n        else states[DK] = 'off';\n    }\n    global.set('deviceStates', states);\n}\n\n// === MQTT 위치 보고 함수 ===\nfunction reportPosition(devId, pos) {\n    var farmId = global.get('FARM_ID') || env.get('FARM_ID') || 'farm_0001';\n    node.send([null, {\n        topic: 'smartfarm/' + farmId + '/device/position',\n        payload: JSON.stringify({ houseId: houseId, deviceId: devId, position: pos, command: 'stop' })\n    }, null]);\n    node.warn('📍 MQTT 위치 보고: ' + farmId + '/' + houseId + '/' + devId + ' → ' + pos + '%');\n}\n\n// === duration 자동 정지 함수 (Waveshare FC15) ===\nfunction scheduleAutoStop(devId, uId, addr, dur, cmd) {\n    if (dur <= 0) return;\n    var DK2 = dkey(houseId, devId);\n    var timerKey = 'autoStop_' + DK2;\n    var existing = global.get(timerKey);\n    if (existing) clearTimeout(existing);\n\n    var timer = setTimeout(function() {\n        // Waveshare FC15 — bidir 두 coil 한 번에 OFF\n        var stopMsg = RED.util.cloneMessage(msg);\n        stopMsg.payload = { fc: 15, unitid: uId, address: addr, quantity: 2, value: [false, false] };\n        global.set('_modbusLastWriteAt', Date.now());   // ★ MUTEX (자동정지)\n        node.send([stopMsg, null, null]);\n        global.set(timerKey, null);\n\n        // 위치 갱신 — 부분 동작 vs 한계까지 구분\n        var positions = global.get('devicePositions') || {};\n        var moves = global.get('movements') || {};\n        var move = moves[DK2];\n        var modbusForCalc = global.get('modbus_cfg_' + DK2);\n        var newPos;\n        if (modbusForCalc && (cmd === 'open' || cmd === 'close')) {\n            var fullDurCalc = cmd === 'open' ? (modbusForCalc.openDuration || 0) : (modbusForCalc.closeDuration || 0);\n            if (fullDurCalc > 0 && dur > 0 && dur < fullDurCalc) {\n                var startPosCalc = (move && typeof move.startPos === 'number') ? move.startPos : (cmd === 'open' ? 0 : 100);\n                var deltaPctCalc = Math.round(100 * dur / fullDurCalc);\n                if (cmd === 'open') newPos = Math.min(100, startPosCalc + deltaPctCalc);\n                else newPos = Math.max(0, startPosCalc - deltaPctCalc);\n                if (newPos >= 95) newPos = 100;\n                if (newPos <= 5) newPos = 0;\n            } else {\n                newPos = (cmd === 'open') ? 100 : 0;\n            }\n        } else {\n            newPos = (cmd === 'open') ? 100 : 0;\n        }\n        positions[DK2] = newPos;\n        global.set('devicePositions', positions);\n        delete moves[DK2];\n        global.set('movements', moves);\n        saveDeviceState(devId, 'stop', 'bidir');\n        reportPosition(devId, positions[DK2]);\n        node.warn('⏱️ 자동 정지: ' + DK2 + ' (' + dur + '초) → 위치: ' + positions[DK2] + '%');\n        node.status({ fill: 'grey', shape: 'ring', text: '자동 정지: ' + devId + ' ' + positions[DK2] + '%' });\n    }, dur * 1000);\n\n    global.set(timerKey, timer);\n    node.warn('⏱️ 자동 정지 예약: ' + devId + ' → ' + dur + '초 후');\n}\n\n// === Modbus 설정 캐시 ===\nif (modbus) {\n    global.set('modbus_cfg_' + dkey(houseId, deviceId), modbus);\n} else {\n    modbus = global.get('modbus_cfg_' + dkey(houseId, deviceId));\n    if (modbus) {\n        node.warn('[Modbus] ' + deviceId + ': 캐시에서 modbus 설정 로드');\n    }\n}\n\nflow.set('lastControl', { deviceId: deviceId, command: command, houseId: houseId });\n\n// ━━━ KS X 3267 표준 노드 → 별도 탭으로 (P3, 2026-08-30) ━━━\n// houseConfig 의 modbus 프로필이 { protocol:'ks3267', unit, kind, n } 이면 Waveshare 경로를 타지 않고\n// 3번 출력(link out → \"KS X 3267 표준노드\" 탭)으로 넘긴다. vendor 경로는 아래 그대로.\nif (modbus && modbus.protocol === 'ks3267') {\n    msg.control = Object.assign({}, ctrl, { houseId: houseId, deviceId: deviceId, command: command, duration: duration, modbus: modbus });\n    node.status({ fill: 'blue', shape: 'dot', text: 'KS3267 → ' + deviceId + ' ' + command });\n    return [null, null, msg];\n}\n\nif (!modbus || modbus.address === null || modbus.address === undefined) {\n    node.warn('[Modbus] ' + deviceId + ': modbus 설정 없음 — 무시');\n    node.status({ fill: 'yellow', shape: 'ring', text: deviceId + ': modbus 미설정' });\n    return null;\n}\n\n// unitId default 2 (Waveshare) — 미설정 시 경고 후 default 적용\nif (!modbus.unitId) {\n    node.warn('⚠️ [Modbus] ' + deviceId + ': unitId 미설정 — Waveshare default uid:2 적용');\n}\nconst unitId = modbus.unitId || 2;\nconst controlType = modbus.controlType || 'single';\nconst address = modbus.address;\nconst address2 = modbus.address2;\n\nnode.warn('[Modbus] waveshare uid:' + unitId + ' ' + deviceId + ' ' + command + ' (' + controlType + ') duration=' + duration);\n\n// stop 명령 시 기존 자동 정지 타이머 취소\nif (command === 'stop') {\n    var timerKey = 'autoStop_' + dkey(houseId, deviceId);\n    var existing = global.get(timerKey);\n    if (existing) {\n        clearTimeout(existing);\n        global.set(timerKey, null);\n        node.warn('⏱️ 자동 정지 취소: ' + deviceId + ' (수동 정지)');\n    }\n}\n\n// Waveshare FC15 — bidir 2채널 또는 single 1채널\nif (controlType === 'bidir') {\n    if (command === 'open') {\n        msg.payload = { fc: 15, unitid: unitId, address: address, quantity: 2, value: [true, false] };\n        node.status({ fill: 'green', shape: 'dot', text: 'FC15 열기: uid' + unitId + ' ch' + address });\n    } else if (command === 'close') {\n        msg.payload = { fc: 15, unitid: unitId, address: address, quantity: 2, value: [false, true] };\n        node.status({ fill: 'green', shape: 'dot', text: 'FC15 닫기: uid' + unitId + ' ch' + address2 });\n    } else {\n        msg.payload = { fc: 15, unitid: unitId, address: address, quantity: 2, value: [false, false] };\n        node.status({ fill: 'grey', shape: 'dot', text: 'FC15 정지: ALL OFF' });\n    }\n} else {\n    var on = (command === 'on' || command === 'open');\n    msg.payload = { fc: 15, unitid: unitId, address: address, quantity: 1, value: [on] };\n    node.status({ fill: 'green', shape: 'dot', text: 'FC15 uid' + unitId + ' ch' + address + '=' + (on ? 'ON' : 'OFF') });\n}\nglobal.set('_pendingModbus', { requestId: reqId, isLastWrite: true });\nsaveDeviceState(deviceId, command, controlType, duration);\nif (controlType === 'bidir' && (command === 'open' || command === 'close')) {\n    scheduleAutoStop(deviceId, unitId, address, duration, command);\n}\nglobal.set('_modbusLastWriteAt', Date.now());   // ★ MUTEX\nreturn [msg, null, null];\n",
+        "outputs": 3,
         "timeout": "",
         "noerr": 0,
         "initialize": "",
@@ -2538,6 +2546,9 @@
             ],
             [
                 "4046b9805187ba92"
+            ],
+            [
+                "8fce8b8871e4ec22"
             ]
         ]
     },
@@ -2826,6 +2837,19 @@
         ],
         "x": 320,
         "y": 440,
+        "wires": []
+    },
+    {
+        "id": "8fce8b8871e4ec22",
+        "type": "link out",
+        "z": "aws_control_receiver_tab",
+        "name": "KS3267 명령",
+        "mode": "link",
+        "links": [
+            "ks_link_in_cmd"
+        ],
+        "x": 715,
+        "y": 180,
         "wires": []
     },
     {
@@ -3223,7 +3247,7 @@
         "type": "function",
         "z": "collection_offline_flow",
         "name": "③ 센서 데이터 수집",
-        "func": "// ③ 센서 데이터 수집 — 시뮬레이션 격리 버전 (2026-08-29, B4)\n// \"센서 수집\" 탭 → \"③ 센서 데이터 수집\" 함수 노드 코드 전체 교체\n//\n// 바뀐 것:\n//   · Modbus 값이 없을 때 **값을 지어내지 않는다.** 그 센서는 이번 사이클에서 빠지고, 서버의\n//     SensorDataStalled 가 울린다. (farm_0006 이 5월부터 USB-485 없이 시뮬레이션 값을 실측처럼\n//     13만 행 저장한 사고의 근본 조치)\n//   · 시뮬레이션은 SIM_MODE=1 일 때만 (ecosystem 이 /home/lhk/smartfarm/.sim-mode 파일이 있으면 주입).\n//     그때도 payload.quality = 'simulated' 를 붙여 서버가 지표·알림에서 제외한다.\n//   · 버스 장애 감지(2사이클 연속)는 그대로.\n\nconst config = msg.config || global.get('houseConfig');\nconst modbusRaw = msg.payload;\nconst SIM_MODE = String(env.get('SIM_MODE') || '') === '1';\n\nif (!config) {\n    node.error('❌ config 없음, 수집 중단');\n    return null;\n}\n\n// Modbus 실측 데이터 파싱\nlet realData = {};\nif (Array.isArray(modbusRaw) && modbusRaw.length >= 2) {\n    realData.humidity = modbusRaw[0] / 10;\n    let temp = modbusRaw[1] / 10;\n    if (modbusRaw[1] > 0x7FFF) {\n        temp = -(0xFFFF - modbusRaw[1] + 1) / 10;\n    }\n    realData.temperature = temp;\n    node.warn('🌡️ Modbus 실측: ' + realData.temperature + '°C, ' + realData.humidity + '%RH');\n} else if (SIM_MODE) {\n    node.warn('⚠️ Modbus 데이터 없음 — SIM_MODE=1: 시뮬레이션 값 사용 (quality=simulated)');\n} else {\n    node.warn('⚠️ Modbus 데이터 없음 — 시뮬레이션 금지, 실측 없는 센서는 이번 사이클 생략');\n}\n\n// msg.modbusReadings가 있으면 사용 (sensor-modbus-read-flow 경유)\nvar modbusReadings = msg.modbusReadings || realData || {};\n\nlet housesToCollect = [];\nif (config.houses && config.houses.length > 0) {\n    housesToCollect = config.houses.filter(h => h.enabled !== false);\n} else if (config.sensors) {\n    housesToCollect = [{ houseId: config.houseId, sensors: config.sensors }];\n}\nif (housesToCollect.length === 0) {\n    node.error('❌ 활성 하우스 없음');\n    return null;\n}\n\nconst farmId = config.farmId;\nconst deviceId = 'rpi_' + (global.get('farmId') || env.get('FARM_ID') || 'farm_0001').replace('farm_', '');\nconst messages = [];\nlet simulatedCount = 0;\nlet skippedCount = 0;\n\n// 실측이 없을 때 값을 만드는 곳은 여기뿐 — SIM_MODE 에서만 호출된다\nfunction simulate(sensor) {\n    switch (sensor.sensorId) {\n        case 'temp_0001':     return parseFloat((Math.random() * 10 + 20).toFixed(1));\n        case 'humidity_0001': return parseFloat((Math.random() * 20 + 50).toFixed(1));\n        case 'co2_0001':      return parseInt(Math.random() * 200 + 400);\n        default:\n            if (sensor.type === 'number') {\n                const min = sensor.min !== null ? sensor.min : 0;\n                const max = sensor.max !== null ? sensor.max : 100;\n                return parseFloat((Math.random() * (max - min) + min).toFixed(sensor.precision || 1));\n            }\n            if (sensor.type === 'boolean') return Math.random() > 0.5;\n            return 'OK';\n    }\n}\n\nfor (const house of housesToCollect) {\n    const sensors = house.sensors || [];\n    const houseId = house.houseId;\n    const enabledSensors = sensors.filter(s => s.enabled);\n    if (enabledSensors.length === 0) continue;\n\n    const sensorData = {};\n    let houseSimulated = false;\n    for (const sensor of enabledSensors) {\n        try {\n            let value;\n            if (modbusReadings[sensor.sensorId] !== undefined) {\n                value = modbusReadings[sensor.sensorId];                       // 1) 모듈별 읽기\n            } else if (sensor.sensorId === 'temp_0001' && realData.temperature !== undefined) {\n                value = realData.temperature;                                  // 2) 기본 온습도 모듈\n            } else if (sensor.sensorId === 'humidity_0001' && realData.humidity !== undefined) {\n                value = realData.humidity;\n            } else if (SIM_MODE) {\n                value = simulate(sensor);                                      // 3) 시뮬레이션 (명시적으로 켰을 때만)\n                houseSimulated = true;\n                simulatedCount++;\n            } else {\n                skippedCount++;                                                // 4) 실측 없음 → 생략 (지어내지 않음)\n                continue;\n            }\n            sensorData[sensor.sensorId] = value;\n        } catch (e) {\n            node.error('센서 읽기 실패: ' + sensor.sensorId + ' - ' + e.message);\n        }\n    }\n    if (Object.keys(sensorData).length === 0) continue;\n\n    messages.push({\n        payload: {\n            farmId: farmId,\n            houseId: houseId,\n            data: sensorData,\n            timestamp: new Date().toISOString(),\n            quality: houseSimulated ? 'simulated' : 'measured',\n            deviceInfo: {\n                deviceId: deviceId,\n                ip: global.get('systemIp') || null,\n                version: '2.1.0-offline'\n            }\n        }\n    });\n}\n\nconst totalSensors = messages.reduce((sum, m) => sum + Object.keys(m.payload.data).length, 0);\nif (messages.length === 0) {\n    node.warn('⚠️ 전송할 실측 없음 (생략 ' + skippedCount + '개) — 서버 SensorDataStalled 로 감지된다');\n    node.status({ fill: 'red', shape: 'ring', text: '실측 없음 (' + skippedCount + ' 생략)' });\n} else {\n    node.warn('📡 ' + messages.length + '개 하우스, 총 ' + totalSensors + '개 센서 수집' +\n        (simulatedCount ? ' (시뮬레이션 ' + simulatedCount + ')' : '') + (skippedCount ? ' (생략 ' + skippedCount + ')' : ''));\n    node.status({ fill: simulatedCount ? 'yellow' : 'green', shape: 'dot',\n        text: messages.length + '개 하우스 ' + totalSensors + '개 센서' + (simulatedCount ? ' SIM' : '') });\n}\n\n// ━━━ Modbus 버스 전체 장애 감지 (기존 그대로) ━━━\nvar busAlarmMsg = null;\nvar totalModbusSensors = 0;\nvar totalModbusFailed = 0;\nfor (const house of housesToCollect) {\n    const sensors = (house.sensors || []).filter(s => s.enabled);\n    for (const sensor of sensors) {\n        if (sensor.modbus && sensor.modbus.unitId != null) {\n            totalModbusSensors++;\n            if (modbusReadings[sensor.sensorId] === undefined) totalModbusFailed++;\n        }\n    }\n}\nif (totalModbusSensors >= 2 && totalModbusFailed === totalModbusSensors) {\n    var busFailCount = (flow.get('busFailCount') || 0) + 1;\n    flow.set('busFailCount', busFailCount);\n    node.warn('🔌 Modbus 버스 전체 실패 (' + busFailCount + '사이클 연속)');\n    if (busFailCount >= 2) {\n        var lastBusAlarm = flow.get('lastBusAlarmTime') || 0;\n        var now = Date.now();\n        if (now - lastBusAlarm > 60 * 60 * 1000) {\n            flow.set('lastBusAlarmTime', now);\n            busAlarmMsg = {\n                payload: {\n                    alarm_type: 'MODBUS_BUS_FAILURE',\n                    severity: 'CRITICAL',\n                    message: 'Modbus RS-485 버스 전체 통신 장애 — ' + totalModbusSensors + '개 센서 모두 응답 없음 (' + busFailCount + '사이클 연속)',\n                    cooldownMinutes: 60,\n                    metadata: { totalModbusSensors: totalModbusSensors, consecutiveFailCycles: busFailCount }\n                },\n                headers: { 'content-type': 'application/json' }\n            };\n            node.warn('🚨 Modbus 버스 장애 알림 전송!');\n        }\n    }\n} else {\n    if (flow.get('busFailCount') > 0) node.warn('✅ Modbus 버스 정상 복구');\n    flow.set('busFailCount', 0);\n}\n\nreturn [messages.length ? messages : null, busAlarmMsg];\n",
+        "func": "// ============================================================\n// \"③ 센서 데이터 수집\" (fn_collect_sensors) — KS X 3267 센서 합류본 (2026-08-30 P3)\n// 위치: \"센서 수집\" 탭 → \"③ 센서 데이터 수집\". 코드 전체 교체 (출력·배선 변경 없음)\n// 변경: modbusReadings 에 global.ks3267Readings(3분 TTL) 를 합류 — 표준 센서가 기존 파이프라인\n//       (SQLite 오프라인 저장·서버 전송·자동화 평가)을 그대로 탄다.\n// ============================================================\n// ③ 센서 데이터 수집 — 시뮬레이션 격리 버전 (2026-08-29, B4)\n// \"센서 수집\" 탭 → \"③ 센서 데이터 수집\" 함수 노드 코드 전체 교체\n//\n// 바뀐 것:\n//   · Modbus 값이 없을 때 **값을 지어내지 않는다.** 그 센서는 이번 사이클에서 빠지고, 서버의\n//     SensorDataStalled 가 울린다. (farm_0006 이 5월부터 USB-485 없이 시뮬레이션 값을 실측처럼\n//     13만 행 저장한 사고의 근본 조치)\n//   · 시뮬레이션은 SIM_MODE=1 일 때만 (ecosystem 이 /home/lhk/smartfarm/.sim-mode 파일이 있으면 주입).\n//     그때도 payload.quality = 'simulated' 를 붙여 서버가 지표·알림에서 제외한다.\n//   · 버스 장애 감지(2사이클 연속)는 그대로.\n\nconst config = msg.config || global.get('houseConfig');\nconst modbusRaw = msg.payload;\nconst SIM_MODE = String(env.get('SIM_MODE') || '') === '1';\n\nif (!config) {\n    node.error('❌ config 없음, 수집 중단');\n    return null;\n}\n\n// Modbus 실측 데이터 파싱\nlet realData = {};\nif (Array.isArray(modbusRaw) && modbusRaw.length >= 2) {\n    realData.humidity = modbusRaw[0] / 10;\n    let temp = modbusRaw[1] / 10;\n    if (modbusRaw[1] > 0x7FFF) {\n        temp = -(0xFFFF - modbusRaw[1] + 1) / 10;\n    }\n    realData.temperature = temp;\n    node.warn('🌡️ Modbus 실측: ' + realData.temperature + '°C, ' + realData.humidity + '%RH');\n} else if (SIM_MODE) {\n    node.warn('⚠️ Modbus 데이터 없음 — SIM_MODE=1: 시뮬레이션 값 사용 (quality=simulated)');\n} else {\n    node.warn('⚠️ Modbus 데이터 없음 — 시뮬레이션 금지, 실측 없는 센서는 이번 사이클 생략');\n}\n\n// msg.modbusReadings가 있으면 사용 (sensor-modbus-read-flow 경유)\n// KS X 3267 표준 센서 노드 값 합류 (P3, 2026-08-30) — ks3267d 데몬 → fn_ks_status 가 3분 이내에 넣은 값만.\n// 낡은 값(데몬 중단)은 버린다 — 값을 지어내지 않는 원칙과 같은 맥락.\nvar ksR = global.get('ks3267Readings');\nvar ksVals = (ksR && ksR.values && (Date.now() - (ksR.t || 0)) < 180000) ? ksR.values : {};\nvar modbusReadings = Object.assign({}, ksVals, msg.modbusReadings || realData || {});\n\nlet housesToCollect = [];\nif (config.houses && config.houses.length > 0) {\n    housesToCollect = config.houses.filter(h => h.enabled !== false);\n} else if (config.sensors) {\n    housesToCollect = [{ houseId: config.houseId, sensors: config.sensors }];\n}\nif (housesToCollect.length === 0) {\n    node.error('❌ 활성 하우스 없음');\n    return null;\n}\n\nconst farmId = config.farmId;\nconst deviceId = 'rpi_' + (global.get('farmId') || env.get('FARM_ID') || 'farm_0001').replace('farm_', '');\nconst messages = [];\nlet simulatedCount = 0;\nlet skippedCount = 0;\n\n// 실측이 없을 때 값을 만드는 곳은 여기뿐 — SIM_MODE 에서만 호출된다\nfunction simulate(sensor) {\n    switch (sensor.sensorId) {\n        case 'temp_0001':     return parseFloat((Math.random() * 10 + 20).toFixed(1));\n        case 'humidity_0001': return parseFloat((Math.random() * 20 + 50).toFixed(1));\n        case 'co2_0001':      return parseInt(Math.random() * 200 + 400);\n        default:\n            if (sensor.type === 'number') {\n                const min = sensor.min !== null ? sensor.min : 0;\n                const max = sensor.max !== null ? sensor.max : 100;\n                return parseFloat((Math.random() * (max - min) + min).toFixed(sensor.precision || 1));\n            }\n            if (sensor.type === 'boolean') return Math.random() > 0.5;\n            return 'OK';\n    }\n}\n\nfor (const house of housesToCollect) {\n    const sensors = house.sensors || [];\n    const houseId = house.houseId;\n    const enabledSensors = sensors.filter(s => s.enabled);\n    if (enabledSensors.length === 0) continue;\n\n    const sensorData = {};\n    let houseSimulated = false;\n    for (const sensor of enabledSensors) {\n        try {\n            let value;\n            if (modbusReadings[sensor.sensorId] !== undefined) {\n                value = modbusReadings[sensor.sensorId];                       // 1) 모듈별 읽기\n            } else if (sensor.sensorId === 'temp_0001' && realData.temperature !== undefined) {\n                value = realData.temperature;                                  // 2) 기본 온습도 모듈\n            } else if (sensor.sensorId === 'humidity_0001' && realData.humidity !== undefined) {\n                value = realData.humidity;\n            } else if (SIM_MODE) {\n                value = simulate(sensor);                                      // 3) 시뮬레이션 (명시적으로 켰을 때만)\n                houseSimulated = true;\n                simulatedCount++;\n            } else {\n                skippedCount++;                                                // 4) 실측 없음 → 생략 (지어내지 않음)\n                continue;\n            }\n            sensorData[sensor.sensorId] = value;\n        } catch (e) {\n            node.error('센서 읽기 실패: ' + sensor.sensorId + ' - ' + e.message);\n        }\n    }\n    if (Object.keys(sensorData).length === 0) continue;\n\n    messages.push({\n        payload: {\n            farmId: farmId,\n            houseId: houseId,\n            data: sensorData,\n            timestamp: new Date().toISOString(),\n            quality: houseSimulated ? 'simulated' : 'measured',\n            deviceInfo: {\n                deviceId: deviceId,\n                ip: global.get('systemIp') || null,\n                version: '2.1.0-offline'\n            }\n        }\n    });\n}\n\nconst totalSensors = messages.reduce((sum, m) => sum + Object.keys(m.payload.data).length, 0);\nif (messages.length === 0) {\n    node.warn('⚠️ 전송할 실측 없음 (생략 ' + skippedCount + '개) — 서버 SensorDataStalled 로 감지된다');\n    node.status({ fill: 'red', shape: 'ring', text: '실측 없음 (' + skippedCount + ' 생략)' });\n} else {\n    node.warn('📡 ' + messages.length + '개 하우스, 총 ' + totalSensors + '개 센서 수집' +\n        (simulatedCount ? ' (시뮬레이션 ' + simulatedCount + ')' : '') + (skippedCount ? ' (생략 ' + skippedCount + ')' : ''));\n    node.status({ fill: simulatedCount ? 'yellow' : 'green', shape: 'dot',\n        text: messages.length + '개 하우스 ' + totalSensors + '개 센서' + (simulatedCount ? ' SIM' : '') });\n}\n\n// ━━━ Modbus 버스 전체 장애 감지 (기존 그대로) ━━━\nvar busAlarmMsg = null;\nvar totalModbusSensors = 0;\nvar totalModbusFailed = 0;\nfor (const house of housesToCollect) {\n    const sensors = (house.sensors || []).filter(s => s.enabled);\n    for (const sensor of sensors) {\n        if (sensor.modbus && sensor.modbus.unitId != null) {\n            totalModbusSensors++;\n            if (modbusReadings[sensor.sensorId] === undefined) totalModbusFailed++;\n        }\n    }\n}\nif (totalModbusSensors >= 2 && totalModbusFailed === totalModbusSensors) {\n    var busFailCount = (flow.get('busFailCount') || 0) + 1;\n    flow.set('busFailCount', busFailCount);\n    node.warn('🔌 Modbus 버스 전체 실패 (' + busFailCount + '사이클 연속)');\n    if (busFailCount >= 2) {\n        var lastBusAlarm = flow.get('lastBusAlarmTime') || 0;\n        var now = Date.now();\n        if (now - lastBusAlarm > 60 * 60 * 1000) {\n            flow.set('lastBusAlarmTime', now);\n            busAlarmMsg = {\n                payload: {\n                    alarm_type: 'MODBUS_BUS_FAILURE',\n                    severity: 'CRITICAL',\n                    message: 'Modbus RS-485 버스 전체 통신 장애 — ' + totalModbusSensors + '개 센서 모두 응답 없음 (' + busFailCount + '사이클 연속)',\n                    cooldownMinutes: 60,\n                    metadata: { totalModbusSensors: totalModbusSensors, consecutiveFailCycles: busFailCount }\n                },\n                headers: { 'content-type': 'application/json' }\n            };\n            node.warn('🚨 Modbus 버스 장애 알림 전송!');\n        }\n    }\n} else {\n    if (flow.get('busFailCount') > 0) node.warn('✅ Modbus 버스 정상 복구');\n    flow.set('busFailCount', 0);\n}\n\nreturn [messages.length ? messages : null, busAlarmMsg];\n",
         "outputs": 2,
         "timeout": "",
         "noerr": 0,
@@ -8859,5 +8883,308 @@
                 "19818729870fbe86"
             ]
         ]
+    },
+    {
+        "id": "ks_http_status",
+        "type": "http in",
+        "z": "ks3267_tab",
+        "name": "POST /api/ks3267/status",
+        "url": "/api/ks3267/status",
+        "method": "post",
+        "upload": false,
+        "swaggerDoc": "",
+        "x": 140,
+        "y": 100,
+        "wires": [
+            [
+                "ks_fn_status"
+            ]
+        ]
+    },
+    {
+        "id": "ks_fn_status",
+        "type": "function",
+        "z": "ks3267_tab",
+        "name": "표준 상태 반영",
+        "func": "// ============================================================\n// \"표준 상태 반영\" (fn_ks_status) — ks3267d 데몬이 POST /api/ks3267/status 로 밀어주는 상태를\n// NR 전역에 반영한다. (KS X 3267 표준노드 탭, 2026-08-30 P3)\n//\n// 입력 msg.payload = { source:'ks3267d', unit, state }   (데몬 poll 결과)\n//   state.kind === 'sensor'   → state.sensors[index] = { value, status, status_name }\n//   state.kind === 'actuator' → state.devices[index] = { kind, n, opid, status, status_name, remain }\n//\n// 매핑 근거는 houseConfig:\n//   센서:  house.sensors[].ks3267 = { unit, index }            → 값을 global.ks3267Readings[sensorId] 로\n//   구동기: house.devices[].modbus = { protocol:'ks3267', unit, kind:'switch'|'opener', n }\n//          → deviceStates['house_0001:fan1'] 갱신 (정규키, dkey)\n// 원본 상태는 global.ks3267State[unit] 에 그대로 보관 (진단 UI·남은시간 표시용).\n// ============================================================\nconst body = msg.payload || {};\nconst st = body.state || {};\nconst unit = Number(body.unit);\nif (!unit || !st.kind) {\n    msg.statusCode = 400; msg.payload = { success: false, error: 'unit/state 필요' };\n    return msg;\n}\n\nconst config = global.get('houseConfig') || {};\nconst houses = config.houses || [];\nconst dkey = global.get('dkey') || function (h, dv) { return (h || 'house_0001') + ':' + dv; };\n\n// 원본 보관 (진단·UI)\nconst all = global.get('ks3267State') || {};\nall[unit] = Object.assign({ receivedAt: new Date().toISOString() }, st);\nglobal.set('ks3267State', all);\n\nlet sensorsMapped = 0, devicesMapped = 0;\n\nif (st.kind === 'sensor') {\n    // 센서 → 수집 파이프라인(③)이 읽는 전역. TTL 은 ③ 쪽에서 t 로 판단한다.\n    const cur = global.get('ks3267Readings') || { values: {}, t: 0 };\n    const values = Object.assign({}, cur.values || {});\n    for (const house of houses) {\n        for (const s of (house.sensors || [])) {\n            const k = s.ks3267;\n            if (!k || Number(k.unit) !== unit) continue;\n            const r = (st.sensors || {})[String(k.index)] || (st.sensors || {})[k.index];\n            if (!r || typeof r.value !== 'number') continue;\n            if (r.status >= 100) {\n                // NEED_REPLACE(101)/CALIBRATION(102)/CHECK(103): 값은 있으나 신뢰 낮음 — 기록은 남기고 값은 넣지 않는다\n                node.warn('⚠️ 표준 센서 ' + s.sensorId + ' 상태 ' + (r.status_name || r.status) + ' — 값 생략');\n                continue;\n            }\n            values[s.sensorId] = r.value;\n            sensorsMapped++;\n        }\n    }\n    global.set('ks3267Readings', { values: values, t: Date.now(), unit: unit });\n} else if (st.kind === 'actuator') {\n    const states = global.get('deviceStates') || {};\n    for (const house of houses) {\n        for (const d of (house.devices || [])) {\n            const m = d.modbus;\n            if (!m || m.protocol !== 'ks3267' || Number(m.unit) !== unit) continue;\n            const dev = Object.values(st.devices || {}).find(x => x.kind === m.kind && Number(x.n) === Number(m.n));\n            if (!dev) continue;\n            const DK = dkey(house.houseId, d.deviceId);\n            const code = Number(dev.status);\n            if (m.kind === 'switch') {\n                states[DK] = (code === 201) ? 'on' : (code === 0 ? 'off' : states[DK]);\n            } else {\n                // 개폐형: 301 여는 중 → open, 302 닫는 중 → closed, 0 READY 는 명령 경로가 정한 상태 유지\n                if (code === 301) states[DK] = 'open';\n                else if (code === 302) states[DK] = 'closed';\n            }\n            devicesMapped++;\n        }\n    }\n    global.set('deviceStates', states);\n}\n\nnode.status({ fill: 'green', shape: 'dot', text: 'unit ' + unit + ' ' + st.kind + ' (센서 ' + sensorsMapped + ' / 장치 ' + devicesMapped + ')' });\nmsg.statusCode = 200;\nmsg.payload = { success: true, unit: unit, kind: st.kind, sensorsMapped: sensorsMapped, devicesMapped: devicesMapped };\nreturn msg;\n",
+        "outputs": 1,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 380,
+        "y": 100,
+        "wires": [
+            [
+                "ks_http_status_res"
+            ]
+        ]
+    },
+    {
+        "id": "ks_http_status_res",
+        "type": "http response",
+        "z": "ks3267_tab",
+        "name": "",
+        "statusCode": "",
+        "headers": {},
+        "x": 600,
+        "y": 100,
+        "wires": []
+    },
+    {
+        "id": "ks_link_in_cmd",
+        "type": "link in",
+        "z": "ks3267_tab",
+        "name": "← execute_control 제어 (ks3267)",
+        "links": [
+            "8fce8b8871e4ec22"
+        ],
+        "x": 120,
+        "y": 220,
+        "wires": [
+            [
+                "ks_fn_command"
+            ]
+        ]
+    },
+    {
+        "id": "ks_fn_command",
+        "type": "function",
+        "z": "ks3267_tab",
+        "name": "표준 명령 조립",
+        "func": "// ============================================================\n// \"표준 명령 조립\" (fn_ks_command) — execute_control 의 3번 출력(link)으로 넘어온 제어를\n// ks3267d 데몬 REST 명령으로 바꾼다. (KS X 3267 표준노드 탭, 2026-08-30 P3)\n//\n// 입력 msg.control = { houseId, deviceId, command, duration, modbus:{ protocol:'ks3267', unit, kind, n } }\n// 우리 명령 → 표준 명령 (6.3.3 / 6.3.4, 레벨1):\n//   스위치: on → ON(201) / off → OFF(0) / on + duration>0 → TIMED_ON(202, 초)\n//   개폐기: open → OPEN(301) / close → CLOSE(302) / stop → STOP(0)\n//           open + duration>0 → TIMED_OPEN(303) / close + duration>0 → TIMED_CLOSE(304)\n// 레벨2(SET_POSITION 등)는 만들지 않는다 — 데몬도 로컬에서 거부한다 (스코프 선언 일치).\n// ============================================================\nconst ctrl = msg.control || {};\nconst m = ctrl.modbus || {};\nconst cmd = String(ctrl.command || '').toLowerCase();\nconst dur = Number(ctrl.duration || 0);\n\nif (m.protocol !== 'ks3267' || !m.unit || !m.kind || !m.n) {\n    node.error('표준 명령 조립: modbus 프로필 불완전 ' + JSON.stringify(m), msg);\n    return null;\n}\n\nlet op = null;\nif (m.kind === 'switch') {\n    if (cmd === 'on' || cmd === 'open') op = dur > 0 ? 'timed_on' : 'on';\n    else if (cmd === 'off' || cmd === 'close' || cmd === 'stop') op = 'off';\n} else if (m.kind === 'opener') {\n    if (cmd === 'open') op = dur > 0 ? 'timed_open' : 'open';\n    else if (cmd === 'close') op = dur > 0 ? 'timed_close' : 'close';\n    else if (cmd === 'stop') op = 'stop';\n}\nif (!op) {\n    node.error('표준 명령 조립: ' + m.kind + ' 에 ' + cmd + ' 는 대응 명령 없음', msg);\n    return null;\n}\n\nconst api = env.get('KS3267_API') || 'http://127.0.0.1:3002';\nmsg.url = api + '/command';\nmsg.method = 'POST';\nmsg.headers = { 'Content-Type': 'application/json' };\nmsg.payload = { unit: Number(m.unit), kind: m.kind, n: Number(m.n), op: op, seconds: dur > 0 ? Math.round(dur) : 0 };\nmsg.requestTimeout = 5000;\nmsg._ksControl = ctrl;   // 결과 처리에서 사용\n\nnode.status({ fill: 'blue', shape: 'dot', text: ctrl.deviceId + ' → ' + op + (dur > 0 ? ' ' + Math.round(dur) + 's' : '') });\nnode.warn('📤 KS3267 명령: unit ' + m.unit + ' ' + m.kind + m.n + ' ' + op + (dur > 0 ? ' (' + Math.round(dur) + '초)' : '') + ' [' + ctrl.deviceId + ']');\nreturn msg;\n",
+        "outputs": 1,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 340,
+        "y": 220,
+        "wires": [
+            [
+                "ks_http_command"
+            ]
+        ]
+    },
+    {
+        "id": "ks_http_command",
+        "type": "http request",
+        "z": "ks3267_tab",
+        "name": "데몬 /command",
+        "method": "use",
+        "ret": "obj",
+        "paytoqs": "ignore",
+        "url": "",
+        "tls": "",
+        "persist": false,
+        "proxy": "",
+        "insecureHTTPParser": false,
+        "authType": "",
+        "senderr": false,
+        "headers": [],
+        "x": 560,
+        "y": 220,
+        "wires": [
+            [
+                "ks_fn_result"
+            ]
+        ]
+    },
+    {
+        "id": "ks_fn_result",
+        "type": "function",
+        "z": "ks3267_tab",
+        "name": "표준 명령 결과",
+        "func": "// ============================================================\n// \"표준 명령 결과\" (fn_ks_result) — 데몬 응답을 상태·이력에 반영. (KS X 3267 표준노드 탭, P3)\n//\n// 입력: msg.payload = 데몬 /command 응답 { ok, accepted, opid, status, status_name, remain, error?, exception? }\n//       msg._ksControl = 원 제어 정보\n// 출력 1: 제어 이력(서버 POST /internal/control-log) — 성공/거부 모두 기록 (fix ⑧ 과 같은 원칙)\n// 출력 2: (예비) 상태 발행\n// ============================================================\nconst r = (typeof msg.payload === 'object' && msg.payload) || {};\nconst ctrl = msg._ksControl || {};\nconst m = ctrl.modbus || {};\nconst dkey = global.get('dkey') || function (h, dv) { return (h || 'house_0001') + ':' + dv; };\nconst DK = dkey(ctrl.houseId, ctrl.deviceId);\n\nconst ok = !!(r.ok && r.accepted !== false);\nif (ok) {\n    const states = global.get('deviceStates') || {};\n    const c = String(ctrl.command || '').toLowerCase();\n    if (m.kind === 'switch') states[DK] = (c === 'off' || c === 'close' || c === 'stop') ? 'off' : 'on';\n    else states[DK] = c === 'open' ? 'open' : (c === 'close' ? 'closed' : 'idle');\n    global.set('deviceStates', states);\n    node.status({ fill: 'green', shape: 'dot', text: ctrl.deviceId + ' ' + (r.status_name || '') + (r.remain ? ' ' + r.remain + 's' : '') + ' opid ' + r.opid });\n    node.warn('✅ KS3267 ' + ctrl.deviceId + ' ' + ctrl.command + ' → ' + (r.status_name || r.status) + ' (opid ' + r.opid + (r.remain ? ', 남은 ' + r.remain + 's' : '') + ')');\n} else {\n    node.status({ fill: 'red', shape: 'ring', text: ctrl.deviceId + ' 실패: ' + (r.error || msg.statusCode) });\n    node.warn('❌ KS3267 ' + ctrl.deviceId + ' ' + ctrl.command + ' 실패: ' + (r.error || ('HTTP ' + msg.statusCode)) + (r.exception ? ' (예외 0x0' + r.exception + ')' : ''));\n}\n\n// 제어 이력 — 서버 (거부도 기록: \"왜 안 됐지\" 추적)\nconst pcServer = global.get('pcServerUrl') || 'https://api.smartgreen.kr';\nconst logMsg = {\n    method: 'POST',\n    url: pcServer + '/internal/control-log',\n    headers: { 'Content-Type': 'application/json', 'x-api-key': env.get('SENSOR_API_KEY') || global.get('sensorApiKey') || '' },\n    payload: {\n        farmId: global.get('farmId') || env.get('FARM_ID') || 'farm_0001',\n        houseId: ctrl.houseId || 'house_0001',\n        deviceId: ctrl.deviceId,\n        deviceType: ctrl.deviceType || (m.kind === 'opener' ? 'window' : 'relay'),\n        deviceName: ctrl.deviceName || ctrl.deviceId,\n        command: ctrl.command,\n        success: ok,\n        operator: ctrl.operator || 'unknown',\n        reason: ok ? ('KS X 3267 ' + (r.status_name || '') + ' opid ' + r.opid) : ('KS X 3267 실패: ' + (r.error || msg.statusCode)),\n        requestId: ctrl.requestId || null,\n        metadata: { protocol: 'ks3267', unit: m.unit, kind: m.kind, n: m.n, opid: r.opid, status: r.status, remain: r.remain, exception: r.exception || null }\n    }\n};\nreturn [logMsg, null];\n",
+        "outputs": 2,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 780,
+        "y": 220,
+        "wires": [
+            [
+                "ks_http_log"
+            ],
+            []
+        ]
+    },
+    {
+        "id": "ks_http_log",
+        "type": "http request",
+        "z": "ks3267_tab",
+        "name": "서버 제어이력",
+        "method": "use",
+        "ret": "obj",
+        "paytoqs": "ignore",
+        "url": "",
+        "tls": "",
+        "persist": false,
+        "proxy": "",
+        "insecureHTTPParser": false,
+        "authType": "",
+        "senderr": false,
+        "headers": [],
+        "x": 1000,
+        "y": 220,
+        "wires": [
+            [
+                "ks_debug_log"
+            ]
+        ]
+    },
+    {
+        "id": "ks_debug_log",
+        "type": "debug",
+        "z": "ks3267_tab",
+        "name": "이력 결과",
+        "active": false,
+        "tosidebar": true,
+        "console": false,
+        "tostatus": false,
+        "complete": "payload",
+        "targetType": "msg",
+        "statusVal": "",
+        "statusType": "auto",
+        "x": 1200,
+        "y": 220,
+        "wires": []
+    },
+    {
+        "id": "ks_http_proxy",
+        "type": "http in",
+        "z": "ks3267_tab",
+        "name": "GET /api/ks3267/:action",
+        "url": "/api/ks3267/:action",
+        "method": "get",
+        "upload": false,
+        "swaggerDoc": "",
+        "x": 140,
+        "y": 340,
+        "wires": [
+            [
+                "ks_fn_proxy"
+            ]
+        ]
+    },
+    {
+        "id": "ks_fn_proxy",
+        "type": "function",
+        "z": "ks3267_tab",
+        "name": "데몬 프록시",
+        "func": "// ============================================================\n// \"데몬 프록시\" (fn_ks_proxy) — GET /api/ks3267/:action 을 127.0.0.1:3002 데몬으로 넘긴다.\n// (KS X 3267 표준노드 탭, P3). 설정 UI 의 탐색·상태·프레임 조회가 백엔드 → 여기 → 데몬 순으로 온다.\n// httpNodeMiddleware 가 /api/* 인증(키오스크 루프백 또는 농장 키)을 이미 적용한다.\n// 읽기 전용 액션만 — 제어는 정규 경로(execute_control)로만.\n// ============================================================\nconst ALLOWED = { discover: 1, nodes: 1, status: 1, frames: 1, events: 1, health: 1 };\nconst action = String((msg.req && msg.req.params && msg.req.params.action) || '');\nif (!ALLOWED[action]) {\n    msg.statusCode = 400;\n    msg.payload = { success: false, error: '허용되지 않는 액션: ' + action };\n    return [null, msg];   // 출력 2 = 즉시 응답\n}\nconst q = (msg.req && msg.req.query) || {};\nconst qs = Object.keys(q).map(k => encodeURIComponent(k) + '=' + encodeURIComponent(q[k])).join('&');\nconst api = env.get('KS3267_API') || 'http://127.0.0.1:3002';\nmsg.url = api + '/' + action + (qs ? '?' + qs : '');\nmsg.method = 'GET';\nmsg.requestTimeout = 8000;\nmsg._ksAction = action;\nreturn [msg, null];   // 출력 1 = http request 로\n",
+        "outputs": 2,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 360,
+        "y": 340,
+        "wires": [
+            [
+                "ks_http_proxy_req"
+            ],
+            [
+                "ks_http_proxy_res"
+            ]
+        ]
+    },
+    {
+        "id": "ks_http_proxy_req",
+        "type": "http request",
+        "z": "ks3267_tab",
+        "name": "데몬 GET",
+        "method": "use",
+        "ret": "obj",
+        "paytoqs": "ignore",
+        "url": "",
+        "tls": "",
+        "persist": false,
+        "proxy": "",
+        "insecureHTTPParser": false,
+        "authType": "",
+        "senderr": false,
+        "headers": [],
+        "x": 580,
+        "y": 320,
+        "wires": [
+            [
+                "ks_fn_proxy_resp"
+            ]
+        ]
+    },
+    {
+        "id": "ks_fn_proxy_resp",
+        "type": "function",
+        "z": "ks3267_tab",
+        "name": "응답 정리",
+        "func": "// 데몬 응답을 그대로 돌려주되, 연결 실패는 502 로\nif (typeof msg.payload !== 'object' || msg.payload === null) {\n    msg.statusCode = 502;\n    msg.payload = { success: false, error: 'ks3267d 데몬 응답 없음 (pm2 ks3267d 확인)', detail: String(msg.payload).slice(0, 200) };\n} else {\n    msg.statusCode = msg.statusCode || 200;\n}\nreturn msg;",
+        "outputs": 1,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 780,
+        "y": 320,
+        "wires": [
+            [
+                "ks_http_proxy_res"
+            ]
+        ]
+    },
+    {
+        "id": "ks_http_proxy_res",
+        "type": "http response",
+        "z": "ks3267_tab",
+        "name": "",
+        "statusCode": "",
+        "headers": {},
+        "x": 1000,
+        "y": 340,
+        "wires": []
+    },
+    {
+        "id": "ks_catch",
+        "type": "catch",
+        "z": "ks3267_tab",
+        "name": "탭 예외",
+        "scope": null,
+        "uncaught": false,
+        "x": 90,
+        "y": 460,
+        "wires": [
+            [
+                "ks_link_out_gt"
+            ]
+        ]
+    },
+    {
+        "id": "ks_link_out_gt",
+        "type": "link out",
+        "z": "ks3267_tab",
+        "name": "예외 →",
+        "mode": "link",
+        "links": [
+            "gt_link_in"
+        ],
+        "x": 340,
+        "y": 460,
+        "wires": []
+    },
+    {
+        "id": "ks_comment",
+        "type": "comment",
+        "z": "ks3267_tab",
+        "name": "적용 순서 (docs/ksx3267/nodered/README.md)",
+        "info": "1) 이 탭 가져오기 → 2) AWS 제어 수신 탭 execute_control 교체(출력 3) + link out → 이 탭 '← execute_control 제어' 연결\n3) 센서 수집 탭 ③ 교체 → 4) Deploy → 5) pm2 ks3267d --nr-url http://127.0.0.1:1880/api/ks3267/status",
+        "x": 140,
+        "y": 40,
+        "wires": []
     }
 ]

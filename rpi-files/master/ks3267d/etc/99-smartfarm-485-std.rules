@@ -1,0 +1,7 @@
+# KS X 3267 표준 노드 전용 RS485 포트 — 기존 /dev/smartfarm-485 (Waveshare/XY-MD02) 와 분리.
+# 절연형 USB-485 를 권장. 같은 CH340 이면 serial 이 없을 수 있으므로 KERNELS(USB 포트 경로)로 고정한다:
+#   udevadm info -a -n /dev/ttyUSB1 | grep -E 'KERNELS|serial' 로 값 확인 후 아래를 채운다.
+# 예1) 시리얼 번호가 있는 어댑터
+# SUBSYSTEM=="tty", ATTRS{idVendor}=="0403", ATTRS{idProduct}=="6001", ATTRS{serial}=="AB12CD34", SYMLINK+="smartfarm-485-std", MODE="0660", GROUP="dialout"
+# 예2) 시리얼 없는 CH340 — USB 포트 위치로 고정 (허브 포트 바꾸면 규칙도 바꿔야 함)
+# SUBSYSTEM=="tty", KERNELS=="1-1.3", ATTRS{idVendor}=="1a86", ATTRS{idProduct}=="7523", SYMLINK+="smartfarm-485-std", MODE="0660", GROUP="dialout"

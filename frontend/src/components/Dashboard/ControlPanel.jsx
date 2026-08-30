@@ -5,6 +5,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import { sendControlCommand, getControlLogs, getRelayStatus, warmupLambda, saveControlLog } from '../../services/controlApi';
 import { getSystemMode, getApiBase, getRpiApiBase } from '../../services/apiSwitcher';
 import wsService from '../../services/wsService';
+import { isKsProfile, deviceKsStatus } from '../../lib/ks3267';
 import {
   DndContext, closestCenter, PointerSensor, useSensor, useSensors
 } from '@dnd-kit/core';
@@ -112,6 +113,26 @@ const ControlPanel = ({ farmId, houseId, houseConfig }) => {
   const [bidirProgress, setBidirProgress] = useState({}); // { [deviceId]: { percent: 0~100, direction: 'open'|'close' } }
   // ★ 릴레이 모듈 list — Settings → 릴레이 모듈 관리 의 channels (8/16/32) 동적 사용
   const [relayModules, setRelayModules] = useState([]);
+  // ★ KS X 3267 표준 노드 상태 (unit → 데몬 poll state). 표준 프로필 장치가 있을 때만 30초 폴링 (읽기 전용 프록시)
+  const [ksState, setKsState] = useState(null);
+  const hasKsDevices = devices.some(d => isKsProfile(d.modbus));
+  useEffect(() => {
+    if (!hasKsDevices) { setKsState(null); return; }
+    let alive = true;
+    const API = getApiBase();
+    const load = async () => {
+      try {
+        const token = localStorage.getItem('accessToken');
+        const r = await axios.get(`${API}/config/${farmId}/ks3267/status`, { timeout: 10000, headers: token ? { Authorization: `Bearer ${token}` } : {} });
+        if (alive) setKsState(r.data?.ok ? (r.data.state || {}) : { _error: r.data?.error || '드라이버 없음' });
+      } catch (e) {
+        if (alive) setKsState({ _error: e.response?.data?.error || e.message });
+      }
+    };
+    load();
+    const t = setInterval(load, 30000);
+    return () => { alive = false; clearInterval(t); };
+  }, [hasKsDevices, farmId]);
   const bidirPositionKey = `bidirPosition_${farmId}_${houseId}`;
   const [bidirPosition, setBidirPosition] = useState(() => {
     try { return JSON.parse(localStorage.getItem(bidirPositionKey)) || {}; } catch { return {}; }
@@ -1233,7 +1254,8 @@ const ControlPanel = ({ farmId, houseId, houseConfig }) => {
       const modbusConfig = targetDevice?.modbus || null;
 
       // bidir 장치 동작 시간 누락 체크 — 진행률 % 표시 + 자동 정지가 동작하지 않으므로 사용자 안내
-      if (modbusConfig?.controlType === 'bidir' && (command === 'open' || command === 'close')) {
+      // (KS X 3267 개폐기는 노드가 동작시간을 관리 — 이 안내 대상 아님)
+      if (modbusConfig?.controlType === 'bidir' && !isKsProfile(modbusConfig) && (command === 'open' || command === 'close')) {
         const fullDur = command === 'open' ? modbusConfig.openDuration : modbusConfig.closeDuration;
         if (!fullDur || fullDur <= 0) {
           const label = command === 'open' ? '전체 열림 시간' : '전체 닫힘 시간';
@@ -1922,6 +1944,18 @@ const ControlPanel = ({ farmId, houseId, houseConfig }) => {
                             {state.relayVerified && (
                               <span title="Modbus FC1 실제 확인" style={{fontSize:9,fontWeight:700,color:'#047857',background:'#dcfce7',padding:'1px 4px',borderRadius:4,marginLeft:2}}>HW</span>
                             )}
+                            {/* KS X 3267 표준 노드 — 드라이버가 되읽은 상태코드 + 남은 동작시간 */}
+                            {isKsProfile(device.modbus) && (() => {
+                              const ks = ksState && !ksState._error ? deviceKsStatus(ksState, device.modbus) : null;
+                              const tone = ks ? ({ on: '#047857', busy: '#0369a1', warn: '#b45309', bad: '#b91c1c', ok: '#475569', muted: '#6b7280' }[ks.tone] || '#6b7280') : '#6b7280';
+                              const label = ks ? `${ks.text}${ks.remain > 0 ? ' ' + ks.remain + 's' : ''}` : (ksState?._error ? '드라이버 없음' : '…');
+                              return (
+                                <span title={ks ? `KS X 3267 상태코드 ${ks.code ?? ''} (opid ${ks.opid ?? '-'})` : (ksState?._error || '표준 노드 상태 확인 중')}
+                                  style={{fontSize:9,fontWeight:700,color:tone,background:tone+'1a',padding:'1px 4px',borderRadius:4,marginLeft:2,whiteSpace:'nowrap'}}>
+                                  📐 {label}
+                                </span>
+                              );
+                            })()}
                             {/* error 리셋 버튼 */}
                             {state.status === 'error' && (
                               <button onClick={() => handleErrorReset(device.deviceId)}

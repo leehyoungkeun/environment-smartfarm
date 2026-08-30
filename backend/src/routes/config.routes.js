@@ -692,6 +692,26 @@ export function getRpiBase(farmId) {
   return `http://${hostname}:1880`;
 }
 
+// ━━━ KS X 3267 표준 노드 — RPi 데몬(ks3267d) 프록시 (2026-08-30, P3) ━━━
+// 설정 UI(표준노드 탭)가 부른다. NR 의 /api/ks3267/:action 이 127.0.0.1:3002 데몬으로 넘긴다.
+// 읽기 전용 액션만 허용 — 제어는 정규 제어 경로(execute_control)로만 (진단 UI 는 읽기 전용 원칙).
+const KS3267_READ_ACTIONS = new Set(["discover", "nodes", "status", "frames", "events", "health"]);
+router.get("/:farmId/ks3267/:action", async (req, res) => {
+  const { farmId, action } = req.params;
+  if (!KS3267_READ_ACTIONS.has(action)) {
+    return res.status(400).json({ success: false, error: `허용되지 않는 액션: ${action}` });
+  }
+  try {
+    const qs = new URLSearchParams(req.query).toString();
+    const url = `${getRpiBase(farmId)}/api/ks3267/${action}${qs ? "?" + qs : ""}`;
+    const r = await fetch(url, { headers: await rpiHeaders(farmId), signal: AbortSignal.timeout(8000) });
+    const data = await r.json().catch(() => ({ success: false, error: `RPi 응답 파싱 실패 (${r.status})` }));
+    res.status(r.ok ? 200 : 502).json(data);
+  } catch (error) {
+    res.status(502).json({ success: false, error: `RPi 연결 실패: ${error.message}` });
+  }
+});
+
 router.get("/sync-status/:farmId", async (req, res) => {
   try {
     const rpiBase = getRpiBase(req.params.farmId);

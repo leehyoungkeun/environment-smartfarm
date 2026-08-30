@@ -178,6 +178,21 @@ describe("카카오 스킬 — 비밀 URL 만 통한다 (AI 비용 노출 차단
   });
 });
 
+describe("KS X 3267 데몬 프록시 — 읽기 전용, 농장 키 인증", () => {
+  test("키 없이 → 401", async () => {
+    const res = await request(app).get("/api/config/farm_0001/ks3267/nodes");
+    assert.equal(res.status, 401);
+  });
+
+  test("허용 외 액션(command) → 400 (제어는 정규 경로로만)", async () => {
+    // 통합 테스트의 스텁 DB 에는 농장 키가 없으므로 INTERNAL_API_KEY 로 통과시킨다
+    process.env.INTERNAL_API_KEY ||= "test-internal-key";
+    const res = await request(app).get("/api/config/farm_0001/ks3267/command").set("x-api-key", process.env.INTERNAL_API_KEY);
+    assert.ok([400, 401, 403].includes(res.status), `제어 액션이 프록시를 통과했다 (${res.status})`);
+    if (res.status === 400) assert.match(res.body.error, /허용되지 않는/);
+  });
+});
+
 describe("공개여야 하는 것은 열려 있다", () => {
   test("GET /health → 200", async () => {
     const res = await request(app).get("/health");

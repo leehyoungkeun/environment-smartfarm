@@ -11,7 +11,7 @@ set -u
 cd "$(dirname "$0")/.." || exit 1
 
 BK=$(mktemp -d)
-FILES=(src/app.js src/routes/devices.routes.js src/routes/sensors.js src/routes/config.routes.js src/routes/internal.routes.js src/routes/farms.routes.js src/schedulers/sensorThresholdAlert.js src/schedulers/offlineAlert.js src/models/Alert.js src/services/mqttClient.js src/services/diagnosisAgent.js src/routes/kakao.routes.js src/routes/device-positions.routes.js prisma/migration-device-positions.sql ../rpi-files/master/flows.json)
+FILES=(src/app.js src/routes/devices.routes.js src/routes/sensors.js src/routes/config.routes.js src/routes/internal.routes.js src/routes/farms.routes.js src/schedulers/sensorThresholdAlert.js src/schedulers/offlineAlert.js src/models/Alert.js src/services/mqttClient.js src/services/diagnosisAgent.js src/routes/kakao.routes.js src/routes/device-positions.routes.js prisma/migration-device-positions.sql ../rpi-files/master/flows.json ../docs/ksx3267/nodered/execute_control.js ../docs/ksx3267/nodered/fn_ks_command.js ../docs/ksx3267/nodered/fn_collect_sensors.js ../frontend/src/lib/ks3267.js)
 flat() { echo "$1" | tr '/.' '__'; }  # ../ 가 있어도 백업 디렉터리를 벗어나지 않게 평탄화
 for f in "${FILES[@]}"; do cp "$f" "$BK/$(flat "$f")"; done
 restore() { for f in "${FILES[@]}"; do cp "$BK/$(flat "$f")" "$f"; done; }
@@ -125,6 +125,16 @@ echo "━━ L1 자동 진단 변이 검사 ━━"
 probe "진단 쿨다운 제거 (알림 폭주 → 진단 폭주)" src/services/diagnosisAgent.js   "if (now - last < COOLDOWN_MS) return false;"   "if (false) return false;"
 
 probe "진단 테스트 가드 제거 (테스트가 실 Discord/RPi 를 두드림)" src/services/diagnosisAgent.js   'if (process.env.NODE_ENV === "test") return;'   ";"
+
+echo "━━ KS X 3267 P3 교체본 변이 검사 (에디터 적용 전 파일) ━━"
+
+probe "execute_control ks3267 분기 제거 (표준 노드에 Waveshare FC15 발사)" ../docs/ksx3267/nodered/execute_control.js   "if (modbus && modbus.protocol === 'ks3267') {"   "if (false) {"
+
+probe "fn_ks_command TIMED_ON 매핑 소실 (duration 무시)" ../docs/ksx3267/nodered/fn_ks_command.js   "op = dur > 0 ? 'timed_on' : 'on';"   "op = 'on';"
+
+probe "③ 표준 센서 TTL 제거 (낡은 값을 실측처럼)" ../docs/ksx3267/nodered/fn_collect_sensors.js   "(Date.now() - (ksR.t || 0)) < 180000"   "true"
+probe "UI 표준 프로필 검증 무력화 (개폐기 9번 저장 허용)" ../frontend/src/lib/ks3267.js   "const max = m.kind === 'opener' ? 8 : 16;"   "const max = 99;"
+probe "UI 매핑 중복 감지 제거" ../frontend/src/lib/ks3267.js   "filter(([, v]) => v.length > 1)"   "filter(() => false)"
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # DB 가 필요한 검사 — 테스트 전용 Postgres 가 있을 때만 돈다

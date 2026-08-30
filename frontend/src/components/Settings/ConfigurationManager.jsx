@@ -2,9 +2,11 @@ import React, { useState, useEffect, useCallback, lazy, Suspense } from 'react';
 import axiosBase from 'axios';
 import { getApiBase, getPcApiBase, getRpiApiBase, isFarmLocalMode, setFarmLocalMode } from '../../services/apiSwitcher';
 import wsService from '../../services/wsService';
+import { isKsProfile, ksDeviceLabel, validateKsProfile, validateKsSensor } from '../../lib/ks3267';
 
 const AutomationManager = lazy(() => import('../Dashboard/AutomationManager'));
 const AccessoryManager = lazy(() => import('./AccessoryManager').then(m => ({ default: m.AccessoryManager })));
+const KsNodeManager = lazy(() => import('./KsNodeManager').then(m => ({ default: m.KsNodeManager })));
 
 // 모든 요청에 자동으로 인증 토큰 추가
 const axios = axiosBase.create();
@@ -474,6 +476,7 @@ const ConfigurationManager = ({ farmId = import.meta.env.VITE_FARM_ID || 'farm_0
     { id: 'automation', label: '자동화규칙', icon: '🤖' },
     { id: 'alerts', label: '알림설정', icon: '🔔' },
     { id: 'accessories', label: '부가장치', icon: '📺' },
+    { id: 'ks3267', label: '표준노드', icon: '📐' },
     { id: 'system', label: '시스템', icon: '⚙️' },
   ];
 
@@ -604,6 +607,13 @@ const ConfigurationManager = ({ farmId = import.meta.env.VITE_FARM_ID || 'farm_0
       {activeTab === 'accessories' && (
         <Suspense fallback={<div className="skeleton h-64 rounded-2xl" />}>
           <AccessoryManager farmId={farmId} />
+        </Suspense>
+      )}
+
+      {/* KS X 3267 표준노드 탭 (탐색·매핑 확인·진단, 읽기 전용) */}
+      {activeTab === 'ks3267' && (
+        <Suspense fallback={<div className="skeleton h-64 rounded-2xl" />}>
+          <KsNodeManager farmId={farmId} />
         </Suspense>
       )}
 
@@ -1039,6 +1049,11 @@ const HouseDetailEditor = ({ house, farmId, onUpdate }) => {
                             {' '}· U{mb.unitId}:R{mb.address} Q{mb.quantity || 1}[{mb.registerIndex || 0}] (FC{mb.fc || 3}) ÷{mb.divider || 1}{mb.signed ? ' ±' : ''}
                           </span>
                         )}
+                        {sensor.ks3267?.unit != null && (
+                          <span className={`font-semibold ${validateKsSensor(sensor.ks3267).length ? 'text-rose-600' : 'text-indigo-600'}`} title={validateKsSensor(sensor.ks3267).join(' / ')}>
+                            {' '}· 📐 표준 U{sensor.ks3267.unit} 센서{sensor.ks3267.index}
+                          </span>
+                        )}
                       </p>
                     </div>
                     <div className="flex items-center gap-2 flex-shrink-0" onClick={e => e.stopPropagation()}>
@@ -1065,6 +1080,38 @@ const HouseDetailEditor = ({ house, farmId, onUpdate }) => {
                   {/* Modbus 센서 설정 패널 */}
                   {isExpanded && (
                     <div className="px-4 pb-4 border-t border-gray-200 mt-1 pt-3 animate-fade-in-up">
+                      {/* KS X 3267 표준 센서 노드 매핑 — 값은 표준 드라이버가 읽어 ③ 수집에 합류 (3분 TTL) */}
+                      <div className="mb-3 p-2 rounded-lg bg-indigo-50/60 border border-indigo-100">
+                        <div className="flex items-center justify-between mb-1">
+                          <p className="text-xs font-bold text-indigo-700">📐 표준 노드 센서 (KS X 3267)</p>
+                          {sensor.ks3267 ? (
+                            <button onClick={() => updateSensor(sensor.sensorId, { ks3267: undefined })}
+                              className="text-[10px] text-rose-400 hover:text-rose-600">매핑 해제</button>
+                          ) : (
+                            <button onClick={() => updateSensor(sensor.sensorId, { ks3267: { unit: 2, index: 1 } })}
+                              className="text-[10px] text-indigo-600 hover:underline">표준 노드에 매핑</button>
+                          )}
+                        </div>
+                        {sensor.ks3267 && (
+                          <div className="grid grid-cols-2 gap-2">
+                            <div>
+                              <label className="text-[10px] text-gray-500 mb-0.5 block">노드 주소 (1~247)</label>
+                              <input type="number" min={1} max={247} value={sensor.ks3267.unit ?? ''}
+                                onChange={(e) => updateSensor(sensor.sensorId, { ks3267: { ...sensor.ks3267, unit: e.target.value === '' ? null : parseInt(e.target.value) } })}
+                                className="input-field text-sm" />
+                            </div>
+                            <div>
+                              <label className="text-[10px] text-gray-500 mb-0.5 block">센서 순번 (1~30, 디폴트맵: 1 온도 · 4 습도 · 13 CO2)</label>
+                              <input type="number" min={1} max={30} value={sensor.ks3267.index ?? ''}
+                                onChange={(e) => updateSensor(sensor.sensorId, { ks3267: { ...sensor.ks3267, index: e.target.value === '' ? null : parseInt(e.target.value) } })}
+                                className="input-field text-sm" />
+                            </div>
+                            {validateKsSensor(sensor.ks3267).length > 0 && (
+                              <p className="col-span-2 text-[11px] text-rose-600 font-semibold">{validateKsSensor(sensor.ks3267).join(' / ')}</p>
+                            )}
+                          </div>
+                        )}
+                      </div>
                       <div className="flex items-center justify-between mb-2">
                         <p className="text-xs font-bold text-gray-600">📡 Modbus 센서 설정</p>
                         {sensor.modbus && (
@@ -1258,9 +1305,17 @@ const DeviceManager = ({ house, farmId, setEditedHouse, onUpdate, isDirty, savin
     return used;
   };
 
+  const dtInfoFor = (type) => DEVICE_TYPES.find(dt => dt.value === type);
+
   const updateDeviceModbus = (deviceId, modbusData) => {
     const current = devices.find(d => d.deviceId === deviceId);
-    const dtInfo = DEVICE_TYPES.find(dt => dt.value === current?.type);
+    const dtInfo = dtInfoFor(current?.type);
+    // KS X 3267 표준 프로필 — 릴레이 채널 개념이 없으므로 CH 중복 검증 없이 병합만
+    if (isKsProfile(current?.modbus)) {
+      const mergedKs = { ...current.modbus, ...modbusData };
+      setEditedHouse({ ...house, devices: devices.map(d => d.deviceId === deviceId ? { ...d, modbus: mergedKs } : d) });
+      return;
+    }
     const defaultModbus = { unitId: 1, controlType: dtInfo?.defaultControlType || 'single', address: null, address2: null };
     const merged = { ...defaultModbus, ...current?.modbus, ...modbusData };
     const unitId = merged.unitId || 1;
@@ -1458,7 +1513,9 @@ const DeviceManager = ({ house, farmId, setEditedHouse, onUpdate, isDirty, savin
             const isExpanded = expandedDevice === device.deviceId;
             const modbus = device.modbus || {};
             const isBidir = modbus.controlType === 'bidir';
-            const hasModbus = modbus.address !== null && modbus.address !== undefined && modbus.address !== '';
+            const isKs = isKsProfile(modbus);
+            const hasModbus = !isKs && modbus.address !== null && modbus.address !== undefined && modbus.address !== '';
+            const ksErrs = isKs ? validateKsProfile(modbus) : [];
             return (
               <div key={device.deviceId} className="bg-gray-50 border border-gray-200 rounded-xl overflow-hidden transition-all">
                 <div
@@ -1476,6 +1533,11 @@ const DeviceManager = ({ house, farmId, setEditedHouse, onUpdate, isDirty, savin
                           · U{modbus.unitId || 1}:CH{modbus.address}{isBidir ? `+${modbus.address2}` : ''} ({modbus.moduleType === 'eletechsup' ? 'FC06' : 'FC15'})
                         </span>
                       )}
+                      {isKs && (
+                        <span className={`ml-1 font-semibold ${ksErrs.length ? 'text-rose-600' : 'text-indigo-600'}`} title={ksErrs.join(' / ')}>
+                          · 📐 {ksDeviceLabel(modbus)}{ksErrs.length ? ' (설정 미완)' : ''}
+                        </span>
+                      )}
                     </p>
                   </div>
                   <span className={`text-gray-400 text-xs transition-transform ${isExpanded ? 'rotate-180' : ''}`}>▼</span>
@@ -1491,8 +1553,57 @@ const DeviceManager = ({ house, farmId, setEditedHouse, onUpdate, isDirty, savin
                 {/* Modbus 채널 설정 패널 */}
                 {isExpanded && (
                   <div className="px-4 pb-4 pt-1 border-t border-gray-200 bg-white animate-fade-in-up">
-                    <p className="text-xs font-bold text-gray-600 mb-2">⚡ Modbus 릴레이 채널 설정</p>
-                    <div className="grid grid-cols-3 gap-3">
+                    <div className="flex items-center justify-between mb-2">
+                      <p className="text-xs font-bold text-gray-600">⚡ {isKs ? 'KS X 3267 표준 노드 매핑' : 'Modbus 릴레이 채널 설정'}</p>
+                      <select
+                        value={isKs ? 'ks3267' : 'vendor'}
+                        onChange={(e) => {
+                          if (e.target.value === 'ks3267') {
+                            // 표준 프로필로 전환 — vendor 채널 필드는 버린다 (두 경로가 섞이면 execute_control 이 표준으로만 보낸다)
+                            setEditedHouse({ ...house, devices: devices.map(d => d.deviceId === device.deviceId
+                              ? { ...d, modbus: { protocol: 'ks3267', unit: 1, kind: isBidir || dtInfoFor(device.type)?.defaultControlType === 'bidir' ? 'opener' : 'switch', n: 1 } } : d) });
+                          } else {
+                            setEditedHouse({ ...house, devices: devices.map(d => d.deviceId === device.deviceId
+                              ? { ...d, modbus: { unitId: 1, controlType: dtInfoFor(device.type)?.defaultControlType || 'single', address: null, address2: null } } : d) });
+                          }
+                        }}
+                        className="input-field text-xs w-auto py-1"
+                        title="장치가 연결된 방식"
+                      >
+                        <option value="vendor">릴레이 모듈 (Waveshare)</option>
+                        <option value="ks3267">표준 노드 (KS X 3267)</option>
+                      </select>
+                    </div>
+                    {isKs && (
+                      <div className="grid grid-cols-3 gap-3">
+                        <div>
+                          <label className="text-xs text-gray-500 mb-1 block">노드 주소 (1~247)</label>
+                          <input type="number" min="1" max="247" value={modbus.unit ?? ''}
+                            onChange={(e) => updateDeviceModbus(device.deviceId, { unit: e.target.value === '' ? null : parseInt(e.target.value) })}
+                            className="input-field text-sm" />
+                        </div>
+                        <div>
+                          <label className="text-xs text-gray-500 mb-1 block">디바이스 종류</label>
+                          <select value={modbus.kind || 'switch'}
+                            onChange={(e) => updateDeviceModbus(device.deviceId, { kind: e.target.value, controlType: e.target.value === 'opener' ? 'bidir' : 'single' })}
+                            className="input-field text-sm">
+                            <option value="switch">스위치 (ON/OFF, 레벨1)</option>
+                            <option value="opener">개폐기 (열기/닫기/정지, 레벨1)</option>
+                          </select>
+                        </div>
+                        <div>
+                          <label className="text-xs text-gray-500 mb-1 block">번호 ({modbus.kind === 'opener' ? '개폐기 1~8' : '스위치 1~16'})</label>
+                          <input type="number" min="1" max={modbus.kind === 'opener' ? 8 : 16} value={modbus.n ?? ''}
+                            onChange={(e) => updateDeviceModbus(device.deviceId, { n: e.target.value === '' ? null : parseInt(e.target.value) })}
+                            className="input-field text-sm" />
+                        </div>
+                        <p className="col-span-3 text-[11px] text-gray-500">
+                          표준노드 탭에서 탐색한 디바이스 번호와 맞추세요. 명령은 표준 드라이버(ks3267d)가 FC16 으로 보내고 상태를 되읽습니다.
+                          {ksErrs.length > 0 && <span className="text-rose-600 font-semibold"> · {ksErrs.join(' / ')}</span>}
+                        </p>
+                      </div>
+                    )}
+                    <div className={`grid grid-cols-3 gap-3 ${isKs ? 'hidden' : ''}`}>
                       <div>
                         <label className="text-xs text-gray-500 mb-1 block">릴레이 모듈</label>
                         <select

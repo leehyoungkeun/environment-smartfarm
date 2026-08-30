@@ -1,0 +1,311 @@
+[
+ {
+  "id": "ks3267_tab",
+  "type": "tab",
+  "label": "KS X 3267 표준노드",
+  "disabled": false,
+  "info": "KS X 3267:2022 온실통합제어기 표준 노드 경로 (P3, 2026-08-30).\nks3267d 데몬(127.0.0.1:3002)이 별도 RS485 포트의 표준 노드를 상대하고, 이 탭은 오케스트레이션만 한다.\n- 상태 수신: 데몬 → POST /api/ks3267/status → deviceStates/ks3267Readings\n- 명령: execute_control 3번 출력(link) → 표준 명령 조립 → 데몬 → 결과·이력\n- 프록시: GET /api/ks3267/:action (읽기 전용) → 데몬\n탭 env 를 넣지 말 것. Catch 는 이 탭 전용.",
+  "env": []
+ },
+ {
+  "id": "ks_http_status",
+  "type": "http in",
+  "z": "ks3267_tab",
+  "name": "POST /api/ks3267/status",
+  "x": 140,
+  "y": 100,
+  "wires": [
+   [
+    "ks_fn_status"
+   ]
+  ],
+  "url": "/api/ks3267/status",
+  "method": "post",
+  "upload": false,
+  "swaggerDoc": ""
+ },
+ {
+  "id": "ks_fn_status",
+  "type": "function",
+  "z": "ks3267_tab",
+  "name": "표준 상태 반영",
+  "x": 380,
+  "y": 100,
+  "wires": [
+   [
+    "ks_http_status_res"
+   ]
+  ],
+  "func": "// ============================================================\n// \"표준 상태 반영\" (fn_ks_status) — ks3267d 데몬이 POST /api/ks3267/status 로 밀어주는 상태를\n// NR 전역에 반영한다. (KS X 3267 표준노드 탭, 2026-08-30 P3)\n//\n// 입력 msg.payload = { source:'ks3267d', unit, state }   (데몬 poll 결과)\n//   state.kind === 'sensor'   → state.sensors[index] = { value, status, status_name }\n//   state.kind === 'actuator' → state.devices[index] = { kind, n, opid, status, status_name, remain }\n//\n// 매핑 근거는 houseConfig:\n//   센서:  house.sensors[].ks3267 = { unit, index }            → 값을 global.ks3267Readings[sensorId] 로\n//   구동기: house.devices[].modbus = { protocol:'ks3267', unit, kind:'switch'|'opener', n }\n//          → deviceStates['house_0001:fan1'] 갱신 (정규키, dkey)\n// 원본 상태는 global.ks3267State[unit] 에 그대로 보관 (진단 UI·남은시간 표시용).\n// ============================================================\nconst body = msg.payload || {};\nconst st = body.state || {};\nconst unit = Number(body.unit);\nif (!unit || !st.kind) {\n    msg.statusCode = 400; msg.payload = { success: false, error: 'unit/state 필요' };\n    return msg;\n}\n\nconst config = global.get('houseConfig') || {};\nconst houses = config.houses || [];\nconst dkey = global.get('dkey') || function (h, dv) { return (h || 'house_0001') + ':' + dv; };\n\n// 원본 보관 (진단·UI)\nconst all = global.get('ks3267State') || {};\nall[unit] = Object.assign({ receivedAt: new Date().toISOString() }, st);\nglobal.set('ks3267State', all);\n\nlet sensorsMapped = 0, devicesMapped = 0;\n\nif (st.kind === 'sensor') {\n    // 센서 → 수집 파이프라인(③)이 읽는 전역. TTL 은 ③ 쪽에서 t 로 판단한다.\n    const cur = global.get('ks3267Readings') || { values: {}, t: 0 };\n    const values = Object.assign({}, cur.values || {});\n    for (const house of houses) {\n        for (const s of (house.sensors || [])) {\n            const k = s.ks3267;\n            if (!k || Number(k.unit) !== unit) continue;\n            const r = (st.sensors || {})[String(k.index)] || (st.sensors || {})[k.index];\n            if (!r || typeof r.value !== 'number') continue;\n            if (r.status >= 100) {\n                // NEED_REPLACE(101)/CALIBRATION(102)/CHECK(103): 값은 있으나 신뢰 낮음 — 기록은 남기고 값은 넣지 않는다\n                node.warn('⚠️ 표준 센서 ' + s.sensorId + ' 상태 ' + (r.status_name || r.status) + ' — 값 생략');\n                continue;\n            }\n            values[s.sensorId] = r.value;\n            sensorsMapped++;\n        }\n    }\n    global.set('ks3267Readings', { values: values, t: Date.now(), unit: unit });\n} else if (st.kind === 'actuator') {\n    const states = global.get('deviceStates') || {};\n    for (const house of houses) {\n        for (const d of (house.devices || [])) {\n            const m = d.modbus;\n            if (!m || m.protocol !== 'ks3267' || Number(m.unit) !== unit) continue;\n            const dev = Object.values(st.devices || {}).find(x => x.kind === m.kind && Number(x.n) === Number(m.n));\n            if (!dev) continue;\n            const DK = dkey(house.houseId, d.deviceId);\n            const code = Number(dev.status);\n            if (m.kind === 'switch') {\n                states[DK] = (code === 201) ? 'on' : (code === 0 ? 'off' : states[DK]);\n            } else {\n                // 개폐형: 301 여는 중 → open, 302 닫는 중 → closed, 0 READY 는 명령 경로가 정한 상태 유지\n                if (code === 301) states[DK] = 'open';\n                else if (code === 302) states[DK] = 'closed';\n            }\n            devicesMapped++;\n        }\n    }\n    global.set('deviceStates', states);\n}\n\nnode.status({ fill: 'green', shape: 'dot', text: 'unit ' + unit + ' ' + st.kind + ' (센서 ' + sensorsMapped + ' / 장치 ' + devicesMapped + ')' });\nmsg.statusCode = 200;\nmsg.payload = { success: true, unit: unit, kind: st.kind, sensorsMapped: sensorsMapped, devicesMapped: devicesMapped };\nreturn msg;\n",
+  "outputs": 1,
+  "timeout": 0,
+  "noerr": 0,
+  "initialize": "",
+  "finalize": "",
+  "libs": []
+ },
+ {
+  "id": "ks_http_status_res",
+  "type": "http response",
+  "z": "ks3267_tab",
+  "name": "",
+  "x": 600,
+  "y": 100,
+  "wires": [],
+  "statusCode": "",
+  "headers": {}
+ },
+ {
+  "id": "ks_link_in_cmd",
+  "type": "link in",
+  "z": "ks3267_tab",
+  "name": "← execute_control 제어 (ks3267)",
+  "x": 120,
+  "y": 220,
+  "wires": [
+   [
+    "ks_fn_command"
+   ]
+  ],
+  "links": []
+ },
+ {
+  "id": "ks_fn_command",
+  "type": "function",
+  "z": "ks3267_tab",
+  "name": "표준 명령 조립",
+  "x": 340,
+  "y": 220,
+  "wires": [
+   [
+    "ks_http_command"
+   ]
+  ],
+  "func": "// ============================================================\n// \"표준 명령 조립\" (fn_ks_command) — execute_control 의 3번 출력(link)으로 넘어온 제어를\n// ks3267d 데몬 REST 명령으로 바꾼다. (KS X 3267 표준노드 탭, 2026-08-30 P3)\n//\n// 입력 msg.control = { houseId, deviceId, command, duration, modbus:{ protocol:'ks3267', unit, kind, n } }\n// 우리 명령 → 표준 명령 (6.3.3 / 6.3.4, 레벨1):\n//   스위치: on → ON(201) / off → OFF(0) / on + duration>0 → TIMED_ON(202, 초)\n//   개폐기: open → OPEN(301) / close → CLOSE(302) / stop → STOP(0)\n//           open + duration>0 → TIMED_OPEN(303) / close + duration>0 → TIMED_CLOSE(304)\n// 레벨2(SET_POSITION 등)는 만들지 않는다 — 데몬도 로컬에서 거부한다 (스코프 선언 일치).\n// ============================================================\nconst ctrl = msg.control || {};\nconst m = ctrl.modbus || {};\nconst cmd = String(ctrl.command || '').toLowerCase();\nconst dur = Number(ctrl.duration || 0);\n\nif (m.protocol !== 'ks3267' || !m.unit || !m.kind || !m.n) {\n    node.error('표준 명령 조립: modbus 프로필 불완전 ' + JSON.stringify(m), msg);\n    return null;\n}\n\nlet op = null;\nif (m.kind === 'switch') {\n    if (cmd === 'on' || cmd === 'open') op = dur > 0 ? 'timed_on' : 'on';\n    else if (cmd === 'off' || cmd === 'close' || cmd === 'stop') op = 'off';\n} else if (m.kind === 'opener') {\n    if (cmd === 'open') op = dur > 0 ? 'timed_open' : 'open';\n    else if (cmd === 'close') op = dur > 0 ? 'timed_close' : 'close';\n    else if (cmd === 'stop') op = 'stop';\n}\nif (!op) {\n    node.error('표준 명령 조립: ' + m.kind + ' 에 ' + cmd + ' 는 대응 명령 없음', msg);\n    return null;\n}\n\nconst api = env.get('KS3267_API') || 'http://127.0.0.1:3002';\nmsg.url = api + '/command';\nmsg.method = 'POST';\nmsg.headers = { 'Content-Type': 'application/json' };\nmsg.payload = { unit: Number(m.unit), kind: m.kind, n: Number(m.n), op: op, seconds: dur > 0 ? Math.round(dur) : 0 };\nmsg.requestTimeout = 5000;\nmsg._ksControl = ctrl;   // 결과 처리에서 사용\n\nnode.status({ fill: 'blue', shape: 'dot', text: ctrl.deviceId + ' → ' + op + (dur > 0 ? ' ' + Math.round(dur) + 's' : '') });\nnode.warn('📤 KS3267 명령: unit ' + m.unit + ' ' + m.kind + m.n + ' ' + op + (dur > 0 ? ' (' + Math.round(dur) + '초)' : '') + ' [' + ctrl.deviceId + ']');\nreturn msg;\n",
+  "outputs": 1,
+  "timeout": 0,
+  "noerr": 0,
+  "initialize": "",
+  "finalize": "",
+  "libs": []
+ },
+ {
+  "id": "ks_http_command",
+  "type": "http request",
+  "z": "ks3267_tab",
+  "name": "데몬 /command",
+  "x": 560,
+  "y": 220,
+  "wires": [
+   [
+    "ks_fn_result"
+   ]
+  ],
+  "method": "use",
+  "ret": "obj",
+  "paytoqs": "ignore",
+  "url": "",
+  "tls": "",
+  "persist": false,
+  "proxy": "",
+  "insecureHTTPParser": false,
+  "authType": "",
+  "senderr": false,
+  "headers": []
+ },
+ {
+  "id": "ks_fn_result",
+  "type": "function",
+  "z": "ks3267_tab",
+  "name": "표준 명령 결과",
+  "x": 780,
+  "y": 220,
+  "wires": [
+   [
+    "ks_http_log"
+   ],
+   []
+  ],
+  "func": "// ============================================================\n// \"표준 명령 결과\" (fn_ks_result) — 데몬 응답을 상태·이력에 반영. (KS X 3267 표준노드 탭, P3)\n//\n// 입력: msg.payload = 데몬 /command 응답 { ok, accepted, opid, status, status_name, remain, error?, exception? }\n//       msg._ksControl = 원 제어 정보\n// 출력 1: 제어 이력(서버 POST /internal/control-log) — 성공/거부 모두 기록 (fix ⑧ 과 같은 원칙)\n// 출력 2: (예비) 상태 발행\n// ============================================================\nconst r = (typeof msg.payload === 'object' && msg.payload) || {};\nconst ctrl = msg._ksControl || {};\nconst m = ctrl.modbus || {};\nconst dkey = global.get('dkey') || function (h, dv) { return (h || 'house_0001') + ':' + dv; };\nconst DK = dkey(ctrl.houseId, ctrl.deviceId);\n\nconst ok = !!(r.ok && r.accepted !== false);\nif (ok) {\n    const states = global.get('deviceStates') || {};\n    const c = String(ctrl.command || '').toLowerCase();\n    if (m.kind === 'switch') states[DK] = (c === 'off' || c === 'close' || c === 'stop') ? 'off' : 'on';\n    else states[DK] = c === 'open' ? 'open' : (c === 'close' ? 'closed' : 'idle');\n    global.set('deviceStates', states);\n    node.status({ fill: 'green', shape: 'dot', text: ctrl.deviceId + ' ' + (r.status_name || '') + (r.remain ? ' ' + r.remain + 's' : '') + ' opid ' + r.opid });\n    node.warn('✅ KS3267 ' + ctrl.deviceId + ' ' + ctrl.command + ' → ' + (r.status_name || r.status) + ' (opid ' + r.opid + (r.remain ? ', 남은 ' + r.remain + 's' : '') + ')');\n} else {\n    node.status({ fill: 'red', shape: 'ring', text: ctrl.deviceId + ' 실패: ' + (r.error || msg.statusCode) });\n    node.warn('❌ KS3267 ' + ctrl.deviceId + ' ' + ctrl.command + ' 실패: ' + (r.error || ('HTTP ' + msg.statusCode)) + (r.exception ? ' (예외 0x0' + r.exception + ')' : ''));\n}\n\n// 제어 이력 — 서버 (거부도 기록: \"왜 안 됐지\" 추적)\nconst pcServer = global.get('pcServerUrl') || 'https://api.smartgreen.kr';\nconst logMsg = {\n    method: 'POST',\n    url: pcServer + '/internal/control-log',\n    headers: { 'Content-Type': 'application/json', 'x-api-key': env.get('SENSOR_API_KEY') || global.get('sensorApiKey') || '' },\n    payload: {\n        farmId: global.get('farmId') || env.get('FARM_ID') || 'farm_0001',\n        houseId: ctrl.houseId || 'house_0001',\n        deviceId: ctrl.deviceId,\n        deviceType: ctrl.deviceType || (m.kind === 'opener' ? 'window' : 'relay'),\n        deviceName: ctrl.deviceName || ctrl.deviceId,\n        command: ctrl.command,\n        success: ok,\n        operator: ctrl.operator || 'unknown',\n        reason: ok ? ('KS X 3267 ' + (r.status_name || '') + ' opid ' + r.opid) : ('KS X 3267 실패: ' + (r.error || msg.statusCode)),\n        requestId: ctrl.requestId || null,\n        metadata: { protocol: 'ks3267', unit: m.unit, kind: m.kind, n: m.n, opid: r.opid, status: r.status, remain: r.remain, exception: r.exception || null }\n    }\n};\nreturn [logMsg, null];\n",
+  "outputs": 2,
+  "timeout": 0,
+  "noerr": 0,
+  "initialize": "",
+  "finalize": "",
+  "libs": []
+ },
+ {
+  "id": "ks_http_log",
+  "type": "http request",
+  "z": "ks3267_tab",
+  "name": "서버 제어이력",
+  "x": 1000,
+  "y": 220,
+  "wires": [
+   [
+    "ks_debug_log"
+   ]
+  ],
+  "method": "use",
+  "ret": "obj",
+  "paytoqs": "ignore",
+  "url": "",
+  "tls": "",
+  "persist": false,
+  "proxy": "",
+  "insecureHTTPParser": false,
+  "authType": "",
+  "senderr": false,
+  "headers": []
+ },
+ {
+  "id": "ks_debug_log",
+  "type": "debug",
+  "z": "ks3267_tab",
+  "name": "이력 결과",
+  "x": 1200,
+  "y": 220,
+  "wires": [],
+  "active": false,
+  "tosidebar": true,
+  "console": false,
+  "tostatus": false,
+  "complete": "payload",
+  "targetType": "msg",
+  "statusVal": "",
+  "statusType": "auto"
+ },
+ {
+  "id": "ks_http_proxy",
+  "type": "http in",
+  "z": "ks3267_tab",
+  "name": "GET /api/ks3267/:action",
+  "x": 140,
+  "y": 340,
+  "wires": [
+   [
+    "ks_fn_proxy"
+   ]
+  ],
+  "url": "/api/ks3267/:action",
+  "method": "get",
+  "upload": false,
+  "swaggerDoc": ""
+ },
+ {
+  "id": "ks_fn_proxy",
+  "type": "function",
+  "z": "ks3267_tab",
+  "name": "데몬 프록시",
+  "x": 360,
+  "y": 340,
+  "wires": [
+   [
+    "ks_http_proxy_req"
+   ],
+   [
+    "ks_http_proxy_res"
+   ]
+  ],
+  "func": "// ============================================================\n// \"데몬 프록시\" (fn_ks_proxy) — GET /api/ks3267/:action 을 127.0.0.1:3002 데몬으로 넘긴다.\n// (KS X 3267 표준노드 탭, P3). 설정 UI 의 탐색·상태·프레임 조회가 백엔드 → 여기 → 데몬 순으로 온다.\n// httpNodeMiddleware 가 /api/* 인증(키오스크 루프백 또는 농장 키)을 이미 적용한다.\n// 읽기 전용 액션만 — 제어는 정규 경로(execute_control)로만.\n// ============================================================\nconst ALLOWED = { discover: 1, nodes: 1, status: 1, frames: 1, events: 1, health: 1 };\nconst action = String((msg.req && msg.req.params && msg.req.params.action) || '');\nif (!ALLOWED[action]) {\n    msg.statusCode = 400;\n    msg.payload = { success: false, error: '허용되지 않는 액션: ' + action };\n    return [null, msg];   // 출력 2 = 즉시 응답\n}\nconst q = (msg.req && msg.req.query) || {};\nconst qs = Object.keys(q).map(k => encodeURIComponent(k) + '=' + encodeURIComponent(q[k])).join('&');\nconst api = env.get('KS3267_API') || 'http://127.0.0.1:3002';\nmsg.url = api + '/' + action + (qs ? '?' + qs : '');\nmsg.method = 'GET';\nmsg.requestTimeout = 8000;\nmsg._ksAction = action;\nreturn [msg, null];   // 출력 1 = http request 로\n",
+  "outputs": 2,
+  "timeout": 0,
+  "noerr": 0,
+  "initialize": "",
+  "finalize": "",
+  "libs": []
+ },
+ {
+  "id": "ks_http_proxy_req",
+  "type": "http request",
+  "z": "ks3267_tab",
+  "name": "데몬 GET",
+  "x": 580,
+  "y": 320,
+  "wires": [
+   [
+    "ks_fn_proxy_resp"
+   ]
+  ],
+  "method": "use",
+  "ret": "obj",
+  "paytoqs": "ignore",
+  "url": "",
+  "tls": "",
+  "persist": false,
+  "proxy": "",
+  "insecureHTTPParser": false,
+  "authType": "",
+  "senderr": false,
+  "headers": []
+ },
+ {
+  "id": "ks_fn_proxy_resp",
+  "type": "function",
+  "z": "ks3267_tab",
+  "name": "응답 정리",
+  "x": 780,
+  "y": 320,
+  "wires": [
+   [
+    "ks_http_proxy_res"
+   ]
+  ],
+  "func": "// 데몬 응답을 그대로 돌려주되, 연결 실패는 502 로\nif (typeof msg.payload !== 'object' || msg.payload === null) {\n    msg.statusCode = 502;\n    msg.payload = { success: false, error: 'ks3267d 데몬 응답 없음 (pm2 ks3267d 확인)', detail: String(msg.payload).slice(0, 200) };\n} else {\n    msg.statusCode = msg.statusCode || 200;\n}\nreturn msg;",
+  "outputs": 1,
+  "timeout": 0,
+  "noerr": 0,
+  "initialize": "",
+  "finalize": "",
+  "libs": []
+ },
+ {
+  "id": "ks_http_proxy_res",
+  "type": "http response",
+  "z": "ks3267_tab",
+  "name": "",
+  "x": 1000,
+  "y": 340,
+  "wires": [],
+  "statusCode": "",
+  "headers": {}
+ },
+ {
+  "id": "ks_catch",
+  "type": "catch",
+  "z": "ks3267_tab",
+  "name": "탭 예외",
+  "x": 140,
+  "y": 460,
+  "wires": [
+   [
+    "ks_link_out_gt"
+   ]
+  ],
+  "scope": null,
+  "uncaught": false
+ },
+ {
+  "id": "ks_link_out_gt",
+  "type": "link out",
+  "z": "ks3267_tab",
+  "name": "예외 →",
+  "x": 340,
+  "y": 460,
+  "wires": [],
+  "mode": "link",
+  "links": [
+   "gt_link_in"
+  ]
+ },
+ {
+  "id": "ks_comment",
+  "type": "comment",
+  "z": "ks3267_tab",
+  "name": "적용 순서 (docs/ksx3267/nodered/README.md)",
+  "x": 140,
+  "y": 40,
+  "wires": [],
+  "info": "1) 이 탭 가져오기 → 2) AWS 제어 수신 탭 execute_control 교체(출력 3) + link out → 이 탭 '← execute_control 제어' 연결\n3) 센서 수집 탭 ③ 교체 → 4) Deploy → 5) pm2 ks3267d --nr-url http://127.0.0.1:1880/api/ks3267/status"
+ }
+]

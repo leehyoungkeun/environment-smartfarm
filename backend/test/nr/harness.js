@@ -24,6 +24,11 @@ function flows() {
   return _flows;
 }
 
+/** 마스터 flows.json 전체 (배선·옵션 검증용) */
+export function readFlows() {
+  return flows();
+}
+
 /** flows.json 에서 function 노드 본문을 id 로 꺼낸다 */
 export function functionBody(nodeId) {
   const n = flows().find((x) => x.id === nodeId && x.type === "function");
@@ -130,11 +135,20 @@ export function makeEnv({ clock, globals = {}, flowVars = {}, contextVars = {}, 
     /** 함수 노드 본문을 실행하고 return 값을 돌려준다 */
     run(nodeId, msg = {}) {
       const { func } = functionBody(nodeId);
+      return this.runCode(func, msg, `nr:${nodeId}`);
+    },
+
+    /** 파일(.js)에 담긴 함수 노드 코드를 실행 — 에디터 적용 전 교체본을 미리 검증할 때 */
+    runFile(path, msg = {}) {
+      return this.runCode(readFileSync(path, "utf8"), msg, `file:${path}`);
+    },
+
+    runCode(func, msg, filename) {
       const script = new vm.Script(
         "(function (msg, node, global, context, flow, env, RED, setTimeout, clearTimeout, setInterval, clearInterval, Date) {\n" +
           func +
           "\n})",
-        { filename: `nr:${nodeId}` }
+        { filename }
       );
       const fn = script.runInNewContext({ console });
       return fn(

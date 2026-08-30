@@ -21,6 +21,30 @@ const DEFAULT_FARM_ID = process.env.FARM_ID || "farm_0001";
  * 이 보고가 26시간 이상 끊기면 Prometheus 규칙이 "청소 멈춤"으로 Discord 경보.
  * 조용한 실패를 드러내려는 것이므로, 삭제 0건이어도 정상 보고다(값이 아니라 '왔다'가 신호).
  */
+/**
+ * POST /internal/automation-heartbeat
+ * 자동제어 엔진(② 규칙 평가)이 매 분 통과할 때 보낸다. 3분 이상 끊기면 규칙이 경보(AutomationEngineStalled).
+ * 센서 수집이 멀쩡해도 이 루프만 죽으면 자동화가 조용히 멈추므로, 별도 심박이 필요하다.
+ */
+router.post("/automation-heartbeat", async (req, res) => {
+  try {
+    const farmId = req.farmId || req.body?.farmId || DEFAULT_FARM_ID;
+    const rulesCount = req.body?.rulesCount != null ? parseInt(req.body.rulesCount) : null;
+    const houses = req.body?.houses != null ? parseInt(req.body.houses) : null;
+    await pool.query(
+      `INSERT INTO automation_heartbeat (farm_id, last_run_at, rules_count, houses, updated_at)
+       VALUES ($1, now(), $2, $3, now())
+       ON CONFLICT (farm_id) DO UPDATE
+         SET last_run_at=now(), rules_count=$2, houses=$3, updated_at=now()`,
+      [farmId, rulesCount, houses]
+    );
+    res.json({ success: true });
+  } catch (error) {
+    logger.error("자동제어 심박 저장 실패:", error.message);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
 router.post("/maintenance-report", async (req, res) => {
   try {
     const farmId = req.farmId || req.body?.farmId || DEFAULT_FARM_ID;

@@ -1,0 +1,30 @@
+[
+  {
+    "id": "automation_hb_prep",
+    "type": "function",
+    "z": "automation_eval_flow",
+    "name": "엔진 심박 준비",
+    "func": "// ② 규칙 평가가 매 분 통과하는 지점에서 서버에 심박을 보낸다.\n// 이 노드로 msg 가 왔다는 것 = 이번 분 평가 사이클이 실제로 돌았다는 뜻.\n// (fn_load_rules 는 같은 분 재실행이면 null 을 반환해 여기로 안 온다 → 매 분 1회)\nvar serverUrl = env.get('SERVER_URL') || global.get('pcServerUrl') || 'https://api.smartgreen.kr';\nvar farmId = env.get('FARM_ID') || global.get('farmId') || 'farm_0001';\nvar rules = global.get('automationRules') || [];\nreturn {\n    method: 'POST',\n    url: serverUrl + '/internal/automation-heartbeat',\n    headers: { 'Content-Type': 'application/json', 'x-api-key': env.get('SENSOR_API_KEY') || global.get('sensorApiKey') || '' },\n    payload: { farmId: farmId, rulesCount: rules.length, houses: Object.keys(msg.allSensorData || {}).length },\n    requestTimeout: 8000\n};",
+    "outputs": 1,
+    "timeout": 0,
+    "noerr": 0,
+    "x": 620,
+    "y": 200,
+    "wires": [["automation_hb_http"]]
+  },
+  {
+    "id": "automation_hb_http",
+    "type": "http request",
+    "z": "automation_eval_flow",
+    "name": "엔진 심박 전송",
+    "method": "use",
+    "ret": "obj",
+    "paytoqs": "body",
+    "url": "",
+    "persist": false,
+    "senderr": false,
+    "x": 820,
+    "y": 200,
+    "wires": [[]]
+  }
+]

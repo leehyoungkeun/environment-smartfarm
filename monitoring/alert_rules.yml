@@ -219,3 +219,15 @@ groups:
         annotations:
           summary: "{{ $labels.farm_id }} 로컬 데이터 정리 멈춤"
           description: "60일 보관 정리가 {{ $value | humanizeDuration }} 째 보고되지 않았습니다(정상은 매일 03:00). NR 「보관기간 적용 삭제」 플로우와 서버 보고 경로를 확인하십시오."
+
+      # 자동제어 엔진(② 규칙 평가)이 3분 넘게 평가를 안 함 = 자동화 정지.
+      # 센서는 SensorDataStalled 가 보지만 엔진 루프 정지는 이것만 잡는다 — 측창·환기가 조용히 멈춰
+      # 아침에 안 열려도 알림이 없던 사각지대(2026-08-30). 작물 직접 피해라 critical.
+      - alert: AutomationEngineStalled
+        expr: time() - smartfarm_automation_engine_last_run_timestamp > 180
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "{{ $labels.farm_id }} 자동제어 엔진 정지"
+          description: "규칙 평가가 {{ $value | humanizeDuration }} 째 돌지 않았습니다(정상 60초 주기). 센서 수집과 무관하게 측창·환기 등 자동화가 멈춘 상태입니다. Node-RED 「시간 기반 평가」·「규칙 평가」 흐름을 즉시 확인하십시오."

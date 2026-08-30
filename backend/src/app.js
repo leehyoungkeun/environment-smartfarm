@@ -599,6 +599,25 @@ new promClient.Gauge({
   },
 });
 
+// 자동제어 엔진 마지막 평가 시각 — 3분 넘게 안 오면 엔진 정지(작물 피해 직결).
+new promClient.Gauge({
+  name: "smartfarm_automation_engine_last_run_timestamp",
+  help: "Unix time of last automation rule-evaluation cycle per farm",
+  labelNames: ["farm_id"],
+  async collect() {
+    try {
+      const { pool } = await import("./db.js");
+      const { rows } = await pool.query(
+        "SELECT farm_id, extract(epoch from last_run_at) AS ts FROM automation_heartbeat"
+      );
+      this.reset();
+      rows.forEach((r) => this.set({ farm_id: r.farm_id }, Number(r.ts)));
+    } catch {
+      this.reset();
+    }
+  },
+});
+
 // 정리 후 로컬 SQLite 행수 — 계속 증가하면 삭제가 안 되고 있다는 신호(디스크 포화 전 조기 감지).
 new promClient.Gauge({
   name: "smartfarm_rpi_local_rows",

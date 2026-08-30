@@ -175,10 +175,20 @@ function farmIdFromRequest(req) {
 }
 
 export const enforceTenant = async (req, res, next) => {
-  // 디바이스(API Key) 요청은 통과
-  if (req.isDevice) return next();
-
   const paramFarmId = farmIdFromRequest(req);
+
+  // 디바이스(API Key) 요청: 농장에 묶인 키(req.farmId)면 그 농장만.
+  // 2026-08-30 사업화 정밀테스트: farm_0001 의 농장 키로 /api/sensors/farm_0006/... 이 200 (136,183행)
+  // — 여기서 무조건 통과시키고 있었다. 내부 키(Alertmanager 등)는 농장 제한 없음.
+  if (req.isDevice) {
+    if (req.isInternal || !req.farmId || !paramFarmId || req.farmId === paramFarmId) return next();
+    return res.status(403).json({
+      success: false,
+      error: "이 장비 키는 다른 농장의 데이터에 접근할 수 없습니다",
+      code: "FARM_ACCESS_DENIED",
+    });
+  }
+
   if (!paramFarmId) return next();
 
   // 시스템 전역 역할(superadmin, manager)은 모든 farmId 접근 가능

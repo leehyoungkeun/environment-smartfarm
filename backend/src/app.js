@@ -669,9 +669,9 @@ app.use("/internal", authenticateApiKey, internalRoutes);
 app.use("/webhook", webhookRoutes);
 
 // 센서 + 설정 API (API 키 또는 JWT - Node-RED 접근 필요)
-app.use("/api/sensors", authenticateApiKey, sensorsRoutes);
-app.use("/api/config", authenticateApiKey, configRoutes);
-app.use("/api/automation", authenticateApiKey, automationRoutes);
+app.use("/api/sensors", authenticateApiKey, enforceTenant, sensorsRoutes); // 2026-08-30 G3: 농장 키 교차 열람 차단
+app.use("/api/config", authenticateApiKey, enforceTenant, configRoutes); // 2026-08-30 G3: 농장 키 교차 열람 차단
+app.use("/api/automation", authenticateApiKey, enforceTenant, automationRoutes); // 2026-08-30 G3: 농장 키 교차 열람 차단
 app.use("/api/devices", devicesRoutes);
 app.use("/api/deploy", deployRoutes);
 app.use("/api/kakao", kakaoRoutes);

@@ -38,6 +38,11 @@ app.get('/health', (req, res) => res.json({ status: 'ok', timestamp: new Date().
 
 // SPA 폴백 (터치패널)
 app.get('{*path}', (req, res) => {
+  // API 경로는 SPA 로 폴백하지 않는다. 존재하지 않는 /api/* 가 index.html 을 200 으로 돌려줘
+  // 호출자가 HTML 을 JSON 인 줄 알고 조용히 실패했다 (팜로컬 이력 조회가 그랬다, 2026-08-30).
+  if (/^\/(api|internal|local-config|setup)(\/|$)/.test(req.path)) {
+    return res.status(404).json({ success: false, message: '요청한 리소스를 찾을 수 없습니다.', path: req.path });
+  }
   res.sendFile(path.join(__dirname, '../../frontend/dist/index.html'));
 });
 

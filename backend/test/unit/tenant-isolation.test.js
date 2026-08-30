@@ -11,11 +11,11 @@ import assert from "node:assert/strict";
 import { enforceTenant } from "../../src/middleware/auth.middleware.js";
 
 /** 미들웨어를 호출하고 {passed, status, body} 로 결과를 돌려준다 */
-async function run({ user, params = {}, isDevice = false }) {
+async function run({ user, params = {}, isDevice = false, farmId, isInternal = false }) {
   let passed = false;
   let status = null;
   let body = null;
-  const req = { user, params, isDevice };
+  const req = { user, params, isDevice, farmId, isInternal };
   const res = {
     status(code) {
       status = code;
@@ -72,7 +72,23 @@ describe("enforceTenant — 통과해야 하는 경우", () => {
     assert.equal(r.passed, true);
   });
 
-  test("장치(API 키) 요청은 통과한다 — farmId 는 키에서 결정된다", async () => {
+  test("장치(농장 키) 요청은 자기 농장이면 통과한다", async () => {
+    const r = await run({ isDevice: true, farmId: "farm_0006", params: { farmId: "farm_0006" } });
+    assert.equal(r.passed, true);
+  });
+
+  test("장치(농장 키)로 다른 농장을 요청하면 403 — 2026-08-30 G3 (farm_0001 키로 farm_0006 136,183행 열람)", async () => {
+    const r = await run({ isDevice: true, farmId: "farm_0001", params: { farmId: "farm_0006" } });
+    assert.equal(r.passed, false);
+    assert.equal(r.status, 403);
+  });
+
+  test("내부 키(Alertmanager 등)는 농장 제한이 없다", async () => {
+    const r = await run({ isDevice: true, isInternal: true, farmId: "farm_0001", params: { farmId: "farm_0006" } });
+    assert.equal(r.passed, true);
+  });
+
+  test("농장에 묶이지 않은 장치 요청(farmId 미결정)은 통과한다", async () => {
     const r = await run({ isDevice: true, params: { farmId: "farm_0006" } });
     assert.equal(r.passed, true);
   });

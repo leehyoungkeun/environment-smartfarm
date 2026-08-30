@@ -181,6 +181,13 @@ router.post("/:code/setup", async (req, res) => {
       return res.status(404).json({ success: false, error: "유효하지 않은 장비 코드입니다" });
     }
 
+    // setup 1회성 (2026-08-29 N2): 장비코드(화면 평문 6자)만으로 농장 키·인증서를 인터넷에서
+    // 꺼낼 수 있었다. 최초 1회(installedAt 없을 때)만 비밀을 내려주고 그 뒤엔 상태만 반환.
+    // ⚠ 이 선언은 farmInfo 보다 앞에 있어야 한다 — 뒤에 두면 TDZ 로 setup 전체가 500 이 난다
+    //   (2026-08-30 사업화 정밀테스트에서 발견: 신규 장비 설치까지 막혀 있었다).
+    const firstSetup = !device.installedAt;
+    if (!firstSetup) logger.warn(`장비 재-setup 시도 (이미 설치됨): ${req.params.code} from ${req.ip}`);
+
     // 농장 정보 조회
     let farmInfo = null;
     if (device.farmId) {
@@ -197,10 +204,6 @@ router.post("/:code/setup", async (req, res) => {
     }
 
     // RPi 정보 업데이트
-    // setup 1회성 (2026-08-29 N2): 장비코드(화면 평문 6자)만으로 농장 키·인증서를 인터넷에서
-    // 꺼낼 수 있었다. 최초 1회(installedAt 없을 때)만 비밀을 내려주고 그 뒤엔 상태만 반환.
-    const firstSetup = !device.installedAt;
-    if (!firstSetup) logger.warn(`장비 재-setup 시도 (이미 설치됨): ${req.params.code} from ${req.ip}`);
     const { rpiSerial, ipAddress } = req.body;
     await prisma.device.update({
       where: { deviceCode: req.params.code },

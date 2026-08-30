@@ -599,6 +599,38 @@ new promClient.Gauge({
   },
 });
 
+// 제어이력 동기화 백로그 — 미동기화 나이가 커지면(=서버로 안 감) 유실 위험. 보고 시각으로 멈춤도 감지.
+new promClient.Gauge({
+  name: "smartfarm_control_unsynced_oldest_seconds",
+  help: "Age(sec) of oldest unsynced control log per farm",
+  labelNames: ["farm_id"],
+  async collect() {
+    try {
+      const { pool } = await import("./db.js");
+      const { rows } = await pool.query(
+        "SELECT farm_id, coalesce(oldest_unsynced_sec, 0) AS s FROM control_sync_status"
+      );
+      this.reset();
+      rows.forEach((r) => this.set({ farm_id: r.farm_id }, Number(r.s)));
+    } catch { this.reset(); }
+  },
+});
+new promClient.Gauge({
+  name: "smartfarm_control_sync_last_report_timestamp",
+  help: "Unix time of last control-sync status report per farm",
+  labelNames: ["farm_id"],
+  async collect() {
+    try {
+      const { pool } = await import("./db.js");
+      const { rows } = await pool.query(
+        "SELECT farm_id, extract(epoch from reported_at) AS ts FROM control_sync_status"
+      );
+      this.reset();
+      rows.forEach((r) => this.set({ farm_id: r.farm_id }, Number(r.ts)));
+    } catch { this.reset(); }
+  },
+});
+
 // 자동제어 엔진 마지막 평가 시각 — 3분 넘게 안 오면 엔진 정지(작물 피해 직결).
 new promClient.Gauge({
   name: "smartfarm_automation_engine_last_run_timestamp",

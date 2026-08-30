@@ -231,3 +231,23 @@ groups:
         annotations:
           summary: "{{ $labels.farm_id }} 자동제어 엔진 정지"
           description: "규칙 평가가 {{ $value | humanizeDuration }} 째 돌지 않았습니다(정상 60초 주기). 센서 수집과 무관하게 측창·환기 등 자동화가 멈춘 상태입니다. Node-RED 「시간 기반 평가」·「규칙 평가」 흐름을 즉시 확인하십시오."
+
+      # 제어이력이 15분 넘게 서버로 안 감 = 동기화 밀림(로컬에만 쌓임 → 유실 위험, 1,474건 전례).
+      - alert: ControlSyncStalled
+        expr: smartfarm_control_unsynced_oldest_seconds > 900
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "{{ $labels.farm_id }} 제어이력 동기화 밀림"
+          description: "가장 오래된 미전송 제어이력이 {{ $value | humanizeDuration }} 째 서버로 못 갔습니다. 로컬에만 쌓이면 이미지 재설치·SD 교체 시 유실됩니다. NR 「제어이력 동기화」와 서버 수신 경로를 확인하십시오."
+
+      # 제어이력 동기화 상태 보고 자체가 20분 넘게 끊김 = inject·NR 정지.
+      - alert: ControlSyncReportMissing
+        expr: time() - smartfarm_control_sync_last_report_timestamp > 1200
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "{{ $labels.farm_id }} 제어이력 동기화 보고 끊김"
+          description: "5분 주기 동기화 상태 보고가 {{ $value | humanizeDuration }} 째 없습니다. NR 「5분 간격 제어이력 동기화」 inject 가 멈췄을 수 있습니다."

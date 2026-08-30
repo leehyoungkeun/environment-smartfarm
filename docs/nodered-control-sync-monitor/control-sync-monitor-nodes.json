@@ -1,0 +1,42 @@
+[
+  {
+    "id": "cl_backlog_query",
+    "type": "sqlite",
+    "z": "sync_flow",
+    "mydb": "sqlite_db",
+    "sqlquery": "fixed",
+    "sql": "SELECT COUNT(*) AS cnt, CAST((julianday('now') - julianday(MIN(timestamp))) * 86400 AS INTEGER) AS oldest_sec FROM control_logs WHERE synced = 0",
+    "name": "미동기화 백로그 조회",
+    "x": 400,
+    "y": 420,
+    "wires": [["cl_backlog_report"]]
+  },
+  {
+    "id": "cl_backlog_report",
+    "type": "function",
+    "z": "sync_flow",
+    "name": "동기화 상태 보고 준비",
+    "func": "// 5분마다 제어이력 미동기화 백로그를 서버에 보고. 보고가 끊기거나 나이가 커지면 서버가 알림.\nvar row = (msg.payload && msg.payload[0]) || { cnt: 0, oldest_sec: 0 };\nvar serverUrl = env.get('SERVER_URL') || global.get('pcServerUrl') || 'https://api.smartgreen.kr';\nvar farmId = env.get('FARM_ID') || global.get('farmId') || 'farm_0001';\nreturn {\n    method: 'POST',\n    url: serverUrl + '/internal/control-sync-status',\n    headers: { 'Content-Type': 'application/json', 'x-api-key': env.get('SENSOR_API_KEY') || global.get('sensorApiKey') || '' },\n    payload: { farmId: farmId, unsyncedCount: row.cnt || 0, oldestUnsyncedSec: row.oldest_sec || 0 },\n    requestTimeout: 8000\n};",
+    "outputs": 1,
+    "timeout": 0,
+    "noerr": 0,
+    "x": 640,
+    "y": 420,
+    "wires": [["cl_backlog_http"]]
+  },
+  {
+    "id": "cl_backlog_http",
+    "type": "http request",
+    "z": "sync_flow",
+    "name": "동기화 상태 전송",
+    "method": "use",
+    "ret": "obj",
+    "paytoqs": "body",
+    "url": "",
+    "persist": false,
+    "senderr": false,
+    "x": 840,
+    "y": 420,
+    "wires": [[]]
+  }
+]

@@ -26,6 +26,30 @@ const DEFAULT_FARM_ID = process.env.FARM_ID || "farm_0001";
  * 자동제어 엔진(② 규칙 평가)이 매 분 통과할 때 보낸다. 3분 이상 끊기면 규칙이 경보(AutomationEngineStalled).
  * 센서 수집이 멀쩡해도 이 루프만 죽으면 자동화가 조용히 멈추므로, 별도 심박이 필요하다.
  */
+/**
+ * POST /internal/control-sync-status
+ * RPi 가 5분마다 제어이력 미동기화 백로그를 보고. 보고가 끊기거나 백로그 나이가 커지면 규칙이 경보.
+ * payload: { farmId, unsyncedCount, oldestUnsyncedSec }
+ */
+router.post("/control-sync-status", async (req, res) => {
+  try {
+    const farmId = req.farmId || req.body?.farmId || DEFAULT_FARM_ID;
+    const unsyncedCount = parseInt(req.body?.unsyncedCount) || 0;
+    const oldestSec = req.body?.oldestUnsyncedSec != null ? parseInt(req.body.oldestUnsyncedSec) : null;
+    await pool.query(
+      `INSERT INTO control_sync_status (farm_id, reported_at, unsynced_count, oldest_unsynced_sec, updated_at)
+       VALUES ($1, now(), $2, $3, now())
+       ON CONFLICT (farm_id) DO UPDATE
+         SET reported_at=now(), unsynced_count=$2, oldest_unsynced_sec=$3, updated_at=now()`,
+      [farmId, unsyncedCount, oldestSec]
+    );
+    res.json({ success: true });
+  } catch (error) {
+    logger.error("제어이력 동기화 상태 저장 실패:", error.message);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
 router.post("/automation-heartbeat", async (req, res) => {
   try {
     const farmId = req.farmId || req.body?.farmId || DEFAULT_FARM_ID;

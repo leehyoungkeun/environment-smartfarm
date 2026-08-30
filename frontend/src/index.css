@@ -432,3 +432,7 @@ html.kiosk .animate-pulse,
 html.kiosk [style*="infinite"] {
   animation: none !important;
 }
+
+/* 키오스크: 상단 나비를 고정(sticky)하지 않는다. 600px 화면에서 스크롤하면 하우스 탭 등 카드 윗부분이
+   나비 밑으로 잘려 '패널이 겹쳐 보인다'(2026-08-30 패널 사진). 나비는 내용과 함께 스크롤된다. */
+html.kiosk nav.glass-nav { position: static !important; }

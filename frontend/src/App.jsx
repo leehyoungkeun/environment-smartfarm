@@ -545,16 +545,13 @@ function AppContent() {
             </>
           ) : (
             /* farmLocal: 간단한 1줄 — 시간/날짜/IP 통합 */
-            <div className="flex items-center justify-between h-14">
-              {/* 키오스크(1024px)에서는 로고·시계를 빼고 IP 만 남긴다 — 로고가 두 줄로 꺾이며 나비 자리를 먹었다 (2026-08-30 패널 사진) */}
-              <div className="flex items-center gap-3">
-                {!isKiosk && (
-                  <>
-                    <div className="w-8 h-8 bg-gradient-to-br from-emerald-400 to-blue-500 rounded-xl flex items-center justify-center text-base shadow-lg shadow-emerald-500/20">🌱</div>
-                    <span className="text-lg font-bold text-gray-800">케이그린텍</span>
-                  </>
-                )}
-                {rpiIp && <span className={`text-xs text-gray-400 font-mono ${isKiosk ? '' : 'ml-2'}`}>{rpiIp}</span>}
+            <div className={isKiosk ? "grid items-center h-14" : "flex items-center justify-between h-14"} style={isKiosk ? { gridTemplateColumns: '1fr auto 1fr' } : undefined}>
+              {/* 키오스크: 로고 | 메뉴(정중앙) | IP — 1fr auto 1fr 그리드라 메뉴가 화면 중앙에 오고 양옆 여백이 같다 */}
+              {/* 키오스크: 로고는 한 줄로, 시계·날짜는 빼고, IP 는 맨 오른쪽 끝에 (2026-08-30 패널 사진 기준) */}
+              <div className={`flex items-center gap-3 whitespace-nowrap ${isKiosk ? 'justify-self-start' : ''}`}>
+                <div className="w-8 h-8 bg-gradient-to-br from-emerald-400 to-blue-500 rounded-xl flex items-center justify-center text-base shadow-lg shadow-emerald-500/20 flex-shrink-0">🌱</div>
+                <span className="text-lg font-bold text-gray-800">케이그린텍</span>
+                {!isKiosk && rpiIp && <span className="text-xs text-gray-400 font-mono ml-2">{rpiIp}</span>}
                 {!isKiosk && (
                   <>
                     <span className="text-xs text-gray-400 ml-1">{clockTime.toLocaleTimeString('ko-KR', { hour:'2-digit', minute:'2-digit' })}</span>
@@ -601,6 +598,8 @@ function AppContent() {
                   )}
                 </div>
               </div>
+              {/* 키오스크: 로고 | 메뉴 | IP 를 좌·중·우로 나눠 균형 (justify-between 의 세 번째 자식) */}
+              {isKiosk && <span className="text-xs text-gray-400 font-mono whitespace-nowrap justify-self-end">{rpiIp || ''}</span>}
             </div>
           )}
         </div>

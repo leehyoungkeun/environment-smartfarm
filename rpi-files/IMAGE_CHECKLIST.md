@@ -261,3 +261,9 @@ ssh lhk@<RPi-IP> "
 ```
 
 새 농장 셋업 시 setup.js 가 placeholder 를 `MyFarmPi_<deviceCode>` 로 자동 치환.
+
+## 키오스크 화면 (2026-08-30 추가)
+- `sudo apt-get install -y fonts-noto-color-emoji` — 없으면 화면의 모든 아이콘이 □ 로 나온다.
+- `kiosk.sh` 는 `rpi-files/master/kiosk.sh` 사본 사용 (배율 1 고정 · 번역 팝업 차단 · DPMS 10분 절전).
+- chromium 프로필에 페이지 줌(Ctrl+-)이 남아 있으면 안 된다: `~/.config/chromium/Default/Preferences` 의
+  `partition.per_host_zoom_levels` 에 localhost 항목이 없어야 하고 `translate.enabled=false`.

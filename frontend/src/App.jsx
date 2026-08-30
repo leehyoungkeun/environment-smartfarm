@@ -288,6 +288,18 @@ function AppContent() {
     }
   }, [user, currentPage]);
 
+  // 키오스크 = 패널 자신에서 연 화면(localhost). 7인치 1024×600 터치 전용 압축 레이아웃을 켠다.
+  //   · 2026-08-30 이전엔 isTouchPanel 이 false 로 고정돼 있었고, 대신 chromium 프로필에 67% 줌이
+  //     남아 있어 본문 14px 이 화면에서 9px 로 보였다(배지 9px → 6px). 줌은 제거하고 레이아웃으로 푼다.
+  //   · 클라우드/팜로컬 어느 모드든 패널이면 같은 레이아웃. 모드 전환은 여전히 사람이 한다.
+  const isKiosk = ['localhost', '127.0.0.1'].includes(window.location.hostname);
+  useEffect(() => {
+    // 인라인 px 로 박힌 작은 글자(상태 배지 등)까지 같이 키우려고 zoom 을 쓴다. 1024 → 유효폭 ~930px,
+    // md(768) 브레이크포인트는 유지된다.
+    if (isKiosk) document.body.style.zoom = '1.1';
+    return () => { if (isKiosk) document.body.style.zoom = ''; };
+  }, [isKiosk]);
+
   if (authLoading) {
     return (
       <div className="min-h-screen bg-mesh flex items-center justify-center">
@@ -317,9 +329,8 @@ function AppContent() {
   };
 
   const farmLocal = isFarmLocalMode();
+  const isTouchPanel = isKiosk;
   // 트랩 21 (2026-05-09): 자동 터치패널 감지 폐기 — 키오스크도 cloud 모드면 일반 frontend 와 동일
-  // farmLocal 명시적 ON 일 때만 1줄 레이아웃. isTouchPanel 은 false 로 고정 (DynamicDashboard·ControlPage 의 prop 호환)
-  const isTouchPanel = false;
 
   const allNavItems = farmLocal
     ? [
@@ -339,12 +350,21 @@ function AppContent() {
         { id: 'server', label: '서버', icon: '🖥️', permission: 'server' },
         { id: 'settings', label: '설정', icon: '⚙️', permission: 'settings' },
       ];
-  const navItems = allNavItems.filter(item => hasPermission(item.permission));
+  // 키오스크는 이 농장 한 곳의 현장 패널이다. 여러 농장을 오가는 '농장관리'와 운영자용 '서버'는
+  // 권한이 있어도(관리자 로그인) 보이지 않는다 — 12칸 한 줄에서 자리도 아낀다.
+  const KIOSK_HIDDEN = ['farms', 'server'];
+  const navItems = allNavItems
+    .filter(item => hasPermission(item.permission))
+    .filter(item => !(isKiosk && KIOSK_HIDDEN.includes(item.id)));
 
   // 역할별 2줄 네비 그리드 계산
   const isStaff = isSystemWide; // superadmin, manager
   const navGrid = (() => {
     if (farmLocal) return null; // farmLocal 만 1줄 레이아웃 (트랩 21: cloud 키오스크는 정상 2줄)
+    if (isKiosk) {
+      // 키오스크: 600px 높이에서 2줄 네비(≈110px)는 너무 크다. 로고 없이 전부 한 줄.
+      return { row1: [...navItems, { id: '__alert__', type: 'alert' }, { id: '__user__', type: 'user' }], row2: null, columns: navItems.length + 2 };
+    }
     if (isStaff) {
       // 회사직원: 6열, row1=nav앞6개, row2=나머지nav+알림+관리자
       const row1 = navItems.slice(0, 6);
@@ -373,7 +393,9 @@ function AppContent() {
   const renderNavCell = (cell, isMobile = false) => {
     const btnBase = isMobile
       ? 'py-2 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-1 whitespace-nowrap w-full min-h-[40px]'
-      : 'py-2.5 rounded-xl text-sm font-medium transition-all duration-200 flex items-center justify-center gap-1 whitespace-nowrap w-full min-h-[44px]';
+      : isKiosk
+        ? 'py-1 px-0.5 rounded-lg text-[11px] font-semibold transition-all flex flex-col items-center justify-center gap-0.5 whitespace-nowrap w-full min-h-[46px] leading-tight'
+        : 'py-2.5 rounded-xl text-sm font-medium transition-all duration-200 flex items-center justify-center gap-1 whitespace-nowrap w-full min-h-[44px]';
 
     if (cell.type === 'logo') {
       return (
@@ -479,8 +501,8 @@ function AppContent() {
         <div className="max-w-7xl mx-auto px-4 lg:px-6 py-1.5">
           {navGrid ? (
             <>
-              {/* 회사직원: 로고바 */}
-              {isStaff && (
+              {/* 회사직원: 로고바 — 키오스크는 농장이 하나라 생략(600px 높이에서 50px 확보) */}
+              {isStaff && !isKiosk && (
                 <div className="flex items-center gap-2 pb-1.5 mb-1 border-b border-gray-100">
                   <div className="w-7 h-7 bg-gradient-to-br from-emerald-400 to-blue-500 rounded-lg flex items-center justify-center text-sm shadow-lg shadow-emerald-500/20">🌱</div>
                   <span className="text-base font-bold text-gray-800">케이그린텍</span>
@@ -490,12 +512,14 @@ function AppContent() {
                 </div>
               )}
               {/* 2줄 그리드 */}
-              <div className="grid gap-1 mb-1" style={{ gridTemplateColumns: `repeat(${navGrid.columns}, 1fr)` }}>
+              <div className={`grid gap-1 ${navGrid.row2 ? 'mb-1' : ''}`} style={{ gridTemplateColumns: `repeat(${navGrid.columns}, 1fr)` }}>
                 {navGrid.row1.map(cell => renderNavCell(cell, false))}
               </div>
-              <div className="grid gap-1" style={{ gridTemplateColumns: `repeat(${navGrid.columns}, 1fr)` }}>
-                {navGrid.row2.map(cell => renderNavCell(cell, false))}
-              </div>
+              {navGrid.row2 && (
+                <div className="grid gap-1" style={{ gridTemplateColumns: `repeat(${navGrid.columns}, 1fr)` }}>
+                  {navGrid.row2.map(cell => renderNavCell(cell, false))}
+                </div>
+              )}
             </>
           ) : (
             /* farmLocal: 간단한 1줄 — 시간/날짜/IP 통합 */

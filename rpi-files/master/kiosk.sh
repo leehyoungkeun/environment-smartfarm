@@ -26,6 +26,6 @@ xrandr --output HDMI-1 --mode 1024x600 2>/dev/null
 
 # 자동 재시작 + 원격 디버깅 (PC 에서 chrome://inspect 접근)
 while true; do
-  chromium     --kiosk     --noerrdialogs     --disable-infobars     --disable-session-crashed-bubble     --disable-component-update     --check-for-update-interval=31536000     --remote-debugging-port=9222     --remote-allow-origins=*     'http://localhost'
+  chromium     --kiosk --force-device-scale-factor=1 --disable-features=Translate --lang=ko     --noerrdialogs     --disable-infobars     --disable-session-crashed-bubble     --disable-component-update     --check-for-update-interval=31536000     --remote-debugging-port=9222     --remote-allow-origins=*     'http://localhost'
   sleep 5
 done

@@ -705,10 +705,13 @@ router.get("/:farmId/ks3267/:action", async (req, res) => {
     const qs = new URLSearchParams(req.query).toString();
     const url = `${getRpiBase(farmId)}/api/ks3267/${action}${qs ? "?" + qs : ""}`;
     const r = await fetch(url, { headers: await rpiHeaders(farmId), signal: AbortSignal.timeout(8000) });
-    const data = await r.json().catch(() => ({ success: false, error: `RPi 응답 파싱 실패 (${r.status})` }));
-    res.status(r.ok ? 200 : 502).json(data);
+    const data = await r.json().catch(() => ({ ok: false, success: false, error: `RPi 응답 파싱 실패 (${r.status})` }));
+    // ★ 502 로 내보내지 않는다 — Cloudflare 가 origin 502 를 자기 오류 페이지로 바꿔치기해(CORS 헤더 없음)
+    //   브라우저엔 "Network Error" 로만 보인다 (2026-08-30 실측). RPi/데몬 부재는 애플리케이션 상태 → 200 + ok:false.
+    if (!r.ok) data.upstreamStatus = r.status;
+    res.json(data);
   } catch (error) {
-    res.status(502).json({ success: false, error: `RPi 연결 실패: ${error.message}` });
+    res.json({ ok: false, success: false, error: `RPi 연결 실패: ${error.message}` });
   }
 });
 

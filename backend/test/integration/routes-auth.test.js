@@ -191,6 +191,15 @@ describe("KS X 3267 데몬 프록시 — 읽기 전용, 농장 키 인증", () =
     assert.ok([400, 401, 403].includes(res.status), `제어 액션이 프록시를 통과했다 (${res.status})`);
     if (res.status === 400) assert.match(res.body.error, /허용되지 않는/);
   });
+
+  test("RPi 연결 실패 → 200 + ok:false (502 는 Cloudflare 가 CORS 없는 자기 페이지로 바꿔 브라우저에 Network Error)", async () => {
+    process.env.INTERNAL_API_KEY ||= "test-internal-key";
+    const res = await request(app).get("/api/config/farm_9999/ks3267/health").set("x-api-key", process.env.INTERNAL_API_KEY);
+    if (res.status === 401 || res.status === 403) return; // 스텁 DB 에서 키 인증이 막히면 이 검사는 건너뛴다
+    assert.equal(res.status, 200, `502/5xx 를 내보내면 Cloudflare 뒤에서 응답이 사라진다 (${res.status})`);
+    assert.equal(res.body.ok, false);
+    assert.match(String(res.body.error), /RPi/);
+  });
 });
 
 describe("공개여야 하는 것은 열려 있다", () => {

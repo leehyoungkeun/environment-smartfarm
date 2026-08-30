@@ -296,8 +296,11 @@ function AppContent() {
   useEffect(() => {
     // 인라인 px 로 박힌 작은 글자(상태 배지 등)까지 같이 키우려고 zoom 을 쓴다. 1024 → 유효폭 ~930px,
     // md(768) 브레이크포인트는 유지된다.
-    if (isKiosk) document.body.style.zoom = '1.1';
-    return () => { if (isKiosk) document.body.style.zoom = ''; };
+    if (isKiosk) {
+      document.body.style.zoom = '1.1';
+      document.documentElement.classList.add('kiosk');   // index.css: backdrop-filter 차단 (발열)
+    }
+    return () => { if (isKiosk) { document.body.style.zoom = ''; document.documentElement.classList.remove('kiosk'); } };
   }, [isKiosk]);
 
   if (authLoading) {

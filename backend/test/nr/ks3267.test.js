@@ -171,6 +171,8 @@ describe("마스터 flows.json — 적용된 노드가 문서 교체본과 일�
   same("ks_fn_status", "fn_ks_status.js");
   same("ks_fn_result", "fn_ks_result.js");
   same("ks_fn_proxy", "fn_ks_proxy.js");
+  same("ks_fn_snapshot", "fn_ks_snapshot.js");
+  same("ks_fn_snapshot_result", "fn_ks_snapshot_result.js");
 
   test("execute_control 출력 3 + 3번 → link out → ks_link_in_cmd", () => {
     const flows = readFlows();
@@ -183,10 +185,18 @@ describe("마스터 flows.json — 적용된 노드가 문서 교체본과 일�
   });
 
   test("http request 3개 — senderr 해제 (켜면 데몬 부재 시 응답이 매달린다)", () => {
-    for (const id of ["ks_http_proxy_req", "ks_http_command", "ks_http_log"]) {
+    for (const id of ["ks_http_proxy_req", "ks_http_command", "ks_http_log", "ks_http_snapshot"]) {
       const n = readFlows().find((x) => x.id === id);
       assert.ok(n, id); assert.equal(n.senderr, false, id + " senderr 가 켜져 있다");
     }
+  });
+
+  test("스냅샷 inject 는 60초 반복, 배선 4단", () => {
+    const flows = readFlows();
+    const inj = flows.find((n) => n.id === "ks_inject_snapshot");
+    assert.equal(String(inj?.repeat), "60"); assert.deepEqual(inj.wires, [["ks_fn_snapshot"]]);
+    assert.deepEqual(flows.find((n) => n.id === "ks_fn_snapshot").wires, [["ks_http_snapshot"]]);
+    assert.deepEqual(flows.find((n) => n.id === "ks_http_snapshot").wires, [["ks_fn_snapshot_result"]]);
   });
 
   test("노드 id 로 실행: ks3267 프로필 → 3번 출력", () => {

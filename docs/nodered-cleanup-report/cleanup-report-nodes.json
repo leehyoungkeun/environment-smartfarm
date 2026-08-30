@@ -1,0 +1,30 @@
+[
+  {
+    "id": "cleanup_report_http",
+    "type": "http request",
+    "z": "sqlite_init_flow",
+    "name": "보관 보고 전송",
+    "method": "use",
+    "ret": "obj",
+    "paytoqs": "body",
+    "url": "",
+    "persist": false,
+    "senderr": false,
+    "x": 900,
+    "y": 700,
+    "wires": [["cleanup_report_result"]]
+  },
+  {
+    "id": "cleanup_report_result",
+    "type": "function",
+    "z": "sqlite_init_flow",
+    "name": "보고 결과",
+    "func": "if (msg.statusCode === 200 || (msg.payload && msg.payload.success)) {\n    node.status({ fill: 'green', shape: 'dot', text: '서버 보고 완료 ' + new Date().toLocaleTimeString() });\n} else {\n    // 서버 다운/네트워크면 다음 날 03:00 재시도. 서버는 26h 무보고를 알림으로 잡는다.\n    node.warn('⚠️ 유지보수 보고 실패: ' + (msg.statusCode || 'no-response'));\n    node.status({ fill: 'red', shape: 'ring', text: '보고 실패 ' + (msg.statusCode || '무응답') });\n}\nreturn null;",
+    "outputs": 1,
+    "timeout": 0,
+    "noerr": 0,
+    "x": 1080,
+    "y": 700,
+    "wires": [[]]
+  }
+]

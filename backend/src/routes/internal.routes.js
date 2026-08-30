@@ -13,6 +13,35 @@ import { setStepStatus, clearStepStatus } from "../utils/stepStatusStore.js";
 const router = express.Router();
 
 const DEFAULT_FARM_ID = process.env.FARM_ID || "farm_0001";
+
+/**
+ * POST /internal/maintenance-report
+ * RPi 가 매일 03:00 로컬 데이터 정리(60일 보관 삭제) 후 결과를 보고한다.
+ * payload: { farmId, deletedRows, retentionDays, dbRows, ranAt? }
+ * 이 보고가 26시간 이상 끊기면 Prometheus 규칙이 "청소 멈춤"으로 Discord 경보.
+ * 조용한 실패를 드러내려는 것이므로, 삭제 0건이어도 정상 보고다(값이 아니라 '왔다'가 신호).
+ */
+router.post("/maintenance-report", async (req, res) => {
+  try {
+    const farmId = req.farmId || req.body?.farmId || DEFAULT_FARM_ID;
+    const deletedRows = parseInt(req.body?.deletedRows) || 0;
+    const retentionDays = req.body?.retentionDays != null ? parseInt(req.body.retentionDays) : null;
+    const dbRows = req.body?.dbRows != null ? parseInt(req.body.dbRows) : null;
+    const ranAt = req.body?.ranAt ? new Date(req.body.ranAt) : new Date();
+    await pool.query(
+      `INSERT INTO maintenance_report (farm_id, last_run_at, deleted_rows, retention_days, db_rows, updated_at)
+       VALUES ($1,$2,$3,$4,$5, now())
+       ON CONFLICT (farm_id) DO UPDATE
+         SET last_run_at=$2, deleted_rows=$3, retention_days=$4, db_rows=$5, updated_at=now()`,
+      [farmId, ranAt, deletedRows, retentionDays, dbRows]
+    );
+    logger.info(`🧹 유지보수 보고: ${farmId} deleted=${deletedRows} dbRows=${dbRows} retention=${retentionDays}d`);
+    res.json({ success: true });
+  } catch (error) {
+    logger.error("유지보수 보고 저장 실패:", error.message);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
 const DEFAULT_HOUSE_ID = process.env.HOUSE_ID || "house_0001";
 
 // 서킷 브레이커가 미확인 알림을 세는 구간.

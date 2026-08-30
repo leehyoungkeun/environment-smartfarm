@@ -579,6 +579,45 @@ new promClient.Gauge({
   },
 });
 
+// RPi 로컬 데이터 정리(60일 보관 삭제) 마지막 보고 시각.
+// 매일 03:00 도는 작업이 26시간 넘게 소식 없으면 규칙이 경보한다(조용한 멈춤 감지).
+new promClient.Gauge({
+  name: "smartfarm_rpi_cleanup_last_run_timestamp",
+  help: "Unix time of last RPi local-data cleanup report per farm",
+  labelNames: ["farm_id"],
+  async collect() {
+    try {
+      const { pool } = await import("./db.js");
+      const { rows } = await pool.query(
+        "SELECT farm_id, extract(epoch from last_run_at) AS ts FROM maintenance_report"
+      );
+      this.reset();
+      rows.forEach((r) => this.set({ farm_id: r.farm_id }, Number(r.ts)));
+    } catch {
+      this.reset();
+    }
+  },
+});
+
+// 정리 후 로컬 SQLite 행수 — 계속 증가하면 삭제가 안 되고 있다는 신호(디스크 포화 전 조기 감지).
+new promClient.Gauge({
+  name: "smartfarm_rpi_local_rows",
+  help: "Local SQLite row count reported by RPi after cleanup",
+  labelNames: ["farm_id"],
+  async collect() {
+    try {
+      const { pool } = await import("./db.js");
+      const { rows } = await pool.query(
+        "SELECT farm_id, db_rows FROM maintenance_report WHERE db_rows IS NOT NULL"
+      );
+      this.reset();
+      rows.forEach((r) => this.set({ farm_id: r.farm_id }, Number(r.db_rows)));
+    } catch {
+      this.reset();
+    }
+  },
+});
+
 // Middleware: measure all requests
 app.use((req, res, next) => {
   if (req.path === "/metrics") return next();

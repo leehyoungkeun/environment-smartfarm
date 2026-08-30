@@ -208,3 +208,14 @@ groups:
         annotations:
           summary: "NAS 백업 확인 자체가 1시간째 실패합니다"
           description: "프로브가 NAS(100.125.93.50)에 SSH 로 닿지 못합니다. Tailscale·NAS 전원·키(~/.ssh/smartgreen_backups)를 확인하십시오. 백업 상태를 모르는 상태입니다."
+
+      # RPi 로컬 데이터 정리가 26시간 넘게 보고를 안 함 = 매일 03:00 작업이 멈췄다.
+      # SQLite 가 조용히 무한정 커지다 디스크가 찰 때야 발견되던 것을 조기 감지한다 (2026-08-30).
+      - alert: RpiCleanupStalled
+        expr: time() - smartfarm_rpi_cleanup_last_run_timestamp > 93600
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "{{ $labels.farm_id }} 로컬 데이터 정리 멈춤"
+          description: "60일 보관 정리가 {{ $value | humanizeDuration }} 째 보고되지 않았습니다(정상은 매일 03:00). NR 「보관기간 적용 삭제」 플로우와 서버 보고 경로를 확인하십시오."

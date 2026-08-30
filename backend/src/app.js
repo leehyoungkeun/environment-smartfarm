@@ -67,18 +67,20 @@ app.use(helmet({
   contentSecurityPolicy: false,
 }));
 
+// CORS — 허용 목록에 없는 오리진은 CORS 헤더를 주지 않는다(반사 금지).
+// 2026-08-30 사업화 정밀테스트: else 에서 callback(null, true) 로 모든 오리진을 반사하며
+// credentials:true 를 함께 줘서, 어떤 사이트든 브라우저 자격증명으로 이 API 를 호출할 수 있었다.
+// 기본 허용: 운영 도메인 + 로컬 개발. 키오스크·모바일 앱·curl 은 Origin 헤더가 없어 그대로 통과한다.
+const CORS_ALLOWED = (process.env.CORS_ORIGIN ||
+  "https://smartgreen.kr,https://www.smartgreen.kr,http://localhost:5173,http://localhost:5174")
+  .split(",").map(s => s.trim()).filter(Boolean);
 app.use(
   cors({
     origin: (origin, callback) => {
-      const allowed = (process.env.CORS_ORIGIN || "http://localhost:5173")
-        .split(",")
-        .map(s => s.trim());
-      // allow requests with no origin (curl, mobile apps, etc.)
-      if (!origin || allowed.includes(origin)) {
-        callback(null, true);
-      } else {
-        callback(null, true); // 개발 중 모든 origin 허용
-      }
+      // Origin 없는 요청(curl, 모바일 앱, 서버간)은 CORS 대상이 아니므로 허용
+      if (!origin || CORS_ALLOWED.includes(origin)) return callback(null, true);
+      // 목록 밖 오리진: 에러 없이 거부(헤더 미부여) — 브라우저가 응답을 못 읽는다
+      return callback(null, false);
     },
     credentials: true,
   })

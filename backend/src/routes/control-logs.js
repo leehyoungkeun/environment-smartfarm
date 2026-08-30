@@ -5,8 +5,30 @@
 import express from "express";
 import ControlLog from "../models/ControlLog.js";
 import logger from "../utils/logger.js";
+import { controlLogTable, toDelimited, formatSpec, exportFilename, resolveRange } from "../utils/exportCsv.js";
 
 const router = express.Router();
+
+/**
+ * GET /api/control-logs/:farmId/export?houseId&deviceId&startDate&endDate&format=csv|txt|xls
+ * 구동기 이력 파일 추출 (KOAT 116 4.가.2) 바)). /:farmId 보다 앞에 둔다.
+ */
+router.get("/:farmId/export", async (req, res) => {
+  try {
+    const { farmId } = req.params;
+    const [start, end] = resolveRange(req.query.startDate, req.query.endDate);
+    const query = { farmId, createdAt: { $gte: start, $lte: end } };
+    if (req.query.houseId) query.houseId = req.query.houseId;
+    if (req.query.deviceId) query.deviceId = req.query.deviceId;
+    const logs = await ControlLog.find(query, { sort: { createdAt: 1 }, skip: 0, limit: 100000 });
+    const { columns, rows } = controlLogTable(logs);
+    res.setHeader("Content-Type", formatSpec(req.query.format).mime);
+    res.setHeader("Content-Disposition", `attachment; filename="${exportFilename("control", farmId, req.query.houseId, start, end, req.query.format)}"`);
+    res.send(toDelimited(rows, columns, req.query.format));
+  } catch (error) {
+    res.status(400).json({ success: false, error: error.message });
+  }
+});
 
 /**
  * POST /api/control-logs

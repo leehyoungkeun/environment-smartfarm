@@ -34,8 +34,12 @@ def push_status(url, payload):
         log.warning("NR push 실패 (%s): %s", url, e)
 
 
+HEARTBEAT_SEC = 60  # 변화가 없어도 이 주기로 NR 에 상태를 밀어준다 — NR 1분 스냅샷(116 검정)이 "낡은 상태"로 버리지 않게
+
+
 def poll_loop(master, units, interval, nr_url, stop):
     last = {}
+    last_push = {}
     while not stop.is_set():
         for unit in list(units):
             if unit not in master.nodes:
@@ -48,11 +52,14 @@ def poll_loop(master, units, interval, nr_url, stop):
             if st is None:
                 continue
             key = json.dumps({k: v for k, v in st.items() if k != "t"}, sort_keys=True, default=str)
-            if key != last.get(unit):
+            changed = key != last.get(unit)
+            heartbeat = (time.time() - last_push.get(unit, 0)) >= HEARTBEAT_SEC
+            if changed:
                 last[unit] = key
                 log.info("unit %d 상태 변화: %s", unit, key[:200])
-                if nr_url:
-                    push_status(nr_url, {"source": "ks3267d", "unit": unit, "state": st})
+            if nr_url and (changed or heartbeat):
+                push_status(nr_url, {"source": "ks3267d", "unit": unit, "state": st})
+                last_push[unit] = time.time()
         stop.wait(interval)
 
 

@@ -28,6 +28,13 @@
 http 응답이 나가지 않고 요청이 매달린다 (2026-08-30 1호 적용 때 `데몬 GET` 이 이 상태였음 → 12초+ 무응답).
 해제면 오류가 payload 문자열로 다음 노드에 오고, `응답 정리`가 502 로 돌려준다.
 
+## 3-2. 구동기 1분 스냅샷 노드 추가 (116 검정, 2026-08-30) — 탭을 이미 가져온 농장
+
+1. `python docs/ksx3267/nodered/gen_tab.py` → `ks3267-snapshot-nodes.json` (4노드: 매 60초 inject → 표준 구동기 1분 스냅샷 → 서버 actuator-status → 스냅샷 전송 결과)
+2. 에디터에서 **「KS X 3267 표준노드」 탭을 연 상태**로 가져오기 → 파일 선택 → 가져오기 (현재 탭에 들어간다). 새로 가져오는 농장은 `ks3267-tab.json` 에 이미 포함(22노드).
+3. `서버 actuator-status` http request 의 "2xx 아닌 응답만 Catch" 해제 확인 → Deploy
+4. 서버 DB 에 `backend/prisma/migration-actuator-status.sql` 이 먼저 적용돼 있어야 한다 (없으면 500 → NR 큐에 쌓였다가 적용 후 자동 재전송)
+
 ## 4. Deploy → 마스터 동기화 → 테스트
 
 ```

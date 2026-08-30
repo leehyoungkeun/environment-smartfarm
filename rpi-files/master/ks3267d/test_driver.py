@@ -10,7 +10,10 @@ import unittest
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
-sys.path.insert(0, os.path.normpath(os.path.join(HERE, "..", "..", "..", "tools", "ks3267-sim")))
+# 시뮬레이터 모델 — 리포 배치(tools/ks3267-sim) 와 RPi 배치(형제 ks3267-sim) 둘 다
+for _c in (os.path.join(HERE, "..", "..", "..", "tools", "ks3267-sim"), os.path.join(HERE, "..", "ks3267-sim")):
+    if os.path.isfile(os.path.join(_c, "node.py")):
+        sys.path.insert(0, os.path.normpath(_c)); break
 
 from ks3267core import ksmap as M  # noqa: E402
 from master import KsMaster, OpidGenerator, status_name  # noqa: E402

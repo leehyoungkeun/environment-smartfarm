@@ -192,6 +192,16 @@ describe("KS X 3267 데몬 프록시 — 읽기 전용, 농장 키 인증", () =
     if (res.status === 400) assert.match(res.body.error, /허용되지 않는/);
   });
 
+  test("데이터 추출·구동기 상태 조회는 JWT 없이 401 (116 검정용 엔드포인트가 무인증 노출되면 안 된다)", async () => {
+    for (const p of ["/api/sensors/farm_0001/house_0001/export?format=csv", "/api/control-logs/farm_0001/export",
+      "/api/actuator-status/farm_0001", "/api/actuator-status/farm_0001/export", "/api/actuator-status/farm_0001/devices"]) {
+      const res = await request(app).get(p);
+      assert.equal(res.status, 401, `${p} → ${res.status}`);
+    }
+    const r = await request(app).post("/internal/actuator-status").send({ farmId: "farm_0001", rows: [] });
+    assert.equal(r.status, 401, "내부 수신구는 농장 키 없이 열리면 안 된다");
+  });
+
   test("RPi 연결 실패 → 200 + ok:false (502 는 Cloudflare 가 CORS 없는 자기 페이지로 바꿔 브라우저에 Network Error)", async () => {
     process.env.INTERNAL_API_KEY ||= "test-internal-key";
     const res = await request(app).get("/api/config/farm_9999/ks3267/health").set("x-api-key", process.env.INTERNAL_API_KEY);

@@ -80,6 +80,17 @@ nodes = [
     node("ks_catch", "catch", "탭 예외", 140, 460, [["ks_link_out_gt"]], scope=None, uncaught=False),
     node("ks_link_out_gt", "link out", "예외 →", 340, 460, [], mode="link", links=["gt_link_in"]),
 
+    # ── 표준 구동기 1분 스냅샷 → 서버 actuator_status (116 검정: 1분 저장·조회·추출·손실률) ──
+    node("ks_inject_snapshot", "inject", "매 60초", 140, 580, [["ks_fn_snapshot"]],
+         props=[{"p": "payload"}], repeat="60", crontab="", once=True, onceDelay=15, topic="", payload="", payloadType="date"),
+    node("ks_fn_snapshot", "function", "표준 구동기 1분 스냅샷", 380, 580, [["ks_http_snapshot"]],
+         func=fn("fn_ks_snapshot.js"), outputs=1, timeout=0, noerr=0, initialize="", finalize="", libs=[]),
+    node("ks_http_snapshot", "http request", "서버 actuator-status", 620, 580, [["ks_fn_snapshot_result"]],
+         method="use", ret="obj", paytoqs="ignore", url="", tls="", persist=False, proxy="", insecureHTTPParser=False,
+         authType="", senderr=False, headers=[]),
+    node("ks_fn_snapshot_result", "function", "스냅샷 전송 결과", 860, 580, [[]],
+         func=fn("fn_ks_snapshot_result.js"), outputs=1, timeout=0, noerr=0, initialize="", finalize="", libs=[]),
+
     node("ks_comment", "comment", "적용 순서 (docs/ksx3267/nodered/README.md)", 140, 40, [],
          info="1) 이 탭 가져오기 → 2) AWS 제어 수신 탭 execute_control 교체(출력 3) + link out → 이 탭 '← execute_control 제어' 연결\n"
               "3) 센서 수집 탭 ③ 교체 → 4) Deploy → 5) pm2 ks3267d --nr-url http://127.0.0.1:1880/api/ks3267/status"),
@@ -88,3 +99,10 @@ nodes = [
 out = os.path.join(HERE, "ks3267-tab.json")
 io.open(out, "w", encoding="utf-8").write(json.dumps(nodes, ensure_ascii=False, indent=1))
 print("wrote", out, "nodes:", len(nodes))
+
+# 이미 탭을 가져온 농장용: 스냅샷 4노드만 (에디터에서 「KS X 3267 표준노드」 탭을 연 상태로 가져오기 → 현재 탭에 들어간다)
+SNAP = {"ks_inject_snapshot", "ks_fn_snapshot", "ks_http_snapshot", "ks_fn_snapshot_result"}
+snap = [n for n in nodes if n["id"] in SNAP]
+out2 = os.path.join(HERE, "ks3267-snapshot-nodes.json")
+io.open(out2, "w", encoding="utf-8").write(json.dumps(snap, ensure_ascii=False, indent=1))
+print("wrote", out2, "nodes:", len(snap))

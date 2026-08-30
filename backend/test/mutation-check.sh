@@ -11,7 +11,7 @@ set -u
 cd "$(dirname "$0")/.." || exit 1
 
 BK=$(mktemp -d)
-FILES=(src/app.js src/routes/devices.routes.js src/routes/sensors.js src/routes/config.routes.js src/routes/internal.routes.js src/routes/farms.routes.js src/schedulers/sensorThresholdAlert.js src/schedulers/offlineAlert.js src/models/Alert.js src/services/mqttClient.js src/services/diagnosisAgent.js src/routes/kakao.routes.js src/routes/device-positions.routes.js prisma/migration-device-positions.sql ../rpi-files/master/flows.json ../docs/ksx3267/nodered/execute_control.js ../docs/ksx3267/nodered/fn_ks_command.js ../docs/ksx3267/nodered/fn_collect_sensors.js ../frontend/src/lib/ks3267.js)
+FILES=(src/app.js src/routes/devices.routes.js src/routes/sensors.js src/routes/config.routes.js src/routes/internal.routes.js src/routes/farms.routes.js src/schedulers/sensorThresholdAlert.js src/schedulers/offlineAlert.js src/models/Alert.js src/services/mqttClient.js src/services/diagnosisAgent.js src/routes/kakao.routes.js src/routes/device-positions.routes.js prisma/migration-device-positions.sql ../rpi-files/master/flows.json ../docs/ksx3267/nodered/execute_control.js ../docs/ksx3267/nodered/fn_ks_command.js ../docs/ksx3267/nodered/fn_collect_sensors.js ../frontend/src/lib/ks3267.js src/utils/exportCsv.js ../docs/ksx3267/nodered/fn_ks_snapshot.js)
 flat() { echo "$1" | tr '/.' '__'; }  # ../ 가 있어도 백업 디렉터리를 벗어나지 않게 평탄화
 for f in "${FILES[@]}"; do cp "$f" "$BK/$(flat "$f")"; done
 restore() { for f in "${FILES[@]}"; do cp "$BK/$(flat "$f")" "$f"; done; }
@@ -135,6 +135,9 @@ probe "fn_ks_command TIMED_ON 매핑 소실 (duration 무시)" ../docs/ksx3267/n
 probe "③ 표준 센서 TTL 제거 (낡은 값을 실측처럼)" ../docs/ksx3267/nodered/fn_collect_sensors.js   "(Date.now() - (ksR.t || 0)) < 180000"   "true"
 probe "UI 표준 프로필 검증 무력화 (개폐기 9번 저장 허용)" ../frontend/src/lib/ks3267.js   "const max = m.kind === 'opener' ? 8 : 16;"   "const max = 99;"
 probe "UI 매핑 중복 감지 제거" ../frontend/src/lib/ks3267.js   "filter(([, v]) => v.length > 1)"   "filter(() => false)"
+probe "추출 결측을 0 으로 채움 (손실률 위조)" src/utils/exportCsv.js   "o[id] = v === undefined || v === null ? \"\" : v;"   "o[id] = v === undefined || v === null ? 0 : v;"
+probe "추출 조회기간 상한 제거 (31일 → 무제한 쿼리)" src/utils/exportCsv.js   "if (end - start > maxDays * 86400 * 1000)"   "if (false)"
+probe "스냅샷 낡은 상태 필터 제거 (데몬 죽어도 기록 → 손실률 위조)" ../docs/ksx3267/nodered/fn_ks_snapshot.js   "if (now - rec > STALE_MS) continue;"   ";"
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # DB 가 필요한 검사 — 테스트 전용 Postgres 가 있을 때만 돈다

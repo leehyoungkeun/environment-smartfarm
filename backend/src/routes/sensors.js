@@ -9,6 +9,7 @@ import Alert from "../models/Alert.js";
 import { pool } from "../db.js";
 import logger from "../utils/logger.js";
 import { broadcastFarmStatus } from "../services/wsServer.js";
+import { sensorTable, toDelimited, formatSpec, exportFilename, resolveRange } from "../utils/exportCsv.js";
 
 const router = express.Router();
 
@@ -338,6 +339,33 @@ router.get("/:farmId/:houseId/history", async (req, res, next) => {
       data: history,
     });
   } catch (error) {
+    next(error);
+  }
+});
+
+/**
+ * GET /api/sensors/:farmId/:houseId/export?startDate&endDate&sensorIds=a,b&format=csv|txt|xls|json
+ * 1분 단위 원시 데이터 추출 (KOAT 116 4.가.1) 라)마) — 조회기간 1/7/30일, 파일 추출)
+ * json 은 화면 표 조회용(같은 행), 나머지는 파일 다운로드.
+ */
+router.get("/:farmId/:houseId/export", async (req, res, next) => {
+  try {
+    const { farmId, houseId } = req.params;
+    const [start, end] = resolveRange(req.query.startDate, req.query.endDate);
+    const sensorIds = req.query.sensorIds ? String(req.query.sensorIds).split(",").map((s) => s.trim()).filter(Boolean) : null;
+    const limit = Math.min(parseInt(req.query.limit) || 50000, 50000); // 31일 × 1440 = 44,640
+    const { rows } = await pool.query(
+      `SELECT "timestamp", data FROM sensor_data WHERE farm_id = $1 AND house_id = $2 AND "timestamp" >= $3 AND "timestamp" <= $4
+       ORDER BY "timestamp" ASC LIMIT $5`, [farmId, houseId, start, end, limit]);
+    const { columns, rows: table } = sensorTable(rows, sensorIds);
+    if (String(req.query.format || "").toLowerCase() === "json") {
+      return res.json({ success: true, count: table.length, range: { start, end }, columns: columns.map((c) => c.key), data: table });
+    }
+    res.setHeader("Content-Type", formatSpec(req.query.format).mime);
+    res.setHeader("Content-Disposition", `attachment; filename="${exportFilename("sensor", farmId, houseId, start, end, req.query.format)}"`);
+    res.send(toDelimited(table, columns, req.query.format));
+  } catch (error) {
+    if (/조회기간|형식 오류|앞선다/.test(error.message)) return res.status(400).json({ success: false, error: error.message });
     next(error);
   }
 });

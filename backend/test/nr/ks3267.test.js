@@ -195,3 +195,40 @@ describe("마스터 flows.json — 적용된 노드가 문서 교체본과 일�
     assert.equal(out[0], null); assert.equal(out[2].control.modbus.protocol, "ks3267");
   });
 });
+
+// ── 표준 구동기 1분 스냅샷 (116 검정) — fn_ks_snapshot / fn_ks_snapshot_result ──
+describe("fn_ks_snapshot — 1분 스냅샷 + 실패 큐", () => {
+  const CFG = { houses: [{ houseId: HOUSE, devices: [{ deviceId: "fan1", modbus: KS_FAN }, { deviceId: "window1", modbus: KS_WIN }, { deviceId: "relay9", modbus: WAVESHARE }] }] };
+  const fresh = (clock) => ({ 1: { kind: "actuator", receivedAt: new Date(clock.nowMs - 20000).toISOString(),
+    devices: { 3: { kind: "switch", n: 3, status: 201, status_name: "ON", remain: 25, opid: 7 }, 18: { kind: "opener", n: 2, status: 0, status_name: "READY", remain: 0, opid: 0 } } } });
+
+  test("표준 장치만 분 단위 행으로, vendor 장치는 제외, 서버 POST 준비", () => {
+    const clock = makeClock("2026-08-30T09:00:42.000Z");
+    const e = makeEnv({ clock, globals: { houseConfig: CFG, ks3267State: fresh(clock), farmId: "farm_0001" }, tabEnv: { SENSOR_API_KEY: "k" } });
+    const out = e.runFile(F("fn_ks_snapshot.js"), {});
+    assert.equal(out.method, "POST"); assert.match(out.url, /\/internal\/actuator-status$/); assert.equal(out.headers["x-api-key"], "k");
+    assert.equal(out.payload.rows.length, 2, "표준 장치 2개만");
+    assert.equal(out.payload.rows[0].timestamp, "2026-08-30T09:00:00.000Z", "분 단위로 내림");
+    assert.equal(out.payload.rows[0].status, 201); assert.equal(out.payload.rows[0].remain, 25); assert.equal(out._sent, 2);
+    assert.equal(e.flow.get("ksSnapshotQueue").length, 2);
+  });
+  test("3분 넘게 갱신 없는 노드는 행을 만들지 않는다 (값을 지어내지 않음 → 손실로 드러남)", () => {
+    const clock = makeClock();
+    const stale = fresh(clock); stale[1].receivedAt = new Date(clock.nowMs - 200000).toISOString();
+    const e = makeEnv({ clock, globals: { houseConfig: CFG, ks3267State: stale } });
+    assert.equal(e.runFile(F("fn_ks_snapshot.js"), {}), null);
+  });
+  test("전송 실패분은 큐에 남아 다음 분에 함께 간다, 성공하면 보낸 만큼 비운다", () => {
+    const clock = makeClock();
+    const e = makeEnv({ clock, globals: { houseConfig: CFG, ks3267State: fresh(clock) } });
+    const m1 = e.runFile(F("fn_ks_snapshot.js"), {});
+    e.runFile(F("fn_ks_snapshot_result.js"), { ...m1, statusCode: 502, payload: "Bad Gateway" });
+    assert.equal(e.flow.get("ksSnapshotQueue").length, 2, "실패했는데 큐가 비었다");
+    clock.advance(60000);
+    const st = e.global.get("ks3267State"); st[1].receivedAt = new Date(clock.nowMs).toISOString(); e.global.set("ks3267State", st);
+    const m2 = e.runFile(F("fn_ks_snapshot.js"), {});
+    assert.equal(m2.payload.rows.length, 4, "실패분 2 + 이번 분 2");
+    e.runFile(F("fn_ks_snapshot_result.js"), { ...m2, statusCode: 200, payload: { success: true, inserted: 4, received: 4 } });
+    assert.equal(e.flow.get("ksSnapshotQueue").length, 0);
+  });
+});

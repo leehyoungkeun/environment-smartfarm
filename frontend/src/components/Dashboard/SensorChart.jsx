@@ -11,7 +11,8 @@ const RANGE_CONFIG = {
   '6h':  { ms: 6*60*60*1000,      maxPoints: 120, tickInterval: 60*60*1000     },
   '24h': { ms: 24*60*60*1000,     maxPoints: 144, tickInterval: 2*60*60*1000   },
   '7d':  { ms: 7*24*60*60*1000,   maxPoints: 168, tickInterval: 24*60*60*1000  },
-  '30d': { ms: 30*24*60*60*1000,  maxPoints: 180, tickInterval: 3*24*60*60*1000 },
+  // 30일은 1시간 단위(720점) — KOAT 116 검정 "1시간 이하 단위 시각화" (예전 4시간 집계 180점은 기준 미달)
+  '30d': { ms: 30*24*60*60*1000,  maxPoints: 720, tickInterval: 3*24*60*60*1000 },
 };
 
 const TIME_RANGES = [

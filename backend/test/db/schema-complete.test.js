@@ -16,7 +16,7 @@ const backend = join(here, "..", "..");
 const PRISMA = join(backend, "prisma");
 
 // Prisma 스키마 밖에서 손으로 관리하는 테이블 (복합 PK + 잦은 UPSERT 라 raw SQL 로만 쓴다)
-const MANUAL = ["migration-relay-status.sql", "migration-device-positions.sql", "migration-kakao-links.sql"];
+const MANUAL = ["migration-relay-status.sql", "migration-device-positions.sql", "migration-kakao-links.sql", "migration-actuator-status.sql"];
 
 let pool;
 let existing = new Set();

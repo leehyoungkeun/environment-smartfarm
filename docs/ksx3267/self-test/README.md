@@ -1,0 +1,77 @@
+# KS X 3267 통합제어기 — 자가시험 절차 (SPS-X KOAT-0004-7466 §5.4/§5.5 + KOAT 검정기준 116/117 통합제어기)
+
+작성 2026-08-30. 두 문서를 우리 제어기에 그대로 대응시킨 것. 자동화 가능한 단계는 스크립트가, 화면·장시간·전원 항목은 수동 증적표로.
+
+## 0. 역할 (시험 문서 용어 ↔ 우리 것)
+
+| 문서 용어 | 우리 것 |
+|---|---|
+| 시험대상장비 (제어 가능형 제어기, 표 4) | RPi + Node-RED + `ks3267d` 드라이버 + 웹/키오스크 화면 (`스마트그린 통합제어기`) |
+| 시험장비 (센서/구동기 노드 흉내) | `tools/ks3267-sim` — `--units 1:actuator,2:sensor --ctl 5030` (시험장비 제어 API로 관측치·상태를 가상 변경, 명령 수신 확인) |
+| 제어기의 인터페이스(화면) | 제어판(웹/모바일/키오스크) → 로컬 제어 REST `POST /api/control/local` → `execute_control` → 표준 명령 조립 → 드라이버 FC16 |
+| 노드정보 1~8 / 디바이스 코드 101~ | 드라이버 `discover()` (`GET /discover?unit=`) |
+
+## 1. 시험 환경 기동 (RPi 1호, 루프백 TCP — HW 오면 `--port /dev/smartfarm-485-std` 로 동일 절차)
+
+```bash
+cd ~/smartfarm/ks3267
+pm2 start ks3267-sim/sim.py --name ks3267-sim --interpreter ./venv/bin/python -- --tcp 5020 --units 1:actuator,2:sensor --ctl 5030 --log-frames
+pm2 start ks3267d/ks3267d.py   --name ks3267d   --interpreter ./venv/bin/python -- --tcp 127.0.0.1:5020 --units 1,2 --nr-url http://127.0.0.1:1880/api/ks3267/status
+./venv/bin/python ks3267d/selftest_sps7466.py --out ~/smartfarm/ks3267/evidence
+```
+결과: `evidence/<시각>/report.md`(항목별 ✅/❌), `results.json`, `frames.txt`(TX/RX hex — 시험기관 제출 증적).
+
+## 2. SPS-7466 표 4 「제어 가능형 제어기」 시나리오 ↔ 자동/수동
+
+| No | 시험 | 문서 단계 | 우리 절차 | 자동화 |
+|---|---|---|---|---|
+| 1 | 5.4.1 연결시험 | RS485 연결, 9600, 슬레이브 ID 설정 | 드라이버 `/health` ok + 시험장비 `/health` | ✅ `t_541` |
+| 1 | 5.4.2 센서 노드 검색 | 노드정보 1~6 디폴트값(0,0,1,0,10,30), 디바이스 코드 101~ | `/discover?unit=2` 결과 == 시험장비 `/state` 스펙 | ✅ `t_542` |
+| 1 | 5.4.3 데이터 확인 | 관측치 가상 변경 → 제어기가 읽는가; 상태 주기 변경 → 읽는가 | `/sensor {value}` 21.5/30.25/−3.0/28.8, 상태 103/102/0 → `/status` 반영 | ✅ `t_543` |
+| 1 | 5.4.4 데이터 저장 (10분↑) | 저장주기대로 저장 | 하우스/센서 탭에서 `temp_std ← U2 센서1` 매핑 후 10분 → `GET /api/sensors/farm_0001/house_0001/history` 1분 단위 행 확인 + RPi SQLite `sensor_data` | 🟡 수동 (운영 houseConfig 변경 필요) |
+| 2 | 5.5.1 구동기 노드 검색 | 제품타입 2, 채널 24, 코드 102/112 | `/discover?unit=1` == 시험장비 스펙 | ✅ `t_551` |
+| 3 | 5.5.2 레벨1 스위치 제어 | 화면 작동시간 명령 → 시험장비 수신(시간 동일) → 작동중 표시·남은시간 → 중지 → READY | 로컬 제어 REST `on 20s` → 시험장비 `/device` cmd=202,time=20 → 드라이버 status 201 remain↓ → `off` → cmd=0 → READY | ✅ `t_552` + 🟡 화면 캡처 |
+| 4 | 5.5.3 레벨1 개폐기 제어 | 열기/닫기 작동시간 명령·중지 각각 | `open 15s`→303 → 301 remain↓ → `stop` → READY → `close 15s`→304 → 302 → `stop` → READY | ✅ `t_553` + 🟡 화면 캡처 |
+| 부가 | 스코프 선언 일치 | (116 연동장비표 레벨2 ×) | 드라이버가 SET_POSITION 을 로컬 거부, 버스로 안 나감 | ✅ `t_extra_level2` |
+
+수동 캡처 절차 (5.5.2 e/f/j, 5.5.3 e/f/j/n/o/s): 하우스/센서 탭 → 장치 추가 `표준 시험 스위치`(스위치, 프로토콜 표준 노드 U1/스위치/1)·`표준 시험 개폐기`(측창, U1/개폐기/1) → 저장 → 제어판에서 ON(20초)/열기(15초) → 📐 배지 `켜짐 18s`/`열리는 중 12s` → 정지 → `READY` 캡처. 표준노드 탭 U1 카드의 해당 행(현재 상태·남은시간) 캡처. **시험 후 두 장치는 삭제**(운영 설정 원복).
+
+## 3. KOAT 검정기준 116/117 「통합제어기」 대응표
+
+### 3.1 규격 및 성능설명서 기입값 (초안)
+- 형식: **복합형** (현장 키오스크 + 원격 웹/모바일). 관제 지원: 본체 패널(키오스크) ○ / 웹 ○ / Android·iOS PWA ○
+- 관제 방식: 복합형 — 노드 ↔ 통합제어기 **RS-485 (KS X 3267 Modbus RTU 9600 8N1)**, 통합제어기 ↔ 클라우드 **MQTT(TLS)/HTTPS**
+- 기체: OS Raspberry Pi OS 64bit, Processor Broadcom BCM2712 (RPi 5) / BCM2711 (RPi 4), Storage microSD(+NVMe 옵션), POWER 5V 5A 어댑터(+24VDC 노드 급전 PSU), Database SQLite(로컬)+PostgreSQL/TimescaleDB(서버)
+- 연동장비표: 온도·습도·CO₂ — KS X 3267 ○ (센서 노드 디폴트맵 순번 1/4/13) · 레벨1 스위치 ○ · 레벨1 개폐기 ○ · **레벨0/2, 양액기 ×** · 그 외 센서는 표준 미적용(Waveshare/XY-MD02 자체 연동 ○ 표기)
+
+### 3.2 검정기준 항목별 현황
+
+| 항목 | 기준 | 현황 | 확인 방법 / 갭 |
+|---|---|---|---|
+| 센서 상태정보 연계 | 관제 방식별 이상 없음 | ✅ 표준노드 탭·제어판·키오스크 동일 백엔드 | 3개 관제 방식(패널/웹/앱)에서 같은 화면 반복 캡처 |
+| 연결단자 해제·재연결 → 2분 내 정상 (5회) | 2분 | ✅ 드라이버 폴링 2초, 타임아웃 시 상태 `error` → 재연결 다음 폴링에 복귀; 탐색 정보는 유지 | 시험장비 `/fault {"fault":"timeout"}` → `none` 로 5회 재현, 표준노드 탭 '응답 없음'→정상 시각차 기록 |
+| 데이터 손실률 ≤ 3 % (24h, 1440건 기준) | L=(1−N/1440)×100 | ✅ 1분 수집 + SQLite 오프라인 버퍼 + 서버 재전송 | 24h 후 `GET /api/sensors/farm_0001/house_0001/count?startDate=…&endDate=…` → N; 구동기는 `control_logs`/`device_positions` 건수 |
+| 수집 주기 1분 설정 가능 | — | ✅ 설정 › 시스템 › 수집 주기(`collectionConfig.intervalSeconds`) | 60 으로 설정 캡처 |
+| 30일 이상 데이터 확보 | 시험 전 | ✅ farm_0001 운영 데이터 (TimescaleDB) | 표준 센서(temp_std)는 매핑 시점부터 → **시험 30일 전 매핑 필요** |
+| 시각화 1시간 이하 단위, 1/7/30일 | — | ✅ SensorChart 1h/6h/24h/7d/30d — 30일은 1시간 단위 720점 (2026-08-30 수정) | 캡처 |
+| 조회 1분 단위, 1/7/30일 (3분 이내) | — | ✅ 보고서 › **데이터 조회·추출** 탭 (`DataExplorer.jsx`): 센서/제어 이력/표준 구동기 상태, 기간 1·7·30일·직접, 항목 선택, 1분 행 표, 소요 시간 표시 | 캡처 + 소요 시간 |
+| 추출 .csv/.txt/.xls (3분 이내) | — | ✅ `.csv/.txt` 서버 추출(`GET /api/sensors/:farm/:house/export`, `/api/control-logs/:farm/export`, `/api/actuator-status/:farm/export`) + `.xlsx` 화면 생성. 결측은 빈 칸 | 파일 첨부 |
+| 전원 차단 30분 → 복구 후 연계·저장 데이터 유지 | — | ✅ SQLite 영속, 드라이버 opid 파일 영속, pm2 자동 기동, 서버 DB 별도 | 실 전원 차단 시험 절차: RPi 전원 OFF 30분 → ON → 표준노드 탭 자동 복귀, 이전 데이터 조회 |
+| 구동기 동작 제어 (정/OFF/역, ON/OFF) 관제 방식별 순차 | — | ✅ 제어판(웹/앱/키오스크) 동일 경로 | §5.5.2/5.5.3 자동 + 관제 방식 3종 캡처 |
+| 구동기 상태정보 시각화·조회·추출 | 1시간 단위·1분 조회·추출 | ✅ `actuator_status` 테이블(1분 스냅샷: NR 「표준 구동기 1분 스냅샷」 → `/internal/actuator-status`, 실패 큐 재전송·멱등) + 조회·추출 화면. 드라이버 60초 하트비트 | NR 스냅샷 노드 가져오기 필요(§1) |
+| 조작 난이도 | 매뉴얼대로 용이 | ✅ `docs/ksx3267/manual/사용설명서.md` | 시험자가 설명서대로 조작 |
+| 양액공급기 연계 | 연동 가능 제어기만 | — 해당 없음(연동장비표 ×) | 시험 제외 명시 |
+
+### 3.3 116 을 위해 추가로 만든 것 (P7, 2026-08-30 완료)
+1. CSV/TXT 추출 — `backend/src/utils/exportCsv.js`(순수, 테스트 12) + 라우트 3개. 31일 상한, 결측 빈 칸
+2. 1분 단위 조회 화면 — `frontend/src/components/Dashboard/DataExplorer.jsx` (보고서 › 데이터 조회·추출)
+3. 표준 구동기 상태 시계열 — `prisma/migration-actuator-status.sql`(하이퍼테이블), `/internal/actuator-status`(멱등), `/api/actuator-status`, NR `fn_ks_snapshot(.result).js`, 데몬 60초 하트비트
+4. 30일 차트 1시간 단위(720점)
+5. 사용설명서 `docs/ksx3267/manual/사용설명서.md`
+운영 반영 순서: 서버 DB 에 `migration-actuator-status.sql` 적용 → 백엔드 배포 → NR 에서 `ks3267-snapshot-nodes.json` 가져오기(탭 열고) → Deploy → 제어판 매핑 장치 있으면 1분 뒤 `actuator_status` 행 확인
+
+## 4. 시험기관 사전 확인 (PLAN §4 그대로 + 문서 읽고 추가)
+- SPS-7466 §5.4.1 b) "슬레이브 아이디" — 시험장비 노드 주소를 시험 당일 알려주는지, 우리는 표준노드 탭에서 입력 탐색
+- §5.4.4 "제어기에서 제시한 저장주기" — 우리는 1분. 표준 센서를 기존 수집 파이프라인에 합류시키므로 저장주기 = 수집주기
+- 116 연동장비표에서 "표준 미적용 장비 ○/×" — 자체 프로토콜 장비(Waveshare 릴레이, XY-MD02)를 어떻게 표기할지
+- §5.5.2 c) "작동시간이 동일한지" — 초 단위 정수. 우리 UI 의 duration 은 초 → 그대로 전달 (반올림 없음) 확인됨

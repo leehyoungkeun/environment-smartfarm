@@ -88,7 +88,7 @@ D16 데몬 패턴(pm2 관리 python) 재사용. NR 은 오케스트레이터.
 - 종단저항 120Ω, 바이어스 저항 확인
 - 실 표준 노드 1대 확보(시장 제품) — 시뮬레이터와 교차 검증용
 
-### Phase 6 — SPS-7466 §5.4/5.5 자가 시험 (3일)
+### Phase 6 — SPS-7466 §5.4/5.5 자가 시험 (3일) — **시뮬레이터 상대 7/7 통과 2026-08-30** (`rpi-files/master/ks3267d/selftest_sps7466.py`, 절차·116 대응표 `docs/ksx3267/self-test/README.md`, 증적 `evidence-20260830-095819/`). 실 노드 교차·화면 캡처·5.4.4 저장 10분은 HW 후
 - 시험 시나리오를 스크립트로: 탐색 → 센서 조회 → 스위치 ON/OFF/TIMED_ON → 개폐기 OPEN/CLOSE/STOP/TIMED_* → 상태 readback → (제어기 시험엔 비정상 시나리오 없음 — 재확인)
 - 증적: 프레임 hex 로그, UI 캡처, 결과표 → `docs/ksx3267/self-test/`
 

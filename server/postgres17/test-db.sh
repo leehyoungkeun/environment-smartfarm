@@ -47,7 +47,7 @@ case "${1:-status}" in
     if [ -n "$BE" ]; then
       URL="postgresql://postgres:$PASS@127.0.0.1:$PORT/$DB"
       (cd "$BE" && DATABASE_URL="$URL" npx prisma db push --skip-generate >/dev/null 2>&1) && echo "  스키마 적용 (prisma db push)" || echo "  ⚠ prisma db push 실패"
-      for f in "$BE"/prisma/migration-relay-status.sql "$BE"/prisma/migration-device-positions.sql "$BE"/prisma/migration-kakao-links.sql; do
+      for f in "$BE"/prisma/migration-relay-status.sql "$BE"/prisma/migration-device-positions.sql "$BE"/prisma/migration-kakao-links.sql "$BE"/prisma/migration-actuator-status.sql; do
         [ -f "$f" ] || continue
         docker exec -i "$NAME" psql -U postgres -d "$DB" -q < "$f" >/dev/null 2>&1 && echo "  적용: $(basename "$f")" || echo "  ⚠ 실패: $(basename "$f")"
       done

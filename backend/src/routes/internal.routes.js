@@ -426,6 +426,43 @@ router.post("/farm-event", async (req, res) => {
 });
 
 /**
+ * POST /internal/actuator-status
+ * 표준(KS X 3267) 구동기 1분 상태 스냅샷 수신 (Node-RED 「KS X 3267 표준노드」 탭 → 백엔드)
+ * payload: { farmId, houseId?, rows: [{ timestamp, houseId?, deviceId, unit, kind, n, status, statusName, remain, opid }] }
+ * 멱등: PK(timestamp, farm, house, device) 충돌은 무시 → NR 이 실패분을 큐에 모아 재전송해도 중복이 없다.
+ */
+const ACTUATOR_STATUS_MAX_BATCH = 5000;
+router.post("/actuator-status", async (req, res) => {
+  try {
+    const { farmId, houseId } = resolveFarmHouse(req);
+    const rows = Array.isArray(req.body?.rows) ? req.body.rows : [];
+    if (rows.length === 0) return res.json({ success: true, inserted: 0, received: 0 });
+    if (rows.length > ACTUATOR_STATUS_MAX_BATCH) {
+      return res.status(400).json({ success: false, error: `한 번에 최대 ${ACTUATOR_STATUS_MAX_BATCH}행` });
+    }
+    const values = [];
+    const params = [];
+    let i = 1;
+    for (const r of rows) {
+      if (!r || !r.deviceId || r.status === undefined || r.status === null) continue;
+      const ts = new Date(r.timestamp || Date.now());
+      if (Number.isNaN(ts.getTime())) continue;
+      values.push(`($${i++}, $${i++}, $${i++}, $${i++}, $${i++}, $${i++}, $${i++}, $${i++}, $${i++}, $${i++}, $${i++})`);
+      params.push(ts, farmId, r.houseId || houseId, String(r.deviceId), r.unit ?? null, r.kind ?? null, r.n ?? null,
+        Number(r.status), r.statusName ?? r.status_name ?? null, Number(r.remain) || 0, Number(r.opid) || 0);
+    }
+    if (values.length === 0) return res.status(400).json({ success: false, error: "유효한 행 없음 (deviceId, status 필수)" });
+    const result = await pool.query(
+      `INSERT INTO actuator_status ("timestamp", farm_id, house_id, device_id, unit, kind, n, status, status_name, remain, opid)
+       VALUES ${values.join(",")} ON CONFLICT DO NOTHING`, params);
+    res.json({ success: true, inserted: result.rowCount, received: rows.length });
+  } catch (error) {
+    logger.error("❌ actuator-status 저장 실패:", error.message);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+/**
  * POST /internal/control-log
  * 자동화 제어 이력 저장 (Node-RED → 백엔드)
  * ④⑤ 스케줄 실행, ② 센서 규칙 평가에서 호출

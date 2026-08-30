@@ -1,0 +1,89 @@
+[
+ {
+  "id": "ks_inject_snapshot",
+  "type": "inject",
+  "z": "ks3267_tab",
+  "name": "매 60초",
+  "x": 140,
+  "y": 580,
+  "wires": [
+   [
+    "ks_fn_snapshot"
+   ]
+  ],
+  "props": [
+   {
+    "p": "payload"
+   }
+  ],
+  "repeat": "60",
+  "crontab": "",
+  "once": true,
+  "onceDelay": 15,
+  "topic": "",
+  "payload": "",
+  "payloadType": "date"
+ },
+ {
+  "id": "ks_fn_snapshot",
+  "type": "function",
+  "z": "ks3267_tab",
+  "name": "표준 구동기 1분 스냅샷",
+  "x": 380,
+  "y": 580,
+  "wires": [
+   [
+    "ks_http_snapshot"
+   ]
+  ],
+  "func": "// ============================================================\n// \"표준 구동기 1분 스냅샷\" (fn_ks_snapshot) — KS X 3267 표준노드 탭 (2026-08-30, 116 검정)\n// inject(60초) → 이 함수 → http request(서버 POST /internal/actuator-status) → \"스냅샷 전송 결과\"\n//\n// 왜: KOAT 116 「통합제어기」는 구동기 상태정보를 1분 단위로 저장·조회·추출하고 24시간 손실률(≤3%)을 잰다.\n//      드라이버(ks3267d)는 상태 변화 + 60초 하트비트로 NR 전역 ks3267State 를 갱신한다.\n// 원칙: 값을 지어내지 않는다 — 3분 넘게 갱신 없는 노드(데몬 중단·버스 단선)는 행을 만들지 않는다 (= 손실로 드러난다).\n//       전송 실패분은 flow 큐에 남겨 다음 분에 함께 재전송 (서버는 PK 로 중복 무시 → 멱등). 큐 상한 20,000행.\n// ============================================================\nconst config = global.get('houseConfig') || {};\nconst all = global.get('ks3267State') || {};\nconst now = Date.now();\nconst STALE_MS = 180000;\nconst minuteIso = new Date(Math.floor(now / 60000) * 60000).toISOString();\n\nconst rows = [];\nfor (const house of (config.houses || [])) {\n    for (const d of (house.devices || [])) {\n        const m = d.modbus;\n        if (!m || m.protocol !== 'ks3267') continue;\n        const st = all[m.unit] || all[String(m.unit)];\n        if (!st || !st.devices) continue;\n        const rec = Date.parse(st.receivedAt || '') || 0;\n        if (now - rec > STALE_MS) continue;                       // 낡은 상태는 기록하지 않는다\n        const dev = Object.values(st.devices).find(x => x.kind === m.kind && Number(x.n) === Number(m.n));\n        if (!dev) continue;\n        rows.push({\n            timestamp: minuteIso, houseId: house.houseId, deviceId: d.deviceId,\n            unit: Number(m.unit), kind: m.kind, n: Number(m.n),\n            status: Number(dev.status), statusName: dev.status_name || null,\n            remain: Number(dev.remain) || 0, opid: Number(dev.opid) || 0\n        });\n    }\n}\n\nlet queue = (flow.get('ksSnapshotQueue') || []).concat(rows);\nif (queue.length > 20000) queue = queue.slice(queue.length - 20000);\nflow.set('ksSnapshotQueue', queue);\n\nif (queue.length === 0) {\n    node.status({ fill: 'grey', shape: 'ring', text: '표준 장치 없음/상태 낡음 — 기록 없음' });\n    return null;\n}\n\nconst BATCH = 5000;\nconst pcServer = global.get('pcServerUrl') || 'https://api.smartgreen.kr';\nmsg.method = 'POST';\nmsg.url = pcServer + '/internal/actuator-status';\nmsg.headers = { 'Content-Type': 'application/json', 'x-api-key': env.get('SENSOR_API_KEY') || global.get('sensorApiKey') || '' };\nmsg.payload = { farmId: global.get('farmId') || env.get('FARM_ID') || 'farm_0001', rows: queue.slice(0, BATCH) };\nmsg.requestTimeout = 10000;\nmsg._sent = Math.min(queue.length, BATCH);\nnode.status({ fill: 'blue', shape: 'dot', text: '전송 ' + msg._sent + '행 (이번 분 ' + rows.length + ')' });\nreturn msg;\n",
+  "outputs": 1,
+  "timeout": 0,
+  "noerr": 0,
+  "initialize": "",
+  "finalize": "",
+  "libs": []
+ },
+ {
+  "id": "ks_http_snapshot",
+  "type": "http request",
+  "z": "ks3267_tab",
+  "name": "서버 actuator-status",
+  "x": 620,
+  "y": 580,
+  "wires": [
+   [
+    "ks_fn_snapshot_result"
+   ]
+  ],
+  "method": "use",
+  "ret": "obj",
+  "paytoqs": "ignore",
+  "url": "",
+  "tls": "",
+  "persist": false,
+  "proxy": "",
+  "insecureHTTPParser": false,
+  "authType": "",
+  "senderr": false,
+  "headers": []
+ },
+ {
+  "id": "ks_fn_snapshot_result",
+  "type": "function",
+  "z": "ks3267_tab",
+  "name": "스냅샷 전송 결과",
+  "x": 860,
+  "y": 580,
+  "wires": [
+   []
+  ],
+  "func": "// ============================================================\n// \"스냅샷 전송 결과\" (fn_ks_snapshot_result) — 성공하면 보낸 만큼 큐에서 지우고, 실패하면 남겨 다음 분에 재전송.\n// (KS X 3267 표준노드 탭, 2026-08-30) http request 는 \"2xx 아닌 응답만 Catch\" 해제 상태여야 여기로 온다.\n// ============================================================\nconst queue = flow.get('ksSnapshotQueue') || [];\nconst sent = Number(msg._sent) || 0;\nconst p = (typeof msg.payload === 'object' && msg.payload) || {};\nconst ok = msg.statusCode === 200 && p.success === true;\n\nif (ok) {\n    const rest = queue.slice(sent);\n    flow.set('ksSnapshotQueue', rest);\n    node.status({ fill: 'green', shape: 'dot', text: '저장 ' + (p.inserted ?? '?') + '/' + (p.received ?? sent) + (rest.length ? ' · 대기 ' + rest.length : '') });\n} else {\n    node.warn('⚠️ 구동기 스냅샷 전송 실패 (HTTP ' + msg.statusCode + '): ' + (p.error || String(msg.payload).slice(0, 120)) + ' — 큐 ' + queue.length + '행 보존, 다음 분 재전송');\n    node.status({ fill: 'red', shape: 'ring', text: '전송 실패 · 큐 ' + queue.length });\n}\nreturn null;\n",
+  "outputs": 1,
+  "timeout": 0,
+  "noerr": 0,
+  "initialize": "",
+  "finalize": "",
+  "libs": []
+ }
+]

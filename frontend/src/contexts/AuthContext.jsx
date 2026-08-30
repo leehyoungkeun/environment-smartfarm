@@ -130,6 +130,17 @@ export const AuthProvider = ({ children }) => {
 
   useEffect(() => {
     const initAuth = async () => {
+      // 키오스크(패널, localhost)는 브라우저가 새로 뜰 때마다 로그인을 요구한다 (2026-08-30 결정).
+      // 토큰은 21곳이 localStorage 에서 직접 읽으므로 저장 위치를 옮기지 않고, 새 세션(재부팅·chromium
+      // 재시작)의 첫 진입에서 토큰만 지운다. 같은 세션 안의 새로고침은 sessionStorage 표식으로 구분해 유지한다.
+      if (['localhost', '127.0.0.1'].includes(window.location.hostname)) {
+        try {
+          if (!sessionStorage.getItem('kioskSession')) {
+            clearTokens();
+            sessionStorage.setItem('kioskSession', '1');
+          }
+        } catch { /* sessionStorage 불가 환경은 무시 */ }
+      }
       // 팜로컬 모드: 농장주가 명시적으로 setFarmLocalMode(true) 한 경우만
       // 트랩 21 fix (2026-05-09): 옛 자동 진입 폐기 — 키오스크도 cloud 우선 (정상 frontend)
       // cloud 끊김 시 헤더 배너에서 농장주가 직접 '팜로컬 전환' 버튼으로만 진입

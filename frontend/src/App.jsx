@@ -198,6 +198,7 @@ function AppContent() {
   const { user, logout, hasPermission, roleLabel, loading: authLoading, needsSetup, farms, selectedFarmId, selectedFarmInfo, selectFarm, isSystemWide } = useAuth();
   const getPageFromHash = () => {
     const hash = window.location.hash.replace('#', '');
+    if (['localhost', '127.0.0.1'].includes(window.location.hostname) && (hash === 'farms' || hash === 'server')) return 'dashboard';
     return hash || 'dashboard';
   };
   const [currentPage, setCurrentPageState] = useState(getPageFromHash);
@@ -232,7 +233,26 @@ function AppContent() {
     return () => window.removeEventListener('hashchange', onHashChange);
   }, [currentPage]);
   const farmId = selectedFarmId || (isSystemWide ? null : user?.farmId) || import.meta.env.VITE_FARM_ID || 'farm_0001';
+  // 키오스크 = 패널 자신에서 연 화면(localhost). 아래 훅들이 쓰므로 먼저 정의한다.
+  const isKiosk = ['localhost', '127.0.0.1'].includes(window.location.hostname);
   const needsFarmSelect = isSystemWide && !selectedFarmId;
+
+  // 키오스크는 이 농장 한 곳의 패널이다. 관리자 로그인이라도 농장을 고르게 하지 않고
+  // RPi 가 아는 자기 farmId(/api/system/info)를 그대로 선택한다. 농장관리 화면은 키오스크에서 열리지 않는다.
+  useEffect(() => {
+    if (!isKiosk || !needsFarmSelect) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const r = await fetch('/api/system/info', { cache: 'no-store', signal: AbortSignal.timeout(3000) });
+        const d = r.ok ? await r.json() : null;
+        const fid = d?.farmId || import.meta.env.VITE_FARM_ID || 'farm_0001';
+        const info = (farms || []).find(f => f.farmId === fid);
+        if (!cancelled) selectFarm(fid, info ? { name: info.name, location: info.location } : { name: fid });
+      } catch { if (!cancelled) selectFarm(import.meta.env.VITE_FARM_ID || 'farm_0001', null); }
+    })();
+    return () => { cancelled = true; };
+  }, [isKiosk, needsFarmSelect, farms, selectFarm]);
   const [showAlertPanel, setShowAlertPanel] = useState(false);
   const [showUserMenu, setShowUserMenu] = useState(false);
   const [showMobileSidebar, setShowMobileSidebar] = useState(false);
@@ -292,7 +312,6 @@ function AppContent() {
   //   · 2026-08-30 이전엔 isTouchPanel 이 false 로 고정돼 있었고, 대신 chromium 프로필에 67% 줌이
   //     남아 있어 본문 14px 이 화면에서 9px 로 보였다(배지 9px → 6px). 줌은 제거하고 레이아웃으로 푼다.
   //   · 클라우드/팜로컬 어느 모드든 패널이면 같은 레이아웃. 모드 전환은 여전히 사람이 한다.
-  const isKiosk = ['localhost', '127.0.0.1'].includes(window.location.hostname);
   useEffect(() => {
     // 인라인 px 로 박힌 작은 글자(상태 배지 등)까지 같이 키우려고 zoom 을 쓴다. 1024 → 유효폭 ~930px,
     // md(768) 브레이크포인트는 유지된다.
@@ -527,12 +546,21 @@ function AppContent() {
           ) : (
             /* farmLocal: 간단한 1줄 — 시간/날짜/IP 통합 */
             <div className="flex items-center justify-between h-14">
+              {/* 키오스크(1024px)에서는 로고·시계를 빼고 IP 만 남긴다 — 로고가 두 줄로 꺾이며 나비 자리를 먹었다 (2026-08-30 패널 사진) */}
               <div className="flex items-center gap-3">
-                <div className="w-8 h-8 bg-gradient-to-br from-emerald-400 to-blue-500 rounded-xl flex items-center justify-center text-base shadow-lg shadow-emerald-500/20">🌱</div>
-                <span className="text-lg font-bold text-gray-800">케이그린텍</span>
-                {rpiIp && <span className="text-xs text-gray-400 font-mono ml-2">{rpiIp}</span>}
-                <span className="text-xs text-gray-400 ml-1">{clockTime.toLocaleTimeString('ko-KR', { hour:'2-digit', minute:'2-digit' })}</span>
-                <span className="text-xs text-gray-400">{clockTime.toLocaleDateString('ko-KR', { month:'long', day:'numeric', weekday:'short' })}</span>
+                {!isKiosk && (
+                  <>
+                    <div className="w-8 h-8 bg-gradient-to-br from-emerald-400 to-blue-500 rounded-xl flex items-center justify-center text-base shadow-lg shadow-emerald-500/20">🌱</div>
+                    <span className="text-lg font-bold text-gray-800">케이그린텍</span>
+                  </>
+                )}
+                {rpiIp && <span className={`text-xs text-gray-400 font-mono ${isKiosk ? '' : 'ml-2'}`}>{rpiIp}</span>}
+                {!isKiosk && (
+                  <>
+                    <span className="text-xs text-gray-400 ml-1">{clockTime.toLocaleTimeString('ko-KR', { hour:'2-digit', minute:'2-digit' })}</span>
+                    <span className="text-xs text-gray-400">{clockTime.toLocaleDateString('ko-KR', { month:'long', day:'numeric', weekday:'short' })}</span>
+                  </>
+                )}
               </div>
               <div className="flex items-center gap-2">
                 {navItems.map(item => (
@@ -761,7 +789,7 @@ function AppContent() {
           </div>
         )}
         {/* FarmManager: display:none으로 숨김 — 언마운트 방지로 페이지/스크롤 상태 유지 */}
-        {hasPermission('farms') && (
+        {hasPermission('farms') && !isKiosk && (
           <div className="max-w-7xl mx-auto px-2 md:px-6 py-4 md:py-6" style={{ display: currentPage === 'farms' ? '' : 'none' }}>
             <FarmManager onNavigateFarm={(farmId, farmInfo) => { selectFarm(farmId, farmInfo); setCurrentPage('dashboard'); }} />
           </div>

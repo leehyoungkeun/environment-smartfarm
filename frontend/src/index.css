@@ -425,3 +425,10 @@ html.kiosk *::after {
   -webkit-backdrop-filter: none !important;
 }
 html.kiosk .glass-nav { background: rgba(255,255,255,0.97); }
+
+/* 키오스크: 무한 반복 애니메이션 금지. 상태점 pulse 2개만으로 chromium 유휴 CPU 14.7% (정지 시 0%),
+   RPi 5 가 부팅 11분 만에 80°C. 로딩 스피너(animate-spin)는 잠깐이라 남긴다. (2026-08-30) */
+html.kiosk .animate-pulse,
+html.kiosk [style*="infinite"] {
+  animation: none !important;
+}

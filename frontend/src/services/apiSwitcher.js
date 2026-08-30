@@ -24,6 +24,13 @@ const IS_CLOUD_MODE = !import.meta.env.VITE_RPI_API_URL || (typeof window !== 'u
 const STORAGE_KEY = 'apiSwitcher_state';
 const GLOBAL_KEY = '__smartfarmApiState';
 const FARM_LOCAL_KEY = 'smartfarm_farmLocalMode';
+// 키오스크(패널 자신, localhost)는 팜로컬 플래그를 sessionStorage 에 둔다.
+//   재부팅·chromium 재시작이면 새 세션 → 항상 클라우드(로그인 화면)에서 시작한다.
+//   팜로컬은 사람이 그 자리에서 켜는 것이지 기기 상태로 남는 것이 아니다 (2026-08-30 재부팅 검증에서
+//   localStorage 에 남은 플래그 때문에 부팅 직후 팜로컬로 들어갔다). 웹·모바일은 기존대로 localStorage.
+const IS_KIOSK_HOST = typeof window !== 'undefined' && ['localhost', '127.0.0.1'].includes(window.location.hostname);
+const farmLocalStore = () => (IS_KIOSK_HOST ? window.sessionStorage : window.localStorage);
+if (IS_KIOSK_HOST) { try { window.localStorage.removeItem(FARM_LOCAL_KEY); } catch {} }
 
 // Adaptive polling 상수
 const HEALTH_BASE_INTERVAL = 10000;    // 온라인 시 10초
@@ -43,7 +50,7 @@ export function isFarmLocalMode() {
   // 트랩 21 fix (2026-05-09): 자동 감지 폐기 — 농장주가 명시적으로 전환할 때만
   // 옛 동작: localhost+80 자동 진입 → 키오스크에서 cloud 못 쓰게 막힘
   // 새 동작: localStorage 'true' 일 때만 farm-local. 기본값 cloud 모드
-  return localStorage.getItem(FARM_LOCAL_KEY) === 'true';
+  return farmLocalStore().getItem(FARM_LOCAL_KEY) === 'true';
 }
 
 /**
@@ -63,7 +70,7 @@ export function isFarmLocalAutoDetected() {
  */
 export function setFarmLocalMode(enabled) {
   if (enabled) {
-    localStorage.setItem(FARM_LOCAL_KEY, 'true');
+    farmLocalStore().setItem(FARM_LOCAL_KEY, 'true');
     S.currentApiBase = getFarmLocalApiBase();
     S.serverOnline = false;
     S.rpiOnline = true;
@@ -71,7 +78,7 @@ export function setFarmLocalMode(enabled) {
     stopHealthCheck();
   } else {
     // 'false' 명시 — 자동 감지 환경(터치패널)에서도 사용자 의도 보존
-    localStorage.setItem(FARM_LOCAL_KEY, 'false');
+    farmLocalStore().setItem(FARM_LOCAL_KEY, 'false');
     // 일반 모드로 S 상태 명시 복원 (새로고침 없이도 정합)
     S.currentApiBase = PC_SERVER;
     S.serverOnline = true; // checkServerHealth 가 즉시 갱신

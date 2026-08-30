@@ -416,8 +416,11 @@ input[type=date].input-field::-webkit-calendar-picker-indicator { filter: none !
 /* --- 키오스크(RPi 5, 팬 없음): backdrop-filter 금지 ---
    상단 반투명 나비의 blur(12px) 가 화면의 pulse 애니메이션과 겹치면 매 프레임 블러를 CPU 로 다시 계산한다.
    2026-08-30 실측: gpu-process CPU 82% · 85°C · 스로틀. 블러만 끄면 0.6%. 패널에선 불투명 배경으로 대체. */
-html.kiosk .glass-nav,
-html.kiosk [class*="backdrop-blur"] {
+/* 인라인 style={{ backdropFilter }} 까지 잡아야 한다 — 2026-08-30 2차: ControlPanel 의 blur(8px) DIV 2개가
+   animate-pulse 와 겹쳐 다시 58% 로 올라갔다. 키오스크에서는 요소를 가리지 않고 전부 끈다. */
+html.kiosk *,
+html.kiosk *::before,
+html.kiosk *::after {
   backdrop-filter: none !important;
   -webkit-backdrop-filter: none !important;
 }

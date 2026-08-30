@@ -1328,6 +1328,7 @@
         "name": "규칙 변경 → 동기화",
         "mode": "link",
         "links": [
+            "auto_cache_link_in",
             "link_in_rule_sync"
         ],
         "x": 955,
@@ -2216,8 +2217,8 @@
         "type": "function",
         "z": "automation_eval_flow",
         "name": "function 3",
-        "func": "// API 응답에서 enabled 규칙만 필터링 + global 캐시\nvar body = msg.payload;\nvar allRules = [];\n\nif (body && body.success && Array.isArray(body.data)) {\n    allRules = body.data.filter(function (r) { return r.enabled === true; });\n    // _id → id 변환 (SQLite 호환)\n    allRules = allRules.map(function (r) {\n        return {\n            id: r._id || r.id,\n            farm_id: r.farmId,\n            house_id: r.houseId,\n            name: r.name,\n            enabled: 1,\n            condition_logic: r.conditionLogic || 'AND',\n            group_logic: r.groupLogic || 'AND',\n            conditions: JSON.stringify(r.conditions),\n            actions: JSON.stringify(r.actions),\n            cooldown_seconds: r.cooldownSeconds || 60,\n            priority: r.priority || 10,\n            last_triggered_at: r.lastTriggeredAt,\n            trigger_count: r.triggerCount || 0\n        };\n    });\n}\n\nglobal.set('automationRules', allRules);\nglobal.set('automationRulesUpdatedAt', new Date().toISOString());\nnode.warn('📋 자동화 규칙 캐시: ' + allRules.length + '개 (API)');\nnode.status({\n    fill: 'green', shape: 'dot',\n    text: allRules.length + '개 규칙 (' + new Date().toLocaleTimeString() + ')'\n});\n\n// ④ 시간 스케줄러로 규칙 전달\nmsg.automationRules = allRules;\nreturn msg;\n",
-        "outputs": 1,
+        "func": "// ============================================================\n// 「function 3」(자동화 평가 탭) 교체본 — 노드 id: 29efa2673f7cea1c\n// 버전: v3 (2026-08-30) — DELETE 를 id 목록 기반으로 바꿔 실행 순서에 의존하지 않게 함\n//\n// 왜 바꾸나:\n//   자동화 규칙이 RPi 안에서 두 곳에 따로 살고 있었다.\n//     · global.automationRules      ← 클라우드에서 받은 것. 엔진(②/④/⑤)이 쓴다.\n//     · SQLite automation_rules     ← 로컬 REST(GET /api/automation/:farmId)가 읽는다.\n//   이 함수는 global 에만 넣고 SQLite 에는 쓰지 않았다. 그 결과 팜로컬 모드에서\n//   자동화 화면이 \"규칙 0개\"로 보였다 — 엔진은 5개를 돌리고 있는데도.\n//\n// 무엇이 달라지나:\n//   출력 1 (기존) — ④ 시간 스케줄러로 규칙 전달. 그대로다.\n//   출력 2 (신규) — 같은 규칙을 SQLite 에 복사한다.\n//       · INSERT OR REPLACE 로 전부 넣고(멱등), 이번 목록에 없는 id 만 지운다.\n//       · sqlite 노드는 문장을 직렬로 처리하지 않는다. v2 처럼 \"DELETE 먼저, INSERT 뒤\"로\n//         보내면 DELETE 가 첫 INSERT 뒤에 실행돼 규칙 하나가 사라졌다(5개 중 4개).\n//         v3 는 어느 순서로 실행돼도 결과가 같다.\n//       · synced=1 로 넣는다 — 클라우드에서 내려온 것이라 되돌려 보낼 필요가 없다.\n//         이 표시를 빠뜨리면 「미동기화 규칙 조회」가 같은 규칙을 서버로 되쏘아 에코가 생긴다.\n//       · 삭제도 synced=1 인 행만 — synced=0 은 팜로컬에서 방금 만들어 아직 서버로\n//         못 보낸 규칙이라 지우면 유실된다.\n//       · last_triggered_at 을 함께 넣어야 ② 의 쿨다운이 미러링 때마다 초기화되지 않는다.\n//\n// 노드 설정: 출력 개수 2, 출력 2 → 「규칙 캐시 미러 (클라우드→SQLite)」.\n// ============================================================\n\nvar body = msg.payload;\nvar allRules = [];\n\nif (body && body.success && Array.isArray(body.data)) {\n    allRules = body.data\n        .filter(function (r) { return r.enabled === true; })\n        .map(function (r) {\n            return {\n                id: r._id || r.id,\n                farm_id: r.farmId,\n                house_id: r.houseId,\n                name: r.name,\n                enabled: 1,\n                condition_logic: r.conditionLogic || 'AND',\n                group_logic: r.groupLogic || 'AND',\n                conditions: JSON.stringify(r.conditions),\n                actions: JSON.stringify(r.actions),\n                cooldown_seconds: r.cooldownSeconds || 60,\n                priority: r.priority || 10,\n                last_triggered_at: r.lastTriggeredAt,\n                trigger_count: r.triggerCount || 0\n            };\n        });\n}\n\nglobal.set('automationRules', allRules);\nglobal.set('automationRulesUpdatedAt', new Date().toISOString());\nnode.warn('📋 자동화 규칙 캐시: ' + allRules.length + '개 (API)');\nnode.status({\n    fill: 'green', shape: 'dot',\n    text: allRules.length + '개 규칙 (' + new Date().toLocaleTimeString() + ')'\n});\n\n// ── 출력 2: SQLite 미러링 (v3, 순서 무관) ─────────────────\nvar farmId = (allRules[0] && allRules[0].farm_id)\n    || env.get('FARM_ID')\n    || global.get('farmId')\n    || 'farm_0001';\n\nvar dbMsgs = [];\nvar ids = [];\nvar nowIso = new Date().toISOString();\n\nfor (var i = 0; i < allRules.length; i++) {\n    var r = allRules[i];\n    ids.push(r.id);\n    dbMsgs.push({\n        topic: 'INSERT OR REPLACE INTO automation_rules '\n            + '(id, farm_id, house_id, name, description, enabled, condition_logic, group_logic, '\n            + 'conditions, actions, cooldown_seconds, priority, trigger_count, last_triggered_at, synced, created_at, updated_at) '\n            + 'VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,1,$15,$16)',\n        payload: [\n            r.id, r.farm_id, r.house_id, r.name, '',\n            1, r.condition_logic, r.group_logic,\n            r.conditions, r.actions, r.cooldown_seconds, r.priority,\n            r.trigger_count || 0, r.last_triggered_at || null, nowIso, nowIso\n        ]\n    });\n}\n\n// 서버에서 사라진(또는 비활성화된) 규칙만 로컬에서 제거. 목록이 비면 미러링된 행 전부.\nvar placeholders = ids.map(function (_, k) { return '$' + (k + 2); }).join(',');\ndbMsgs.push({\n    topic: 'DELETE FROM automation_rules WHERE farm_id = $1 AND synced = 1'\n        + (ids.length ? ' AND id NOT IN (' + placeholders + ')' : ''),\n    payload: [farmId].concat(ids)\n});\n\n// 출력 1: ④ 시간 스케줄러\nmsg.automationRules = allRules;\nreturn [msg, dbMsgs];\n",
+        "outputs": 2,
         "timeout": 30000,
         "noerr": 0,
         "initialize": "",
@@ -2228,6 +2229,9 @@
         "wires": [
             [
                 "fn_scheduler"
+            ],
+            [
+                "sqlite_auto_cache_mirror"
             ]
         ]
     },
@@ -2493,6 +2497,92 @@
         "x": 340,
         "y": 940,
         "wires": []
+    },
+    {
+        "id": "sqlite_auto_cache_mirror",
+        "type": "sqlite",
+        "z": "automation_eval_flow",
+        "mydb": "sqlite_db",
+        "sqlquery": "msg.topic",
+        "sql": "",
+        "name": "규칙 캐시 미러 (클라우드→SQLite)",
+        "x": 680,
+        "y": 1000,
+        "wires": [
+            []
+        ]
+    },
+    {
+        "id": "auto_cache_link_in",
+        "type": "link in",
+        "z": "automation_eval_flow",
+        "name": "← 로컬 규칙 변경",
+        "links": [
+            "link_out_rule_changed"
+        ],
+        "x": 100,
+        "y": 1080,
+        "wires": [
+            [
+                "fn_auto_cache_query"
+            ]
+        ]
+    },
+    {
+        "id": "fn_auto_cache_query",
+        "type": "function",
+        "z": "automation_eval_flow",
+        "name": "로컬 규칙 재조회 준비",
+        "func": "// 로컬(팜로컬)에서 규칙을 만들거나 고치면 SQLite 에만 들어가고\n// 엔진이 쓰는 global.automationRules 에는 반영되지 않았다.\n// 인터넷이 끊긴 동안 만든 규칙이 복구될 때까지 동작하지 않는다는 뜻이라,\n// 팜로컬 모드의 존재 이유와 어긋난다. 쓰기 직후 다시 읽어 캐시를 맞춘다.\n// enabled 로 거르지 않는다 — 토글로 끈 규칙도 읽어야 캐시에서 내릴 수 있다.\nvar farmId = env.get('FARM_ID') || global.get('farmId') || 'farm_0001';\nmsg.topic = 'SELECT * FROM automation_rules WHERE farm_id = $1';\nmsg.payload = [farmId];\nreturn msg;",
+        "outputs": 1,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 320,
+        "y": 1080,
+        "wires": [
+            [
+                "sqlite_auto_cache_read"
+            ]
+        ]
+    },
+    {
+        "id": "sqlite_auto_cache_read",
+        "type": "sqlite",
+        "z": "automation_eval_flow",
+        "mydb": "sqlite_db",
+        "sqlquery": "msg.topic",
+        "sql": "",
+        "name": "규칙 재조회",
+        "x": 540,
+        "y": 1080,
+        "wires": [
+            [
+                "fn_auto_cache_refresh"
+            ]
+        ]
+    },
+    {
+        "id": "fn_auto_cache_refresh",
+        "type": "function",
+        "z": "automation_eval_flow",
+        "name": "로컬 규칙 → 캐시 갱신",
+        "func": "// SQLite 행을 기존 캐시 위에 id 로 덮어쓴다(병합). SQLite 로 통째로 갈아끼우지 않는다 —\n// A(클라우드→SQLite 미러)가 한 번도 돌지 않은 상태(부팅 직후 오프라인 등)에서는 SQLite 에\n// 방금 만든 로컬 규칙 하나뿐이라, 그대로 덮으면 엔진이 들고 있던 클라우드 규칙이 전부 사라진다.\nvar rows = msg.payload || [];\nvar cache = {};\n(global.get('automationRules') || []).forEach(function (r) { cache[r.id] = r; });\nrows.forEach(function (r) {\n    cache[r.id] = {\n        id: r.id, farm_id: r.farm_id, house_id: r.house_id, name: r.name,\n        enabled: r.enabled ? 1 : 0,\n        condition_logic: r.condition_logic || 'AND', group_logic: r.group_logic || 'AND',\n        conditions: r.conditions, actions: r.actions,\n        cooldown_seconds: r.cooldown_seconds || 60, priority: r.priority || 10,\n        last_triggered_at: r.last_triggered_at, trigger_count: r.trigger_count || 0\n    };\n});\n// 엔진은 켜진 규칙만 든다. 로컬에서 토글로 끈 규칙은 여기서 빠진다.\nvar rules = Object.keys(cache).map(function (k) { return cache[k]; })\n    .filter(function (r) { return r.enabled === 1; });\n\nglobal.set('automationRules', rules);\nglobal.set('automationRulesUpdatedAt', new Date().toISOString());\nnode.warn('📋 로컬 규칙 변경 반영: ' + rules.length + '개');\nnode.status({ fill: 'blue', shape: 'dot', text: rules.length + '개 (로컬 ' + new Date().toLocaleTimeString() + ')' });\n\n// ④ 시간 스케줄러가 시간 전용 규칙을 다시 계획하도록 넘긴다.\n// 빠뜨리면 센서 규칙(② 60초 폴링)은 살아나지만 시간 규칙은 다음 클라우드 동기화까지 예약되지 않는다.\nmsg.automationRules = rules;\nreturn msg;",
+        "outputs": 1,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 780,
+        "y": 1080,
+        "wires": [
+            [
+                "fn_scheduler"
+            ]
+        ]
     },
     {
         "id": "comment_receiver_header",

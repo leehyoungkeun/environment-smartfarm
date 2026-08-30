@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom';
 import axios from 'axios';
 import { useAuth } from '../../contexts/AuthContext';
 import { sendControlCommand, getControlLogs, getRelayStatus, warmupLambda, saveControlLog } from '../../services/controlApi';
-import { getSystemMode, getApiBase, getRpiApiBase } from '../../services/apiSwitcher';
+import { getSystemMode, getApiBase, getRpiApiBase, isFarmLocalMode } from '../../services/apiSwitcher';
 import wsService from '../../services/wsService';
 import { isKsProfile, deviceKsStatus } from '../../lib/ks3267';
 import {
@@ -208,6 +208,8 @@ const ControlPanel = ({ farmId, houseId, houseConfig }) => {
   // 마운트 시 서버에서 실제 automationActive 상태 조회
   useEffect(() => {
     const loadActiveState = async () => {
+      // 팜로컬에는 이 엔드포인트가 없다 (404). localStorage 의 마지막 상태를 그대로 쓴다.
+      if (isFarmLocalMode()) return;
       try {
         const pcUrl = getApiBase();
         const res = await axios.get(`${pcUrl}/automation/${farmId}/active`, {
@@ -236,6 +238,21 @@ const ControlPanel = ({ farmId, houseId, houseConfig }) => {
       } catch {}
     }
     // 클라우드 모드: handleApply/handleStop의 PUT /active가 이미 MQTT로 autoDevices 전달
+  };
+
+  // 자동화 활성 상태를 클라우드 백엔드에 저장 (evaluate 게이트).
+  //
+  // 팜로컬에는 이 엔드포인트가 없다 — Node-RED 가 가진 것은
+  // /automation/:farmId, /:ruleId, /:ruleId/toggle, /device-modes 뿐이다.
+  // 그대로 부르면 404 로 throw 하고, handleApply 에서 **뒤따르는 RPi 동기화가 통째로 건너뛰어져**
+  // 자동제어를 켜도 현장 제어기가 장치 목록을 못 받는다.
+  // (2026-08-30 키오스크 nginx 정비 후 GET 404 9건으로 드러남. 이전에는 rpi-server 가
+  //  index.html 을 200 으로 돌려줘 조용히 무시되고 있었다.)
+  const putAutomationActive = async (active, autoDeviceIds) => {
+    if (isFarmLocalMode()) return;   // 로컬 전용 운전 — 클라우드 게이트는 해당 없음
+    await axios.put(`${getApiBase()}/automation/${farmId}/active`, {
+      houseId, active, autoDevices: autoDeviceIds,
+    }, { timeout: 5000 });
   };
 
   // 충돌 감지: 같은 device + 시간 윈도우 겹침 (duration 까지 계산)
@@ -393,19 +410,16 @@ const ControlPanel = ({ farmId, houseId, houseConfig }) => {
 
     setApplyLoading(true);
     try {
-      const pcUrl = getApiBase();
       const rpiUrl = getRpiApiBase();
       const autoDeviceIds = devices
         .filter(d => getDeviceMode(d.deviceId) === 'auto')
         .map(d => d.deviceId);
 
-      // 서버에 automationActive=true 저장 (evaluate 게이트 + RPi 동기화)
-      await axios.put(`${pcUrl}/automation/${farmId}/active`, {
-        houseId, active: true, autoDevices: autoDeviceIds,
-      }, { timeout: 5000 });
-
-      // RPi에도 자동 모드 장치 목록 전달
+      // 현장 제어기부터 맞춘다 — 클라우드가 실패해도 RPi 는 최신 장치 목록을 갖고 있어야 한다.
       await syncAutoDevicesToRpi(rpiUrl, autoDeviceIds);
+
+      // 서버에 automationActive=true 저장 (evaluate 게이트). 팜로컬에서는 건너뛴다.
+      await putAutomationActive(true, autoDeviceIds);
 
       setAutomationActive(true);
       localStorage.setItem(activeKey, 'true');
@@ -418,16 +432,13 @@ const ControlPanel = ({ farmId, houseId, houseConfig }) => {
   const handleStop = async () => {
     setApplyLoading(true);
     try {
-      const pcUrl = getApiBase();
       const rpiUrl = getRpiApiBase();
 
-      // 서버에 automationActive=false 저장 (evaluate 게이트 차단)
-      await axios.put(`${pcUrl}/automation/${farmId}/active`, {
-        houseId, active: false, autoDevices: [],
-      }, { timeout: 5000 });
-
-      // RPi에도 자동 모드 장치 없음 전달
+      // 정지도 현장 제어기부터 — 클라우드 실패로 RPi 가 자동 상태에 남아 있으면 안 된다.
       await syncAutoDevicesToRpi(rpiUrl, []);
+
+      // 서버에 automationActive=false 저장 (evaluate 게이트 차단). 팜로컬에서는 건너뛴다.
+      await putAutomationActive(false, []);
 
       setAutomationActive(false);
       localStorage.setItem(activeKey, 'false');
@@ -462,13 +473,11 @@ const ControlPanel = ({ farmId, houseId, houseConfig }) => {
         const autoDeviceIds = devices
           .filter(d => (d.deviceId === deviceId ? next : (updated[d.deviceId] || 'manual')) === 'auto')
           .map(d => d.deviceId);
-        const pcUrl = getApiBase();
-        axios.put(`${pcUrl}/automation/${farmId}/active`, {
-          houseId, active: true, autoDevices: autoDeviceIds,
-        }, { timeout: 5000 }).catch(err => console.warn('[autoDevices] backend 동기화 실패:', err.message));
         // 로컬 모드: RPi 직접 POST (cloud 모드는 backend MQTT 가 처리)
         const rpiUrl = getRpiApiBase();
         syncAutoDevicesToRpi(rpiUrl, autoDeviceIds);
+        putAutomationActive(true, autoDeviceIds)
+          .catch(err => console.warn('[autoDevices] backend 동기화 실패:', err.message));
       }
 
       return updated;

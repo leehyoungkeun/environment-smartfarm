@@ -74,6 +74,17 @@ export const AuthProvider = ({ children }) => {
         const originalRequest = error.config;
         const errorCode = error.response?.data?.code;
 
+        // 팜로컬 모드에서는 클라우드 401 로 세션을 건드리지 않는다.
+        //
+        // 팜로컬 사용자는 토큰이 아니라 합성 사용자(farmLocalUser)다. 그런데 localStorage 에
+        // 만료된 옛 토큰이 남아 있으면 클라우드로 나가는 요청에 그대로 붙고, 서버가 TOKEN_EXPIRED 를
+        // 주고, 갱신은 인터넷이 없어 실패하고, 아래 catch 가 setUser(null) 을 해서
+        // **팜로컬로 들어가자마자 로그인 화면으로 튕긴다.** (2026-08-30 패널에서 재현)
+        // 팜로컬에서 클라우드 호출이 실패하는 것은 정상이므로, 호출자에게 에러만 돌려준다.
+        if (error.response?.status === 401 && isFarmLocalMode()) {
+          return Promise.reject(error);
+        }
+
         // 토큰 만료 시 자동 갱신 시도
         if (error.response?.status === 401 &&
           errorCode === 'TOKEN_EXPIRED' &&

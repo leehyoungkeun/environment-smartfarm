@@ -3,6 +3,7 @@
 // API 요청/응답 형태 동일 유지
 
 import express from "express";
+import jwt from "jsonwebtoken";
 import AutomationRule from "../models/AutomationRule.js";
 import ControlLog from "../models/ControlLog.js";
 import logger from "../utils/logger.js";
@@ -15,15 +16,43 @@ const router = express.Router();
 // =========================================
 const AWS_CONTROL_ENDPOINT = process.env.AWS_CONTROL_ENDPOINT;
 
+/**
+ * 이 알림은 사용자 요청이 아니라 서버가 스스로 보내는 것이라 사용자 토큰이 없다.
+ * API Gateway 앞의 Lambda Authorizer 는 JWT_SECRET 으로 서명만 검증하고
+ * payload 의 farmId·role 을 읽으므로(docs/lambda-jwt-authorizer.js), 그 농장 앞으로
+ * 수명이 짧은 서비스 토큰을 그때그때 발급해 붙인다.
+ *
+ * 2026-05 보안 강화로 Authorizer 를 붙일 때 이 호출 경로만 헤더가 빠져 있었고,
+ * 그 뒤로 규칙을 만들거나 고쳐도 RPi 로 알림이 가지 않았다(전부 401).
+ * 상태코드를 성공/실패 구분 없이 info 로만 찍고 있어서 드러나지 않았다. (2026-08-30 발견)
+ */
+function signSyncToken(farmId) {
+  const secret = process.env.JWT_SECRET;
+  if (!secret) return null;
+  return jwt.sign(
+    { id: "backend", username: "backend-sync", role: "manager", farmId },
+    secret,
+    { expiresIn: "60s" }
+  );
+}
+
 async function notifyRpiSync(farmId) {
   if (!AWS_CONTROL_ENDPOINT) {
     logger.warn("AWS_CONTROL_ENDPOINT 미설정 - sync 알림 건너뜀");
     return;
   }
+  const token = signSyncToken(farmId);
+  if (!token) {
+    logger.error("JWT_SECRET 미설정 — 자동화 sync 알림을 인증할 수 없습니다");
+    return;
+  }
   try {
     const res = await fetch(AWS_CONTROL_ENDPOINT, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
       body: JSON.stringify({
         action: "automation_sync",
         farm_id: farmId,
@@ -31,10 +60,17 @@ async function notifyRpiSync(farmId) {
       }),
       signal: AbortSignal.timeout(5000),
     });
-    const data = await res.json();
+    // 실패를 성공처럼 적지 않는다 — 401 을 info 로 찍는 바람에 몇 달간 안 보였다.
+    if (!res.ok) {
+      const body = await res.text().catch(() => "");
+      logger.error(
+        `📡 자동화 sync 알림 거부: ${farmId} → HTTP ${res.status} ${body.slice(0, 200)}`
+      );
+      return;
+    }
     logger.info(`📡 자동화 sync 알림 전송: ${farmId} → ${res.status}`);
   } catch (err) {
-    logger.warn(`📡 sync 알림 실패 (무시): ${err.message}`);
+    logger.error(`📡 자동화 sync 알림 실패: ${farmId} → ${err.message}`);
   }
 }
 
@@ -818,13 +854,18 @@ router.post("/:farmId/sync", async (req, res) => {
       }
     }
 
-    // 2) PC에만 있고 RPi에 없는 규칙 삭제 (RPi가 권한 기준)
-    const pcRules = await AutomationRule.find({ farmId });
-    for (const pcRule of pcRules) {
-      const pcId = (pcRule._id || pcRule.id).toString();
-      if (!rpiRuleIds.has(pcId)) {
-        await AutomationRule.findByIdAndDelete(pcId);
-        results.deleted++;
+    // 2) 삭제 단계는 하지 않는다.
+    //
+    // 원래는 "RPi 가 권한 기준"으로 목록에 없는 PC 규칙을 지웠다. 그런데 RPi 는 전체 목록이
+    // 아니라 **아직 안 보낸 규칙(synced=0)만** 보낸다(NR 「미동기화 규칙 조회」). 즉 팜로컬에서
+    // 규칙을 하나 만들면 그 하나만 도착하고, 서버는 나머지를 전부 지웠다.
+    // 2026-08-30 19:43 실제로 farm_0001 규칙 8개가 통째로 사라졌고(생성 1, 삭제 8), 60초 뒤
+    // RPi 가 그 빈 목록을 받아 현장 엔진까지 0개가 됐다. 03시 백업으로 복구.
+    // 삭제는 명시적 DELETE API 로만 한다. 부분 목록으로 전체를 판단하지 않는다.
+    if (rpiRuleIds.size > 0) {
+      const pcCount = (await AutomationRule.find({ farmId })).length;
+      if (pcCount > rpiRuleIds.size) {
+        logger.info(`🔄 규칙 동기화: PC 에 ${pcCount - rpiRuleIds.size}개가 더 있으나 삭제하지 않음 (부분 목록)`);
       }
     }
 

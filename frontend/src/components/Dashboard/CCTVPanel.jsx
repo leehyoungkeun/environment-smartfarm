@@ -20,9 +20,22 @@ export default function CCTVPanel({ farmId }) {
   const getToken = () => localStorage.getItem('accessToken');
   const rpiBase = getRpiApiBase();
   const isLocal = rpiBase && (rpiBase.includes('192.168.') || rpiBase.includes('localhost'));
-  const go2rtcBase = isLocal
-    ? rpiBase.replace(/\/api\/?$/, '').replace(/:1880$/, ':1984')
-    : 'https://cctv.smartgreen.kr';
+  // go2rtc 는 언제나 같은 호스트의 1984 포트다. 호스트만 뽑아 포트를 붙인다.
+  //
+  // 이전: rpiBase.replace(/:1880$/, ':1984')
+  //   문자열에 ':1880' 이 있을 때만 동작했다. 키오스크의 rpiBase 는 '.env.rpi' 의
+  //   http://localhost/api — 포트가 없어 치환이 안 걸리고 http://localhost(80) 이 됐다.
+  //   그 주소는 nginx 가 SPA 로 폴백해 iframe 에 index.html 이 실려서, 화면에는
+  //   영상 대신 아무것도 안 보였다. 클라우드·팜로컬 양쪽 모두 해당됐다. (2026-08-30)
+  const go2rtcBase = (() => {
+    if (!isLocal) return 'https://cctv.smartgreen.kr';
+    try {
+      const u = new URL(rpiBase, window.location.origin);
+      return `${u.protocol}//${u.hostname}:1984`;
+    } catch {
+      return 'http://localhost:1984';
+    }
+  })();
 
   // 로컬: WebRTC (빠름), 외부: MSE (Tunnel 호환)
   const getStreamUrl = (camId) => {

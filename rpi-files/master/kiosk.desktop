@@ -1,0 +1,5 @@
+[Desktop Entry]
+Type=Application
+Name=SmartFarm Kiosk
+Exec=bash -c "DISPLAY=:0 /home/lhk/kiosk.sh"
+X-GNOME-Autostart-enabled=true

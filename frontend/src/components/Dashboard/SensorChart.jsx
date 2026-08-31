@@ -336,7 +336,6 @@ const ChartContent = React.memo(({ chartData, selectedSensors, getSensorInfo, ti
                 tick={{fill: s.color || '#3B82F6', fontSize: 11}}
                 tickFormatter={v => `${v}`}
                 width={35}
-                label={typeof window !== 'undefined' && window.innerWidth >= 768 && idx < 2 ? {value: `${s.name} (${s.unit})`, angle: idx === 0 ? -90 : 90, position: 'insideMiddle', fill: s.color || '#3B82F6', fontSize: 11, dx: idx === 0 ? -15 : 15} : undefined}
                 hide={idx >= 2}
               />
             );
@@ -347,7 +346,9 @@ const ChartContent = React.memo(({ chartData, selectedSensors, getSensorInfo, ti
             labelFormatter={(ts) => new Date(ts).toLocaleString('ko-KR', { month:'2-digit', day:'2-digit', hour:'2-digit', minute:'2-digit', second:'2-digit' })}
             formatter={(value, name) => [Number(value).toFixed(1), name]}
           />
-          <Legend wrapperStyle={{color:'#475569'}} />
+          {/* 라벨은 축 세로 회전(폭 35px 에 잘림) 대신 상단 가로 범례로 — 온도(°C)·습도(%) */}
+          <Legend verticalAlign="top" align="center" height={26} iconType="plainline"
+            wrapperStyle={{color:'#475569', fontSize:12, fontWeight:700, paddingBottom:6}} />
           {selectedSensors.map(id => {
             const s = getSensorInfo(id);
             // isAnimationActive=false: 로드 시 라인이 우측 밖으로 쓸려갔다 정상화되는 잔상 제거 + 키오스크 CPU/발열 절감

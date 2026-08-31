@@ -270,7 +270,10 @@ router.get("/me", authenticate, async (req, res) => {
 
     res.json({ success: true, data: { ...req.user.toJSON(), farms } });
   } catch (error) {
-    res.json({ success: true, data: req.user.toJSON() });
+    // farms 조회 실패를 삼키고 success:true 로 농장 없는 사용자를 반환하던 조용한 실패 (2026-08-30).
+    // 사용자 정보는 유효하므로 200 을 유지하되, 로그를 남기고 farms 는 빈 배열임을 명시한다.
+    logger.warn(`/auth/me farms 조회 실패 (user=${req.user?.id}):`, error.message);
+    res.json({ success: true, data: { ...req.user.toJSON(), farms: [] }, warning: "farms_unavailable" });
   }
 });
 

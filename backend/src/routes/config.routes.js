@@ -745,7 +745,8 @@ router.post("/sync-action/:farmId", async (req, res) => {
     res.json(data);
   } catch (error) {
     logger.warn(`RPi sync-action 실패 (${req.params.farmId}):`, error.message);
-    res.status(502).json({ success: false, error: "RPi 연결 실패" });
+    // 502 금지 — Cloudflare 가 삼켜 브라우저엔 Network Error 로만 보인다 (707 과 동일 처리, 2026-08-30)
+    res.json({ success: false, error: "RPi 연결 실패" });
   }
 });
 
@@ -783,7 +784,8 @@ router.post("/control-sync-action/:farmId", async (req, res) => {
     res.json(data);
   } catch (error) {
     logger.warn(`RPi control-sync-action 실패 (${req.params.farmId}):`, error.message);
-    res.status(502).json({ success: false, error: "RPi 연결 실패" });
+    // 502 금지 — Cloudflare 삼킴 (2026-08-30)
+    res.json({ success: false, error: "RPi 연결 실패" });
   }
 });
 

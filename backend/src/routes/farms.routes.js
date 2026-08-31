@@ -1246,7 +1246,8 @@ router.put("/:farmId/schedules/:scheduleId", authorize("manager"), async (req, r
 // PATCH /api/farms/:farmId/schedules/:scheduleId/toggle
 router.patch("/:farmId/schedules/:scheduleId/toggle", async (req, res) => {
   try {
-    const schedule = await prisma.farmSchedule.findUnique({ where: { id: req.params.scheduleId } });
+    const farm = await prisma.farm.findUnique({ where: { farmId: req.params.farmId }, select: { id: true } });
+    const schedule = farm && await prisma.farmSchedule.findFirst({ where: { id: req.params.scheduleId, farmId: farm.id } });
     if (!schedule) return res.status(404).json({ success: false, error: "일정을 찾을 수 없습니다" });
     const updated = await prisma.farmSchedule.update({
       where: { id: req.params.scheduleId },
@@ -1317,7 +1318,8 @@ router.post("/:farmId/documents", authorize("manager"), docUpload.single("file")
 // GET /api/farms/:farmId/documents/:docId/download
 router.get("/:farmId/documents/:docId/download", async (req, res) => {
   try {
-    const doc = await prisma.farmDocument.findUnique({ where: { id: req.params.docId } });
+    const farm = await prisma.farm.findUnique({ where: { farmId: req.params.farmId }, select: { id: true } });
+    const doc = farm && await prisma.farmDocument.findFirst({ where: { id: req.params.docId, farmId: farm.id } });
     if (!doc) return res.status(404).json({ success: false, error: "문서를 찾을 수 없습니다" });
     const filePath = path.resolve(doc.filePath);
     // 경로 탈출(path traversal) 공격 방지

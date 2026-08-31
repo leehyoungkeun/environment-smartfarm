@@ -63,8 +63,21 @@ const PORT = process.env.PORT || 3000;
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 app.use(helmet({
-  crossOriginResourcePolicy: { policy: "cross-origin" },
-  contentSecurityPolicy: false,
+  crossOriginResourcePolicy: { policy: "cross-origin" }, // 프론트가 /uploads 이미지를 교차 오리진으로 로드
+  // 2026-08-31 침투테스트: 이 서버는 JSON API + /uploads 정적 파일만 서빙한다(HTML 뷰 없음).
+  // 유일한 위험은 누군가 .html 문서를 업로드해 api 오리진에서 렌더되는 저장형 XSS.
+  // default-src 'none' 이 업로드된 문서의 스크립트·리소스를 전부 차단한다. JSON 응답엔
+  // 스크립트가 없어 무해하고, 프론트(smartgreen.kr, 별도 오리진)의 렌더에는 영향 없다.
+  contentSecurityPolicy: {
+    useDefaults: false,
+    directives: {
+      defaultSrc: ["'none'"],
+      frameAncestors: ["'none'"], // 클릭재킹 방지 (iframe 삽입 금지)
+      baseUri: ["'none'"],
+      formAction: ["'none'"],
+      imgSrc: ["'self'", "data:"], // /uploads 이미지 직접 열람 허용
+    },
+  },
 }));
 
 // CORS — 허용 목록에 없는 오리진은 CORS 헤더를 주지 않는다(반사 금지).
@@ -772,7 +785,7 @@ app.use("/api/device-positions", authenticate, enforceTenant, devicePositionsRou
 app.use("/api/relay-status", authenticate, enforceTenant, relayStatusRoutes); // 2026-08-29 N3: 무인증 노출 차단
 
 // 농장 관리 API (JWT 인증)
-app.use("/api/farms", authenticate, farmsRoutes);
+app.use("/api/farms", authenticate, enforceTenant, farmsRoutes); // 2026-08-31 침투테스트: 하위 리소스 교차 열람 차단
 
 // JWT 인증 필수 API (테넌트 격리 적용)
 app.use("/api/alerts", authenticate, enforceTenant, alertsRoutes);

@@ -171,8 +171,8 @@ router.get("/:farmId/entries", authenticate, async (req, res) => {
  */
 router.get("/:farmId/entries/:id", authenticate, async (req, res) => {
   try {
-    const entry = await prisma.farmJournal.findUnique({
-      where: { id: req.params.id },
+    const entry = await prisma.farmJournal.findFirst({
+      where: { id: req.params.id, farmId: req.params.farmId },
     });
     if (!entry) {
       return res
@@ -316,6 +316,7 @@ router.put("/:farmId/entries/:id", authenticate, async (req, res) => {
       }
     }
 
+    { const _own = await prisma.farmJournal.findFirst({ where: { id, farmId: req.params.farmId }, select: { id: true } }); if (!_own) return res.status(404).json({ success: false, error: "해당 농장의 항목이 아닙니다" }); }
     const entry = await prisma.farmJournal.update({ where: { id }, data });
     logger.info(`✏️ 영농일지 수정: ${id}`);
     res.json({ success: true, data: formatJournal(entry) });
@@ -335,6 +336,7 @@ router.put("/:farmId/entries/:id", authenticate, async (req, res) => {
  */
 router.delete("/:farmId/entries/:id", authenticate, async (req, res) => {
   try {
+    { const _own = await prisma.farmJournal.findFirst({ where: { id: req.params.id, farmId: req.params.farmId }, select: { id: true } }); if (!_own) return res.status(404).json({ success: false, error: "해당 농장의 항목이 아닙니다" }); }
     await prisma.farmJournal.delete({ where: { id: req.params.id } });
     logger.info(`🗑️ 영농일지 삭제: ${req.params.id}`);
     res.json({ success: true });
@@ -541,14 +543,15 @@ router.put("/:farmId/harvests/:id", authenticate, async (req, res) => {
 
     // 매출 자동 계산
     if (data.quantity !== undefined || data.unitPrice !== undefined) {
-      const existing = await prisma.harvestRecord.findUnique({
-        where: { id },
+      const existing = await prisma.harvestRecord.findFirst({
+        where: { id, farmId: req.params.farmId },
       });
       const qty = data.quantity ?? existing?.quantity ?? 0;
       const price = data.unitPrice ?? existing?.unitPrice;
       data.totalRevenue = price ? qty * price : null;
     }
 
+    { const _own = await prisma.harvestRecord.findFirst({ where: { id, farmId: req.params.farmId }, select: { id: true } }); if (!_own) return res.status(404).json({ success: false, error: "해당 농장의 항목이 아닙니다" }); }
     const record = await prisma.harvestRecord.update({ where: { id }, data });
     res.json({ success: true, data: formatRecord(record) });
   } catch (error) {
@@ -566,6 +569,7 @@ router.put("/:farmId/harvests/:id", authenticate, async (req, res) => {
  */
 router.delete("/:farmId/harvests/:id", authenticate, async (req, res) => {
   try {
+    { const _own = await prisma.harvestRecord.findFirst({ where: { id: req.params.id, farmId: req.params.farmId }, select: { id: true } }); if (!_own) return res.status(404).json({ success: false, error: "해당 농장의 항목이 아닙니다" }); }
     await prisma.harvestRecord.delete({ where: { id: req.params.id } });
     res.json({ success: true });
   } catch (error) {
@@ -769,7 +773,7 @@ router.put("/:farmId/inputs/:id", authenticate, async (req, res) => {
     }
     // safeUseInterval 또는 date 변경 시 preHarvestDate 자동 재계산
     if (data.safeUseInterval !== undefined || data.date !== undefined) {
-      const cur = await prisma.inputRecord.findUnique({ where: { id } });
+      const cur = await prisma.inputRecord.findFirst({ where: { id, farmId: req.params.farmId } });
       if (cur) {
         const dt = data.date || cur.date;
         const sui = data.safeUseInterval !== undefined ? data.safeUseInterval : cur.safeUseInterval;
@@ -783,6 +787,7 @@ router.put("/:farmId/inputs/:id", authenticate, async (req, res) => {
       }
     }
 
+    { const _own = await prisma.inputRecord.findFirst({ where: { id, farmId: req.params.farmId }, select: { id: true } }); if (!_own) return res.status(404).json({ success: false, error: "해당 농장의 항목이 아닙니다" }); }
     const record = await prisma.inputRecord.update({ where: { id }, data });
     res.json({ success: true, data: formatRecord(record) });
   } catch (error) {
@@ -800,6 +805,7 @@ router.put("/:farmId/inputs/:id", authenticate, async (req, res) => {
  */
 router.delete("/:farmId/inputs/:id", authenticate, async (req, res) => {
   try {
+    { const _own = await prisma.inputRecord.findFirst({ where: { id: req.params.id, farmId: req.params.farmId }, select: { id: true } }); if (!_own) return res.status(404).json({ success: false, error: "해당 농장의 항목이 아닙니다" }); }
     await prisma.inputRecord.delete({ where: { id: req.params.id } });
     res.json({ success: true });
   } catch (error) {
@@ -989,6 +995,7 @@ router.put("/:farmId/templates/:id", authenticate, async (req, res) => {
     if (req.body.emoji !== undefined) data.emoji = req.body.emoji?.trim() || null;
     if (req.body.payload !== undefined) data.payload = req.body.payload;
     if (req.body.sortOrder !== undefined) data.sortOrder = Number(req.body.sortOrder) || 0;
+    { const _own = await prisma.journalTemplate.findFirst({ where: { id, farmId: req.params.farmId }, select: { id: true } }); if (!_own) return res.status(404).json({ success: false, error: "해당 농장의 항목이 아닙니다" }); }
     const t = await prisma.journalTemplate.update({ where: { id }, data });
     res.json({ success: true, data: formatJournal(t) });
   } catch (e) {
@@ -1000,6 +1007,7 @@ router.put("/:farmId/templates/:id", authenticate, async (req, res) => {
 // 삭제
 router.delete("/:farmId/templates/:id", authenticate, async (req, res) => {
   try {
+    { const _own = await prisma.journalTemplate.findFirst({ where: { id: req.params.id, farmId: req.params.farmId }, select: { id: true } }); if (!_own) return res.status(404).json({ success: false, error: "해당 농장의 항목이 아닙니다" }); }
     await prisma.journalTemplate.delete({ where: { id: req.params.id } });
     res.json({ success: true });
   } catch (e) {
@@ -1011,6 +1019,7 @@ router.delete("/:farmId/templates/:id", authenticate, async (req, res) => {
 // 사용 카운트 증가 (템플릿 적용 시 호출)
 router.post("/:farmId/templates/:id/use", authenticate, async (req, res) => {
   try {
+    { const _own = await prisma.journalTemplate.findFirst({ where: { id: req.params.id, farmId: req.params.farmId }, select: { id: true } }); if (!_own) return res.status(404).json({ success: false, error: "해당 농장의 항목이 아닙니다" }); }
     const t = await prisma.journalTemplate.update({
       where: { id: req.params.id },
       data: { useCount: { increment: 1 } },
@@ -1220,6 +1229,7 @@ router.put("/:farmId/cycles/:id", authenticate, async (req, res) => {
         else data[f] = req.body[f] || null;
       }
     }
+    { const _own = await prisma.cropCycle.findFirst({ where: { id, farmId: req.params.farmId }, select: { id: true } }); if (!_own) return res.status(404).json({ success: false, error: "해당 농장의 항목이 아닙니다" }); }
     const row = await prisma.cropCycle.update({ where: { id }, data });
     res.json({ success: true, data: formatRecord(row) });
   } catch (e) {
@@ -1229,7 +1239,8 @@ router.put("/:farmId/cycles/:id", authenticate, async (req, res) => {
 });
 
 router.delete("/:farmId/cycles/:id", authenticate, async (req, res) => {
-  try { await prisma.cropCycle.delete({ where: { id: req.params.id } }); res.json({ success: true }); }
+  try { { const _own = await prisma.cropCycle.findFirst({ where: { id: req.params.id, farmId: req.params.farmId }, select: { id: true } }); if (!_own) return res.status(404).json({ success: false, error: "해당 농장의 항목이 아닙니다" }); }
+    await prisma.cropCycle.delete({ where: { id: req.params.id } }); res.json({ success: true }); }
   catch (e) { res.status(400).json({ success: false, error: e.message }); }
 });
 
@@ -1284,6 +1295,7 @@ router.put("/:farmId/soil/:id", authenticate, async (req, res) => {
         else data[f] = req.body[f] || null;
       }
     }
+    { const _own = await prisma.soilManagement.findFirst({ where: { id, farmId: req.params.farmId }, select: { id: true } }); if (!_own) return res.status(404).json({ success: false, error: "해당 농장의 항목이 아닙니다" }); }
     const row = await prisma.soilManagement.update({ where: { id }, data });
     res.json({ success: true, data: formatRecord(row) });
   } catch (e) {
@@ -1293,7 +1305,8 @@ router.put("/:farmId/soil/:id", authenticate, async (req, res) => {
 });
 
 router.delete("/:farmId/soil/:id", authenticate, async (req, res) => {
-  try { await prisma.soilManagement.delete({ where: { id: req.params.id } }); res.json({ success: true }); }
+  try { { const _own = await prisma.soilManagement.findFirst({ where: { id: req.params.id, farmId: req.params.farmId }, select: { id: true } }); if (!_own) return res.status(404).json({ success: false, error: "해당 농장의 항목이 아닙니다" }); }
+    await prisma.soilManagement.delete({ where: { id: req.params.id } }); res.json({ success: true }); }
   catch (e) { res.status(400).json({ success: false, error: e.message }); }
 });
 
@@ -1371,6 +1384,7 @@ router.put("/:farmId/inventory/:id", authenticate, async (req, res) => {
         else data[f] = req.body[f] || null;
       }
     }
+    { const _own = await prisma.inputInventory.findFirst({ where: { id, farmId: req.params.farmId }, select: { id: true } }); if (!_own) return res.status(404).json({ success: false, error: "해당 농장의 항목이 아닙니다" }); }
     const row = await prisma.inputInventory.update({ where: { id }, data });
     res.json({ success: true, data: formatRecord(row) });
   } catch (e) {
@@ -1382,6 +1396,7 @@ router.put("/:farmId/inventory/:id", authenticate, async (req, res) => {
 // 삭제
 router.delete("/:farmId/inventory/:id", authenticate, async (req, res) => {
   try {
+    { const _own = await prisma.inputInventory.findFirst({ where: { id: req.params.id, farmId: req.params.farmId }, select: { id: true } }); if (!_own) return res.status(404).json({ success: false, error: "해당 농장의 항목이 아닙니다" }); }
     await prisma.inputInventory.delete({ where: { id: req.params.id } });
     res.json({ success: true });
   } catch (e) {

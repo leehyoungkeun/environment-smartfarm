@@ -582,8 +582,8 @@ router.post("/control-log", async (req, res) => {
     //   기록은 control_logs 에 저장 (success=false + reason) → 거부 사유 추적 가능
     const TRIGGER_COMMANDS = new Set(["on", "open", "close"]);
     if (ruleId && TRIGGER_COMMANDS.has(command) && success !== false) {
-      await prisma.automationRule.update({
-        where: { id: ruleId },
+      await prisma.automationRule.updateMany({
+        where: { id: ruleId, farmId }, // 2026-08-31 침투테스트: 타 농장 규칙 카운터 오염 차단
         data: {
           lastTriggeredAt: new Date(),
           triggerCount: { increment: 1 },

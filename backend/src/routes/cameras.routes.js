@@ -7,6 +7,16 @@ import logger from "../utils/logger.js";
 
 const router = Router();
 
+// rtsp://user:pass@host -> rtsp://user:***@host. 응답에서 카메라 비번을 가린다.
+// worker/owner 가 GET /api/cameras 로 카메라 비번을 얻던 노출 (침투테스트 2026-08-30).
+function maskRtsp(url) {
+  if (typeof url !== "string") return url;
+  return url.replace(/(rtsp:\/\/[^:@/]+:)[^@/]*(@)/i, "$1***$2");
+}
+function maskCamera(c) {
+  return { ...c, rtspUrl: maskRtsp(c.rtspUrl), hasCredentials: /rtsp:\/\/[^:@/]+:[^@/]+@/i.test(c.rtspUrl || "") };
+}
+
 const GO2RTC_URL = process.env.GO2RTC_URL || "https://cctv.smartgreen.kr";
 
 // ━━━ go2rtc 스트림 동기화 ━━━
@@ -63,7 +73,7 @@ router.get("/:farmId", async (req, res) => {
       where: { farmId: req.params.farmId },
       orderBy: { sortOrder: "asc" },
     });
-    res.json({ success: true, data: cameras });
+    res.json({ success: true, data: cameras.map(maskCamera) });
   } catch (error) {
     res.status(500).json({ success: false, error: error.message });
   }
@@ -106,7 +116,8 @@ router.put("/:farmId/:camId", async (req, res) => {
     const update = { updatedAt: new Date() };
     if (name !== undefined) update.name = name;
     if (location !== undefined) update.location = location;
-    if (rtspUrl !== undefined) update.rtspUrl = rtspUrl;
+    // 마스킹된 값(:***@)이 그대로 돌아오면 사용자가 비번을 안 바꾼 것 — 기존 유지.
+    if (rtspUrl !== undefined && !/:\*\*\*@/.test(rtspUrl)) update.rtspUrl = rtspUrl;
     if (enabled !== undefined) update.enabled = enabled;
     if (sortOrder !== undefined) update.sortOrder = sortOrder;
 

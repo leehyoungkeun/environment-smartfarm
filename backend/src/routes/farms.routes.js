@@ -349,7 +349,10 @@ router.get("/", async (req, res) => {
         totalCost: f.totalCost != null ? Number(f.totalCost) : null,
         subsidyAmount: f.subsidyAmount != null ? Number(f.subsidyAmount) : null,
         selfFunding: f.selfFunding != null ? Number(f.selfFunding) : null,
-        apiKey: f.apiKey, lastSeenAt: f.lastSeenAt, memo: f.memo, createdAt: f.createdAt,
+        // apiKey 는 장비용 시크릿 — superadmin/manager 에게만. worker/owner 가 API 로 얻어
+        //   그 키로 장비 제어(control/local)하던 권한 과다 (2026-08-30 침투테스트).
+        ...(SYSTEM_WIDE_ROLES.includes(req.user.role) ? { apiKey: f.apiKey } : {}),
+        lastSeenAt: f.lastSeenAt, memo: f.memo, createdAt: f.createdAt,
         houseCount: houseCountMap[f.farmId] || 0, userCount: f._count.userFarms,
       };
     });
@@ -596,8 +599,10 @@ router.get("/:farmId", async (req, res) => {
       select: { id: true, houseId: true, houseName: true, enabled: true, sensors: true, devices: true },
     });
 
-    const { userFarms: uf, ...farmRest } = farm;
-    res.json({ success: true, data: toBigIntSafe({ ...farmRest, users: uf, houses }) });
+    const { userFarms: uf, apiKey, ...farmRest } = farm;
+    // apiKey 는 시스템 관리자에게만 (침투테스트 2026-08-30)
+    const withKey = SYSTEM_WIDE_ROLES.includes(req.user.role) ? { ...farmRest, apiKey } : farmRest;
+    res.json({ success: true, data: toBigIntSafe({ ...withKey, users: uf, houses }) });
   } catch (error) {
     res.status(500).json({ success: false, error: error.message });
   }

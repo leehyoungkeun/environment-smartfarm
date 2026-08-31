@@ -1017,16 +1017,16 @@ function JournalAnalytics(){const FARM_ID=useContext(FarmIdCtx);
               <YAxis tick={{fontSize:11,fill:'#6b7280'}} />
               <Tooltip contentStyle={{backgroundColor:'#fff',border:'1px solid #d1d5db',borderRadius:8,fontSize:12}} />
               <Legend wrapperStyle={{fontSize:12}} />
-              {filter.metrics.includes('plantHeight')&&<Line type="monotone" dataKey="plantHeight" name="초장(cm)" stroke={MEASURE_LINE_COLORS.plantHeight} strokeWidth={2} dot={{r:3}} connectNulls />}
-              {filter.metrics.includes('leafCount')&&<Line type="monotone" dataKey="leafCount" name="엽수(장)" stroke={MEASURE_LINE_COLORS.leafCount} strokeWidth={2} dot={{r:3}} connectNulls />}
-              {filter.metrics.includes('floweringRate')&&<Line type="monotone" dataKey="floweringRate" name="개화율(%)" stroke={MEASURE_LINE_COLORS.floweringRate} strokeWidth={2} dot={{r:3}} connectNulls />}
-              {filter.metrics.includes('fruitSetRate')&&<Line type="monotone" dataKey="fruitSetRate" name="착과율(%)" stroke={MEASURE_LINE_COLORS.fruitSetRate} strokeWidth={2} dot={{r:3}} connectNulls />}
-              {selectedCustom&&<Line type="monotone" dataKey="__custom__" name={selectedCustom} stroke="#8b5cf6" strokeWidth={2} dot={{r:3}} connectNulls />}
+              {filter.metrics.includes('plantHeight')&&<Line isAnimationActive={false} type="monotone" dataKey="plantHeight" name="초장(cm)" stroke={MEASURE_LINE_COLORS.plantHeight} strokeWidth={2} dot={{r:3}} connectNulls />}
+              {filter.metrics.includes('leafCount')&&<Line isAnimationActive={false} type="monotone" dataKey="leafCount" name="엽수(장)" stroke={MEASURE_LINE_COLORS.leafCount} strokeWidth={2} dot={{r:3}} connectNulls />}
+              {filter.metrics.includes('floweringRate')&&<Line isAnimationActive={false} type="monotone" dataKey="floweringRate" name="개화율(%)" stroke={MEASURE_LINE_COLORS.floweringRate} strokeWidth={2} dot={{r:3}} connectNulls />}
+              {filter.metrics.includes('fruitSetRate')&&<Line isAnimationActive={false} type="monotone" dataKey="fruitSetRate" name="착과율(%)" stroke={MEASURE_LINE_COLORS.fruitSetRate} strokeWidth={2} dot={{r:3}} connectNulls />}
+              {selectedCustom&&<Line isAnimationActive={false} type="monotone" dataKey="__custom__" name={selectedCustom} stroke="#8b5cf6" strokeWidth={2} dot={{r:3}} connectNulls />}
               {/* 작년 비교 — 점선 + 연한 색 */}
-              {yoyEnabled&&filter.metrics.includes('plantHeight')&&<Line type="monotone" dataKey="plantHeight_yoy" name="초장(작년)" stroke={MEASURE_LINE_COLORS.plantHeight} strokeWidth={1.5} strokeDasharray="4 4" strokeOpacity={0.5} dot={{r:2}} connectNulls />}
-              {yoyEnabled&&filter.metrics.includes('leafCount')&&<Line type="monotone" dataKey="leafCount_yoy" name="엽수(작년)" stroke={MEASURE_LINE_COLORS.leafCount} strokeWidth={1.5} strokeDasharray="4 4" strokeOpacity={0.5} dot={{r:2}} connectNulls />}
-              {yoyEnabled&&filter.metrics.includes('floweringRate')&&<Line type="monotone" dataKey="floweringRate_yoy" name="개화율(작년)" stroke={MEASURE_LINE_COLORS.floweringRate} strokeWidth={1.5} strokeDasharray="4 4" strokeOpacity={0.5} dot={{r:2}} connectNulls />}
-              {yoyEnabled&&filter.metrics.includes('fruitSetRate')&&<Line type="monotone" dataKey="fruitSetRate_yoy" name="착과율(작년)" stroke={MEASURE_LINE_COLORS.fruitSetRate} strokeWidth={1.5} strokeDasharray="4 4" strokeOpacity={0.5} dot={{r:2}} connectNulls />}
+              {yoyEnabled&&filter.metrics.includes('plantHeight')&&<Line isAnimationActive={false} type="monotone" dataKey="plantHeight_yoy" name="초장(작년)" stroke={MEASURE_LINE_COLORS.plantHeight} strokeWidth={1.5} strokeDasharray="4 4" strokeOpacity={0.5} dot={{r:2}} connectNulls />}
+              {yoyEnabled&&filter.metrics.includes('leafCount')&&<Line isAnimationActive={false} type="monotone" dataKey="leafCount_yoy" name="엽수(작년)" stroke={MEASURE_LINE_COLORS.leafCount} strokeWidth={1.5} strokeDasharray="4 4" strokeOpacity={0.5} dot={{r:2}} connectNulls />}
+              {yoyEnabled&&filter.metrics.includes('floweringRate')&&<Line isAnimationActive={false} type="monotone" dataKey="floweringRate_yoy" name="개화율(작년)" stroke={MEASURE_LINE_COLORS.floweringRate} strokeWidth={1.5} strokeDasharray="4 4" strokeOpacity={0.5} dot={{r:2}} connectNulls />}
+              {yoyEnabled&&filter.metrics.includes('fruitSetRate')&&<Line isAnimationActive={false} type="monotone" dataKey="fruitSetRate_yoy" name="착과율(작년)" stroke={MEASURE_LINE_COLORS.fruitSetRate} strokeWidth={1.5} strokeDasharray="4 4" strokeOpacity={0.5} dot={{r:2}} connectNulls />}
             </LineChart>
           </ResponsiveContainer>
         )}

@@ -262,8 +262,8 @@ const AnalyticsDashboard = ({ farmId, houseId }) => {
             <Tooltip contentStyle={tooltipStyle} />
             <Legend />
             {selectedSensor==='all'
-              ? sensors.map((id,i) => <Line key={id} type="monotone" dataKey={id} name={getSensorName(id)} stroke={['#2563eb','#dc2626','#059669','#d97706'][i%4]} strokeWidth={2} dot={{r:3}} />)
-              : <Line type="monotone" dataKey={selectedSensor} name={getSensorName(selectedSensor)} stroke="#2563eb" strokeWidth={3} dot={{r:4}} />
+              ? sensors.map((id,i) => <Line isAnimationActive={false} key={id} type="monotone" dataKey={id} name={getSensorName(id)} stroke={['#2563eb','#dc2626','#059669','#d97706'][i%4]} strokeWidth={2} dot={{r:3}} />)
+              : <Line isAnimationActive={false} type="monotone" dataKey={selectedSensor} name={getSensorName(selectedSensor)} stroke="#2563eb" strokeWidth={3} dot={{r:4}} />
             }
           </LineChart>
         </ResponsiveContainer>
@@ -279,9 +279,9 @@ const AnalyticsDashboard = ({ farmId, houseId }) => {
             <YAxis stroke="#94a3b8" tick={{fill:'#64748b'}} />
             <Tooltip contentStyle={tooltipStyle} />
             <Legend />
-            <Bar dataKey="평균" fill="#2563eb" />
-            <Bar dataKey="최고" fill="#dc2626" />
-            <Bar dataKey="최저" fill="#059669" />
+            <Bar isAnimationActive={false} dataKey="평균" fill="#2563eb" />
+            <Bar isAnimationActive={false} dataKey="최고" fill="#dc2626" />
+            <Bar isAnimationActive={false} dataKey="최저" fill="#059669" />
           </BarChart>
         </ResponsiveContainer>
       </div>

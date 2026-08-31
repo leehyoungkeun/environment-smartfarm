@@ -384,9 +384,9 @@ export default function ReportPage({ farmId }) {
                         <YAxis tick={{ fill: '#64748b', fontSize: 11 }} />
                         <Tooltip contentStyle={{ fontSize: 12, borderRadius: 8 }} />
                         <Legend wrapperStyle={{ fontSize: 11 }} />
-                        <Bar dataKey="avg" name="평균" fill="#3B82F6" radius={[4, 4, 0, 0]} />
-                        <Bar dataKey="max" name="최고" fill="#EF4444" radius={[4, 4, 0, 0]} />
-                        <Bar dataKey="min" name="최저" fill="#10B981" radius={[4, 4, 0, 0]} />
+                        <Bar isAnimationActive={false} dataKey="avg" name="평균" fill="#3B82F6" radius={[4, 4, 0, 0]} />
+                        <Bar isAnimationActive={false} dataKey="max" name="최고" fill="#EF4444" radius={[4, 4, 0, 0]} />
+                        <Bar isAnimationActive={false} dataKey="min" name="최저" fill="#10B981" radius={[4, 4, 0, 0]} />
                       </BarChart>
                     </ResponsiveContainer>
                   )}
@@ -410,7 +410,7 @@ export default function ReportPage({ farmId }) {
                   <h5 className="text-xs font-semibold text-gray-500 mb-2">심각도 분포</h5>
                   <ResponsiveContainer width="100%" height={200}>
                     <PieChart>
-                      <Pie
+                      <Pie isAnimationActive={false}
                         data={Object.entries(report.alerts.bySeverity).filter(([, v]) => v > 0).map(([k, v]) => ({ name: SEVERITY_LABELS[k], value: v }))}
                         cx="50%" cy="50%" innerRadius={40} outerRadius={70}
                         paddingAngle={3} dataKey="value"
@@ -464,7 +464,7 @@ export default function ReportPage({ farmId }) {
                       <XAxis dataKey="deviceType" tick={{ fill: '#64748b', fontSize: 10 }} />
                       <YAxis tick={{ fill: '#64748b', fontSize: 11 }} />
                       <Tooltip contentStyle={{ fontSize: 12, borderRadius: 8 }} />
-                      <Bar dataKey="count" name="명령수" fill="#8B5CF6" radius={[4, 4, 0, 0]} />
+                      <Bar isAnimationActive={false} dataKey="count" name="명령수" fill="#8B5CF6" radius={[4, 4, 0, 0]} />
                     </BarChart>
                   </ResponsiveContainer>
                 </div>
@@ -482,7 +482,7 @@ export default function ReportPage({ farmId }) {
                       <XAxis dataKey="hour" tick={{ fill: '#64748b', fontSize: 9 }} interval={2} />
                       <YAxis tick={{ fill: '#64748b', fontSize: 11 }} />
                       <Tooltip contentStyle={{ fontSize: 12, borderRadius: 8 }} />
-                      <Bar dataKey="count" name="명령수" fill="#06B6D4" radius={[4, 4, 0, 0]} />
+                      <Bar isAnimationActive={false} dataKey="count" name="명령수" fill="#06B6D4" radius={[4, 4, 0, 0]} />
                     </BarChart>
                   </ResponsiveContainer>
                 </div>
@@ -518,7 +518,7 @@ export default function ReportPage({ farmId }) {
                       <XAxis dataKey="name" tick={{ fill: '#64748b', fontSize: 11 }} />
                       <YAxis tick={{ fill: '#64748b', fontSize: 11 }} allowDecimals={false} />
                       <Tooltip contentStyle={{ fontSize: 12, borderRadius: 8 }} />
-                      <Bar dataKey="count" name="건수" fill="#F59E0B" radius={[4, 4, 0, 0]} />
+                      <Bar isAnimationActive={false} dataKey="count" name="건수" fill="#F59E0B" radius={[4, 4, 0, 0]} />
                     </BarChart>
                   </ResponsiveContainer>
                 </div>
@@ -529,7 +529,7 @@ export default function ReportPage({ farmId }) {
                   <h5 className="text-xs font-semibold text-gray-500 mb-2">투입유형별 비용</h5>
                   <ResponsiveContainer width="100%" height={220}>
                     <PieChart>
-                      <Pie
+                      <Pie isAnimationActive={false}
                         data={Object.entries(report.journal.inputByType).map(([k, v]) => ({
                           name: INPUT_TYPE_LABELS[k] || k, value: v,
                         }))}
@@ -567,8 +567,8 @@ export default function ReportPage({ farmId }) {
                   <YAxis yAxisId="right" orientation="right" tick={{ fill: '#64748b', fontSize: 11 }} />
                   <Tooltip contentStyle={{ fontSize: 12, borderRadius: 8 }} />
                   <Legend wrapperStyle={{ fontSize: 11 }} />
-                  <Line yAxisId="left" type="monotone" dataKey="count" name="데이터수" stroke="#3B82F6" strokeWidth={2} dot={{ r: 3 }} />
-                  <Line yAxisId="right" type="monotone" dataKey="houses" name="하우스수" stroke="#10B981" strokeWidth={2} dot={{ r: 3 }} />
+                  <Line isAnimationActive={false} yAxisId="left" type="monotone" dataKey="count" name="데이터수" stroke="#3B82F6" strokeWidth={2} dot={{ r: 3 }} />
+                  <Line isAnimationActive={false} yAxisId="right" type="monotone" dataKey="houses" name="하우스수" stroke="#10B981" strokeWidth={2} dot={{ r: 3 }} />
                 </LineChart>
               </ResponsiveContainer>
             )}

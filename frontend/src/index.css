@@ -418,20 +418,20 @@ input[type=date].input-field::-webkit-calendar-picker-indicator { filter: none !
    2026-08-30 실측: gpu-process CPU 82% · 85°C · 스로틀. 블러만 끄면 0.6%. 패널에선 불투명 배경으로 대체. */
 /* 인라인 style={{ backdropFilter }} 까지 잡아야 한다 — 2026-08-30 2차: ControlPanel 의 blur(8px) DIV 2개가
    animate-pulse 와 겹쳐 다시 58% 로 올라갔다. 키오스크에서는 요소를 가리지 않고 전부 끈다. */
+/* 키오스크 발열 전수 차단 (2026-08-31): backdrop-filter 만으로는 부족했다 — 남은 열원은
+   ① CSS 애니메이션 전반(shimmer·pulse-glow·animate-spin/ping/bounce·stagger, 미래 추가분 포함),
+   ② recharts JS 애니메이션(CSS 가 아니라 여기서 안 잡힘 → 컴포넌트에서 isAnimationActive=false).
+   무한 애니메이션 하나가 계속 보이면 매 프레임 GPU 컴포지팅 → 발열. 키오스크는 애니메이션이
+   필요 없으므로 전부 정지(스피너는 한 프레임에 멈춰 보임 — 발열보다 낫다). transition 도 차단(호버 리페인트 제거). */
 html.kiosk *,
 html.kiosk *::before,
 html.kiosk *::after {
   backdrop-filter: none !important;
   -webkit-backdrop-filter: none !important;
+  animation: none !important;
+  transition: none !important;
 }
 html.kiosk .glass-nav { background: rgba(255,255,255,0.97); }
-
-/* 키오스크: 무한 반복 애니메이션 금지. 상태점 pulse 2개만으로 chromium 유휴 CPU 14.7% (정지 시 0%),
-   RPi 5 가 부팅 11분 만에 80°C. 로딩 스피너(animate-spin)는 잠깐이라 남긴다. (2026-08-30) */
-html.kiosk .animate-pulse,
-html.kiosk [style*="infinite"] {
-  animation: none !important;
-}
 
 /* 키오스크: 상단 나비를 고정(sticky)하지 않는다. 600px 화면에서 스크롤하면 하우스 탭 등 카드 윗부분이
    나비 밑으로 잘려 '패널이 겹쳐 보인다'(2026-08-30 패널 사진). 나비는 내용과 함께 스크롤된다. */

@@ -257,6 +257,10 @@ const SensorChart = ({ farmId, houseId, config, dataVersion, dragListeners }) =>
   );
 };
 
+// 센서 단위별 최소 표시 폭 — 값이 거의 고정일 때 미세 변동(0.1~0.3)이 축을 꽉 채워
+// "요동치는 것처럼" 보이는 왜곡을 막는다. 실제 변동이 이보다 크면 아래 패딩 로직이 그대로 동작.
+const MIN_SPAN_BY_UNIT = { '°C': 4, '℃': 4, 'C': 4, '%': 20 };
+
 // 차트 렌더링을 분리하여 데이터 변경 시에만 재계산
 const ChartContent = React.memo(({ chartData, selectedSensors, getSensorInfo, timeRange, getTimeRangeParams, generateTicks, formatTick }) => {
   const sensorDomains = useMemo(() => {
@@ -266,16 +270,24 @@ const ChartContent = React.memo(({ chartData, selectedSensors, getSensorInfo, ti
       if (vals.length > 0) {
         const min = Math.min(...vals);
         const max = Math.max(...vals);
-        const range = max - min || 1;
-        const padding = range * 0.15;
-        domains[id] = [
-          Math.floor((min - padding) * 10) / 10,
-          Math.ceil((max + padding) * 10) / 10
-        ];
+        const span = max - min;
+        const unit = (getSensorInfo(id).unit || '').trim();
+        const minSpan = MIN_SPAN_BY_UNIT[unit] || 0;
+        if (span < minSpan) {
+          // 값이 최소 폭보다 안정적 → 중앙 기준으로 넉넉한 창을 잡고 정수 눈금으로 정렬
+          const mid = (min + max) / 2;
+          domains[id] = [Math.floor(mid - minSpan / 2), Math.ceil(mid + minSpan / 2)];
+        } else {
+          const padding = (span || 1) * 0.15;
+          domains[id] = [
+            Math.floor((min - padding) * 10) / 10,
+            Math.ceil((max + padding) * 10) / 10
+          ];
+        }
       }
     });
     return domains;
-  }, [chartData, selectedSensors]);
+  }, [chartData, selectedSensors, getSensorInfo]);
 
   const { startMs, endMs } = getTimeRangeParams();
   const cfg = RANGE_CONFIG[timeRange];

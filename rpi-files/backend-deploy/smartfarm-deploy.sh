@@ -58,6 +58,27 @@ log() {
     if [ "$DRY_RUN" = "1" ]; then echo "$msg"; fi
 }
 
+# ── 배포 심박 (node-exporter textfile) ─────────────
+# 이 스크립트가 끝까지 돌면(성공/NOOP/실패 무관) 종료 시 타임스탬프를 남긴다.
+# cron(5분)이 멈추면 이 값이 갱신을 멈춰 규칙 DeployCronStalled 가 잡는다.
+# 실패 exit(1/2)면 ok=0 으로 남겨 DeployFailed 도 구분한다. DRY_RUN 은 남기지 않는다.
+TEXTFILE_DIR="/home/afocus/monitoring/textfile"
+write_deploy_heartbeat() {
+    local rc=$?
+    [ "${DRY_RUN:-0}" = "1" ] && return $rc
+    local ok=1; [ "$rc" != "0" ] && ok=0
+    local tmp="$TEXTFILE_DIR/smartfarm_deploy.prom.$$"
+    {
+        echo "# HELP smartfarm_deploy_last_run_timestamp Unix time deploy script last finished"
+        echo "# TYPE smartfarm_deploy_last_run_timestamp gauge"
+        echo "smartfarm_deploy_last_run_timestamp $(date +%s)"
+        echo "# HELP smartfarm_deploy_last_ok 1 if last deploy finished ok (0=failed/rollback)"
+        echo "# TYPE smartfarm_deploy_last_ok gauge"
+        echo "smartfarm_deploy_last_ok $ok"
+    } > "$tmp" 2>/dev/null && mv -f "$tmp" "$TEXTFILE_DIR/smartfarm_deploy.prom" 2>/dev/null
+    return $rc
+}
+
 # 명령 실행 wrapper — DRY_RUN 시 echo 만
 run() {
     if [ "$DRY_RUN" = "1" ]; then
@@ -73,7 +94,7 @@ if ! flock -n 200; then
     log "⏸  다른 deploy 실행 중 — skip"
     exit 0
 fi
-trap 'flock -u 200' EXIT
+trap 'write_deploy_heartbeat; flock -u 200' EXIT
 
 # ── 환경 검증 ─────────────
 if [ ! -d "$REPO_ROOT/.git" ]; then

@@ -251,3 +251,23 @@ groups:
         annotations:
           summary: "{{ $labels.farm_id }} 제어이력 동기화 보고 끊김"
           description: "5분 주기 동기화 상태 보고가 {{ $value | humanizeDuration }} 째 없습니다. NR 「5분 간격 제어이력 동기화」 inject 가 멈췄을 수 있습니다."
+
+      # 배포 cron(5분)이 20분 넘게 안 돎 = 배포 자동화 정지(git push 해도 반영 안 됨, 조용함).
+      - alert: DeployCronStalled
+        expr: time() - smartfarm_deploy_last_run_timestamp > 1200
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "배포 자동화(cron) 정지"
+          description: "smartfarm-deploy 가 {{ $value | humanizeDuration }} 째 돌지 않았습니다(정상 5분 주기). git push 해도 서버에 반영되지 않는 상태입니다. cron·스크립트를 확인하십시오."
+
+      # 마지막 배포가 실패(rollback)로 끝남.
+      - alert: DeployFailed
+        expr: smartfarm_deploy_last_ok == 0
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: "배포 실패 — rollback 됨"
+          description: "마지막 smartfarm-deploy 가 health 실패로 롤백됐습니다. deploy.log 와 커밋을 점검하십시오."

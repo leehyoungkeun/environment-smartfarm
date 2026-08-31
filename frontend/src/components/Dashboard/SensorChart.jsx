@@ -350,7 +350,8 @@ const ChartContent = React.memo(({ chartData, selectedSensors, getSensorInfo, ti
           <Legend wrapperStyle={{color:'#475569'}} />
           {selectedSensors.map(id => {
             const s = getSensorInfo(id);
-            return <Line key={id} yAxisId={id} type="monotone" dataKey={id} name={`${s.name} (${s.unit})`} stroke={s.color || '#3B82F6'} strokeWidth={2} dot={showDots} activeDot={{r:6}} connectNulls />;
+            // isAnimationActive=false: 로드 시 라인이 우측 밖으로 쓸려갔다 정상화되는 잔상 제거 + 키오스크 CPU/발열 절감
+            return <Line key={id} yAxisId={id} type="monotone" dataKey={id} name={`${s.name} (${s.unit})`} stroke={s.color || '#3B82F6'} strokeWidth={2} dot={showDots} activeDot={{r:6}} connectNulls isAnimationActive={false} />;
           })}
         </LineChart>
       </ResponsiveContainer>

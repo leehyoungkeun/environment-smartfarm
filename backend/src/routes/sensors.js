@@ -323,14 +323,24 @@ router.get("/:farmId/:houseId/latest", async (req, res, next) => {
 router.get("/:farmId/:houseId/history", async (req, res, next) => {
   try {
     const { farmId, houseId } = req.params;
-    const { startDate, endDate, limit } = req.query;
+    let { startDate, endDate, limit, days } = req.query;
+
+    // days=N 지원 (프론트 일부·팜로컬 호환) + 안전 상한.
+    // 2026-08-30 견고성 테스트: 셋 다 없으면 getTimeRange 가 house 전체(60만 행·66MB)를 반환해
+    //   CF 경유 11초·백엔드 1.8초였다. 무제한 조회를 막는다.
+    if (!startDate && !endDate && days) {
+      const d = Math.min(parseInt(days) || 1, 31);
+      startDate = new Date(Date.now() - d * 86400000).toISOString();
+    }
+    const cap = 50000; // 31일 × 1440 여유
+    const effLimit = Math.min(parseInt(limit) || cap, cap);
 
     const history = await SensorData.getTimeRange(
       farmId,
       houseId,
       startDate,
       endDate,
-      limit ? parseInt(limit) : undefined
+      effLimit
     );
 
     res.json({

@@ -1,0 +1,27 @@
+[
+  {
+    "id": "cleanup_rowcount",
+    "type": "sqlite",
+    "z": "sqlite_init_flow",
+    "mydb": "sqlite_db",
+    "sqlquery": "msg.topic",
+    "sql": "",
+    "name": "로컬 행수",
+    "x": 700,
+    "y": 760,
+    "wires": [["cleanup_report_build"]]
+  },
+  {
+    "id": "cleanup_report_build",
+    "type": "function",
+    "z": "sqlite_init_flow",
+    "name": "보고 조립 (db_rows 포함)",
+    "func": "var r = msg._report || {};\nvar dbRows = (msg.payload && msg.payload[0] && msg.payload[0].n != null) ? msg.payload[0].n : null;\nvar serverUrl = env.get('SERVER_URL') || global.get('pcServerUrl') || 'https://api.smartgreen.kr';\nreturn {\n    method: 'POST',\n    url: serverUrl + '/internal/maintenance-report',\n    headers: { 'Content-Type': 'application/json', 'x-api-key': env.get('SENSOR_API_KEY') || global.get('sensorApiKey') || '' },\n    payload: { farmId: r.farmId, deletedRows: r.deletedRows, retentionDays: r.retentionDays, dbRows: dbRows, ranAt: r.ranAt },\n    requestTimeout: 8000\n};",
+    "outputs": 1,
+    "timeout": 0,
+    "noerr": 0,
+    "x": 900,
+    "y": 760,
+    "wires": [["cleanup_report_http"]]
+  }
+]

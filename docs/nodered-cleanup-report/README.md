@@ -36,3 +36,14 @@ RPi 가 죽으면 보고도 끊겨 그 자체가 신호다(값이 아니라 '왔
 ## 함정
 - http request 노드 `senderr:false` — 서버 다운 시 오류를 Catch 로 안 보내고 「보고 결과」에서 처리(체인 안 매달림).
 - 적용 후 `rpi-files/scripts/master-flows-sync.py` 로 마스터 flows 동기화(표준 이미지 반영).
+
+## v2 추가 (2026-08-30) — db_rows 채우기
+v1 은 `dbRows=null` 이라 `smartfarm_rpi_local_rows`(로컬 증가 추세) 지표가 무용했다. 채우려면 삭제 후 COUNT 필요.
+
+### 에디터 작업 (「SQLite 초기화」 탭)
+1. `cleanup-dbrows-nodes.json` 가져오기 → 「로컬 행수」(sqlite) + 「보고 조립 (db_rows 포함)」(fn).
+2. **`정리 결과`(cleanup_result)** 코드를 `fn_cleanup_result_v2.js` 로 교체.
+3. **배선 변경**: `정리 결과` 출력 2 를 기존 `보관 보고 전송`(cleanup_report_http) 에서 떼고
+   → **「로컬 행수」** 에 연결. (「보고 조립」 → `보관 보고 전송` 은 JSON 이 이미 연결.)
+   최종: `정리 결과`[2] → 로컬 행수 → 보고 조립 → 보관 보고 전송 → 보고 결과
+4. Deploy → 「수동 정리」로 검증: 서버 `SELECT db_rows FROM maintenance_report` 가 채워짐.

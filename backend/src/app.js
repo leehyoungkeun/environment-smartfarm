@@ -87,11 +87,17 @@ app.use(helmet({
 const CORS_ALLOWED = (process.env.CORS_ORIGIN ||
   "https://smartgreen.kr,https://www.smartgreen.kr,http://localhost:5173,http://localhost:5174")
   .split(",").map(s => s.trim()).filter(Boolean);
+// 키오스크(팜로컬)는 RPi nginx 가 http://localhost 로 서빙 → 클라우드 모드에선 이 오리진으로
+// api.smartgreen.kr 를 교차 호출한다. localhost/127.0.0.1 오리진은 원격 공격자가 브라우저에서
+// 위조할 수 없으므로(그 오리진을 가지려면 피해자 기기에서 직접 서빙해야 함) 포트 무관 허용.
+// 2026-08-31: 허용목록에 localhost:5173/5174 만 있어 포트 없는 http://localhost(키오스크)가
+// 막혀, 키오스크가 클라우드 데이터를 못 받고 로컬(구형·500 상한)로 폴백하던 회귀 수정.
+const LOCALHOST_ORIGIN = /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/;
 app.use(
   cors({
     origin: (origin, callback) => {
       // Origin 없는 요청(curl, 모바일 앱, 서버간)은 CORS 대상이 아니므로 허용
-      if (!origin || CORS_ALLOWED.includes(origin)) return callback(null, true);
+      if (!origin || CORS_ALLOWED.includes(origin) || LOCALHOST_ORIGIN.test(origin)) return callback(null, true);
       // 목록 밖 오리진: 에러 없이 거부(헤더 미부여) — 브라우저가 응답을 못 읽는다
       return callback(null, false);
     },

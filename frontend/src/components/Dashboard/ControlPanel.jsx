@@ -1170,7 +1170,10 @@ const ControlPanel = ({ farmId, houseId, houseConfig }) => {
   // 비상정지: 모든 장치 즉시 정지/OFF
   const handleEmergencyStop = useCallback(async () => {
     stopRelayPolling();
-    // bidir 진행도 전체 초기화
+    // bidir 진행도: 비우기 전에 현재 위치(actualPos) 스냅샷 — 비상정지 시 부분 위치 보존
+    // (버그: 이전엔 진행도만 지우고 위치를 device-positions 에 저장 안 해, 서버 기록이 command='open'
+    //  으로 남아 경과시간 보간이 계속돼 실제 멈춘 위치를 잃었다. 정상 정지와 동일하게 저장한다.)
+    const progSnapshot = { ...bidirProgressRef.current };
     setBidirProgress({});
 
     for (const device of devices) {
@@ -1196,6 +1199,17 @@ const ControlPanel = ({ farmId, houseId, houseConfig }) => {
           });
         }
         setDeviceStates(prev => ({ ...prev, [device.deviceId]: { ...prev[device.deviceId], status: stopCmd === 'stop' ? 'idle' : 'off', commandLock: false } }));
+        // bidir: 비상정지로 멈춘 위치를 device-positions 에 저장 (정상 정지와 동일 — 위치 유실 방지)
+        if (stopCmd === 'stop') {
+          const prog = progSnapshot[device.deviceId];
+          const stoppedAt = (prog && prog.actualPos !== undefined) ? prog.actualPos : (bidirPositionRef.current[device.deviceId] ?? 0);
+          setBidirPosition(prev => ({ ...prev, [device.deviceId]: stoppedAt }));
+          const API = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3000/api';
+          axios.post(`${API}/device-positions/${farmId}`, {
+            houseId, deviceId: device.deviceId, position: stoppedAt, command: 'stop',
+            startPosition: stoppedAt, targetPosition: stoppedAt, duration: 0, startedAt: null,
+          }, { headers: { Authorization: `Bearer ${localStorage.getItem('accessToken')}` }, timeout: 3000 }).catch(() => {});
+        }
         // 자동정지 타이머 해제
         const stopTimerKey = `autoStop_${device.deviceId}`;
         const progressKey = `progress_${device.deviceId}`;

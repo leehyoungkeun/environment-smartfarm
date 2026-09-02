@@ -2592,7 +2592,7 @@
         "type": "function",
         "z": "automation_eval_flow",
         "name": "엔진 심박 준비",
-        "func": "// ② 규칙 평가가 매 분 통과하는 지점에서 서버에 심박을 보낸다.\n// 이 노드로 msg 가 왔다는 것 = 이번 분 평가 사이클이 실제로 돌았다는 뜻.\n// (fn_load_rules 는 같은 분 재실행이면 null 을 반환해 여기로 안 온다 → 매 분 1회)\nvar serverUrl = env.get('SERVER_URL') || global.get('pcServerUrl') || 'https://api.smartgreen.kr';\nvar farmId = env.get('FARM_ID') || global.get('farmId') || 'farm_0001';\nvar rules = global.get('automationRules') || [];\nreturn {\n    method: 'POST',\n    url: serverUrl + '/internal/automation-heartbeat',\n    headers: { 'Content-Type': 'application/json', 'x-api-key': env.get('SENSOR_API_KEY') || global.get('sensorApiKey') || '' },\n    payload: { farmId: farmId, rulesCount: rules.length, houses: Object.keys(msg.allSensorData || {}).length },\n    requestTimeout: 8000\n};",
+        "func": "// ② 규칙 평가가 매 분 통과하는 지점에서 서버에 심박을 보낸다.\n// 이 노드로 msg 가 왔다는 것 = 이번 분 평가 사이클이 실제로 돌았다는 뜻.\n// (fn_load_rules 는 같은 분 재실행이면 null 을 반환해 여기로 안 온다 → 매 분 1회)\nvar serverUrl = env.get('SERVER_URL') || global.get('pcServerUrl') || 'https://api.smartgreen.kr';\nvar farmId = env.get('FARM_ID') || global.get('farmId') || 'farm_0001';\nvar rules = global.get('automationRules') || [];\nreturn {\n    method: 'POST',\n    url: serverUrl + '/internal/automation-heartbeat',\n    headers: { 'Content-Type': 'application/json', 'x-api-key': env.get('SENSOR_API_KEY') || global.get('sensorApiKey') || '' },\n    payload: { farmId: farmId, rulesCount: rules.length, houses: Object.keys(msg.allSensorData || {}).length, mqttConnected: global.get(\"mqttConnected\") },\n    requestTimeout: 8000\n};",
         "outputs": 1,
         "timeout": 0,
         "noerr": 0,
@@ -9526,5 +9526,36 @@
         "wires": [
             []
         ]
+    },
+    {
+        "id": "mqtt_status_watch",
+        "type": "status",
+        "z": "aws_control_receiver_tab",
+        "name": "MQTT 상태 감시",
+        "scope": [
+            "df170ee91193d058"
+        ],
+        "x": 140,
+        "y": 560,
+        "wires": [
+            [
+                "fn_mqtt_state"
+            ]
+        ]
+    },
+    {
+        "id": "fn_mqtt_state",
+        "type": "function",
+        "z": "aws_control_receiver_tab",
+        "name": "MQTT 연결상태 → global",
+        "func": "// mqtt-in(브로커) 상태 변화를 global.mqttConnected 로. green=연결. 하트비트가 HTTP로 서버에 보고.\nvar st = msg.status || {};\nglobal.set(\"mqttConnected\", st.fill === \"green\");\nglobal.set(\"mqttStateAt\", new Date().toISOString());\nreturn null;",
+        "outputs": 0,
+        "noerr": 0,
+        "initialize": "if (global.get(\"mqttConnected\") === undefined) global.set(\"mqttConnected\", true);",
+        "finalize": "",
+        "libs": [],
+        "x": 380,
+        "y": 560,
+        "wires": []
     }
 ]

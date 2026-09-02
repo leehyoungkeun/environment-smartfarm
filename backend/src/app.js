@@ -669,6 +669,26 @@ new promClient.Gauge({
   },
 });
 
+// RPi AWS IoT MQTT 연결상태 — HTTP 하트비트로 보고(MQTT 와 독립). 1=연결, 0=끊김.
+// RelayStatusStalled 는 릴레이상태 부재로 간접 감지하나, 이건 "MQTT만 끊김"을 직접·정밀 구분(NR死·폴링멈춤과 분리).
+new promClient.Gauge({
+  name: "smartfarm_rpi_mqtt_connected",
+  help: "1 if RPi AWS IoT MQTT connected, 0 if disconnected (via HTTP heartbeat, independent of MQTT). No row = not reporting.",
+  labelNames: ["farm_id"],
+  async collect() {
+    try {
+      const { pool } = await import("./db.js");
+      const { rows } = await pool.query(
+        "SELECT farm_id, mqtt_connected FROM automation_heartbeat WHERE mqtt_connected IS NOT NULL"
+      );
+      this.reset();
+      rows.forEach((r) => this.set({ farm_id: r.farm_id }, r.mqtt_connected ? 1 : 0));
+    } catch {
+      this.reset();
+    }
+  },
+});
+
 // 정리 후 로컬 SQLite 행수 — 계속 증가하면 삭제가 안 되고 있다는 신호(디스크 포화 전 조기 감지).
 new promClient.Gauge({
   name: "smartfarm_rpi_local_rows",

@@ -39,6 +39,16 @@ groups:
           summary: "{{ $labels.farm_id }} 릴레이 상태 수신 중단"
           description: "마지막 릴레이 상태 갱신 후 {{ $value | humanizeDuration }} 경과했습니다. 정상은 30초 주기입니다. Node-RED MQTT 연결(플래핑 포함)을 확인하십시오."
 
+      # ③-2 RPi AWS IoT MQTT 직접 끊김 — RPi 는 살아있는데(HTTP 하트비트) MQTT 만 끊김 (RelayStatusStalled 보다 원인 정밀)
+      - alert: RpiMqttDisconnected
+        expr: smartfarm_rpi_mqtt_connected == 0
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "{{ $labels.farm_id }} RPi MQTT 10분+ 끊김"
+          description: "RPi 는 살아있는데(HTTP 하트비트 수신) AWS IoT MQTT 가 10분 넘게 끊겨 있습니다. 클라우드 제어 명령이 도달하지 않습니다(로컬 제어는 정상). 재연결은 자동이므로, 지속 끊김이면 인증서·IoT 정책·AWS 계정 상태를 확인하십시오."
+
       # ④ 스크레이프 대상 다운 — RPi/백엔드 자체가 응답 없음
       - alert: TargetDown
         expr: up == 0

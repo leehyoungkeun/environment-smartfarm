@@ -55,12 +55,15 @@ router.post("/automation-heartbeat", async (req, res) => {
     const farmId = req.farmId || req.body?.farmId || DEFAULT_FARM_ID;
     const rulesCount = req.body?.rulesCount != null ? parseInt(req.body.rulesCount) : null;
     const houses = req.body?.houses != null ? parseInt(req.body.houses) : null;
+    // RPi AWS IoT MQTT 연결상태 (HTTP 하트비트에 실려 옴 — MQTT 죽어도 이 보고는 살아있어 "MQTT만 끊김"을 직접 감지)
+    const mqttConnected = req.body?.mqttConnected === true ? true
+      : (req.body?.mqttConnected === false ? false : null);
     await pool.query(
-      `INSERT INTO automation_heartbeat (farm_id, last_run_at, rules_count, houses, updated_at)
-       VALUES ($1, now(), $2, $3, now())
+      `INSERT INTO automation_heartbeat (farm_id, last_run_at, rules_count, houses, mqtt_connected, updated_at)
+       VALUES ($1, now(), $2, $3, $4, now())
        ON CONFLICT (farm_id) DO UPDATE
-         SET last_run_at=now(), rules_count=$2, houses=$3, updated_at=now()`,
-      [farmId, rulesCount, houses]
+         SET last_run_at=now(), rules_count=$2, houses=$3, mqtt_connected=$4, updated_at=now()`,
+      [farmId, rulesCount, houses, mqttConnected]
     );
     res.json({ success: true });
   } catch (error) {

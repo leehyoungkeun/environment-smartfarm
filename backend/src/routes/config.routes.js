@@ -695,7 +695,7 @@ export function getRpiBase(farmId) {
 // ━━━ KS X 3267 표준 노드 — RPi 데몬(ks3267d) 프록시 (2026-08-30, P3) ━━━
 // 설정 UI(표준노드 탭)가 부른다. NR 의 /api/ks3267/:action 이 127.0.0.1:3002 데몬으로 넘긴다.
 // 읽기 전용 액션만 허용 — 제어는 정규 제어 경로(execute_control)로만 (진단 UI 는 읽기 전용 원칙).
-const KS3267_READ_ACTIONS = new Set(["discover", "nodes", "status", "frames", "events", "health"]);
+const KS3267_READ_ACTIONS = new Set(["discover", "scan", "nodes", "status", "frames", "events", "health"]);
 router.get("/:farmId/ks3267/:action", async (req, res) => {
   const { farmId, action } = req.params;
   if (!KS3267_READ_ACTIONS.has(action)) {

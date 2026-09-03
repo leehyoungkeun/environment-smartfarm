@@ -3,6 +3,7 @@
 
 GET  /health
 GET  /discover?unit=N        탐색 후 등록 (탐색 결과 반환)
+GET  /scan?from=1&to=16&timeout=300   범위 자동스캔(ms 타임아웃) — 응답 노드 등록·반환
 GET  /nodes                  등록된 노드 서술자
 GET  /status[?unit=N]        마지막 폴링 상태
 POST /command  {unit, kind, n, op, seconds}
@@ -46,6 +47,11 @@ def make_handler(master):
                         return self._json(200, {"ok": False, "exception": e.code, "error": str(e)})
                     except TransportTimeout:
                         return self._json(200, {"ok": False, "error": "timeout — 응답 없음 (주소·배선·종단 확인)"})
+                if u.path == "/scan":
+                    start = int(q.get("from", ["1"])[0])
+                    end = int(q.get("to", ["16"])[0])
+                    timeout = float(q.get("timeout", ["300"])[0]) / 1000.0  # ms→s
+                    return self._json(200, {"ok": True, "result": master.scan(start, end, timeout)})
                 if u.path == "/nodes":
                     return self._json(200, {"ok": True, "nodes": master.nodes})
                 if u.path == "/status":

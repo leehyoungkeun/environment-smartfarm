@@ -101,6 +101,44 @@ class KsMaster:
     def forget(self, unit):
         self.nodes.pop(unit, None); self.state.pop(unit, None)
 
+    def scan(self, start, end, timeout=0.3):
+        # 범위 [start, end] 를 짧은 타임아웃으로 훑어 응답하는 노드를 등록·반환.
+        # Modbus 는 자동열거가 없어 주소별 probe 필요 — 넓은 범위·긴 타임아웃은 느리다.
+        start = max(1, int(start)); end = min(247, int(end))
+        if end < start:
+            start, end = end, start
+        if end - start > 254:
+            end = start + 254  # 안전 상한
+        timeout = max(0.05, min(2.0, float(timeout)))
+        found = []
+        cp = getattr(self.t.client, "comm_params", None)
+        old = getattr(cp, "timeout_connect", None) if cp is not None else None
+        if cp is not None and old is not None:
+            cp.timeout_connect = timeout   # 스캔 동안만 짧은 타임아웃
+        try:
+            for unit in range(start, end + 1):
+                with self.lock:
+                    try:
+                        d = discover(self.t, unit)   # 저수준(이벤트·저장 없음), 실패는 조용히 skip
+                    except (ModbusExc, TransportTimeout):
+                        continue
+                    except Exception:
+                        continue
+                    self.nodes[unit] = d
+                found.append({"unit": unit, "kind": d.get("kind"),
+                              "product_type": d.get("product_type"),
+                              "supported": d.get("supported"),
+                              "channels": d.get("channels"),
+                              "devices": len(d.get("devices", [])),
+                              "notes": d.get("notes", [])})
+        finally:
+            if cp is not None and old is not None:
+                cp.timeout_connect = old
+        self._event("scan", start=start, end=end, timeout=timeout,
+                    found=[f["unit"] for f in found])
+        return {"range": [start, end], "timeout_ms": int(round(timeout * 1000)),
+                "count": end - start + 1, "found": found}
+
     # ── 폴링 ─────────────────────────────────────────────────────────
     def poll(self, unit):
         d = self.nodes[unit]

@@ -188,10 +188,39 @@ export const KsNodeManager = ({ farmId }) => {
             <span className="text-[11px] text-gray-400">범위 넓거나 타임아웃 길면 느림 — 짧게(예 1~16, 300ms) 권장</span>
           </div>
           {scanResult && (
-            <p className="text-[11px] text-gray-500 mt-1">
-              {scanResult.range?.[0]}~{scanResult.range?.[1]} 훑음 · 발견 {scanResult.found?.length || 0}개
-              {scanResult.found?.length ? ': ' + scanResult.found.map(f => `U${f.unit}(${f.kind === 'sensor' ? '센서' : f.kind === 'actuator' ? '구동기' : '?'})`).join(', ') : ''}
-            </p>
+            <div className="mt-2">
+              <p className="text-[11px] text-gray-500">
+                {scanResult.range?.[0]}~{scanResult.range?.[1]} 훑음 · {scanResult.count}개 주소 · {scanResult.timeout_ms}ms · <b className="text-gray-700">발견 {scanResult.found?.length || 0}개</b>
+              </p>
+              {scanResult.found?.length > 0 ? (
+                <div className="mt-1 overflow-x-auto">
+                  <table className="w-full text-xs">
+                    <thead>
+                      <tr className="text-gray-500 text-left border-b border-gray-200">
+                        <th className="py-1 pr-3">주소</th><th className="pr-3">종류</th><th className="pr-3">채널</th><th className="pr-3">디바이스</th><th className="pr-3">스코프</th><th>제품형식</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {scanResult.found.map(f => (
+                        <tr key={f.unit} className="border-b border-gray-100">
+                          <td className="py-1 pr-3 font-bold text-gray-800">U{f.unit}</td>
+                          <td className="pr-3">{f.kind === 'sensor' ? '센서' : f.kind === 'actuator' ? '구동기' : (f.kind || '?')}</td>
+                          <td className="pr-3 text-gray-600">{f.channels ?? '—'}</td>
+                          <td className="pr-3 text-gray-600">{f.devices ?? '—'}</td>
+                          <td className="pr-3">{f.supported
+                            ? <Pill tone="on">디폴트맵·레벨1</Pill>
+                            : <Pill tone="warn" title={(f.notes || []).join(' / ')}>스코프 밖</Pill>}</td>
+                          <td className="text-gray-500 font-mono">{f.product_type ?? '—'}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                  <p className="text-[11px] text-gray-400 mt-1">↓ 아래 노드 카드에 각 디바이스 상세·현재값·매핑이 표시됩니다.</p>
+                </div>
+              ) : (
+                <p className="text-[11px] text-amber-600 mt-1">응답한 노드 없음 — 배선·종단저항·노드 주소·전원 확인 (같은 주소 2개면 충돌로 미검출).</p>
+              )}
+            </div>
           )}
         </div>
         {message && (

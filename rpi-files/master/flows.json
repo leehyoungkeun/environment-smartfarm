@@ -2980,6 +2980,37 @@
         "wires": []
     },
     {
+        "id": "mqtt_status_watch",
+        "type": "status",
+        "z": "aws_control_receiver_tab",
+        "name": "MQTT 상태 감시",
+        "scope": [
+            "df170ee91193d058"
+        ],
+        "x": 140,
+        "y": 560,
+        "wires": [
+            [
+                "fn_mqtt_state"
+            ]
+        ]
+    },
+    {
+        "id": "fn_mqtt_state",
+        "type": "function",
+        "z": "aws_control_receiver_tab",
+        "name": "MQTT 연결상태 → global",
+        "func": "// mqtt-in(브로커) 상태 변화를 global.mqttConnected 로. green=연결. 하트비트가 HTTP로 서버에 보고.\nvar st = msg.status || {};\nglobal.set(\"mqttConnected\", st.fill === \"green\");\nglobal.set(\"mqttStateAt\", new Date().toISOString());\nreturn null;",
+        "outputs": 0,
+        "noerr": 0,
+        "initialize": "if (global.get(\"mqttConnected\") === undefined) global.set(\"mqttConnected\", true);",
+        "finalize": "",
+        "libs": [],
+        "x": 380,
+        "y": 560,
+        "wires": []
+    },
+    {
         "id": "f8_comment",
         "type": "comment",
         "z": "f8_tab",
@@ -9329,7 +9360,7 @@
         "type": "function",
         "z": "ks3267_tab",
         "name": "데몬 프록시",
-        "func": "// ============================================================\n// \"데몬 프록시\" (fn_ks_proxy) — GET /api/ks3267/:action 을 127.0.0.1:3002 데몬으로 넘긴다.\n// (KS X 3267 표준노드 탭, P3). 설정 UI 의 탐색·상태·프레임 조회가 백엔드 → 여기 → 데몬 순으로 온다.\n// httpNodeMiddleware 가 /api/* 인증(키오스크 루프백 또는 농장 키)을 이미 적용한다.\n// 읽기 전용 액션만 — 제어는 정규 경로(execute_control)로만.\n// ============================================================\nconst ALLOWED = { discover: 1, nodes: 1, status: 1, frames: 1, events: 1, health: 1 };\nconst action = String((msg.req && msg.req.params && msg.req.params.action) || '');\nif (!ALLOWED[action]) {\n    msg.statusCode = 400;\n    msg.payload = { success: false, error: '허용되지 않는 액션: ' + action };\n    return [null, msg];   // 출력 2 = 즉시 응답\n}\nconst q = (msg.req && msg.req.query) || {};\nconst qs = Object.keys(q).map(k => encodeURIComponent(k) + '=' + encodeURIComponent(q[k])).join('&');\nconst api = env.get('KS3267_API') || 'http://127.0.0.1:3002';\nmsg.url = api + '/' + action + (qs ? '?' + qs : '');\nmsg.method = 'GET';\nmsg.requestTimeout = 8000;\nmsg._ksAction = action;\nreturn [msg, null];   // 출력 1 = http request 로\n",
+        "func": "// ============================================================\n// \"데몬 프록시\" (fn_ks_proxy) — GET /api/ks3267/:action 을 127.0.0.1:3002 데몬으로 넘긴다.\n// (KS X 3267 표준노드 탭, P3). 설정 UI 의 탐색·상태·프레임 조회가 백엔드 → 여기 → 데몬 순으로 온다.\n// httpNodeMiddleware 가 /api/* 인증(키오스크 루프백 또는 농장 키)을 이미 적용한다.\n// 읽기 전용 액션만 — 제어는 정규 경로(execute_control)로만.\n// ============================================================\nconst ALLOWED = { discover: 1, scan: 1, nodes: 1, status: 1, frames: 1, events: 1, health: 1 };\nconst action = String((msg.req && msg.req.params && msg.req.params.action) || '');\nif (!ALLOWED[action]) {\n    msg.statusCode = 400;\n    msg.payload = { success: false, error: '허용되지 않는 액션: ' + action };\n    return [null, msg];   // 출력 2 = 즉시 응답\n}\nconst q = (msg.req && msg.req.query) || {};\nconst qs = Object.keys(q).map(k => encodeURIComponent(k) + '=' + encodeURIComponent(q[k])).join('&');\nconst api = env.get('KS3267_API') || 'http://127.0.0.1:3002';\nmsg.url = api + '/' + action + (qs ? '?' + qs : '');\nmsg.method = 'GET';\nmsg.requestTimeout = (action === 'scan') ? 120000 : 8000;   // 스캔은 범위 probe 라 오래 걸림\nmsg._ksAction = action;\nreturn [msg, null];   // 출력 1 = http request 로\n",
         "outputs": 2,
         "timeout": 0,
         "noerr": 0,
@@ -9436,7 +9467,7 @@
         "z": "ks3267_tab",
         "name": "적용 순서 (docs/ksx3267/nodered/README.md)",
         "info": "1) 이 탭 가져오기 → 2) AWS 제어 수신 탭 execute_control 교체(출력 3) + link out → 이 탭 '← execute_control 제어' 연결\n3) 센서 수집 탭 ③ 교체 → 4) Deploy → 5) pm2 ks3267d --nr-url http://127.0.0.1:1880/api/ks3267/status",
-        "x": 140,
+        "x": 240,
         "y": 40,
         "wires": []
     },
@@ -9526,36 +9557,5 @@
         "wires": [
             []
         ]
-    },
-    {
-        "id": "mqtt_status_watch",
-        "type": "status",
-        "z": "aws_control_receiver_tab",
-        "name": "MQTT 상태 감시",
-        "scope": [
-            "df170ee91193d058"
-        ],
-        "x": 140,
-        "y": 560,
-        "wires": [
-            [
-                "fn_mqtt_state"
-            ]
-        ]
-    },
-    {
-        "id": "fn_mqtt_state",
-        "type": "function",
-        "z": "aws_control_receiver_tab",
-        "name": "MQTT 연결상태 → global",
-        "func": "// mqtt-in(브로커) 상태 변화를 global.mqttConnected 로. green=연결. 하트비트가 HTTP로 서버에 보고.\nvar st = msg.status || {};\nglobal.set(\"mqttConnected\", st.fill === \"green\");\nglobal.set(\"mqttStateAt\", new Date().toISOString());\nreturn null;",
-        "outputs": 0,
-        "noerr": 0,
-        "initialize": "if (global.get(\"mqttConnected\") === undefined) global.set(\"mqttConnected\", true);",
-        "finalize": "",
-        "libs": [],
-        "x": 380,
-        "y": 560,
-        "wires": []
     }
 ]

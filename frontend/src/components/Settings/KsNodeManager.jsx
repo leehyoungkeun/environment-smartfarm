@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import axiosBase from 'axios';
 import { getApiBase } from '../../services/apiSwitcher';
-import { describeStatus, discoveryRows, nodeSummary, mappingIndex, mappingKey, frameRows } from '../../lib/ks3267';
+import { describeStatus, discoveryRows, nodeSummary, nodeInfoRows, mappingIndex, mappingKey, frameRows } from '../../lib/ks3267';
 
 // ━━━ KS X 3267 표준노드 탭 (P4, 2026-08-30) ━━━
 // 읽기 전용 진단 UI. 백엔드 /config/:farmId/ks3267/:action → RPi NR → ks3267d 데몬(127.0.0.1:3002).
@@ -282,6 +282,7 @@ export const KsNodeManager = ({ farmId }) => {
 const NodeCard = ({ unit, node, st, mapping }) => {
   const sum = nodeSummary(node);
   const rows = discoveryRows(node);
+  const infoRows = nodeInfoRows(node);
   const nodeStatus = st && !st.error ? describeStatus(st.node_status) : null;
   const lastSeen = st?.t ? new Date(st.t * 1000).toLocaleTimeString('ko-KR', { hour12: false }) : null;
   return (
@@ -295,8 +296,45 @@ const NodeCard = ({ unit, node, st, mapping }) => {
         <span className="ml-auto text-[11px] text-gray-500">프로토콜 v{sum.protocolVersion} · 채널 {sum.channels} · 제품 {sum.product} · S/N {sum.serial}</span>
       </div>
       {sum.notes.length > 0 && <ul className="text-xs text-amber-700 mb-2 list-disc ml-4">{sum.notes.map((n, i) => <li key={i}>{n}</li>)}</ul>}
+
+      {/* 노드정보 1~8 시험표 (§5.1.2 c) — 읽은값 vs 디폴트 기대값 */}
+      {infoRows.length > 0 && (() => {
+        const fail = infoRows.filter(r => r.ok === false).length;
+        return (
+          <div className="mb-3">
+            <div className="flex items-center gap-2 mb-1">
+              <p className="text-xs font-bold text-gray-600">노드정보 1~8 <span className="text-gray-400 font-normal">(§5.1.2 c — 읽은값 / 디폴트 기대값)</span></p>
+              {fail === 0 ? <Pill tone="on">전 항목 일치</Pill> : <Pill tone="bad">불일치 {fail}건</Pill>}
+            </div>
+            <div className="overflow-x-auto">
+              <table className="text-xs">
+                <thead>
+                  <tr className="text-gray-400 text-left border-b border-gray-200">
+                    <th className="py-1 pr-3">#</th><th className="pr-3">항목</th><th className="pr-3">읽은값</th><th className="pr-3">기대값</th><th>판정</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {infoRows.map(r => (
+                    <tr key={r.reg} className="border-b border-gray-100">
+                      <td className="py-1 pr-3 text-gray-400 font-mono">{r.reg}</td>
+                      <td className="pr-3 text-gray-700">{r.label}</td>
+                      <td className="pr-3 font-mono font-semibold text-gray-800">{r.read}</td>
+                      <td className="pr-3 font-mono text-gray-500">{r.expect}</td>
+                      <td>{r.ok === null ? <span className="text-gray-400">참고</span>
+                        : r.ok ? <span className="text-emerald-600 font-bold">✓ 일치</span>
+                        : <span className="text-rose-600 font-bold">✗ 불일치</span>}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        );
+      })()}
+
       {rows.length > 0 && (
         <div className="overflow-x-auto">
+          <p className="text-xs font-bold text-gray-600 mb-1">디바이스 정보 <span className="text-gray-400 font-normal">(§5.1.2 d·e — 101번지부터 채널수만큼, 연결된 디바이스만)</span></p>
           <table className="w-full text-xs">
             <thead>
               <tr className="text-gray-500 text-left border-b border-gray-200">

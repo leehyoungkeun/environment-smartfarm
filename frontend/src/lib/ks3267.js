@@ -93,6 +93,25 @@ export function nodeSummary(node) {
   };
 }
 
+/** 노드정보 1~8 시험표 (SPS-X KOAT-0004-7466 §5.1.2 c) — 읽은값 / 기대값 / 일치 여부).
+ *  ok: true=일치, false=불일치, null=참고(고정 기대값 없음, 시리얼). */
+export function nodeInfoRows(node) {
+  if (!node) return [];
+  const pt = Number(node.product_type);
+  const chExpect = pt === 1 ? 30 : pt === 2 ? 24 : null;
+  const eq = (v, want) => v !== undefined && v !== null && Number(v) === want;
+  const show = (v) => (v === undefined || v === null ? '—' : String(v));
+  return [
+    { reg: '1', label: '기관코드', read: show(node.cert_authority), expect: '0', ok: eq(node.cert_authority, 0) },
+    { reg: '2', label: '회사코드', read: show(node.company_code), expect: '0', ok: eq(node.company_code, 0) },
+    { reg: '3', label: '제품타입', read: show(node.product_type), expect: '1 또는 2', ok: pt === 1 || pt === 2 },
+    { reg: '4', label: '제품코드', read: show(node.product_code), expect: '0', ok: eq(node.product_code, 0) },
+    { reg: '5', label: '프로토콜버전', read: show(node.protocol_version), expect: '10', ok: eq(node.protocol_version, 10) },
+    { reg: '6', label: '채널수', read: show(node.channels), expect: chExpect === null ? '30(타입1)/24(타입2)' : `${chExpect} (타입${pt})`, ok: chExpect !== null && eq(node.channels, chExpect) },
+    { reg: '7·8', label: '시리얼번호', read: show(node.serial), expect: '참고', ok: null },
+  ];
+}
+
 export function mappingKey(unit, kind, n) {
   return `U${unit}:${kind}:${n}`;
 }

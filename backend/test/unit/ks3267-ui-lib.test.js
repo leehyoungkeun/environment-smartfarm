@@ -64,6 +64,35 @@ describe("discoveryRows / nodeSummary", () => {
   });
 });
 
+describe("nodeInfoRows — §5.1.2 c) 노드정보 1~8 시험표", () => {
+  // 디폴트 완전 일치 노드 (센서 타입1, 채널 30)
+  const GOOD = { cert_authority: 0, company_code: 0, product_type: 1, product_code: 0, protocol_version: 10, channels: 30, serial: 987654 };
+  test("전 항목 일치 판정 + 시리얼은 참고", () => {
+    const r = lib.nodeInfoRows(GOOD);
+    assert.equal(r.length, 7);
+    assert.deepEqual(r.map(x => x.label), ["기관코드", "회사코드", "제품타입", "제품코드", "프로토콜버전", "채널수", "시리얼번호"]);
+    assert.ok(r.slice(0, 6).every(x => x.ok === true), "1~6 모두 일치여야 함");
+    assert.equal(r[5].expect, "30 (타입1)");       // 채널수 기대: 타입1→30
+    assert.equal(r[6].ok, null); assert.equal(r[6].read, "987654"); // 시리얼 참고
+  });
+  test("구동기 타입2 → 채널수 기대 24", () => {
+    const r = lib.nodeInfoRows({ ...GOOD, product_type: 2, channels: 24 });
+    assert.equal(r[5].expect, "24 (타입2)"); assert.equal(r[5].ok, true);
+  });
+  test("불일치 낱낱이 잡는다 — 기관≠0·버전101·채널 어긋남", () => {
+    const r = lib.nodeInfoRows({ cert_authority: 5, company_code: 0, product_type: 2, product_code: 0, protocol_version: 101, channels: 30, serial: 1 });
+    assert.equal(r[0].ok, false, "기관코드 5 → 불일치");   // 변이 프로브: eq() 가 0 만 통과해야
+    assert.equal(r[4].ok, false, "버전 101 → 10 아님");
+    assert.equal(r[5].ok, false, "타입2인데 채널 30 → 24 기대 불일치");
+    assert.equal(r[2].ok, true, "제품타입 2 는 1또는2 → 일치");
+  });
+  test("값 없음/누락은 판정 불일치·표시 —, node 없으면 빈 배열", () => {
+    const r = lib.nodeInfoRows({ product_type: 1 });
+    assert.equal(r[0].read, "—"); assert.equal(r[0].ok, false);
+    assert.deepEqual(lib.nodeInfoRows(null), []);
+  });
+});
+
 describe("mappingIndex — 우리 장치 ↔ 표준 디바이스", () => {
   const houses = [{ houseId: "house_0001", name: "1동",
     devices: [{ deviceId: "fan1", name: "환풍기", modbus: { protocol: "ks3267", unit: 1, kind: "switch", n: 3 } },

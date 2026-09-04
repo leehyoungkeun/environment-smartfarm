@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom';
 import axios from 'axios';
 import { useAuth } from '../../contexts/AuthContext';
 import { sendControlCommand, getControlLogs, getRelayStatus, warmupLambda, saveControlLog } from '../../services/controlApi';
-import { getSystemMode, getApiBase, getRpiApiBase, isFarmLocalMode } from '../../services/apiSwitcher';
+import { getSystemMode, getApiBase, getRpiApiBase, getPcApiBase, isFarmLocalMode, isFarmLocalAutoDetected } from '../../services/apiSwitcher';
 import wsService from '../../services/wsService';
 import { isKsProfile, deviceKsStatus } from '../../lib/ks3267';
 import {
@@ -1182,7 +1182,8 @@ const ControlPanel = ({ farmId, houseId, houseConfig }) => {
       const stopCmd = device.modbus?.controlType === 'bidir' ? 'stop' : 'off';
       const modbusConfig = device.modbus || null;
       try {
-        const isLocal = ['localhost', '127.0.0.1'].includes(window.location.hostname);
+        // 메인 제어와 같은 기준 — 키오스크(포트 80/443)이고 RPi 직접 경로가 있을 때만 로컬, 아니면 AWS
+        const isLocal = isFarmLocalAutoDetected() && getRpiApiBase() !== getPcApiBase();
         if (isLocal) {
           // 로컬: RPi 직접
           const rpiApi = getRpiApiBase();
@@ -1265,6 +1266,15 @@ const ControlPanel = ({ farmId, houseId, houseConfig }) => {
     if (command !== 'stop') {
       setDeviceStates(prev => ({ ...prev, [deviceId]: { ...prev[deviceId], status: statusMap[command] || 'idle', lastCommand: command, lastCommandTime: new Date().toISOString() } }));
     }
+    // bidir 진행률 — 명령 송신 직전 낙관적 시작 (axios.post 응답 4-5초 대기 동안 모터는 이미 회전 중이므로 % 동기 유지)
+    // 명령 fail 시 cancelBidirProgress() 호출하여 취소
+    // ★ try 밖에 선언 — catch 절(네트워크 오류 등)에서도 참조하므로 try 안에 두면 ReferenceError 로 실제 오류가 가려짐
+    let bidirStarted = false;
+    const cancelBidirProgress = () => {
+      if (timerRefs.current[`progress_${deviceId}`]) { clearInterval(timerRefs.current[`progress_${deviceId}`]); timerRefs.current[`progress_${deviceId}`] = null; }
+      if (timerRefs.current[`autoStop_${deviceId}`]) { clearTimeout(timerRefs.current[`autoStop_${deviceId}`]); timerRefs.current[`autoStop_${deviceId}`] = null; }
+      setBidirProgress(prev => ({ ...prev, [deviceId]: null }));
+    };
     try {
       const ROLE_LABELS = { superadmin: '최고관리자', manager: '관리직원', owner: '농장대표', worker: '작업자' };
       const rolePart = ROLE_LABELS[user?.role] || user?.role || '';
@@ -1286,14 +1296,6 @@ const ControlPanel = ({ farmId, houseId, houseConfig }) => {
         }
       }
 
-      // bidir 진행률 — 명령 송신 직전 낙관적 시작 (axios.post 응답 4-5초 대기 동안 모터는 이미 회전 중이므로 % 동기 유지)
-      // 명령 fail 시 cancelBidirProgress() 호출하여 취소
-      let bidirStarted = false;
-      const cancelBidirProgress = () => {
-        if (timerRefs.current[`progress_${deviceId}`]) { clearInterval(timerRefs.current[`progress_${deviceId}`]); timerRefs.current[`progress_${deviceId}`] = null; }
-        if (timerRefs.current[`autoStop_${deviceId}`]) { clearTimeout(timerRefs.current[`autoStop_${deviceId}`]); timerRefs.current[`autoStop_${deviceId}`] = null; }
-        setBidirProgress(prev => ({ ...prev, [deviceId]: null }));
-      };
       if (modbusConfig?.controlType === 'bidir' && (command === 'open' || command === 'close')) {
         const fullDur = command === 'open' ? modbusConfig.openDuration : modbusConfig.closeDuration;
         if (fullDur && fullDur > 0) {
@@ -1339,8 +1341,11 @@ const ControlPanel = ({ farmId, houseId, houseConfig }) => {
         }
       }
 
-      const isLocalHost = ['localhost', '127.0.0.1'].includes(window.location.hostname);
-      if (isLocalHost || mode.isFarmLocal || mode.mode === 'offline') {
+      // 키오스크 판정은 apiSwitcher 와 동일 기준(localhost + 포트 80/443/빈값). hostname 만 보면 dev 서버(localhost:5174)까지
+      // 키오스크로 오판해 AWS 를 건너뛴다. 또 클라우드 모드(getRpiApiBase()===PC 서버)면 RPi 직접 경로가 없으므로 AWS 로.
+      const isKiosk = isFarmLocalAutoDetected();
+      const rpiReachable = getRpiApiBase() !== getPcApiBase();
+      if ((isKiosk || mode.isFarmLocal || mode.mode === 'offline') && rpiReachable) {
         // RPi 로컬 접속 또는 오프라인: Node-RED 직접 제어 (AWS 우회)
         const rpiApi = getRpiApiBase();
         // bidir 장치: duration 계산 (Node-RED 자동 정지용)
@@ -1525,11 +1530,12 @@ const ControlPanel = ({ farmId, houseId, houseConfig }) => {
       lastResult = await handleControl(deviceId, command);
       if (lastResult?.success) return lastResult;
     }
-    // 모든 재시도 실패
+    // 모든 재시도 실패 — 마지막 실패 사유(예: "AWS 제어 실패: 401 Unauthorized")를 같이 남겨 진단 가능하게
+    const lastReason = lastResult?.error || lastResult?.errorReason || '';
     setDeviceStates(prev => ({
       ...prev, [deviceId]: {
         ...prev[deviceId], status: 'error',
-        errorReason: `${maxRetries + 1}회 시도 모두 실패`,
+        errorReason: `${maxRetries + 1}회 시도 모두 실패${lastReason ? ' — ' + lastReason : ''}`,
       }
     }));
     setControlStage(prev => ({ ...prev, [deviceId]: null }));

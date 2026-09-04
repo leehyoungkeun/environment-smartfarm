@@ -4,7 +4,7 @@
 // httpNodeMiddleware 가 /api/* 인증(키오스크 루프백 또는 농장 키)을 이미 적용한다.
 // 읽기 전용 액션만 — 제어는 정규 경로(execute_control)로만.
 // ============================================================
-const ALLOWED = { discover: 1, nodes: 1, status: 1, frames: 1, events: 1, health: 1 };
+const ALLOWED = { discover: 1, scan: 1, nodes: 1, status: 1, frames: 1, events: 1, health: 1 };
 const action = String((msg.req && msg.req.params && msg.req.params.action) || '');
 if (!ALLOWED[action]) {
     msg.statusCode = 400;
@@ -16,6 +16,6 @@ const qs = Object.keys(q).map(k => encodeURIComponent(k) + '=' + encodeURICompon
 const api = env.get('KS3267_API') || 'http://127.0.0.1:3002';
 msg.url = api + '/' + action + (qs ? '?' + qs : '');
 msg.method = 'GET';
-msg.requestTimeout = 8000;
+msg.requestTimeout = (action === 'scan') ? 120000 : 8000;   // 스캔은 범위 probe 라 오래 걸림
 msg._ksAction = action;
 return [msg, null];   // 출력 1 = http request 로

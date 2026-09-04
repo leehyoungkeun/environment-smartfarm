@@ -40,12 +40,21 @@ if (Array.isArray(modbusRaw) && modbusRaw.length >= 2) {
     node.warn('⚠️ Modbus 데이터 없음 — 시뮬레이션 금지, 실측 없는 센서는 이번 사이클 생략');
 }
 
-// msg.modbusReadings가 있으면 사용 (sensor-modbus-read-flow 경유)
-// KS X 3267 표준 센서 노드 값 합류 (P3, 2026-08-30) — ks3267d 데몬 → fn_ks_status 가 3분 이내에 넣은 값만.
+// msg.modbusReadings가 있으면 사용 (sensor-modbus-read-flow 경유) — **벤더(Waveshare/XY-MD02) 값만**.
+var modbusReadings = msg.modbusReadings || realData || {};
+
+// KS X 3267 표준 센서 노드 값 (P3, 2026-08-30) — ks3267d 데몬 → fn_ks_status 가 3분 이내에 넣은 값만.
 // 낡은 값(데몬 중단)은 버린다 — 값을 지어내지 않는 원칙과 같은 맥락.
+// 2026-09-04 수정: 예전엔 ksVals 를 벤더 값과 평면 병합(Object.assign)했다 → 키가 sensorId 만이라
+//   house_0001 벤더 temp_0001(28.4) 이 house_0002 표준 temp_0001(28.8) 을 덮어 DB 에 잘못 저장됐다.
+//   이제 표준 센서(sensor.ks3267)는 아래 루프에서 **표준 값만** 쓰고, 벤더 값으로 절대 대체하지 않는다.
+//   키는 정규 복합키 'houseId:sensorId' 우선, 레거시 sensorId 는 폴백.
 var ksR = global.get('ks3267Readings');
 var ksVals = (ksR && ksR.values && (Date.now() - (ksR.t || 0)) < 180000) ? ksR.values : {};
-var modbusReadings = Object.assign({}, ksVals, msg.modbusReadings || realData || {});
+function ksValue(houseId, sensorId) {
+    var v = ksVals[houseId + ':' + sensorId];
+    return (v !== undefined) ? v : ksVals[sensorId];
+}
 
 let housesToCollect = [];
 if (config.houses && config.houses.length > 0) {
@@ -92,7 +101,11 @@ for (const house of housesToCollect) {
     for (const sensor of enabledSensors) {
         try {
             let value;
-            if (modbusReadings[sensor.sensorId] !== undefined) {
+            if (sensor.ks3267) {
+                // 0) KS X 3267 표준 센서 — 표준 노드 값만. 없으면(데몬 중단·TTL 초과) 생략, 벤더 값으로 대체 금지
+                value = ksValue(houseId, sensor.sensorId);
+                if (value === undefined) { skippedCount++; continue; }
+            } else if (modbusReadings[sensor.sensorId] !== undefined) {
                 value = modbusReadings[sensor.sensorId];                       // 1) 모듈별 읽기
             } else if (sensor.sensorId === 'temp_0001' && realData.temperature !== undefined) {
                 value = realData.temperature;                                  // 2) 기본 온습도 모듈
@@ -147,6 +160,7 @@ var totalModbusFailed = 0;
 for (const house of housesToCollect) {
     const sensors = (house.sensors || []).filter(s => s.enabled);
     for (const sensor of sensors) {
+        if (sensor.ks3267) continue;   // 표준 센서는 별도 포트(ks3267d) — RS-485 자체 버스 장애 판정에서 제외
         if (sensor.modbus && sensor.modbus.unitId != null) {
             totalModbusSensors++;
             if (modbusReadings[sensor.sensorId] === undefined) totalModbusFailed++;

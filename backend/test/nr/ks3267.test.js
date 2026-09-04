@@ -167,6 +167,7 @@ describe("마스터 flows.json — 적용된 노드가 문서 교체본과 일�
   });
   same("execute_control", "execute_control.js");
   same("fn_collect_sensors", "fn_collect_sensors.js");
+  same("modbus_sensor_prep", "modbus_sensor_prep.js");   // 2026-09-04 표준 센서 자동매핑 차단 (센서 충돌 사고)
   same("ks_fn_command", "fn_ks_command.js");
   same("ks_fn_status", "fn_ks_status.js");
   same("ks_fn_result", "fn_ks_result.js");

@@ -11,7 +11,7 @@
  */
 
 import axios from 'axios';
-import { getSystemMode, getApiBase, getRpiApiBase } from './apiSwitcher';
+import { getSystemMode, getApiBase, getRpiApiBase, getPcApiBase } from './apiSwitcher';
 
 const AWS_CONTROL_ENDPOINT = import.meta.env.VITE_AWS_CONTROL_ENDPOINT;
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3000/api';
@@ -58,7 +58,9 @@ export const sendControlCommand = async (houseId, deviceId, command, operator = 
   // 일반 모드 → AWS 우선, 실패 시 로컬 폴백 (서버 상태 무관)
   const result = await sendAwsControl(houseId, deviceId, command, operator, meta);
 
-  if (!result.success) {
+  // 로컬 폴백은 RPi 직접 경로가 실제로 있을 때만 — 클라우드 모드(getRpiApiBase()===PC 서버)에선 /control/local 이
+  // 백엔드로 가서 항상 404 라 의미가 없고, 진짜 실패 사유(AWS)를 가린다.
+  if (!result.success && getRpiApiBase() !== getPcApiBase()) {
     console.log(`⚠️ AWS 제어 실패, 로컬 폴백 시도...`);
     const localResult = await sendLocalControl(houseId, deviceId, command, operator, meta);
     if (localResult.success) {
@@ -129,6 +131,8 @@ const sendAwsControl = async (houseId, deviceId, command, operator, meta = {}) =
     return { success: false, requestId, houseId, deviceId, command, error: 'AWS 엔드포인트 미설정', timestamp, mode: 'aws' };
   }
 
+  // 마지막 실패 사유 — 화면(errorReason)에 그대로 드러내 진단 가능하게 (예: "401 Unauthorized", "403 Forbidden", "Network Error")
+  let lastError = '';
   for (let attempt = 1; attempt <= RETRY_ATTEMPTS; attempt++) {
     try {
       // 보안: Lambda Authorizer 가 JWT 검증 → token 의 farmId 와 payload.farm_id 일치 검증
@@ -157,7 +161,10 @@ const sendAwsControl = async (houseId, deviceId, command, operator, meta = {}) =
         mode: 'aws',
       };
     } catch (error) {
-      console.error(`❌ AWS 제어 실패 (${attempt}/${RETRY_ATTEMPTS}):`, error.message);
+      const status = error.response?.status;
+      const detail = error.response?.data?.message || error.response?.data?.error || error.message;
+      lastError = status ? `${status} ${detail}` : detail;
+      console.error(`❌ AWS 제어 실패 (${attempt}/${RETRY_ATTEMPTS}):`, lastError);
       if (attempt < RETRY_ATTEMPTS) {
         await new Promise(r => setTimeout(r, 1000 * attempt));
       }
@@ -170,7 +177,7 @@ const sendAwsControl = async (houseId, deviceId, command, operator, meta = {}) =
     houseId,
     deviceId,
     command,
-    error: 'AWS 제어 실패',
+    error: `AWS 제어 실패${lastError ? ': ' + lastError : ''}`,
     timestamp,
     mode: 'aws',
   };

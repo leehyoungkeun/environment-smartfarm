@@ -7,7 +7,10 @@
 //   state.kind === 'actuator' → state.devices[index] = { kind, n, opid, status, status_name, remain }
 //
 // 매핑 근거는 houseConfig:
-//   센서:  house.sensors[].ks3267 = { unit, index }            → 값을 global.ks3267Readings[sensorId] 로
+//   센서:  house.sensors[].ks3267 = { unit, index }            → 값을 global.ks3267Readings.values 에
+//          **정규 복합키 'houseId:sensorId'** 로 (sensorId 만 쓰면 다른 하우스의 같은 id 와 충돌 —
+//          2026-09-04 house_0002 표준 temp_0001 이 house_0001 벤더 temp_0001 값으로 덮인 사고).
+//          레거시 sensorId 키도 같이 남긴다(호환) — ③ 은 복합키를 먼저 본다.
 //   구동기: house.devices[].modbus = { protocol:'ks3267', unit, kind:'switch'|'opener', n }
 //          → deviceStates['house_0001:fan1'] 갱신 (정규키, dkey)
 // 원본 상태는 global.ks3267State[unit] 에 그대로 보관 (진단 UI·남은시간 표시용).
@@ -46,7 +49,8 @@ if (st.kind === 'sensor') {
                 node.warn('⚠️ 표준 센서 ' + s.sensorId + ' 상태 ' + (r.status_name || r.status) + ' — 값 생략');
                 continue;
             }
-            values[s.sensorId] = r.value;
+            values[dkey(house.houseId, s.sensorId)] = r.value;   // 정규 복합키 (하우스 구분)
+            values[s.sensorId] = r.value;                         // 레거시 키 (호환 — ③ 은 복합키 우선)
             sensorsMapped++;
         }
     }

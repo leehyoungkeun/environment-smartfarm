@@ -1,0 +1,14 @@
+[
+  {
+    "id": "hcs_sqlite_mirror",
+    "type": "sqlite",
+    "z": "tab_modules_sync",
+    "mydb": "sqlite_db",
+    "sqlquery": "msg.topic",
+    "sql": "",
+    "name": "SQLite 미러 (house_configs)",
+    "x": 1010,
+    "y": 400,
+    "wires": [[]]
+  }
+]

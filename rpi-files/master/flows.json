@@ -7872,13 +7872,20 @@
         "type": "function",
         "z": "tab_modules_sync",
         "name": "houseConfig 갱신",
-        "func": "// PC backend /config/farm/{farmId} 응답 → global.houseConfig 갱신\n\nlet payload = msg.payload;\nif (typeof payload === 'string') {\n    try { payload = JSON.parse(payload); } catch (e) {\n        node.error('houseConfig 응답 파싱 실패: ' + e.message);\n        return null;\n    }\n}\n\nif (msg.statusCode !== 200) {\n    node.error('❌ houseConfig 조회 실패 status=' + msg.statusCode);\n    node.status({ fill: 'red', shape: 'dot', text: 'API ' + msg.statusCode });\n    return null;\n}\n\nconst houses = (payload && payload.success && Array.isArray(payload.data)) ? payload.data : [];\nif (houses.length === 0) {\n    node.warn('houseConfig 빈 응답 — refresh 안 함');\n    return null;\n}\n\nconst farmId = msg._farmId || 'farm_0001';\nconst eventType = msg._eventType || '?';\n\n// 기존 houseConfig 와 비교\nconst prev = global.get('houseConfig') || {};\nconst prevHouses = prev.houses || [];\n\n// houseConfig 구조 (워치독/sensor 폴링이 사용하는 형식)\nconst newHouseConfig = {\n    farmId,\n    houses: houses.map(h => ({\n        id: h.houseId,\n        houseId: h.houseId,\n        name: h.houseName || h.name,\n        enabled: h.enabled !== false,\n        sensors: h.sensors || [],\n        devices: h.devices || [],\n        configVersion: h.configVersion || 0,\n    })),\n    configVersion: Math.max(0, ...houses.map(h => h.configVersion || 0)),\n};\n\nglobal.set('houseConfig', newHouseConfig);\nglobal.set('houseConfigUpdatedAt', new Date().toISOString());\n\n// 워치독 캐시 무효화 (modules 변경 시 워치독이 옛 sensor 폴링 안 하도록)\nglobal.set('_watchdogModules', null);\n\nconst sensorTotal = houses.reduce((sum, h) => sum + (h.sensors?.length || 0), 0);\nconst deviceTotal = houses.reduce((sum, h) => sum + (h.devices?.length || 0), 0);\n\nnode.status({\n    fill: 'green', shape: 'dot',\n    text: eventType + ' H:' + houses.length + ' S:' + sensorTotal + ' D:' + deviceTotal\n});\nnode.warn('🏠 houseConfig refresh (' + eventType + '): ' + houses.length + ' houses, ' + sensorTotal + ' sensors, ' + deviceTotal + ' devices');\n\nreturn null;\n",
-        "outputs": 1,
+        "func": "// PC backend /config/farm/{farmId} 응답 → global.houseConfig 갱신 + SQLite house_configs 미러 (2026-09-04)\n//\n// 출력 1: (없음 — 기존과 동일, null)\n// 출력 2: SQLite 「미러」 노드로 — 하우스별 UPSERT + 클라우드에 없는 하우스 DELETE\n//\n// 왜: 클라우드 config/update 는 여기서 전역(global.houseConfig)만 갱신하고 SQLite 는 건드리지 않았다.\n//     그런데 REST GET /api/config/farm 은 SQLite 만 읽고(키오스크가 이 REST 를 읽음), 부팅 시 전역이\n//     비어 있으면 SQLite 로 복원한다 → 클라우드에서 추가한 표준 장치가 키오스크에 안 보이고(v58 stale),\n//     컨텍스트 초기화 후 재부팅 땐 옛 설정이 되살아난다. SQLite 를 클라우드의 내구 미러로 유지한다.\n// 원칙: 전역은 지금처럼 즉시 set(동작 변화 없음). 미러는 부수 효과. 빈 응답·비200 이면 미러도 하지 않는다\n//       (SQLite 전멸 방지 — automation_rules 부분목록 삭제 사고와 같은 함정).\n\nlet payload = msg.payload;\nif (typeof payload === 'string') {\n    try { payload = JSON.parse(payload); } catch (e) {\n        node.error('houseConfig 응답 파싱 실패: ' + e.message);\n        return null;\n    }\n}\n\nif (msg.statusCode !== 200) {\n    node.error('❌ houseConfig 조회 실패 status=' + msg.statusCode);\n    node.status({ fill: 'red', shape: 'dot', text: 'API ' + msg.statusCode });\n    return null;\n}\n\nconst houses = (payload && payload.success && Array.isArray(payload.data)) ? payload.data : [];\nif (houses.length === 0) {\n    node.warn('houseConfig 빈 응답 — refresh 안 함 (SQLite 미러도 안 함)');\n    return null;\n}\n\nconst farmId = msg._farmId || 'farm_0001';\nconst eventType = msg._eventType || '?';\n\n// ── 1) 전역 갱신 (기존 그대로) ──────────────────────────────────────────\nconst newHouseConfig = {\n    farmId,\n    houses: houses.map(h => ({\n        id: h.houseId,\n        houseId: h.houseId,\n        name: h.houseName || h.name,\n        houseName: h.houseName || h.name,\n        enabled: h.enabled !== false,\n        sensors: h.sensors || [],\n        devices: h.devices || [],\n        collection: h.collection || {},\n        configVersion: h.configVersion || 0,\n    })),\n    configVersion: Math.max(0, ...houses.map(h => h.configVersion || 0)),\n};\n\nglobal.set('houseConfig', newHouseConfig);\nglobal.set('houseConfigUpdatedAt', new Date().toISOString());\n\n// 워치독 캐시 무효화 (modules 변경 시 워치독이 옛 sensor 폴링 안 하도록)\nglobal.set('_watchdogModules', null);\n\n// ── 2) SQLite house_configs 미러 (출력 2) ─────────────────────────────\n// 스키마·컬럼 순서는 Config CRUD 「UPSERT 준비」와 동일. 차이: config_version 은 +1 이 아니라\n// **클라우드 버전을 그대로** 복사(미러), created_at 은 최초 INSERT 때만.\nconst now = new Date().toISOString();\nconst UPSERT = 'INSERT INTO house_configs (id, farm_id, house_id, house_name, sensors, collection, devices, crops, crop_type, crop_variety, planting_date, device_count, enabled, config_version, created_at, updated_at) '\n    + 'VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16) '\n    + 'ON CONFLICT(farm_id, house_id) DO UPDATE SET house_name = excluded.house_name, sensors = excluded.sensors, collection = excluded.collection, '\n    + 'devices = excluded.devices, crops = excluded.crops, crop_type = excluded.crop_type, crop_variety = excluded.crop_variety, planting_date = excluded.planting_date, '\n    + 'device_count = excluded.device_count, enabled = excluded.enabled, config_version = excluded.config_version, updated_at = excluded.updated_at';\n\nconst mirror = houses.map((h, i) => {\n    const devices = h.devices || [];\n    return {\n        topic: UPSERT,\n        payload: [\n            Date.now().toString(36) + Math.random().toString(36).substr(2, 9) + i,\n            farmId,\n            h.houseId,\n            h.houseName || h.name || '',\n            JSON.stringify(h.sensors || []),\n            JSON.stringify(h.collection || {}),\n            JSON.stringify(devices),\n            JSON.stringify(h.crops || []),\n            h.cropType || '', h.cropVariety || '', h.plantingDate || '',\n            h.deviceCount !== undefined ? h.deviceCount : devices.length,\n            h.enabled !== false ? 1 : 0,\n            h.configVersion || 0,\n            h.createdAt || now,\n            now,\n        ],\n        _farmId: farmId, _mirror: 'upsert', _houseId: h.houseId,\n    };\n});\n\n// 클라우드에 없는 하우스는 SQLite 에서 제거 (하우스 id 는 전부 바인딩 — SQL 조립 금지)\nconst ids = houses.map(h => h.houseId);\nmirror.push({\n    topic: 'DELETE FROM house_configs WHERE farm_id = $1 AND house_id NOT IN (' + ids.map((_, i) => '$' + (i + 2)).join(',') + ')',\n    payload: [farmId].concat(ids),\n    _farmId: farmId, _mirror: 'delete',\n});\n\nconst sensorTotal = houses.reduce((sum, h) => sum + (h.sensors?.length || 0), 0);\nconst deviceTotal = houses.reduce((sum, h) => sum + (h.devices?.length || 0), 0);\n\nnode.status({\n    fill: 'green', shape: 'dot',\n    text: eventType + ' H:' + houses.length + ' S:' + sensorTotal + ' D:' + deviceTotal + ' → SQLite'\n});\nnode.warn('🏠 houseConfig refresh (' + eventType + '): ' + houses.length + ' houses, ' + sensorTotal + ' sensors, ' + deviceTotal + ' devices — SQLite 미러 ' + mirror.length + '건');\n\nreturn [null, mirror];\n",
+        "outputs": 2,
+        "timeout": "",
         "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
         "x": 1010,
         "y": 320,
         "wires": [
-            []
+            [],
+            [
+                "hcs_sqlite_mirror"
+            ]
         ]
     },
     {
@@ -7952,6 +7959,20 @@
         "x": 340,
         "y": 400,
         "wires": []
+    },
+    {
+        "id": "hcs_sqlite_mirror",
+        "type": "sqlite",
+        "z": "tab_modules_sync",
+        "mydb": "sqlite_db",
+        "sqlquery": "msg.topic",
+        "sql": "",
+        "name": "SQLite 미러 (house_configs)",
+        "x": 1020,
+        "y": 400,
+        "wires": [
+            []
+        ]
     },
     {
         "id": "sq_mqtt_in",

@@ -33,10 +33,15 @@ class FakeTransport:
     def __init__(self, nodes, dead=()):
         self.nodes = nodes; self.dead = set(dead); self.frames = FrameLog(); self.desc = "fake"
         self.calls = []
+        self.probing = False   # 실제 transport 와 같은 집계 규칙: 스캔 중 실패는 scan_misses
+
+    def _count(self, kind):
+        self.frames.stats["scan_misses" if self.probing else kind] += 1
 
     def read(self, unit, addr, count):
         self.calls.append(("R", unit, addr, count))
         if unit in self.dead or unit not in self.nodes:
+            self._count("timeouts")
             raise TransportTimeout("no response")
         return self.nodes[unit].read(addr, count)
 
@@ -47,6 +52,7 @@ class FakeTransport:
         try:
             self.nodes[unit].write(addr, values)
         except IllegalDataValue:
+            self._count("exceptions")
             raise ModbusExc(3, 16)
         return True
 
@@ -199,3 +205,38 @@ class Names(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ScanStats(unittest.TestCase):
+    """자동스캔의 빈 주소 미응답은 장애 지표(exceptions/timeouts)가 아니라 scan_misses 로 센다 (2026-09-04)."""
+
+    def setUp(self):
+        self.clk = FakeClock(); self.bus, self.act, self.sen = make_bus(self.clk)
+        self.m = KsMaster(self.bus, clock=self.clk)
+
+    def test_scan_misses_do_not_pollute_fault_counters(self):
+        r = self.m.scan(1, 5)
+        self.assertEqual([f["unit"] for f in r["found"]], [1, 2])
+        self.assertEqual(self.bus.frames.stats["scan_misses"], 3, "3·4·5 번 빈 주소 = 미응답 3")
+        self.assertEqual(self.bus.frames.stats["timeouts"], 0, "스캔 미응답이 타임아웃(장애)로 새었다")
+        self.assertEqual(self.bus.frames.stats["exceptions"], 0)
+        self.assertFalse(self.bus.probing, "스캔이 끝나면 probing 이 꺼져야 한다")
+
+    def test_real_poll_timeout_still_counts_as_fault(self):
+        self.m.scan(1, 2)
+        self.m.nodes[9] = {"kind": "sensor", "supported": True, "devices": []}   # 죽은 유닛을 등록해 폴링
+        self.m.poll(9)
+        self.assertEqual(self.bus.frames.stats["timeouts"], 1, "실제 폴링 타임아웃은 장애로 센다")
+        self.assertEqual(self.bus.frames.stats["scan_misses"], 0)
+
+    def test_probing_reset_even_if_scan_raises(self):
+        class Boom(Exception): pass
+        orig = self.bus.read
+        def bad(*a, **k): raise Boom()
+        self.bus.read = bad
+        try:
+            self.m.scan(1, 2)   # discover 내부 예외는 조용히 skip 되어야 하고 probing 은 복구되어야
+        finally:
+            self.bus.read = orig
+        self.assertFalse(self.bus.probing)
+

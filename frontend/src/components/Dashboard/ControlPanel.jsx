@@ -5,7 +5,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import { sendControlCommand, getControlLogs, getRelayStatus, warmupLambda, saveControlLog } from '../../services/controlApi';
 import { getSystemMode, getApiBase, getRpiApiBase, getPcApiBase, isFarmLocalMode, isFarmLocalAutoDetected } from '../../services/apiSwitcher';
 import wsService from '../../services/wsService';
-import { isKsProfile, deviceKsStatus } from '../../lib/ks3267';
+import { isKsProfile, deviceKsStatus, ksAnchorFromSample, ksRemainFromEnd, ksSampleAgeSec, ksSampleIsStaleForCommand, ksMotionProgress, ksNeededSec, ksReachedEnd } from '../../lib/ks3267';
 import {
   DndContext, closestCenter, PointerSensor, useSensor, useSensors
 } from '@dnd-kit/core';
@@ -113,26 +113,96 @@ const ControlPanel = ({ farmId, houseId, houseConfig }) => {
   const [bidirProgress, setBidirProgress] = useState({}); // { [deviceId]: { percent: 0~100, direction: 'open'|'close' } }
   // ★ 릴레이 모듈 list — Settings → 릴레이 모듈 관리 의 channels (8/16/32) 동적 사용
   const [relayModules, setRelayModules] = useState([]);
-  // ★ KS X 3267 표준 노드 상태 (unit → 데몬 poll state). 표준 프로필 장치가 있을 때만 30초 폴링 (읽기 전용 프록시)
+  // ★ KS X 3267 표준 노드 상태 (unit → 데몬 poll state). 표준 프로필 장치가 있을 때만 폴링 (읽기 전용 프록시)
+  //   적응형 주기: 어떤 표준 장치든 동작 중(남은시간>0·작동중 코드)이거나 KS 명령 직후 30초 동안은 2초, 평소 30초.
+  //   (30초 고정이면 12초짜리 TIMED_ON 은 카운트다운이 안 보이고 '켜짐 12s → READY' 로 건너뛴다 — 2026-09-04)
   const [ksState, setKsState] = useState(null);
   const hasKsDevices = devices.some(d => isKsProfile(d.modbus));
+  const ksLoadRef = useRef(null);            // 명령 직후 즉시 재조회용
+  const ksBoostUntilRef = useRef(0);         // 이 시각까지 2초 폴링
+  const ksCmdAtRef = useRef({});             // deviceId → 마지막 KS 명령 시각 (직후 5초는 노드 상태 동기화 보류 — 드라이버 폴링 지연 경쟁)
+  const ksEndAtRef = useRef({});             // deviceId → 카운트다운 종료 시각(브라우저 시계). 클릭 순간 낙관적으로 고정, 노드 샘플로 보정
+  const ksMotionRef = useRef({});            // deviceId → KS 개폐기 동작 추적 { direction, startAt, totalSec|null, startPos, plain } (아래 ksMotionStart/Stop)
+  const ksFullSecRef = useRef({});           // deviceId → { open: sec, close: sec } 노드가 알려준 완전 개폐 시간(학습값)
+  const ksActive = (!!ksState && !ksState._error && devices.some(d => {
+    const s = isKsProfile(d.modbus) ? deviceKsStatus(ksState, d.modbus) : null;
+    return s && !s.stale && (s.remain > 0 || [201, 301, 302].includes(s.code));
+  })) || Object.values(ksEndAtRef.current).some(e => e && e > Date.now()) || Object.keys(ksMotionRef.current).length > 0;
   useEffect(() => {
     if (!hasKsDevices) { setKsState(null); return; }
-    let alive = true;
+    let alive = true; let timer = null;
     const API = getApiBase();
     const load = async () => {
       try {
         const token = localStorage.getItem('accessToken');
         const r = await axios.get(`${API}/config/${farmId}/ks3267/status`, { timeout: 10000, headers: token ? { Authorization: `Bearer ${token}` } : {} });
-        if (alive) setKsState(r.data?.ok ? (r.data.state || {}) : { _error: r.data?.error || '드라이버 없음' });
+        if (alive) setKsState(r.data?.ok ? { ...(r.data.state || {}), _now: r.data.now } : { _error: r.data?.error || '드라이버 없음' });   // _now: 데몬 현재시각(샘플 나이 계산)
       } catch (e) {
         if (alive) setKsState({ _error: e.response?.data?.error || e.message });
       }
     };
-    load();
-    const t = setInterval(load, 30000);
-    return () => { alive = false; clearInterval(t); };
-  }, [hasKsDevices, farmId]);
+    ksLoadRef.current = load;
+    const schedule = () => {
+      if (!alive) return;
+      const fast = ksActive || Date.now() < ksBoostUntilRef.current;
+      timer = setTimeout(async () => { await load(); schedule(); }, fast ? 2000 : 30000);
+    };
+    load().then(schedule);
+    return () => { alive = false; if (timer) clearTimeout(timer); ksLoadRef.current = null; };
+  }, [hasKsDevices, farmId, ksActive]);
+  // ★ KS 표준 장치의 버튼 상태(deviceStates)는 노드가 보고한 상태코드를 원본으로 동기화한다.
+  //   벤더 릴레이는 FC1 코일 폴링(relayVerified)이 하듯이, 표준 노드는 되읽은 상태(201 켜짐 / 0 READY / 301·302)로 맞춘다.
+  //   TIMED_ON(202)이 노드에서 스스로 만료돼 READY 가 돼도 ON 버튼이 켜진 채 남던 문제 (2026-09-04).
+  //   명령 진행 중(turning_*/commandLock)에는 손대지 않는다 — 명령 경로가 정한 상태를 존중.
+  useEffect(() => {
+    if (!ksState || ksState._error) return;
+    setDeviceStates(prev => {
+      let changed = false; const next = { ...prev };
+      for (const d of devices) {
+        if (!isKsProfile(d.modbus)) continue;
+        const ks = deviceKsStatus(ksState, d.modbus);
+        if (!ks || ks.stale || ks.code === undefined || ks.code === null) continue;
+        const cur = prev[d.deviceId] || {};
+        // 명령 이전에 폴링된 샘플(나이로 판정)은 무시 — now 가 없는 구 드라이버면 명령 후 5초 보류로 대체
+        const age = ksSampleAgeSec(ksState._now, ks);
+        if (ksState._now ? ksSampleIsStaleForCommand(age, ksCmdAtRef.current[d.deviceId], Date.now())
+                         : Date.now() - (ksCmdAtRef.current[d.deviceId] || 0) < 5000) continue;
+        if (cur.commandLock || ['turning_on', 'turning_off', 'opening', 'closing'].includes(cur.status) && ks.code !== 0 && ks.code !== 201) continue;
+        let want = null;
+        if (d.modbus.kind === 'switch') want = ks.code === 201 ? 'on' : (ks.code === 0 ? 'off' : null);
+        else if (d.modbus.kind === 'opener') want = ks.code === 301 ? 'opening' : ks.code === 302 ? 'closing' : (ks.code === 0 && ['opening', 'closing'].includes(cur.status) ? 'idle' : null);
+        if (want && cur.status !== want && !['turning_on', 'turning_off', 'sending'].includes(cur.status)) {
+          next[d.deviceId] = { ...cur, status: want, ksVerified: true, errorReason: undefined,
+            ...(want === 'off' && cur.status === 'on' ? { lastCommand: 'auto_off', lastCommandTime: new Date().toISOString() } : {}) };
+          changed = true;
+        }
+      }
+      return changed ? next : prev;
+    });
+  }, [ksState, devices]);
+  // 카운트다운 앵커 보정: 폴링 샘플이 올 때마다 ksAnchorEnd — 1.5초 이내 흔들림은 무시(클릭 시 고정한 앵커 유지), 재명령 등 실제 변화만 재고정.
+  // 명령 직후 5초 안에 온 샘플이 아직 옛 값(remain 0)이면 클릭 앵커를 지우지 않는다.
+  useEffect(() => {
+    if (!ksState || ksState._error) return;
+    const now = Date.now();
+    for (const d of devices) {
+      if (!isKsProfile(d.modbus)) continue;
+      const ks = deviceKsStatus(ksState, d.modbus);
+      if (!ks || ks.stale) continue;
+      const age = ksSampleAgeSec(ksState._now, ks);                    // 폴링 후 흐른 시간 (RPi 시계끼리라 편차 없음)
+      const cmdAt = ksCmdAtRef.current[d.deviceId] || 0;
+      if (ksState._now ? ksSampleIsStaleForCommand(age, cmdAt, now)      // 명령 이전 샘플 → 앵커에 쓰지 않음 (OFF 후 부활·재시작 방지)
+                       : (now - cmdAt < 5000 && !(ks.remain > 0))) continue;
+      ksEndAtRef.current[d.deviceId] = ksAnchorFromSample(ksEndAtRef.current[d.deviceId], ks.remain, age, now);
+    }
+  }, [ksState, devices]);
+  // 동작 중엔 250ms 마다 다시 그린다 — 표시값은 앵커 기준 ceil 이라 정확히 초 경계에서만 바뀐다(규칙적 1초 카운트다운)
+  const [, setKsTick] = useState(0);
+  useEffect(() => {
+    if (!ksActive) return;
+    const i = setInterval(() => setKsTick(x => x + 1), 250);
+    return () => clearInterval(i);
+  }, [ksActive]);
   const bidirPositionKey = `bidirPosition_${farmId}_${houseId}`;
   const [bidirPosition, setBidirPosition] = useState(() => {
     try { return JSON.parse(localStorage.getItem(bidirPositionKey)) || {}; } catch { return {}; }
@@ -140,6 +210,102 @@ const ControlPanel = ({ farmId, houseId, houseConfig }) => {
   const bidirPositionRef = useRef(bidirPosition);
   bidirPositionRef.current = bidirPosition;
   const bidirProgressRef = useRef(bidirProgress);
+  // KS X 3267 표준 스위치 「시간 지정 ON(초)」 — 값>0 이면 duration 으로 실려 fn_ks_command 가 202 TIMED_ON 으로 조립.
+  // 일반 ON 버튼은 0(=201 ON). SPS-7466 §5.5.2 b)/h) 를 화면 조작으로 재현하기 위한 입력.
+  const timedOnSecRef = useRef({});
+  const [timedOnSec, setTimedOnSec] = useState({});
+  // 스위치 ON → 202 TIMED_ON, 개폐기 열기/닫기 → 303 TIMED_OPEN / 304 TIMED_CLOSE (SPS-7466 §5.5.2 / §5.5.3). 0 이면 일반 명령(201 / 301·302).
+  const ksTimedOnSec = (deviceId, command, mb) => {
+    if (!isKsProfile(mb)) return 0;
+    const timed = (mb.kind === 'switch' && command === 'on') || (mb.kind === 'opener' && (command === 'open' || command === 'close'));
+    return timed ? Math.max(0, Math.min(65535, parseInt(timedOnSecRef.current[deviceId]) || 0)) : 0;
+  };
+  // ── KS 레벨1 개폐기 위치 바 — 노드엔 위치 레지스터가 없어(위치 지정은 레벨2) 경과시간으로 그린다 (lib ksMotionProgress) ──
+  //   완전 개폐 시간 = 설정(modbus.openDuration/closeDuration) → 없으면 일반 열기/닫기 때 노드가 알려준 남은시간(=완전 개폐 시간)을 학습.
+  const ksFullSec = (d, direction) => {
+    const m = d.modbus || {};
+    const cfg = direction === 'open' ? m.openDuration : m.closeDuration;
+    return (cfg > 0) ? cfg : (ksFullSecRef.current[d.deviceId]?.[direction] || null);
+  };
+  const ksMotionStart = (deviceId, direction, totalSec) => {
+    const pos = bidirPositionRef.current[deviceId];
+    const dev = devices.find(x => x.deviceId === deviceId);
+    // 일반 열기/닫기(301/302): 노드는 완전 개폐 시간만큼 움직인다 → 알고 있는 완전 개폐 시간으로 클릭 즉시 시작 (샘플이 오면 1.5초 이상 다를 때만 보정)
+    const total = totalSec || (dev ? ksFullSec(dev, direction) : null) || null;
+    ksMotionRef.current[deviceId] = { direction, startAt: Date.now(), totalSec: total, plain: !totalSec,
+      startPos: typeof pos === 'number' ? pos : (direction === 'open' ? 0 : 100) };
+    if (!totalSec && total) ksEndAtRef.current[deviceId] = Date.now() + total * 1000;   // 📐 배지 카운트다운도 즉시
+  };
+  const ksMotionStop = (deviceId) => {
+    const mo = ksMotionRef.current[deviceId];
+    if (mo) {
+      const dev = devices.find(x => x.deviceId === deviceId);
+      const p = ksMotionProgress(mo, Date.now(), dev ? ksFullSec(dev, mo.direction) : null);
+      let finalPos;
+      if (p && typeof p.actualPos === 'number') finalPos = p.actualPos;
+      else if (p && mo.plain && p.percent >= 100) finalPos = mo.direction === 'open' ? 100 : 0;   // 완전 개폐 시간 몰라도 일반 열기/닫기가 끝까지 갔으면 100/0
+      if (finalPos !== undefined) setBidirPosition(prev => ({ ...prev, [deviceId]: finalPos }));
+    }
+    delete ksMotionRef.current[deviceId];
+    setBidirProgress(prev => (prev[deviceId] ? { ...prev, [deviceId]: null } : prev));
+  };
+  // 노드 샘플 기반: 자동화 등 외부 명령으로 움직이기 시작했거나 총 시간을 모르는 일반 열기/닫기 → remain 으로 채우고 완전 개폐 시간 학습. READY → 마무리(위치 확정)
+  useEffect(() => {
+    if (!ksState || ksState._error) return;
+    const now = Date.now();
+    for (const d of devices) {
+      if (!isKsProfile(d.modbus) || d.modbus.kind !== 'opener') continue;
+      const ks = deviceKsStatus(ksState, d.modbus);
+      if (!ks || ks.stale) continue;
+      const age = ksSampleAgeSec(ksState._now, ks);
+      if (ksState._now && ksSampleIsStaleForCommand(age, ksCmdAtRef.current[d.deviceId], now)) continue;
+      const mo = ksMotionRef.current[d.deviceId];
+      if (ks.code === 301 || ks.code === 302) {
+        const direction = ks.code === 301 ? 'open' : 'close';
+        if (!mo || mo.direction !== direction) {
+          const pos = bidirPositionRef.current[d.deviceId];
+          ksMotionRef.current[d.deviceId] = { direction, startAt: now - age * 1000, totalSec: Math.max(1, Math.round(ks.remain)), plain: false,
+            startPos: typeof pos === 'number' ? pos : (direction === 'open' ? 0 : 100) };
+        } else if (mo.plain && ks.remain > 0) {
+          // 일반 열기/닫기: 노드가 알려준 남은시간은 폴링 시각 t 기준 → 총 시간 = remain + (t 시점까지의 경과) = remain + (지금까지 경과 − 샘플 나이).
+          // (나이를 더하면 총시간이 과대 보정돼 바의 남은초가 28→30 으로 되돌아가던 결함, 2026-09-04)
+          const total = Math.max(1, Math.round(ks.remain + Math.max(0, (now - mo.startAt) / 1000 - age)));
+          if (!mo.totalSec || Math.abs(total - mo.totalSec) > 1.5) mo.totalSec = total;
+          if (!(d.modbus.openDuration > 0 || d.modbus.closeDuration > 0)) {
+            ksFullSecRef.current[d.deviceId] = { ...(ksFullSecRef.current[d.deviceId] || {}), [direction]: total };
+          }
+        }
+      } else if (ks.code === 0 && mo) {
+        ksMotionStop(d.deviceId);
+      }
+    }
+  }, [ksState, devices]);
+  // 재렌더(동작 중 250ms 틱)마다 진행 바 갱신 — 동작 중인 KS 개폐기가 없으면 즉시 반환
+  useEffect(() => {
+    const ids = Object.keys(ksMotionRef.current);
+    if (!ids.length) return;
+    const now = Date.now();
+    setBidirProgress(prev => {
+      let changed = false; const next = { ...prev };
+      for (const id of ids) {
+        const mo = ksMotionRef.current[id]; const dev = devices.find(x => x.deviceId === id);
+        if (!mo || !dev) continue;
+        const p = ksMotionProgress(mo, now, ksFullSec(dev, mo.direction));
+        if (!p) continue;
+        // 시간 지정 명령이 끝(100%/0%)을 넘겨 계속 돌면 자동 정지(0) 한 번 — 레벨1 노드는 위치를 몰라 스스로 못 멈춘다.
+        // 완전 개폐 시간을 모르면(추정 없음, 시험 장비) 발동하지 않는다.
+        if (!mo.autoStopSent && ksReachedEnd(mo.direction, p.actualPos) && (now - mo.startAt) < (mo.totalSec - 0.5) * 1000) {
+          mo.autoStopSent = true;
+          setTimeout(() => { ksMotionStop(id); ksCmdAtRef.current[id] = Date.now(); ksEndAtRef.current[id] = null; handleControlWithRetry(id, 'stop'); }, 0);
+        }
+        const cur = prev[id];
+        if (!cur || cur.remainSec !== p.remainSec || cur.actualPos !== p.actualPos || cur.percent !== p.percent || cur.direction !== p.direction) {
+          next[id] = { ...p, startPos: mo.startPos }; changed = true;
+        }
+      }
+      return changed ? next : prev;
+    });
+  });
   bidirProgressRef.current = bidirProgress;
   // devices 도 ref 로 보유 — WS subscribe handler 의 stale closure 방지
   // (useEffect deps 에 devices 미포함 → 비동기 로드된 devices 가 handler 클로저에 안 들어옴)
@@ -1296,7 +1462,7 @@ const ControlPanel = ({ farmId, houseId, houseConfig }) => {
         }
       }
 
-      if (modbusConfig?.controlType === 'bidir' && (command === 'open' || command === 'close')) {
+      if (modbusConfig?.controlType === 'bidir' && !isKsProfile(modbusConfig) && (command === 'open' || command === 'close')) {   // KS 개폐기 진행률은 ksMotion 이 노드 상태로 그린다
         const fullDur = command === 'open' ? modbusConfig.openDuration : modbusConfig.closeDuration;
         if (fullDur && fullDur > 0) {
           const curPos = bidirPositionRef.current[deviceId] || 0;
@@ -1348,10 +1514,10 @@ const ControlPanel = ({ farmId, houseId, houseConfig }) => {
       if ((isKiosk || mode.isFarmLocal || mode.mode === 'offline') && rpiReachable) {
         // RPi 로컬 접속 또는 오프라인: Node-RED 직접 제어 (AWS 우회)
         const rpiApi = getRpiApiBase();
-        // bidir 장치: duration 계산 (Node-RED 자동 정지용)
-        let autoDuration = 0;
+        // bidir 장치: duration 계산 (Node-RED 자동 정지용) / KS 표준 스위치 「시간 지정 ON」 → 202 TIMED_ON
+        let autoDuration = ksTimedOnSec(deviceId, command, modbusConfig);
         let curPos = 0;
-        if (modbusConfig?.controlType === 'bidir' && (command === 'open' || command === 'close')) {
+        if (modbusConfig?.controlType === 'bidir' && !isKsProfile(modbusConfig) && (command === 'open' || command === 'close')) {   // KS 개폐기는 노드가 시간을 관리 — 벤더 자동정지·위치 타이머 제외
           const fullDur = command === 'open' ? modbusConfig.openDuration : modbusConfig.closeDuration;
           if (fullDur > 0) {
             curPos = bidirPositionRef.current[deviceId] || 0;
@@ -1456,8 +1622,9 @@ const ControlPanel = ({ farmId, houseId, houseConfig }) => {
       } else {
         // 온라인: AWS IoT 경유 (기존)
         // bidir 장치: duration 계산 (Node-RED 자동 정지용)
-        let awsDuration = 0;
-        if (modbusConfig?.controlType === 'bidir' && (command === 'open' || command === 'close')) {
+        // KS 표준 스위치 「시간 지정 ON」: duration>0 → fn_ks_command 가 202 TIMED_ON 으로 조립 (SPS-7466 §5.5.2 b)
+        let awsDuration = ksTimedOnSec(deviceId, command, modbusConfig);
+        if (modbusConfig?.controlType === 'bidir' && !isKsProfile(modbusConfig) && (command === 'open' || command === 'close')) {   // KS 개폐기는 노드가 시간을 관리 — 벤더 자동정지·위치 타이머 제외
           const fullDur = command === 'open' ? modbusConfig.openDuration : modbusConfig.closeDuration;
           if (fullDur > 0) {
             const curPos = bidirPositionRef.current[deviceId] || 0;
@@ -1486,6 +1653,13 @@ const ControlPanel = ({ farmId, houseId, houseConfig }) => {
       setControlHistory(prev => [{ deviceId, command, success: result.success, requestId: result.requestId, timestamp: new Date().toISOString(), error: result.error, operatorName }, ...prev.slice(0, 19)]);
       // 제어 완료 → controlStage 초기화
       setControlStage(prev => ({ ...prev, [deviceId]: null }));
+      // KS 표준 장치: 명령 직후 상태 즉시 재조회 + 30초간 2초 폴링 (📐 배지 카운트다운·READY 복귀가 바로 보이게)
+      if (isKsProfile(modbusConfig)) {
+        ksCmdAtRef.current[deviceId] = Date.now();
+        ksBoostUntilRef.current = Date.now() + 30000;
+        if (!result.success || command === 'off' || command === 'stop') ksEndAtRef.current[deviceId] = null;   // 실패·중지: 클릭 앵커 해제
+        setTimeout(() => { ksLoadRef.current && ksLoadRef.current(); }, 2500);   // 드라이버 2초 폴링이 한 번 지난 뒤 재조회
+      }
       if (result.success) {
         if (timerRefs.current[deviceId]) clearTimeout(timerRefs.current[deviceId]);
         const finalStatus = { open: 'open', close: 'closed', stop: 'idle', on: 'on', off: 'off' };
@@ -1977,7 +2151,12 @@ const ControlPanel = ({ farmId, houseId, houseConfig }) => {
                             {isKsProfile(device.modbus) && (() => {
                               const ks = ksState && !ksState._error ? deviceKsStatus(ksState, device.modbus) : null;
                               const tone = ks ? ({ on: '#047857', busy: '#0369a1', warn: '#b45309', bad: '#b91c1c', ok: '#475569', muted: '#6b7280' }[ks.tone] || '#6b7280') : '#6b7280';
-                              const label = ks ? `${ks.text}${ks.remain > 0 ? ' ' + ks.remain + 's' : ''}` : (ksState?._error ? '드라이버 없음' : '…');
+                              const remainNow = ksRemainFromEnd(ksEndAtRef.current[device.deviceId], Date.now());   // 앵커(종료 시각) 기준 규칙적 카운트다운 — 클릭 순간부터
+                              const optimistic = remainNow > 0 && (!ks || ks.code === 0);   // 노드 샘플이 아직 안 왔거나 옛 값: 클릭 앵커로 먼저 보여준다
+                              const optDir = ksMotionRef.current[device.deviceId]?.direction;   // 개폐기면 방향 문구, 스위치면 켜짐
+                              const optText = device.modbus.kind === 'opener' ? (optDir === 'close' ? '닫히는 중' : '열리는 중') : '켜짐';
+                              const label = optimistic ? `${optText} ${remainNow}s`
+                                : ks ? `${ks.text}${remainNow > 0 ? ' ' + remainNow + 's' : (ks.remain > 0 ? ' 확인 중' : '')}` : (ksState?._error ? '드라이버 없음' : '…');
                               return (
                                 <span title={ks ? `KS X 3267 상태코드 ${ks.code ?? ''} (opid ${ks.opid ?? '-'})` : (ksState?._error || '표준 노드 상태 확인 중')}
                                   style={{fontSize:9,fontWeight:700,color:tone,background:tone+'1a',padding:'1px 4px',borderRadius:4,marginLeft:2,whiteSpace:'nowrap'}}>
@@ -2097,22 +2276,99 @@ const ControlPanel = ({ farmId, houseId, houseConfig }) => {
                           />
                         </div>
                       ) : isToggleType ? (
+                        <div className="space-y-2">
                         <div className="grid grid-cols-2 gap-3">
-                          <button onClick={() => handleControlWithRetry(device.deviceId, 'on')}
+                          <button onClick={() => { timedOnSecRef.current[device.deviceId] = 0; handleControlWithRetry(device.deviceId, 'on'); }}
                             disabled={myModbusBusy || isProcessing || state.status === 'on'}
                             style={{...btnBase, ...(state.status === 'on' || state.status === 'turning_on' ? s.onActive : s.onInactive), ...(myModbusBusy || isProcessing || state.status === 'on' ? {opacity:0.4,cursor:'not-allowed'} : {})}}>
                             {state.status === 'turning_on' ? '⏳ 전환중...' : state.status === 'on' ? '● ON' : '◉ ON'}
                           </button>
-                          <button onClick={() => handleControlWithRetry(device.deviceId, 'off')}
+                          <button onClick={() => {
+                              if (isKsProfile(device.modbus)) { ksEndAtRef.current[device.deviceId] = null; ksCmdAtRef.current[device.deviceId] = Date.now(); }   // OFF 클릭 즉시 카운트다운 정지
+                              handleControlWithRetry(device.deviceId, 'off');
+                            }}
                             disabled={myModbusBusy || isProcessing || state.status === 'off' || state.status === 'idle'}
                             style={{...btnBase, ...(state.status === 'off' || state.status === 'idle' || state.status === 'turning_off' ? s.offActive : s.offInactive), ...(myModbusBusy || isProcessing || state.status === 'off' || state.status === 'idle' ? {opacity:0.4,cursor:'not-allowed'} : {})}}>
                             {state.status === 'turning_off' ? '⏳ 전환중...' : '○ OFF'}
                           </button>
                         </div>
+                        {/* KS X 3267 표준 스위치: 작동시간 명령(202 TIMED_ON) — 노드가 시간 후 스스로 READY 로 (SPS-7466 §5.5.2) */}
+                        {isKsProfile(device.modbus) && device.modbus.kind === 'switch' && (
+                          <div className="flex items-center gap-2 rounded-lg border border-indigo-200 bg-indigo-50/60 px-3 py-2">
+                            <span className="text-xs font-bold text-indigo-700 whitespace-nowrap">📐 시간 지정 ON</span>
+                            <input type="number" min={1} max={65535} placeholder="초"
+                              value={timedOnSec[device.deviceId] ?? ''}
+                              onChange={e => setTimedOnSec(prev => ({ ...prev, [device.deviceId]: e.target.value }))}
+                              className="input-field text-sm w-24 text-center py-1" />
+                            <span className="text-xs text-gray-500">초</span>
+                            <button
+                              onClick={() => {
+                                const sec = parseInt(timedOnSec[device.deviceId]) || 0;
+                                if (sec < 1) { showToast('작동시간(초)을 1 이상 입력하세요'); return; }
+                                timedOnSecRef.current[device.deviceId] = sec;
+                                ksCmdAtRef.current[device.deviceId] = Date.now();
+                                ksEndAtRef.current[device.deviceId] = Date.now() + sec * 1000;   // 클릭 즉시 카운트다운 시작 (노드 샘플이 1.5초 이내면 이 앵커 유지)
+                                ksBoostUntilRef.current = Date.now() + 30000;
+                                handleControlWithRetry(device.deviceId, 'on');
+                              }}
+                              disabled={myModbusBusy || isProcessing}
+                              className="btn-primary text-xs px-3 py-1.5 whitespace-nowrap"
+                              title="명령코드 202 + OPID + 작동시간 → 노드가 시간 경과 후 스스로 READY">
+                              ⏱ 작동시간 ON
+                            </button>
+                          </div>
+                        )}
+                        </div>
                       ) : (
+                        <div className="space-y-2">
+                        {/* KS X 3267 표준 개폐기: 작동시간 열기/닫기 (303/304) — 노드가 시간 후 스스로 READY (SPS-7466 §5.5.3 b·k). 아래 일반 열기/닫기는 301/302 */}
+                        {isKsProfile(device.modbus) && device.modbus.kind === 'opener' && (
+                          <div className="flex items-center gap-2 rounded-lg border border-indigo-200 bg-indigo-50/60 px-3 py-2 flex-wrap">
+                            <span className="text-xs font-bold text-indigo-700 whitespace-nowrap">📐 작동시간</span>
+                            <input type="number" min={1} max={65535} placeholder="초"
+                              value={timedOnSec[device.deviceId] ?? ''}
+                              onChange={e => setTimedOnSec(prev => ({ ...prev, [device.deviceId]: e.target.value }))}
+                              className="input-field text-sm w-20 text-center py-1" />
+                            <span className="text-xs text-gray-500">초</span>
+                            {[['open', '⏱ 시간 열기', '명령코드 303 + OPID + 작동시간'], ['close', '⏱ 시간 닫기', '명령코드 304 + OPID + 작동시간']].map(([cmd, lbl, tip]) => (
+                              <button key={cmd}
+                                onClick={() => {
+                                  const sec = parseInt(timedOnSec[device.deviceId]) || 0;
+                                  if (sec < 1) { showToast('작동시간(초)을 1 이상 입력하세요'); return; }
+                                  timedOnSecRef.current[device.deviceId] = sec;
+                                  ksCmdAtRef.current[device.deviceId] = Date.now();
+                                  ksEndAtRef.current[device.deviceId] = Date.now() + sec * 1000;   // 클릭 즉시 카운트다운
+                                  ksBoostUntilRef.current = Date.now() + 30000;
+                                  ksMotionStart(device.deviceId, cmd, sec);                          // 위치 바: 클릭 즉시 진행 시작
+                                  handleControlWithRetry(device.deviceId, cmd);
+                                }}
+                                disabled={myModbusBusy || isProcessing}
+                                className="btn-primary text-xs px-3 py-1.5 whitespace-nowrap" title={tip}>
+                                {lbl}
+                              </button>
+                            ))}
+                          </div>
+                        )}
                         <div className="grid grid-cols-3 gap-1.5">
                           {(() => {
                             const prog = bidirProgress[device.deviceId];
+                            const isKsOpener = isKsProfile(device.modbus) && device.modbus.kind === 'opener';
+                            const ksPlain = (cmd) => {
+                              if (isKsOpener) {
+                                timedOnSecRef.current[device.deviceId] = 0; ksCmdAtRef.current[device.deviceId] = Date.now(); ksEndAtRef.current[device.deviceId] = null;
+                                ksBoostUntilRef.current = Date.now() + 30000;
+                                if (cmd === 'stop') ksMotionStop(device.deviceId);            // 정지: 위치 확정·바 멈춤
+                                else {
+                                  // 일반 열기/닫기 = "끝까지": 위치·완전 개폐 시간을 알면 필요한 시간만 303/304 로(벤더 측창과 같은 계산, 과주행 방지).
+                                  // 모르면 301/302(노드 완전 개폐 시간). 이미 끝이면 보내지 않는다.
+                                  const need = ksNeededSec(cmd, bidirPositionRef.current[device.deviceId], ksFullSec(device, cmd));
+                                  if (need === 0) { showToast(cmd === 'open' ? '이미 완전히 열려 있습니다' : '이미 완전히 닫혀 있습니다'); return; }
+                                  if (need) timedOnSecRef.current[device.deviceId] = need;
+                                  ksMotionStart(device.deviceId, cmd, need || null);
+                                }
+                              }
+                              handleControlWithRetry(device.deviceId, cmd);
+                            };
                             const pos = bidirPosition[device.deviceId]; // 현재 열림 위치 (0~100%)
                             const posLabel = (pos !== undefined && pos !== null && !prog) ? ` (${pos}%)` : '';
                             const curActualPos = prog ? (prog.actualPos ?? pos ?? 0) : (pos ?? 0);
@@ -2129,19 +2385,19 @@ const ControlPanel = ({ farmId, houseId, houseConfig }) => {
                                 : (state.status === 'stopping' ? '⏳ 정지중...' : '■ 정지');
                             return (
                               <>
-                                <button onClick={() => handleControlWithRetry(device.deviceId, 'open')}
+                                <button onClick={() => ksPlain('open')}
                                   disabled={myModbusBusy || isProcessing || state.status === 'open' || !!prog}
                                   style={{...btnBase, ...(state.status === 'open' || state.status === 'opening' || (prog && prog.direction === 'open') ? s.openActive : (myModbusBusy || isProcessing || state.status === 'open' || (prog && prog.direction === 'close')) ? s.openDisabled : s.openInactive)}}>
                                   {openLabel}
                                 </button>
-                                <button onClick={() => handleControlWithRetry(device.deviceId, 'stop')}
-                                  disabled={myModbusBusy || (!prog && state.status === 'idle' && (pos === undefined || pos === null)) || state.status === 'stopping'}
+                                <button onClick={() => ksPlain('stop')}
+                                  disabled={myModbusBusy || (!prog && state.status === 'idle' && (pos === undefined || pos === null) && !isKsOpener) || state.status === 'stopping'}
                                   style={{...btnBase, ...(state.status === 'stopping' ? s.stopActive : (prog || state.status === 'opening' || state.status === 'closing') ? s.stopUrgent : (myModbusBusy || state.status === 'idle') ? s.stopDisabled : s.stopInactive),
                                     ...(prog || (pos !== undefined && pos !== null && pos > 0 && pos < 100) ? { fontSize: 15, fontWeight: 900, color: '#1e40af', background: '#dbeafe', border: '2px solid #93c5fd' } : (pos !== undefined && pos !== null) ? { fontSize: 14, fontWeight: 700, color: '#6b7280', background: '#f3f4f6', border: '1px solid #e5e7eb' } : {})
                                   }}>
                                   {stopLabel}
                                 </button>
-                                <button onClick={() => handleControlWithRetry(device.deviceId, 'close')}
+                                <button onClick={() => ksPlain('close')}
                                   disabled={myModbusBusy || isProcessing || state.status === 'closed' || !!prog}
                                   style={{...btnBase, ...(state.status === 'closed' || state.status === 'closing' || (prog && prog.direction === 'close') ? s.closeActive : (myModbusBusy || isProcessing || state.status === 'closed' || (prog && prog.direction === 'open')) ? s.closeDisabled : s.closeInactive)}}>
                                   {closeLabel}
@@ -2149,6 +2405,7 @@ const ControlPanel = ({ farmId, houseId, houseConfig }) => {
                               </>
                             );
                           })()}
+                        </div>
                         </div>
                       )}
                     </div>

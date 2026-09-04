@@ -12,6 +12,7 @@ GET  /events[?n=50]
 """
 import json
 import threading
+import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
 
@@ -55,9 +56,10 @@ def make_handler(master):
                 if u.path == "/nodes":
                     return self._json(200, {"ok": True, "nodes": master.nodes})
                 if u.path == "/status":
+                    # now: 데몬 현재시각 — 화면이 샘플 나이(now - state.t)를 시계 편차 없이 계산해 카운트다운 앵커를 보정한다
                     if "unit" in q:
-                        return self._json(200, {"ok": True, "state": master.state.get(int(q["unit"][0]))})
-                    return self._json(200, {"ok": True, "state": master.state})
+                        return self._json(200, {"ok": True, "now": time.time(), "state": master.state.get(int(q["unit"][0]))})
+                    return self._json(200, {"ok": True, "now": time.time(), "state": master.state})
                 if u.path == "/frames":
                     n = int(q.get("n", ["50"])[0])
                     return self._json(200, {"ok": True, "frames": master.t.frames.recent(n),

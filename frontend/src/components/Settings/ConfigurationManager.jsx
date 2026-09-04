@@ -1561,7 +1561,9 @@ const DeviceManager = ({ house, farmId, setEditedHouse, onUpdate, isDirty, savin
                           if (e.target.value === 'ks3267') {
                             // 표준 프로필로 전환 — vendor 채널 필드는 버린다 (두 경로가 섞이면 execute_control 이 표준으로만 보낸다)
                             setEditedHouse({ ...house, devices: devices.map(d => d.deviceId === device.deviceId
-                              ? { ...d, modbus: { protocol: 'ks3267', unit: 1, kind: isBidir || dtInfoFor(device.type)?.defaultControlType === 'bidir' ? 'opener' : 'switch', n: 1 } } : d) });
+                              ? (() => { const kind = (isBidir || dtInfoFor(device.type)?.defaultControlType === 'bidir') ? 'opener' : 'switch';
+                                         // controlType 은 제어판 카드 종류(열기/정지/닫기 vs ON/OFF)를 정한다 — 종류 변경 select 와 같은 규칙
+                                         return { ...d, modbus: { protocol: 'ks3267', unit: 1, kind, n: 1, controlType: kind === 'opener' ? 'bidir' : 'single' } }; })() : d) });
                           } else {
                             setEditedHouse({ ...house, devices: devices.map(d => d.deviceId === device.deviceId
                               ? { ...d, modbus: { unitId: 1, controlType: dtInfoFor(device.type)?.defaultControlType || 'single', address: null, address2: null } } : d) });
@@ -1597,6 +1599,25 @@ const DeviceManager = ({ house, farmId, setEditedHouse, onUpdate, isDirty, savin
                             onChange={(e) => updateDeviceModbus(device.deviceId, { n: e.target.value === '' ? null : parseInt(e.target.value) })}
                             className="input-field text-sm" />
                         </div>
+                        {modbus.kind === 'opener' && (
+                          <>
+                            <div>
+                              <label className="text-xs text-gray-500 mb-1 block">완전 열림 시간 (초, 선택)</label>
+                              <input type="number" min="1" max="65535" value={modbus.openDuration ?? ''}
+                                onChange={(e) => updateDeviceModbus(device.deviceId, { openDuration: e.target.value === '' ? null : parseInt(e.target.value) })}
+                                className="input-field text-sm" placeholder="예 30" />
+                            </div>
+                            <div>
+                              <label className="text-xs text-gray-500 mb-1 block">완전 닫힘 시간 (초, 선택)</label>
+                              <input type="number" min="1" max="65535" value={modbus.closeDuration ?? ''}
+                                onChange={(e) => updateDeviceModbus(device.deviceId, { closeDuration: e.target.value === '' ? null : parseInt(e.target.value) })}
+                                className="input-field text-sm" placeholder="예 30" />
+                            </div>
+                            <p className="col-span-3 text-[11px] text-indigo-700">
+                              레벨1 표준 개폐기는 위치 레지스터가 없습니다(위치 지정은 레벨2). 완전 개폐 시간을 넣으면 제어판이 경과 시간으로 위치 %를 추정해 그립니다. 비우면 노드가 알려준 완전 개폐 시간(일반 열기/닫기 시 남은시간)을 학습해 씁니다.
+                            </p>
+                          </>
+                        )}
                         <p className="col-span-3 text-[11px] text-gray-500">
                           표준노드 탭에서 탐색한 디바이스 번호와 맞추세요. 명령은 표준 드라이버(ks3267d)가 FC16 으로 보내고 상태를 되읽습니다.
                           {ksErrs.length > 0 && <span className="text-rose-600 font-semibold"> · {ksErrs.join(' / ')}</span>}

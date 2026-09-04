@@ -183,54 +183,120 @@ def _sim_cmd(c, kind, n):
 
 
 # ── §5.5.2 레벨 1 스위치 제어 시험 ───────────────────────────────────
-def t_552(c, n=1, seconds=20):
-    t = Test(c, "5.5.2", "레벨 1 스위치 제어 시험", "SPS-7466 §5.5.2 (명령 202 TIMED_ON / 0 OFF)")
+def _measure_remain_period(c, kind, n, seconds=4.0, every=0.2):
+    """e) 남은 작동시간 업데이트 주기 측정 — 시험장비(노드) 레지스터를 짧게 되읽어 remain 이 바뀌는 간격을 잰다.
+    (드라이버 폴링 주기 c.poll 와 구분: 노드 갱신 주기 vs 제어기 표시 주기)"""
+    end = time.time() + seconds
+    last = None; changes = []
+    while time.time() < end:
+        s = _sim_cmd(c, kind, n)
+        r = s.get("remain") if s else None
+        now = time.time()
+        if r is not None and r != last:
+            if last is not None:
+                changes.append(now)
+            last = r
+        time.sleep(every)
+    if len(changes) >= 2:
+        gaps = [b - a for a, b in zip(changes, changes[1:])]
+        return round(sum(gaps) / len(gaps), 2), len(changes)
+    return None, len(changes)
+
+
+def _stopped_ok(d, cmd_opid):
+    """READY 판정 + OPID 기록. 표준 g)/m) 는 'OPID 동일' 을 묻고, 표 16 은 '실행 중 명령 없으면 0' 이라
+    두 해석이 겹친다 → READY 이고 OPID 가 명령 OPID 와 같거나 0 이면 통과, 어느 쪽인지 detail 에 남긴다."""
+    if not d or d.get("status") != 0:
+        return False, "READY 아님"
+    o = d.get("opid")
+    if o == cmd_opid:
+        return True, f"READY, OPID 동일({o})"
+    if o == 0:
+        return True, f"READY, OPID 0 (표 16: 실행 중 명령 없음) — 명령 OPID 는 {cmd_opid}"
+    return False, f"READY 이나 OPID 불일치: 상태 {o} ≠ 명령 {cmd_opid}"
+
+
+# ── §5.5.2 레벨 1 스위치 제어 시험 — b)~m) 완전판 (2026-09-04) ─────────────────
+def t_552(c, n=1, seconds=12):
+    t = Test(c, "5.5.2", "레벨 1 스위치 제어 시험", "SPS-7466 §5.5.2 / 5.2.1 b)~m) (202 TIMED_ON → 만료 → 202 → 0 OFF)")
     mb = {"protocol": "ks3267", "unit": c.au, "kind": "switch", "n": n}
     dev = f"kstest_sw{n}"
-    r = c.ui_control(dev, "on", seconds, mb)                                           # b) 화면 경로로 작동시간 명령
-    t.step(f"b) 제어기 인터페이스 경로로 작동시간 명령 (on {seconds}s)", r[0] == 200 and r[1].get("success"), r[1])
+    wait_on = c.poll * 3 + 2
+
+    # ── b)~g) 작동시간 명령 → 작동중 확인 → 남은시간 감소·주기 → 자연 만료 → READY ──
+    r = c.ui_control(dev, "on", seconds, mb)
+    t.step(f"b) 쓰기영역에 작동시간 작동 명령 (OPID·202·{seconds}s) — 제어기 화면 경로", r[0] == 200 and r[1].get("success"), r[1])
     got = c.wait_until(lambda: (lambda s: s if s and s.get("cmd") == 202 and s.get("time") == seconds else None)(_sim_cmd(c, "switch", n)), 10)
-    t.step("c) 시험장비에서 작동시간 명령(202) 수신, 작동시간 동일", got is not None, got)          # c)
-    st1 = c.wait_until(lambda: (lambda d: d if d and d.get("status") == 201 else None)(_dev_state(c, "switch", n)), c.poll * 3 + 2)
-    t.step("d)e) 시험장비 작동중(201) → 제어기 표시 상태 켜짐", st1 is not None, st1)             # d) e)
+    t.step("c) 시험장비가 202 + 동일 작동시간 수신 → 작동", got is not None, got)
+    opid1 = got.get("cmd_opid") if got else None
+    st1 = c.wait_until(lambda: (lambda d: d if d and d.get("status") == 201 else None)(_dev_state(c, "switch", n)), wait_on)
+    t.step("d) 읽기영역: OPID 동일 + 상태 작동중(201)", st1 is not None and st1.get("opid") == opid1, f"명령 OPID {opid1} / 읽은 {st1}")
     r1 = st1.get("remain") if st1 else None
-    c.wait_polls(2)
+    period, nchg = _measure_remain_period(c, "switch", n)
     st2 = _dev_state(c, "switch", n)
-    t.step("f) 남은 작동시간이 줄어든다", st2 and r1 is not None and 0 < st2.get("remain", 0) < r1, f"{r1} → {st2 and st2.get('remain')}")  # f)
-    r = c.ui_control(dev, "off", 0, mb)                                                # g) 중지 명령
-    t.step("g) 제어기 인터페이스 경로로 중지 명령", r[0] == 200 and r[1].get("success"), r[1])
-    got = c.wait_until(lambda: (lambda s: s if s and s.get("cmd") == 0 else None)(_sim_cmd(c, "switch", n)), 10)
-    t.step("h) 시험장비에서 중지 명령(0) 수신", got is not None, got)                             # h)
-    st3 = c.wait_until(lambda: (lambda d: d if d and d.get("status") == 0 else None)(_dev_state(c, "switch", n)), c.poll * 3 + 2)
-    t.step("i)j) 시험장비 중지중 → 제어기 표시 READY", st3 is not None and st3.get("remain") == 0, st3)  # i) j)
-    c.manual.append(f"§5.5.2 e)f)j) 화면 증적: 제어판의 {dev} 카드 📐 배지가 '켜짐 NNs' → 'READY' 로 바뀌는 캡처 "
-                    "(테스트 장치를 houseConfig 에 매핑한 상태에서 수행) + 표준노드 탭 U1 스위치1 행")
+    t.step("d') 남은 작동시간이 적절히 줄어든다", st2 and r1 is not None and 0 < st2.get("remain", 0) < r1, f"{r1} → {st2 and st2.get('remain')}")
+    t.step("e) 남은시간 업데이트 주기 (노드 레지스터 직접 측정)", period is not None and 0.5 <= period <= 2.5,
+           f"노드 갱신 주기 ≈ {period}s ({nchg}회 변화 관측) / 제어기 폴링·표시 주기 {c.poll}s")
+    stf = c.wait_until(lambda: (lambda d: d if d and d.get("status") == 0 else None)(_dev_state(c, "switch", n)), seconds + wait_on)
+    t.step(f"f) 정해진 작동시간({seconds}s) 후 스스로 중지", stf is not None and stf.get("remain") == 0, stf)
+    ok, why = _stopped_ok(stf, opid1)
+    t.step("g) 읽기영역: 중지 후 OPID 확인 + 상태 READY(0)", ok, why)
+
+    # ── h)~m) 다시 작동시간 명령 → 작동중 → 작동중지 명령(0) → READY ──
+    r = c.ui_control(dev, "on", seconds, mb)
+    t.step(f"h) 다시 작동시간 작동 명령 (OPID·202·{seconds}s)", r[0] == 200 and r[1].get("success"), r[1])
+    got2 = c.wait_until(lambda: (lambda s: s if s and s.get("cmd") == 202 and s.get("cmd_opid") not in (None, opid1) else None)(_sim_cmd(c, "switch", n)), 10)
+    t.step("i) 시험장비가 202 수신 (OPID 는 매 명령 변경)", got2 is not None, f"{got2} (이전 OPID {opid1})")
+    opid2 = got2.get("cmd_opid") if got2 else None
+    st3 = c.wait_until(lambda: (lambda d: d if d and d.get("status") == 201 else None)(_dev_state(c, "switch", n)), wait_on)
+    t.step("j) 읽기영역: OPID 동일 + 상태 작동중(201)", st3 is not None and st3.get("opid") == opid2, f"명령 OPID {opid2} / 읽은 {st3}")
+    r = c.ui_control(dev, "off", 0, mb)
+    t.step("k) 쓰기영역에 작동중지 명령 (OPID·0)", r[0] == 200 and r[1].get("success"), r[1])
+    got3 = c.wait_until(lambda: (lambda s: s if s and s.get("cmd") == 0 and s.get("cmd_opid") not in (None, opid2) else None)(_sim_cmd(c, "switch", n)), 10)
+    t.step("l) 시험장비가 0 수신 → 중지", got3 is not None, got3)
+    opid3 = got3.get("cmd_opid") if got3 else None
+    st4 = c.wait_until(lambda: (lambda d: d if d and d.get("status") == 0 else None)(_dev_state(c, "switch", n)), wait_on)
+    ok, why = _stopped_ok(st4, opid3)
+    t.step("m) 읽기영역: 중지 후 OPID 확인 + 상태 READY(0)", ok and st4.get("remain") == 0, why)
+    c.manual.append(f"§5.5.2 화면 증적: 제어판 {dev} 「📐 시간 지정 ON」 {seconds}초 → 📐 배지 '켜짐 NNs' 감소 → 'READY' 자동 복귀 캡처, "
+                    "표준노드 탭 §5.1.3 표(상태코드 201/0·OPID·남은 s), ④ 진단 프레임(FC16 503~506 / FC03 203~206)")
     return t.done()
 
 
 # ── §5.5.3 레벨 1 개폐기 제어 시험 ───────────────────────────────────
-def t_553(c, n=1, seconds=15):
-    t = Test(c, "5.5.3", "레벨 1 개폐기 제어 시험", "SPS-7466 §5.5.3 (명령 303 TIMED_OPEN / 304 TIMED_CLOSE / 0 STOP)")
+def t_553(c, n=1, seconds=12):
+    """§5.5.3 b)~s): 작동시간 열기(303) → 열림중·남은시간·주기 → 중지(0) → READY → 작동시간 닫기(304) → 닫힘중 → 중지 → READY.
+    매 되읽기에서 OPID 동일 판정, 재명령 시 OPID 변경 확인 (2026-09-04 완전판)."""
+    t = Test(c, "5.5.3", "레벨 1 개폐기 제어 시험", "SPS-7466 §5.5.3 b)~s) (303 TIMED_OPEN / 304 TIMED_CLOSE / 0 STOP)")
     mb = {"protocol": "ks3267", "unit": c.au, "kind": "opener", "n": n, "controlType": "bidir"}
     dev = f"kstest_op{n}"
-    for cmd, code, stname, label in (("open", 303, 301, "열기"), ("close", 304, 302, "닫기")):
-        r = c.ui_control(dev, cmd, seconds, mb)                                           # b)/k) 작동시간 열기·닫기
-        t.step(f"{label}: 제어기 인터페이스 경로로 작동시간 {label} 명령 ({seconds}s)", r[0] == 200 and r[1].get("success"), r[1])
-        got = c.wait_until(lambda: (lambda s: s if s and s.get("cmd") == code and s.get("time") == seconds else None)(_sim_cmd(c, "opener", n)), 10)
-        t.step(f"{label}: 시험장비에서 명령({code}) 수신, 작동시간 동일", got is not None, got)     # c)/l)
-        st1 = c.wait_until(lambda: (lambda d: d if d and d.get("status") == stname else None)(_dev_state(c, "opener", n)), c.poll * 3 + 2)
-        t.step(f"{label}: 시험장비 {'열림중' if stname == 301 else '닫힘중'}({stname}) → 제어기 표시", st1 is not None, st1)  # d)e) / m)n)
+    wait_on = c.poll * 3 + 2
+    prev_opid = None
+    for cmd, code, stname, label, steps in (("open", 303, 301, "열기", "b)c)d)e)f)g)h)i)j)"), ("close", 304, 302, "닫기", "k)l)m)n)o)p)q)r)s)")):
+        s = steps.replace(")", ") ").split()
+        r = c.ui_control(dev, cmd, seconds, mb)
+        t.step(f"{s[0]} 쓰기영역에 작동시간 {label} 명령 (OPID·{code}·{seconds}s) — 제어기 화면 경로", r[0] == 200 and r[1].get("success"), r[1])
+        got = c.wait_until(lambda: (lambda x: x if x and x.get("cmd") == code and x.get("time") == seconds and x.get("cmd_opid") not in (None, prev_opid) else None)(_sim_cmd(c, "opener", n)), 10)
+        t.step(f"{s[1]} 시험장비가 {code} + 동일 작동시간 수신 (OPID 는 매 명령 변경)", got is not None, f"{got} (이전 OPID {prev_opid})")
+        opid = got.get("cmd_opid") if got else None
+        st1 = c.wait_until(lambda: (lambda d: d if d and d.get("status") == stname else None)(_dev_state(c, "opener", n)), wait_on)
+        t.step(f"{s[2]}{s[3]} 읽기영역: OPID 동일 + 상태 {'열림중' if stname == 301 else '닫힘중'}({stname}) 표시", st1 is not None and st1.get("opid") == opid, f"명령 OPID {opid} / 읽은 {st1}")
         r1 = st1.get("remain") if st1 else None
-        c.wait_polls(2)
+        period, nchg = _measure_remain_period(c, "opener", n)
         st2 = _dev_state(c, "opener", n)
-        t.step(f"{label}: 남은 작동시간이 줄어든다", st2 and r1 is not None and 0 < st2.get("remain", 0) < r1, f"{r1} → {st2 and st2.get('remain')}")  # f)/o)
-        r = c.ui_control(dev, "stop", 0, mb)                                              # g)/p) 중지
-        t.step(f"{label}: 제어기 인터페이스 경로로 중지 명령", r[0] == 200 and r[1].get("success"), r[1])
-        got = c.wait_until(lambda: (lambda s: s if s and s.get("cmd") == 0 else None)(_sim_cmd(c, "opener", n)), 10)
-        t.step(f"{label}: 시험장비에서 중지 명령(0) 수신", got is not None, got)                    # h)/q)
-        st3 = c.wait_until(lambda: (lambda d: d if d and d.get("status") == 0 else None)(_dev_state(c, "opener", n)), c.poll * 3 + 2)
-        t.step(f"{label}: 시험장비 중지중 → 제어기 표시 READY", st3 is not None and st3.get("remain") == 0, st3)  # i)j) / r)s)
-    c.manual.append(f"§5.5.3 화면 증적: 제어판 {dev} 카드 📐 배지 '열리는 중 NNs' / '닫히는 중 NNs' / 'READY' 캡처")
+        t.step(f"{s[4]} 남은 작동시간이 적절히 표시·감소 (노드 갱신 주기 ≈ {period}s, 제어기 표시 주기 {c.poll}s)",
+               st2 and r1 is not None and 0 < st2.get("remain", 0) < r1 and period is not None and 0.5 <= period <= 2.5, f"{r1} → {st2 and st2.get('remain')} / {nchg}회 변화")
+        r = c.ui_control(dev, "stop", 0, mb)
+        t.step(f"{s[5]} 쓰기영역에 중지 명령 (OPID·0) — 제어기 화면 경로", r[0] == 200 and r[1].get("success"), r[1])
+        got2 = c.wait_until(lambda: (lambda x: x if x and x.get("cmd") == 0 and x.get("cmd_opid") not in (None, opid) else None)(_sim_cmd(c, "opener", n)), 10)
+        t.step(f"{s[6]}{s[7]} 시험장비가 0 수신 → 중지중", got2 is not None, got2)
+        opid_stop = got2.get("cmd_opid") if got2 else None
+        st3 = c.wait_until(lambda: (lambda d: d if d and d.get("status") == 0 else None)(_dev_state(c, "opener", n)), wait_on)
+        ok, why = _stopped_ok(st3, opid_stop)
+        t.step(f"{s[8]} 읽기영역: 중지중(READY) 표시 + OPID 확인", ok and st3.get("remain") == 0, why)
+        prev_opid = opid_stop
+    c.manual.append(f"§5.5.3 화면 증적: 제어판 {dev} 카드 「📐 작동시간」 {seconds}초 → ⏱ 시간 열기 → 📐 배지 '열리는 중 NNs' 감소 → ■ 정지 → 'READY' → ⏱ 시간 닫기 → '닫히는 중 NNs' → 정지 캡처, "
+                    "표준노드 탭 §5.1.3 표(301/302/0·OPID·남은 s), ④ 진단 프레임(FC16 567~570 / FC03 267~270)")
     return t.done()
 
 

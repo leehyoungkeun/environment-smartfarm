@@ -111,10 +111,13 @@ class KsMaster:
             end = start + 254  # 안전 상한
         timeout = max(0.05, min(2.0, float(timeout)))
         found = []
-        cp = getattr(self.t.client, "comm_params", None)
+        cp = getattr(getattr(self.t, "client", None), "comm_params", None)   # 클라이언트 없는 전송(테스트 fake)도 허용
         old = getattr(cp, "timeout_connect", None) if cp is not None else None
         if cp is not None and old is not None:
             cp.timeout_connect = timeout   # 스캔 동안만 짧은 타임아웃
+        # 스캔은 "없는 주소" 를 의도적으로 두드린다 — 그 미응답/예외는 버스 장애가 아니므로
+        # stats.exceptions/timeouts 가 아닌 stats.scan_misses 로 따로 센다 (transport.probing)
+        self.t.probing = True
         try:
             for unit in range(start, end + 1):
                 with self.lock:
@@ -132,6 +135,7 @@ class KsMaster:
                               "devices": len(d.get("devices", [])),
                               "notes": d.get("notes", [])})
         finally:
+            self.t.probing = False
             if cp is not None and old is not None:
                 cp.timeout_connect = old
         self._event("scan", start=start, end=end, timeout=timeout,

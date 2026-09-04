@@ -32,7 +32,8 @@ class FrameLog:
     def __init__(self, size=200):
         self.buf = collections.deque(maxlen=size)
         self.lock = threading.Lock()
-        self.stats = {"tx": 0, "rx": 0, "exceptions": 0, "timeouts": 0}
+        # exceptions/timeouts = 폴링·명령 중 실제 장애. scan_misses = 자동스캔이 두드린 빈 주소의 무응답/예외(장애 아님)
+        self.stats = {"tx": 0, "rx": 0, "exceptions": 0, "timeouts": 0, "scan_misses": 0}
 
     def trace_packet(self, sending, data):
         with self.lock:
@@ -53,6 +54,7 @@ class PymodbusTransport:
         from pymodbus.client import ModbusSerialClient, ModbusTcpClient
         from pymodbus.framer import FramerType
         self.frames = frames or FrameLog()
+        self.probing = False   # master.scan() 이 켠다 — 그동안의 실패는 scan_misses 로 집계
         if tcp:
             host, _, p = tcp.partition(":")
             self.client = ModbusTcpClient(host, port=int(p or 502), timeout=timeout, retries=retries,
@@ -70,13 +72,17 @@ class PymodbusTransport:
     def close(self):
         self.client.close()
 
+    def _count(self, kind):
+        # 스캔 중 빈 주소의 실패는 장애 지표(exceptions/timeouts)를 오염시키지 않는다
+        self.frames.stats["scan_misses" if self.probing else kind] += 1
+
     def _check(self, rr, fc):
         from pymodbus.pdu import ExceptionResponse
         if isinstance(rr, ExceptionResponse):
-            self.frames.stats["exceptions"] += 1
+            self._count("exceptions")
             raise ModbusExc(rr.exception_code, fc)
         if rr is None or rr.isError():
-            self.frames.stats["timeouts"] += 1
+            self._count("timeouts")
             raise TransportTimeout(str(rr))
         return rr
 
@@ -85,7 +91,7 @@ class PymodbusTransport:
         try:
             rr = self.client.read_holding_registers(addr, count=count, device_id=unit)
         except ModbusException as e:
-            self.frames.stats["timeouts"] += 1
+            self._count("timeouts")
             raise TransportTimeout(str(e))
         return list(self._check(rr, 3).registers)
 
@@ -94,7 +100,7 @@ class PymodbusTransport:
         try:
             rr = self.client.write_registers(addr, list(values), device_id=unit)
         except ModbusException as e:
-            self.frames.stats["timeouts"] += 1
+            self._count("timeouts")
             raise TransportTimeout(str(e))
         self._check(rr, 16)
         return True

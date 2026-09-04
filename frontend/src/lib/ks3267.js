@@ -112,6 +112,134 @@ export function nodeInfoRows(node) {
   ];
 }
 
+/** KS 센서 디바이스 코드(A.1.2) → 종류·표기 단위. 단위는 화면 표기용(노드가 주지 않음; 불확실한 건 비움). */
+export const KS_SENSOR_KIND = {
+  1: ['온도', '°C'], 2: ['습도', '%'], 3: ['이슬점', '°C'], 4: ['감우', ''], 5: ['유량', ''], 6: ['강우', 'mm'],
+  7: ['일사', 'W/m²'], 8: ['풍속', 'm/s'], 9: ['풍향', '°'], 10: ['전압', 'V'], 11: ['CO2', 'ppm'], 12: ['EC', ''],
+  13: ['광양자', 'µmol/m²/s'], 14: ['토양함수율', '%'], 15: ['토양수분장력', 'kPa'], 16: ['pH', ''], 17: ['지온', '°C'], 18: ['무게', 'kg'],
+};
+
+/** 노드 데이터 읽기 시험표 (SPS-X KOAT-0004-7466 §5.1.3 b·c).
+ *  node : 노드 상태코드(레지스터 201/202) — 읽은 코드·의미·판정(정의된 코드인가)
+ *  rows : 디바이스별 상태코드(숫자+의미)·관측치(+단위)·남은시간/OPID·판정
+ *  판정 기준: 상태코드가 표 B.x 에 정의된 값이면 ✓(0~6 정상군/오류군, 101~103 점검군, 201/299, 301/302/399, 900~999 제조사);
+ *            센서는 관측치가 유한한 숫자여야 ✓. 값의 "적절한 범위" 는 장비스펙(시험장비 설정값)과 대조 — 화면은 값·단위·시각을 드러낸다. */
+export function nodeReadRows(node, st) {
+  if (!node) return null;
+  const readAt = st && st.t ? new Date(st.t * 1000) : null;
+  const known = (s) => !/^알 수 없음/.test(s.text) && s.text !== '—';
+  const nodeSt = st && !st.error ? describeStatus(st.node_status) : null;
+  const nodeRow = {
+    code: st && !st.error ? Number(st.node_status) : null,
+    meaning: nodeSt ? nodeSt.text : (st && st.error ? (st.error === 'timeout' ? '응답 없음' : st.error) : '—'),
+    tone: nodeSt ? nodeSt.tone : 'bad',
+    ok: nodeSt ? known(nodeSt) : null,
+    reg: 202, // 노드 상태코드 레지스터 — 센서 노드(A.1.3)·구동기 노드(A.2.3) 모두 202 (201 은 구동기 노드 OPID)
+  };
+  const rows = discoveryRows(node).map((r) => {
+    const out = { index: r.index, name: r.name, kind: r.kind, supported: r.supported, code: null, meaning: '—', tone: 'muted', ok: null, value: null, unit: '', remain: null, opid: null };
+    if (!st || st.error) return out;
+    if (r.kind === 'sensor') {
+      const sv = st.sensors?.[r.index];
+      if (!sv) return out;
+      const s = describeStatus(sv.status);
+      const k = KS_SENSOR_KIND[Number(sv.code)] || KS_SENSOR_KIND[Number(node.devices?.find(d => d.index === r.index)?.code)];
+      Object.assign(out, { code: Number(sv.status), meaning: s.text, tone: s.tone, value: sv.value, unit: k ? k[1] : '',
+        ok: known(s) && Number.isFinite(Number(sv.value)) });
+    } else {
+      const dv = st.devices?.[r.index];
+      if (!dv) return out;
+      const s = describeStatus(dv.status);
+      Object.assign(out, { code: Number(dv.status), meaning: s.text, tone: s.tone, remain: Number(dv.remain) || 0, opid: dv.opid ?? null, ok: known(s) });
+    }
+    return out;
+  });
+  const judged = rows.filter((r) => r.ok !== null);
+  return { readAt, node: nodeRow, rows, fail: judged.filter((r) => r.ok === false).length + (nodeRow.ok === false ? 1 : 0), unread: rows.length - judged.length };
+}
+
+/** 배지용 남은시간 로컬 카운트다운 — 드라이버가 읽은 시각(ks.t, epoch 초) 이후 흐른 시간을 빼서 초 단위로 보여준다.
+ *  폴링 사이(2~30초)에도 숫자가 흐르고, 다음 폴링 값으로 재동기된다. 시계 편차·미래 시각은 [0, remain] 으로 클램프. */
+export function ksRemainNow(ks, nowMs) {
+  if (!ks || !(ks.remain > 0)) return 0;
+  const t = Number(ks.t);
+  if (!Number.isFinite(t) || t <= 0) return Math.round(ks.remain);
+  const elapsed = Math.max(0, nowMs / 1000 - t);
+  return Math.max(0, Math.min(Math.round(ks.remain), Math.round(ks.remain - elapsed)));
+}
+
+/** 카운트다운 앵커 — 폴링 샘플(remain 초)을 브라우저 시계의 "종료 시각" 하나로 고정한다.
+ *  샘플마다 다시 계산하면 노드의 정수 초·폴링 위상·응답 지연·RPi/브라우저 시계 편차가 겹쳐 재동기 때마다 기준이 흔들린다(불규칙).
+ *  새 샘플의 종료 시각이 기존 앵커와 tolMs 안이면 기존을 유지하고, 그 이상 벌어질 때(재명령·실제 변화)만 새로 고정. remain 0 이면 앵커 해제(null). */
+export function ksAnchorEnd(prevEndAt, remain, nowMs, tolMs = 1500) {
+  if (!(remain > 0)) return null;
+  const fresh = nowMs + remain * 1000;
+  if (prevEndAt && Math.abs(fresh - prevEndAt) <= tolMs) return prevEndAt;
+  return fresh;
+}
+
+/** 샘플 나이(초) — 데몬이 준 현재시각(now, RPi epoch)과 폴링 시각(t) 의 차. 둘 다 RPi 시계라 브라우저와의 편차가 상쇄된다.
+ *  now 가 없으면(구 드라이버) 0 으로 본다. */
+export function ksSampleAgeSec(stateNow, ks) {
+  const n = Number(stateNow), t = Number(ks && ks.t);
+  if (!Number.isFinite(n) || !Number.isFinite(t) || n <= 0 || t <= 0) return 0;
+  return Math.max(0, n - t);
+}
+
+/** 샘플이 명령보다 오래됐는가 — (지금 − 나이) 가 명령 시각보다 앞이면 그 샘플은 명령 이전의 노드 상태라 앵커·버튼 동기화에 쓰면 안 된다.
+ *  (OFF 뒤 도착한 'remain 12' 옛 샘플이 카운트다운을 되살리던 사고, 2026-09-04) */
+export function ksSampleIsStaleForCommand(ageSec, cmdAtMs, nowMs, marginMs = 300) {
+  if (!cmdAtMs) return false;
+  return nowMs - ageSec * 1000 < cmdAtMs + marginMs;
+}
+
+/** 나이를 반영한 앵커 — 샘플의 remain 은 t 시점 값이므로 (remain − 나이) 가 지금 남은 초. 그걸로 ksAnchorEnd. */
+export function ksAnchorFromSample(prevEndAt, remainSec, ageSec, nowMs, tolMs = 1500) {
+  return ksAnchorEnd(prevEndAt, remainSec - ageSec, nowMs, tolMs);
+}
+
+/** KS 레벨1 개폐기 동작 진행 — 노드는 위치 레지스터가 없고(위치 지정은 레벨2) 상태(301/302)와 남은시간만 준다.
+ *  motion = { direction:'open'|'close', startAt(ms), totalSec, startPos(0~100|null) }, fullSec = 완전 개폐 소요시간(초, 설정값 또는 노드가 알려준 값, 없으면 null)
+ *  반환 { percent: 시간 진행 0~100, remainSec, actualPos: 위치 추정(0~100) | undefined(fullSec 없으면) }
+ *  위치 추정 = 시작 위치 ± (경과초 / 완전개폐초) × 100, 0~100 클램프. 시간 진행은 fullSec 없이도 항상 계산된다. */
+export function ksMotionProgress(motion, nowMs, fullSec) {
+  if (!motion) return null;
+  const elapsed = Math.max(0, (nowMs - motion.startAt) / 1000);
+  if (!(motion.totalSec > 0)) {
+    // 총 시간 미정(완전 개폐 시간을 아직 모르는 일반 열기/닫기): 방향·"동작 중"만 즉시 표시, 숫자는 샘플 후 채워진다
+    return { percent: 0, remainSec: undefined, direction: motion.direction, totalSec: null, actualPos: undefined, indeterminate: true };
+  }
+  const frac = Math.min(1, elapsed / motion.totalSec);
+  const out = { percent: Math.round(frac * 100), remainSec: Math.max(0, Math.ceil(motion.totalSec - elapsed)), direction: motion.direction, totalSec: motion.totalSec };
+  if (fullSec > 0 && typeof motion.startPos === 'number') {
+    const delta = (Math.min(elapsed, motion.totalSec) / fullSec) * 100;
+    out.actualPos = Math.round(Math.max(0, Math.min(100, motion.direction === 'open' ? motion.startPos + delta : motion.startPos - delta)));
+  }
+  return out;
+}
+
+/** 끝까지 가는 데 필요한 초 — 위치(0~100)와 완전 개폐 시간으로. 벤더 측창이 하던 계산과 같다(과주행 방지).
+ *  모르면(null) 호출자가 일반 301/302 를 보낸다. 최소 1초, 올림. */
+export function ksNeededSec(direction, pos, fullSec) {
+  if (!(fullSec > 0) || typeof pos !== 'number' || !Number.isFinite(pos)) return null;
+  const p = Math.max(0, Math.min(100, pos));
+  const ratio = direction === 'open' ? (100 - p) / 100 : p / 100;
+  if (ratio <= 0) return 0;   // 이미 끝 — 보낼 필요 없음
+  return Math.max(1, Math.ceil(fullSec * ratio));
+}
+
+/** 추정 위치가 끝(열기 100 / 닫기 0)에 닿았는가 — 시간 지정 명령이 끝을 넘겨 계속 돌 때 자동 정지 판단 */
+export function ksReachedEnd(direction, actualPos) {
+  if (typeof actualPos !== 'number') return false;
+  return direction === 'open' ? actualPos >= 100 : actualPos <= 0;
+}
+
+/** 앵커 기준 남은 초 — ceil 이라 12,11,…,1 을 각각 꽉 채워 보여주고 0 에서 끝난다. */
+export function ksRemainFromEnd(endAt, nowMs) {
+  if (!endAt) return 0;
+  return Math.max(0, Math.ceil((endAt - nowMs) / 1000));
+}
+
 export function mappingKey(unit, kind, n) {
   return `U${unit}:${kind}:${n}`;
 }

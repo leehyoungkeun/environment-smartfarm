@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import axiosBase from 'axios';
 import { getApiBase } from '../../services/apiSwitcher';
-import { describeStatus, discoveryRows, nodeSummary, nodeInfoRows, mappingIndex, mappingKey, frameRows } from '../../lib/ks3267';
+import { describeStatus, discoveryRows, nodeSummary, nodeInfoRows, nodeReadRows, mappingIndex, mappingKey, frameRows } from '../../lib/ks3267';
 
 // ━━━ KS X 3267 표준노드 탭 (P4, 2026-08-30 / UI 재구성 2026-09-04) ━━━
 // 읽기 전용 진단 UI. 백엔드 /config/:farmId/ks3267/:action → RPi NR → ks3267d 데몬(127.0.0.1:3002).
@@ -194,8 +194,9 @@ export const KsNodeManager = ({ farmId }) => {
             <div className="flex flex-wrap gap-x-5 gap-y-1 text-sm text-gray-600">
               <span>포트 <b className="font-mono text-gray-800">{health.transport}</b></span>
               <span>등록 노드 <b className="text-gray-800">{health.nodes?.length || 0}개</b></span>
-              <span>예외 <b className="text-gray-800">{health.stats?.exceptions ?? 0}</b></span>
-              <span>타임아웃 <b className="text-gray-800">{health.stats?.timeouts ?? 0}</b></span>
+              <span title="폴링·명령 중 노드가 돌려준 Modbus 예외 응답 (실제 장애 지표)">예외 <b className={`${(health.stats?.exceptions ?? 0) > 0 ? 'text-rose-700' : 'text-gray-800'}`}>{health.stats?.exceptions ?? 0}</b></span>
+              <span title="폴링·명령 중 응답 없음 (실제 장애 지표)">타임아웃 <b className={`${(health.stats?.timeouts ?? 0) > 0 ? 'text-rose-700' : 'text-gray-800'}`}>{health.stats?.timeouts ?? 0}</b></span>
+              {health.stats?.scan_misses !== undefined && <span title="자동스캔이 두드린 빈 주소 — 장애 아님">스캔 미응답 <b className="text-gray-500">{health.stats.scan_misses}</b></span>}
             </div>
           )}
         </div>
@@ -398,6 +399,57 @@ const NodeCard = ({ unit, node, st, mapping }) => {
             </div>
           </SubBox>
         )}
+
+        {/* 노드 데이터 읽기 시험표 (§5.1.3 b·c) — 상태코드 숫자+의미, 관측치+단위, 읽은 시각 */}
+        {(() => {
+          const rd = nodeReadRows(node, st);
+          if (!rd) return null;
+          const t = rd.readAt ? rd.readAt.toLocaleTimeString('ko-KR', { hour12: false }) : null;
+          const Verdict = ({ ok }) => ok === null ? <span className="text-gray-400">미읽음</span>
+            : ok ? <span className="text-emerald-700 font-bold">✓ 정의된 값</span> : <span className="text-rose-600 font-bold">✗ 부적절</span>;
+          return (
+            <SubBox title="노드 데이터 읽기 시험표" desc="§5.1.3 b·c — 상태코드가 정의된 값인지, 관측치가 읽히는지" tone={rd.fail === 0 && rd.node.ok ? 'green' : 'gray'}
+              right={<>
+                {t ? <span className="text-sm text-gray-500">읽은 시각 {t}</span> : <span className="text-sm text-rose-600">아직 읽지 못함</span>}
+                {rd.node.ok !== null && (rd.fail === 0 ? <Pill tone="on">전 항목 적절</Pill> : <Pill tone="bad">부적절 {rd.fail}건</Pill>)}
+              </>}>
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="text-gray-600 text-left bg-gray-50 border-y border-gray-200">
+                      <th className="py-2 px-3 w-12">#</th><th className="px-3">대상</th><th className="px-3">상태코드</th><th className="px-3">의미</th><th className="px-3">관측치 / 동작</th><th className="px-3">판정</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr className="border-b-2 border-gray-300 bg-blue-50/40">
+                      <td className="py-2 px-3 text-gray-500">—</td>
+                      <td className="px-3 font-extrabold text-gray-900">노드 상태 <span className="text-xs text-gray-400 font-normal">(b, 레지스터 {rd.node.reg})</span></td>
+                      <td className="px-3 font-mono font-bold text-gray-900 text-base">{rd.node.code === null ? '—' : rd.node.code}</td>
+                      <td className="px-3"><Pill tone={rd.node.tone}>{rd.node.meaning}</Pill></td>
+                      <td className="px-3 text-gray-400">—</td>
+                      <td className="px-3"><Verdict ok={rd.node.ok} /></td>
+                    </tr>
+                    {rd.rows.map(r => (
+                      <tr key={r.index} className={`border-b border-gray-100 ${r.supported ? '' : 'opacity-60'}`}>
+                        <td className="py-2 px-3 text-gray-500">{r.index}</td>
+                        <td className="px-3 font-bold text-gray-900">{r.name} <span className="text-xs text-gray-400 font-normal">(c)</span></td>
+                        <td className="px-3 font-mono font-bold text-gray-900 text-base">{r.code === null ? '—' : r.code}</td>
+                        <td className="px-3">{r.code === null ? <span className="text-gray-400">—</span> : <Pill tone={r.tone}>{r.meaning}</Pill>}</td>
+                        <td className="px-3">
+                          {r.kind === 'sensor'
+                            ? (r.value === null ? <span className="text-gray-400">—</span> : <><span className="font-mono font-bold text-gray-900 text-base">{r.value}</span>{r.unit && <span className="ml-1 text-gray-500">{r.unit}</span>}</>)
+                            : (r.code === null ? <span className="text-gray-400">—</span> : <span className="text-gray-700">{r.remain > 0 ? `남은 ${r.remain}s` : '대기/완료'}{r.opid ? <span className="ml-2 text-xs text-gray-400">OPID {r.opid}</span> : null}</span>)}
+                        </td>
+                        <td className="px-3"><Verdict ok={r.ok} /></td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+                <p className="text-xs text-gray-500 mt-2">판정 "정의된 값" = 표준 표 B.x 의 상태코드(0~6·101~103·201/299·301/302/399·900~999) 이고, 센서는 관측치가 숫자로 읽힘. 값이 시험장비 설정값과 맞는지는 이 표의 관측치를 대조하세요. 10초마다 갱신.</p>
+              </div>
+            </SubBox>
+          );
+        })()}
 
         {/* 연결된 디바이스 (§5.1.2 d·e) */}
         <SubBox title="연결된 디바이스" desc="§5.1.2 d·e — 101번지부터 채널수만큼 읽어, 연결된 것만"

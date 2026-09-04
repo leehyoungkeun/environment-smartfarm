@@ -1,0 +1,151 @@
+{
+ "meta": {
+  "at": "2026-09-04 15:13:55",
+  "transport": "tcp 127.0.0.1:5020"
+ },
+ "results": [
+  {
+   "id": "5.5.2",
+   "title": "레벨 1 스위치 제어 시험",
+   "ref": "SPS-7466 §5.5.2 / 5.2.1 b)~m) (202 TIMED_ON → 만료 → 202 → 0 OFF)",
+   "ok": true,
+   "steps": [
+    {
+     "step": "b) 쓰기영역에 작동시간 작동 명령 (OPID·202·12s) — 제어기 화면 경로",
+     "ok": true,
+     "detail": "{'success': True, 'data': {'request_id': 'local_1788502435719', 'device_id': 'kstest_sw1', 'command': 'on', 'executed_at': '2026-09-04T06:13:55.719Z', 'mode': 'local'}}"
+    },
+    {
+     "step": "c) 시험장비가 202 + 동일 작동시간 수신 → 작동",
+     "ok": true,
+     "detail": "{'ok': True, 'kind': 'switch', 'n': 1, 'cmd': 202, 'cmd_opid': 48, 'time': 12, 'opid': 48, 'status': 201, 'remain': 12}"
+    },
+    {
+     "step": "d) 읽기영역: OPID 동일 + 상태 작동중(201)",
+     "ok": true,
+     "detail": "명령 OPID 48 / 읽은 {'name': '스위치1', 'kind': 'switch', 'n': 1, 'opid': 48, 'status': 201, 'status_name': 'ON', 'remain': 12}"
+    },
+    {
+     "step": "d') 남은 작동시간이 적절히 줄어든다",
+     "ok": true,
+     "detail": "12 → 8"
+    },
+    {
+     "step": "e) 남은시간 업데이트 주기 (노드 레지스터 직접 측정)",
+     "ok": true,
+     "detail": "노드 갱신 주기 ≈ 1.01s (4회 변화 관측) / 제어기 폴링·표시 주기 2.0s"
+    },
+    {
+     "step": "f) 정해진 작동시간(12s) 후 스스로 중지",
+     "ok": true,
+     "detail": "{'name': '스위치1', 'kind': 'switch', 'n': 1, 'opid': 0, 'status': 0, 'status_name': 'READY', 'remain': 0}"
+    },
+    {
+     "step": "g) 읽기영역: 중지 후 OPID 확인 + 상태 READY(0)",
+     "ok": true,
+     "detail": "READY, OPID 0 (표 16: 실행 중 명령 없음) — 명령 OPID 는 48"
+    },
+    {
+     "step": "h) 다시 작동시간 작동 명령 (OPID·202·12s)",
+     "ok": true,
+     "detail": "{'success': True, 'data': {'request_id': 'local_1788502448773', 'device_id': 'kstest_sw1', 'command': 'on', 'executed_at': '2026-09-04T06:14:08.773Z', 'mode': 'local'}}"
+    },
+    {
+     "step": "i) 시험장비가 202 수신 (OPID 는 매 명령 변경)",
+     "ok": true,
+     "detail": "{'ok': True, 'kind': 'switch', 'n': 1, 'cmd': 202, 'cmd_opid': 49, 'time': 12, 'opid': 49, 'status': 201, 'remain': 12} (이전 OPID 48)"
+    },
+    {
+     "step": "j) 읽기영역: OPID 동일 + 상태 작동중(201)",
+     "ok": true,
+     "detail": "명령 OPID 49 / 읽은 {'name': '스위치1', 'kind': 'switch', 'n': 1, 'opid': 49, 'status': 201, 'status_name': 'ON', 'remain': 11}"
+    },
+    {
+     "step": "k) 쓰기영역에 작동중지 명령 (OPID·0)",
+     "ok": true,
+     "detail": "{'success': True, 'data': {'request_id': 'local_1788502450782', 'device_id': 'kstest_sw1', 'command': 'off', 'executed_at': '2026-09-04T06:14:10.782Z', 'mode': 'local'}}"
+    },
+    {
+     "step": "l) 시험장비가 0 수신 → 중지",
+     "ok": true,
+     "detail": "{'ok': True, 'kind': 'switch', 'n': 1, 'cmd': 0, 'cmd_opid': 50, 'time': 0, 'opid': 0, 'status': 0, 'remain': 0}"
+    },
+    {
+     "step": "m) 읽기영역: 중지 후 OPID 확인 + 상태 READY(0)",
+     "ok": true,
+     "detail": "READY, OPID 0 (표 16: 실행 중 명령 없음) — 명령 OPID 는 50"
+    }
+   ]
+  }
+ ],
+ "manual": [
+  "§5.5.2 화면 증적: 제어판 kstest_sw1 「📐 시간 지정 ON」 12초 → 📐 배지 '켜짐 NNs' 감소 → 'READY' 자동 복귀 캡처, 표준노드 탭 §5.1.3 표(상태코드 201/0·OPID·남은 s), ④ 진단 프레임(FC16 503~506 / FC03 203~206)"
+ ],
+ "stats": {
+  "tx": 2726,
+  "rx": 2726,
+  "exceptions": 0,
+  "timeouts": 0,
+  "scan_misses": 4
+ },
+ "events": [
+  {
+   "t": 1788499742.5234911,
+   "kind": "actuator",
+   "unit": 1,
+   "supported": true,
+   "devices": 24
+  },
+  {
+   "t": 1788499742.5502648,
+   "kind": "sensor",
+   "unit": 2,
+   "supported": true,
+   "devices": 30
+  },
+  {
+   "t": 1788499747.471016,
+   "kind": "scan",
+   "start": 1,
+   "end": 6,
+   "timeout": 0.3,
+   "found": [
+    1,
+    2
+   ]
+  },
+  {
+   "t": 1788502435.7287438,
+   "kind": "command",
+   "unit": 1,
+   "dev": "switch1",
+   "op": 202,
+   "opid": 48,
+   "status": 201,
+   "remain": 12,
+   "accepted": true
+  },
+  {
+   "t": 1788502448.7801447,
+   "kind": "command",
+   "unit": 1,
+   "dev": "switch1",
+   "op": 202,
+   "opid": 49,
+   "status": 201,
+   "remain": 12,
+   "accepted": true
+  },
+  {
+   "t": 1788502450.7882528,
+   "kind": "command",
+   "unit": 1,
+   "dev": "switch1",
+   "op": 0,
+   "opid": 50,
+   "status": 0,
+   "remain": 0,
+   "accepted": true
+  }
+ ]
+}

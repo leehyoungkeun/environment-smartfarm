@@ -12,6 +12,8 @@ const path = require('path');
 const routes = require('./routes');
 const internalRoutes = require('./routes/internal');
 const { localOnly } = require('./middleware/localOnly');
+const { lanTailscale } = require('./middleware/lanTailscale');
+const localConfigRoutes = require('./routes/local-config');
 
 const app = express();
 
@@ -29,6 +31,7 @@ app.use('/api', routes);
 
 // 내부 API (localhost만 접근 가능 — Node-RED 등)
 app.use('/internal', localOnly, internalRoutes);
+app.use('/local-config', lanTailscale, localConfigRoutes);
 
 // 헬스 체크
 // 초기 설정 페이지

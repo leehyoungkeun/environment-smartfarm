@@ -1,0 +1,117 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Node Level="1" Type="HD_Controller_Plugin">
+    <Attribute Name="AppVersion">7.10.53.0</Attribute>
+    <Attribute Name="DeviceModel">D16</Attribute>
+    <Attribute Name="Height">64</Attribute>
+    <Attribute Name="InsertProject">0</Attribute>
+    <Attribute Name="NewSpecialEffect">close</Attribute>
+    <Attribute Name="Rotation">0</Attribute>
+    <Attribute Name="Stretch">0</Attribute>
+    <Attribute Name="SvnVersion">13691</Attribute>
+    <Attribute Name="TimeZone">32400</Attribute>
+    <Attribute Name="Width">128</Attribute>
+    <Attribute Name="ZoomModulus">0</Attribute>
+    <Attribute Name="__NAME__">전광판</Attribute>
+    <Attribute Name="mimiScreen">0</Attribute>
+    <List Name="communication" Index="0">
+        <ListItem name="BoxPlayer" id="D16-B25-02379"/>
+    </List>
+    <Node Level="2" Type="HD_OrdinaryScene_Plugin">
+        <Attribute Name="Alpha">255</Attribute>
+        <Attribute Name="BgColor">-16777216</Attribute>
+        <Attribute Name="BgMode">BgImage</Attribute>
+        <Attribute Name="Checked">2</Attribute>
+        <Attribute Name="FixedDuration">30000</Attribute>
+        <Attribute Name="FrameEffect">0</Attribute>
+        <Attribute Name="FrameSpeed">4</Attribute>
+        <Attribute Name="FrameType">0</Attribute>
+        <Attribute Name="Friday">0</Attribute>
+        <Attribute Name="Monday">0</Attribute>
+        <Attribute Name="MotleyIndex">0</Attribute>
+        <Attribute Name="PlayIndex">0</Attribute>
+        <Attribute Name="PlayMode">LoopTime</Attribute>
+        <Attribute Name="PlayTimes">1</Attribute>
+        <Attribute Name="PlayeTime">30</Attribute>
+        <Attribute Name="PurityColor">255</Attribute>
+        <Attribute Name="PurityIndex">0</Attribute>
+        <Attribute Name="Saturday">0</Attribute>
+        <Attribute Name="SpaceStartTime">00:00:00</Attribute>
+        <Attribute Name="SpaceStopTime">23:59:59</Attribute>
+        <Attribute Name="Sunday">0</Attribute>
+        <Attribute Name="Thursday">0</Attribute>
+        <Attribute Name="TricolorIndex">0</Attribute>
+        <Attribute Name="Tuesday">0</Attribute>
+        <Attribute Name="UseSpacifiled">0</Attribute>
+        <Attribute Name="Volume">100</Attribute>
+        <Attribute Name="Wednesday">0</Attribute>
+        <Attribute Name="__GUID__">{167a72d8-0334-4f04-8f4d-2da4b777ca65}</Attribute>
+        <Attribute Name="__NAME__">컨텐츠1</Attribute>
+        <List Name="__FileList__" Index="-1"/>
+        <Node Level="3" Type="HD_Frame_Plugin">
+            <Attribute Name="Alpha">255</Attribute>
+            <Attribute Name="ChildType">HD_CustomArea_Plugin</Attribute>
+            <Attribute Name="FrameSpeed">4</Attribute>
+            <Attribute Name="FrameType">0</Attribute>
+            <Attribute Name="Height">64</Attribute>
+            <Attribute Name="LockArea">0</Attribute>
+            <Attribute Name="MotleyIndex">0</Attribute>
+            <Attribute Name="PurityColor">255</Attribute>
+            <Attribute Name="PurityIndex">0</Attribute>
+            <Attribute Name="TricolorIndex">0</Attribute>
+            <Attribute Name="Width">128</Attribute>
+            <Attribute Name="X">0</Attribute>
+            <Attribute Name="Y">0</Attribute>
+            <Attribute Name="__GUID__">{e416ae01-a32b-4883-b1a0-4e012753be66}</Attribute>
+            <Attribute Name="__NAME__">임의영역1</Attribute>
+        </Node>
+        <Node Level="3" Type="HD_Frame_Plugin">
+            <Attribute Name="Alpha">255</Attribute>
+            <Attribute Name="ChildType">HD_Text_Plugin</Attribute>
+            <Attribute Name="FrameSpeed">4</Attribute>
+            <Attribute Name="FrameType">0</Attribute>
+            <Attribute Name="Height">64</Attribute>
+            <Attribute Name="LockArea">0</Attribute>
+            <Attribute Name="MotleyIndex">0</Attribute>
+            <Attribute Name="PurityColor">255</Attribute>
+            <Attribute Name="PurityIndex">0</Attribute>
+            <Attribute Name="TricolorIndex">0</Attribute>
+            <Attribute Name="Width">128</Attribute>
+            <Attribute Name="X">0</Attribute>
+            <Attribute Name="Y">0</Attribute>
+            <Attribute Name="__GUID__">{a85bb7ba-7327-4f3e-b405-a32d21712781}</Attribute>
+            <Attribute Name="__NAME__">글자1</Attribute>
+            <Node Level="4" Type="HD_Text_Plugin">
+                <Attribute Name="ClearEffect">0</Attribute>
+                <Attribute Name="ClearTime">4</Attribute>
+                <Attribute Name="ColorfulTextEnable">0</Attribute>
+                <Attribute Name="ColorfulTextIndex">3</Attribute>
+                <Attribute Name="ColorfulTextSelect">://images/Colorful/static.png</Attribute>
+                <Attribute Name="ColorfulTextSpeed">0</Attribute>
+                <Attribute Name="ContentAlign">132</Attribute>
+                <Attribute Name="ContentHAlign">1</Attribute>
+                <Attribute Name="DispEffect">0</Attribute>
+                <Attribute Name="DispTime">4</Attribute>
+                <Attribute Name="EditBgColor">0</Attribute>
+                <Attribute Name="HeadCloseToTail">1</Attribute>
+                <Attribute Name="HoldTime">50</Attribute>
+                <Attribute Name="Html"></Attribute>
+                <Attribute Name="PageCount">1</Attribute>
+                <Attribute Name="PlayText">@@PLAYTEXT@@</Attribute>
+                <Attribute Name="SingleMode">0</Attribute>
+                <Attribute Name="SpeedTimeIndex">4</Attribute>
+                <Attribute Name="StrokeColor">65280</Attribute>
+                <Attribute Name="TextColor">#ffffff</Attribute>
+                <Attribute Name="TextFontName">굴림</Attribute>
+                <Attribute Name="TextFontSize">16</Attribute>
+                <Attribute Name="TransBgColor">1</Attribute>
+                <Attribute Name="UseHollow">0</Attribute>
+                <Attribute Name="UseStroke">0</Attribute>
+                <Attribute Name="__GUID__">{ee19d49f-496b-46b7-a6db-9e049ed3a1cd}</Attribute>
+                <Attribute Name="__NAME__">글자2</Attribute>
+                <List Name="__FileList__" Index="0">
+                    <ListItem FileName="C:/Users/James/AppData/Local/HDPlayer/HDPlayer/factory//screen0//@@MD5@@.png" MD5="@@MD5@@" FileKey="Text"/>
+                </List>
+            </Node>
+        </Node>
+    </Node>
+</Node>

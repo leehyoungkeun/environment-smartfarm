@@ -1,0 +1,22 @@
+// /etc/polkit-1/rules.d/50-smartfarm-wifi.rules
+//
+// 키오스크에서 키보드 없이 WiFi 를 바꾸기 위한 최소 권한 (2026-09-13).
+//   농장을 옮길 때 새 WiFi 를 잡으려면 Ctrl+Alt+Del 로 키오스크를 빠져나와 키보드로 입력해야 했다.
+//   터치만으로 되게 하려면 system-api(lhk 계정)가 nmcli 로 스캔·접속할 수 있어야 하는데,
+//   기본값은 전부 "auth" 라 폴킷 인증 대화상자가 필요해 서비스에서는 실패한다.
+//
+// 범위를 좁게 유지한다 — 꼭 필요한 4개만. 아래는 **주지 않는다**:
+//   enable-disable-wifi(무선 자체 끄기), wifi.share.*(핫스팟 개방), settings.modify.hostname,
+//   settings.modify.global-dns, checkpoint-rollback, sleep-wake, reload.
+// 호출 경로도 nginx 에서 127.0.0.1 로 제한한다 — WiFi 설정은 패널 앞에 있는 사람의 작업이다.
+polkit.addRule(function (action, subject) {
+    if (!subject.isInGroup("netdev")) return polkit.Result.NOT_HANDLED;
+    switch (action.id) {
+        case "org.freedesktop.NetworkManager.wifi.scan":              // 주변 WiFi 목록
+        case "org.freedesktop.NetworkManager.network-control":        // 연결 활성/해제
+        case "org.freedesktop.NetworkManager.settings.modify.own":    // 프로필 생성·수정
+        case "org.freedesktop.NetworkManager.settings.modify.system":
+            return polkit.Result.YES;
+    }
+    return polkit.Result.NOT_HANDLED;
+});

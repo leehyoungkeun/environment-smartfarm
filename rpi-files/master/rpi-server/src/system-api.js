@@ -135,6 +135,128 @@ app.post('/api/system/restart-express', async (req, res) => {
   res.status(result.success ? 200 : 500).json(result);
 });
 
+// ─────────── WiFi (키오스크에서 키보드 없이 농장 이동) ───────────
+// 2026-09-13 추가. 농장을 옮길 때 새 WiFi 를 잡으려면 Ctrl+Alt+Del 로 키오스크를 빠져나와
+// 키보드로 입력해야 했다. 터치만으로 되게 한다. 실제 작업은 NetworkManager(nmcli)가 한다.
+//
+// 보안
+//   · SSID·비밀번호는 사용자 입력이므로 **execFile 인자 배열**로만 넘긴다 — 셸을 거치지 않아 주입이 불가능하다.
+//   · 노출은 nginx 에서 127.0.0.1 로 제한한다(키오스크 브라우저는 http://localhost). LAN 의 다른 기기가
+//     무선을 바꿔 제어기를 고립시키는 것을 막는다.
+//   · 권한은 polkit 규칙(50-smartfarm-wifi.rules)이 netdev 그룹에 꼭 필요한 4개 동작만 준다.
+const { execFile } = require('child_process');
+
+function nmcli(args, timeoutMs = 20000) {
+  return new Promise((resolve) => {
+    execFile('nmcli', args, { timeout: timeoutMs }, (err, stdout, stderr) => {
+      resolve({
+        ok: !err,
+        out: String(stdout || '').trim(),
+        err: String(stderr || (err && err.message) || '').trim(),
+      });
+    });
+  });
+}
+
+// nmcli -t 는 ':' 로 필드를 나누고, 값 안의 ':' 는 역슬래시로 이스케이프한다.
+// SSID 에 ':' 가 들어갈 수 있어 String.split(':') 으로는 SSID 가 잘린다 — 직접 훑는다.
+function splitNmcli(line) {
+  const ESC = String.fromCharCode(92);   // 역슬래시
+  const out = [];
+  let cur = '';
+  for (let i = 0; i < line.length; i++) {
+    const c = line[i];
+    if (c === ESC && i + 1 < line.length) { cur += line[++i]; continue; }
+    if (c === ':') { out.push(cur); cur = ''; continue; }
+    cur += c;
+  }
+  out.push(cur);
+  return out;
+}
+
+const NL = String.fromCharCode(10);
+const rowsOf = (text) => text.split(NL).filter(Boolean).map(splitNmcli);
+
+// WiFi 경로는 «패널 앞에 있는 사람»만 — 루프백에서 온 요청만 받는다.
+// nginx 의 allow/deny 는 :80 경유만 막는다. 이 서비스는 0.0.0.0:3100 으로 열려 있어
+// LAN 에서 포트를 직접 때리면 그 제한을 우회할 수 있다 → 서비스 자체에서 한 번 더 막는다.
+// (키오스크 브라우저는 RPi 안에서 돌고, nginx 도 127.0.0.1 로 프록시하므로 둘 다 통과한다.)
+const LOOPBACK = new Set(['127.0.0.1', '::1', '::ffff:127.0.0.1']);
+app.use('/api/system/wifi', (req, res, next) => {
+  const ip = (req.socket && req.socket.remoteAddress) || '';
+  if (LOOPBACK.has(ip)) return next();
+  return res.status(403).json({
+    success: false,
+    error: 'WiFi 설정은 제어기 패널에서만 가능합니다',
+  });
+});
+
+// GET /api/system/wifi — 현재 연결·저장된 프로필·IP
+app.get('/api/system/wifi', async (req, res) => {
+  const [active, saved] = await Promise.all([
+    nmcli(['-t', '-f', 'NAME,TYPE,DEVICE', 'con', 'show', '--active']),
+    nmcli(['-t', '-f', 'NAME,TYPE', 'con', 'show']),
+  ]);
+  const cur = rowsOf(active.out).find((r) => r[1] === '802-11-wireless');
+  res.json({
+    success: true,
+    connected: cur ? { ssid: cur[0], device: cur[2] } : null,
+    saved: rowsOf(saved.out).filter((r) => r[1] === '802-11-wireless').map((r) => r[0]),
+    ip: primaryIPv4(),
+    hostname: os.hostname(),
+  });
+});
+
+// GET /api/system/wifi/scan — 주변 WiFi (신호 내림차순, 같은 SSID 는 가장 센 것만)
+app.get('/api/system/wifi/scan', async (req, res) => {
+  await nmcli(['dev', 'wifi', 'rescan'], 15000);   // 실패해도 아래 캐시 목록으로 진행
+  const r = await nmcli(['-t', '-f', 'SSID,SIGNAL,SECURITY,IN-USE', 'dev', 'wifi', 'list']);
+  if (!r.ok && !r.out) {
+    return res.status(500).json({ success: false, error: r.err || 'nmcli 실행 실패' });
+  }
+  const best = new Map();
+  for (const f of rowsOf(r.out)) {
+    const ssid = f[0];
+    if (!ssid) continue;                            // 숨김 SSID 는 목록에서 뺀다
+    const item = {
+      ssid,
+      signal: Number(f[1]) || 0,
+      secured: !!f[2] && f[2] !== '--',
+      inUse: f[3] === '*',
+    };
+    const prev = best.get(ssid);
+    if (!prev || item.signal > prev.signal) best.set(ssid, item);
+  }
+  res.json({
+    success: true,
+    networks: Array.from(best.values()).sort((a, b) => b.signal - a.signal),
+  });
+});
+
+// POST /api/system/wifi/connect  { ssid, password? }
+// 실패해도 기존 프로필은 지우지 않는다 → NetworkManager 가 원래 망으로 자동 복귀한다.
+app.post('/api/system/wifi/connect', async (req, res) => {
+  const ssid = String((req.body && req.body.ssid) || '').trim();
+  const password = String((req.body && req.body.password) || '');
+  if (!ssid) return res.status(400).json({ success: false, error: 'ssid 가 필요합니다' });
+  if (password && (password.length < 8 || password.length > 63)) {
+    return res.status(400).json({ success: false, error: 'WPA 비밀번호는 8~63자입니다' });
+  }
+  const args = ['dev', 'wifi', 'connect', ssid];
+  if (password) args.push('password', password);
+
+  const r = await nmcli(args, 45000);
+  const after = await nmcli(['-t', '-f', 'NAME,TYPE', 'con', 'show', '--active']);
+  const connected = rowsOf(after.out).some((f) => f[0] === ssid && f[1] === '802-11-wireless');
+
+  if (!connected) {
+    // 200 으로 내려 화면이 사유를 그대로 보여주게 한다 (500 은 프록시 계층에서 뭉개진다)
+    const why = (r.err || r.out || '연결하지 못했습니다').split(NL)[0];
+    return res.json({ success: false, ssid, error: why, ip: primaryIPv4() });
+  }
+  res.json({ success: true, ssid, ip: primaryIPv4(), message: '연결되었습니다' });
+});
+
 // ─────────── Setup 라우터 마운트 ───────────
 // /setup        → setup.js router.get('/')  : 설정 웹 페이지
 // /setup/apply  → setup.js router.post('/apply') : 장비코드 적용

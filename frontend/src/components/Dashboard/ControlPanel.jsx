@@ -3,8 +3,28 @@ import { createPortal } from 'react-dom';
 import axios from 'axios';
 import { useAuth } from '../../contexts/AuthContext';
 import { sendControlCommand, getControlLogs, getRelayStatus, warmupLambda, saveControlLog } from '../../services/controlApi';
-import { getSystemMode, getApiBase, getRpiApiBase, getPcApiBase, isFarmLocalMode, isFarmLocalAutoDetected } from '../../services/apiSwitcher';
+import { getSystemMode, getApiBase, getRpiApiBase, getPcApiBase, isFarmLocalMode } from '../../services/apiSwitcher';
+
+/**
+ * 제어 경로 판정 — **사용자가 고른 모드만** 본다. 세 곳(메인 제어·비상정지·배치)이 같은 함수를 쓴다.
+ *
+ * 왜 이렇게 바뀌었나 (2026-09-13 키오스크 먹통 사고):
+ *   전에는 화면이 localhost(키오스크)이면 **모드와 무관하게 무조건 로컬 경로**로 보냈다.
+ *   그래서 nginx→Node-RED 가 502 로 죽었을 때, 클라우드는 멀쩡한데도 패널에서 제어만 실패했다.
+ *   문서화된 설계는 "기본 클라우드, 끊기면 농장주가 명시적으로 팜로컬 전환" 이므로 코드를 설계에 맞춘다.
+ *
+ * 자동 전환 금지 원칙: **명시 선택**(팜로컬 토글 / 수동 오프라인)일 때만 로컬로 간다.
+ *   헬스체크가 실패했다는 이유로 제어 경로를 몰래 바꾸지 않는다 — 배너로 알리고 농장주가 전환한다.
+ * 예외: https 페이지는 Mixed Content 로 RPi 직접 호출이 불가(getRpiApiBase()가 PC 서버를 반환)하므로
+ *   로컬 경로가 실제로 존재할 때만 사용한다.
+ */
+const isLocalControlPath = () => {
+  const m = getSystemMode();
+  return useLocalControl({ isFarmLocal: m.isFarmLocal, manualOverride: m.manualOverride,
+    rpiBase: getRpiApiBase(), pcBase: getPcApiBase() });
+};
 import wsService from '../../services/wsService';
+import { useLocalControl } from '../../lib/controlRoute';
 import { isKsProfile, deviceKsStatus, ksAnchorFromSample, ksRemainFromEnd, ksSampleAgeSec, ksSampleIsStaleForCommand, ksMotionProgress, ksNeededSec, ksReachedEnd } from '../../lib/ks3267';
 import {
   DndContext, closestCenter, PointerSensor, useSensor, useSensors
@@ -1348,8 +1368,8 @@ const ControlPanel = ({ farmId, houseId, houseConfig }) => {
       const stopCmd = device.modbus?.controlType === 'bidir' ? 'stop' : 'off';
       const modbusConfig = device.modbus || null;
       try {
-        // 메인 제어와 같은 기준 — 키오스크(포트 80/443)이고 RPi 직접 경로가 있을 때만 로컬, 아니면 AWS
-        const isLocal = isFarmLocalAutoDetected() && getRpiApiBase() !== getPcApiBase();
+        // 메인 제어와 같은 기준 (isLocalControlPath) — 명시적 팜로컬/수동 오프라인일 때만 로컬, 아니면 AWS
+        const isLocal = isLocalControlPath();
         if (isLocal) {
           // 로컬: RPi 직접
           const rpiApi = getRpiApiBase();
@@ -1507,11 +1527,8 @@ const ControlPanel = ({ farmId, houseId, houseConfig }) => {
         }
       }
 
-      // 키오스크 판정은 apiSwitcher 와 동일 기준(localhost + 포트 80/443/빈값). hostname 만 보면 dev 서버(localhost:5174)까지
-      // 키오스크로 오판해 AWS 를 건너뛴다. 또 클라우드 모드(getRpiApiBase()===PC 서버)면 RPi 직접 경로가 없으므로 AWS 로.
-      const isKiosk = isFarmLocalAutoDetected();
-      const rpiReachable = getRpiApiBase() !== getPcApiBase();
-      if ((isKiosk || mode.isFarmLocal || mode.mode === 'offline') && rpiReachable) {
+      // 제어 경로는 사용자가 고른 모드를 따른다 (isLocalControlPath 주석 참조).
+      if (isLocalControlPath()) {
         // RPi 로컬 접속 또는 오프라인: Node-RED 직접 제어 (AWS 우회)
         const rpiApi = getRpiApiBase();
         // bidir 장치: duration 계산 (Node-RED 자동 정지용) / KS 표준 스위치 「시간 지정 ON」 → 202 TIMED_ON
@@ -1726,9 +1743,8 @@ const ControlPanel = ({ farmId, houseId, houseConfig }) => {
     // 클라우드 모드 감지 — handleControl 의 분기 조건과 동일
     // 로컬/팜로컬/오프라인: handleControl 이 waitForModbusDone 으로 modbus 완료까지 대기 → 추가 delay 불필요
     // 클라우드: Lambda 응답(~200ms) 만에 다음 device 로 넘어가서 NR 큐에 명령이 한꺼번에 쌓임 → 진행률이 실제 동작보다 빨라짐
-    const mode = getSystemMode();
-    const isLocalHost = ['localhost', '127.0.0.1'].includes(window.location.hostname);
-    const isCloudMode = !isLocalHost && !mode.isFarmLocal && mode.mode !== 'offline';
+    // handleControl 의 경로 판정과 반드시 같아야 한다 — 어긋나면 배치 딜레이가 틀어진다
+    const isCloudMode = !isLocalControlPath();
     const CLOUD_PER_DEVICE_DELAY_MS = 1500;
     for (let i = 0; i < deviceList.length; i++) {
       const dev = deviceList[i];

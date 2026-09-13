@@ -61,7 +61,11 @@ LOG_PATH = '/home/lhk/.pm2/logs/node-red-out.log'
 PATTERN = re.compile(r'Modbus 실측: ([\d.]+)°C, ([\d.]+)%RH')
 
 DEFAULTS = {
-    'enabled': True,
+    # 전광판이 없는 농장이 대부분이다. 설정 파일이 아직 없는 기기는 꺼진 쪽이 안전하다.
+    # 예전 기본값은 True 였고, 그래서 전광판을 한 번도 붙인 적 없는 농장이
+    # 매 주기 접속을 시도하며 [LOOP ERR] 만 쌓았다 (2026-09-14).
+    # 전광판을 쓰는 농장은 설정 저장 시 config.json 이 내려와 이 값을 덮는다.
+    'enabled': False,
     'ip': DEVICE_IP,
     'interval': 300,
     'items': ['temp', 'humidity'],

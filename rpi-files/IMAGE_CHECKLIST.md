@@ -185,6 +185,19 @@ UPDATE devices SET installed_at = NULL WHERE device_code = '<코드>';
 | `onvif-discover.py` | ONVIF 탐색 (setup·probe 공용) | — |
 | `go2rtc.yaml.example` | go2rtc 템플릿 (스트림 비움) | 포트/옵션 변경 시 |
 | `etc/journald-50-smartfarm-persistent.conf` | 저널 영속화 (RPi OS 휘발 강제 덮음) | — |
+| `smartfarm-kiosk-probe.sh` | 키오스크 API 도달성 프로브 (nginx 경유 200+JSON 요구) | 프로브 로직 변경 시 |
+| `etc/50-smartfarm-wifi.rules` | polkit — netdev 그룹에 NM 4개 동작만 허용 (터치 WiFi 설정용) | — |
+| `smartfarm-d16-net.sh` | 전광판 네트워크 계층 on/off 루트 래퍼 (`/usr/local/sbin/smartfarm-d16-net`) | — |
+| `install-d16-net.sh` | 위 래퍼·sudoers·dnsmasq 설정 일괄 설치 (기존 농장 이관용) | — |
+| `etc/dnsmasq-d16-eth0.conf` | 전광판 전용 DHCP (`bind-dynamic`) | — |
+| `etc/sudoers-smartfarm-d16` | lhk 가 위 래퍼만 root 로 실행하도록 허용 | — |
+| `d16-display/` | 전광판 데몬 + 라이브러리 + XML 템플릿 | 데몬 변경 시 |
+| `rpi-server/src/setup.js`, `middleware/lanTailscale.js`, `routes/local-config.js` | 장비코드 설정 페이지 · LAN/Tailscale 제한 · 부가장치 설정 수신 | 해당 파일 변경 시 |
+
+⚠️ 2026-09-14 에 위 표 마지막 두 줄의 파일 5개가 저장소에 아예 없었다. 새로 구운 농장은
+`/local-config` 라우트가 없어 **전광판 설정이 전달되지 않고**, 데몬은 import 에 실패했다.
+1호에서만 살아 있던 파일이라 아무도 몰랐다. 이미지 굽기 전 `find src -name '*.js'` 로
+1호와 `master/` 를 대조할 것.
 
 갱신 명령 (1호 IP 는 현재 192.168.0.38):
 
@@ -207,6 +220,11 @@ scp lhk@192.168.0.38:/home/lhk/smartfarm/ecosystem.config.js   rpi-files/master/
 ---
 
 ## 알려진 트랩
+
+0. **`/etc/dnsmasq.d/` 안에 백업 파일을 두지 말 것** — dnsmasq 는 그 폴더의 **모든** 파일을
+   확장자와 무관하게 읽는다. `d16-eth0.conf.bak-…` 을 같은 폴더에 남겼더니 설정이 두 번
+   로드되어 `duplicate dhcp-host` 로 시작에 실패했다 (2026-09-14). 백업은
+   `/var/backups/smartfarm/` 으로.
 
 1. **FARM_ID 환경변수 트랩** (commit `cbeefac`): `/home/lhk/.env` 에 FARM_ID 가 박혀있으면 `.farm-id` 파일보다 우선됨 → 새 농장이 farm_0001 로 잘못 등록. 이미지 청소 시 `.env` 삭제 필수.
 

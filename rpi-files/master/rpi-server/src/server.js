@@ -42,6 +42,14 @@ async function start() {
     server.listen(PORT, () => {
       console.log(`🚀 RPi 서버 실행 중: http://localhost:${PORT}`);
     });
+
+    // 6. 전광판 네트워크 계층 정렬 (config.json 기준)
+    //    클라우드 push 는 제어기가 꺼져 있으면 도달하지 못하고, 사람이 손으로
+    //    systemctl 을 만져 놓았을 수도 있다. 부팅 때 기기가 스스로 제자리를 찾게 한다.
+    //    서버 응답을 막지 않도록 listen 뒤에 비동기로 돌린다.
+    require('./routes/local-config')
+      .reconcileDisplayNetwork()
+      .catch((e) => console.warn('⚠️  전광판 네트워크 정렬 실패:', e.message));
   } catch (error) {
     Sentry.captureException(error, { tags: { phase: 'startup' } });
     console.error('❌ RPi 서버 시작 실패:', error);

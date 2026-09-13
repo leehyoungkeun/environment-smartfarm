@@ -496,16 +496,32 @@ router.put("/system-settings/:farmId", async (req, res) => {
       [farmId, JSON.stringify(settings)]
     );
 
-    // 부가장치 (display) 설정 → RPi 로 즉시 push (fire-and-forget)
+    // 부가장치 (display) 설정을 제어기로 전달한다.
+    //
+    // 예전엔 fire-and-forget 이었다. 제어기가 꺼져 있거나 네트워크가 끊겨 있으면
+    // push 가 조용히 실패하는데 화면에는 "저장 완료" 가 떠서, 농장주는 반영된 줄 알고
+    // 전광판이 왜 그대로인지 알 수 없었다. 결과를 기다렸다가 사실대로 돌려준다.
+    //
+    // fetch 의 timeout 속성은 Node 에서 무시된다. 실제로 끊으려면 AbortSignal 이어야 한다.
+    // 그래서 예전 코드의 timeout: 5000 은 아무 일도 하지 않았다.
+    let displayPush;
     const displayCfg = req.body.settings?.display || req.body.display;
     if (displayCfg && typeof displayCfg === "object") {
       const rpiServerBase = getRpiBase(farmId).replace(":1880", ":3001");
-      fetch(`${rpiServerBase}/local-config/display`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(displayCfg),
-        timeout: 5000,
-      }).catch((e) => logger.warn(`RPi display push 실패 (${farmId}): ${e.message}`));
+      try {
+        const r = await fetch(`${rpiServerBase}/local-config/display`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(displayCfg),
+          signal: AbortSignal.timeout(8000),
+        });
+        const body = await r.json().catch(() => ({}));
+        displayPush = { delivered: r.ok, status: r.status, network: body.network };
+        if (!r.ok) logger.warn(`RPi display push 거절 (${farmId}): HTTP ${r.status}`);
+      } catch (e) {
+        displayPush = { delivered: false, error: e.message };
+        logger.warn(`RPi display push 실패 (${farmId}): ${e.message}`);
+      }
     }
 
     // sensorModules 저장 시 → farms.houses.sensors.modbus 도 동기 갱신
@@ -623,7 +639,7 @@ router.put("/system-settings/:farmId", async (req, res) => {
     }
 
     logger.info(`⚙️ 시스템 설정 저장: ${farmId} - ${JSON.stringify(settings)}`);
-    res.json({ success: true, data: settings });
+    res.json({ success: true, data: settings, displayPush });
   } catch (error) {
     logger.error("❌ 시스템 설정 저장 실패:", error);
     res.status(500).json({ success: false, error: error.message });

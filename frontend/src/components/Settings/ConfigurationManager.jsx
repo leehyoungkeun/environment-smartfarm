@@ -7,6 +7,12 @@ import { isKsProfile, ksDeviceLabel, validateKsProfile, validateKsSensor } from 
 const AutomationManager = lazy(() => import('../Dashboard/AutomationManager'));
 const AccessoryManager = lazy(() => import('./AccessoryManager').then(m => ({ default: m.AccessoryManager })));
 const KsNodeManager = lazy(() => import('./KsNodeManager').then(m => ({ default: m.KsNodeManager })));
+const NetworkManager = lazy(() => import('./NetworkManager').then(m => ({ default: m.NetworkManager })));
+
+// 네트워크 탭은 제어기 패널 빌드에서만 보인다.
+// WiFi 를 바꾸는 순간이 바로 인터넷이 끊긴 때라 클라우드 모드 여부로 판단할 수 없고,
+// 같은 출처 /api/system/wifi 는 RPi nginx 가 서빙할 때만 존재한다. 빌드 모드가 유일하게 확실한 신호.
+const IS_PANEL_BUILD = import.meta.env.MODE === 'rpi';
 
 // 모든 요청에 자동으로 인증 토큰 추가
 const axios = axiosBase.create();
@@ -477,6 +483,7 @@ const ConfigurationManager = ({ farmId = import.meta.env.VITE_FARM_ID || 'farm_0
     { id: 'alerts', label: '알림설정', icon: '🔔' },
     { id: 'accessories', label: '부가장치', icon: '📺' },
     { id: 'ks3267', label: '표준노드', icon: '📐' },
+    ...(IS_PANEL_BUILD ? [{ id: 'network', label: '네트워크', icon: '📶' }] : []),
     { id: 'system', label: '시스템', icon: '⚙️' },
   ];
 
@@ -614,6 +621,13 @@ const ConfigurationManager = ({ farmId = import.meta.env.VITE_FARM_ID || 'farm_0
       {activeTab === 'ks3267' && (
         <Suspense fallback={<div className="skeleton h-64 rounded-2xl" />}>
           <KsNodeManager farmId={farmId} />
+        </Suspense>
+      )}
+
+      {/* 네트워크 탭 (키보드 없이 WiFi 전환 — 패널 전용) */}
+      {activeTab === 'network' && IS_PANEL_BUILD && (
+        <Suspense fallback={<div className="skeleton h-64 rounded-2xl" />}>
+          <NetworkManager />
         </Suspense>
       )}
 

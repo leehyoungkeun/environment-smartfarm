@@ -1,0 +1,11 @@
+# /etc/sudoers.d/smartfarm-d16 — 권한 0440, root:root
+#
+# 설정 화면의 「LED 전광판 사용」을 끄고 켜면 rpi-server(lhk 로 실행)가
+# dnsmasq 와 eth0 프로필을 내리고 올려야 한다. 그런데 systemctl 은 root 만 쓴다.
+#
+# sudo 를 systemctl 전체로 열면 lhk 가 어떤 유닛이든 만질 수 있게 된다.
+# 그래서 스크립트 하나로 좁혔다. 스크립트 안에서 대상 유닛이 dnsmasq 로 고정돼 있어
+# 인자를 어떻게 주든 다른 유닛에는 닿지 않는다.
+#
+# 스크립트는 반드시 root 소유 0755 여야 한다. lhk 가 쓸 수 있으면 이 제한이 무의미해진다.
+lhk ALL=(root) NOPASSWD: /usr/local/sbin/smartfarm-d16-net

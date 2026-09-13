@@ -34,7 +34,13 @@ while read -r CAM MAC; do
   fi
   ping -c1 -W1 "$IP" >/dev/null 2>&1 && P=1 || P=0
   timeout 3 bash -c "</dev/tcp/$IP/554" 2>/dev/null && R=1 || R=0
-  [ "$(curl -s -m 12 -o /dev/null -w '%{http_code}' "http://localhost:1984/api/frame.jpeg?src=$CAM")" = 200 ] && F=1 || F=0
+  # 프레임 판정: go2rtc 는 카메라가 끊겨도 **200 + 0 바이트**를 돌려준다(2026-09-13 실측) →
+  # 상태코드만 보면 frame_up 이 영원히 1 이라 CameraUnreachable 이 한 번도 울리지 않는다.
+  # 실제 JPEG 인지까지 본다: 200 + 비어있지 않음 + JPEG 매직(FFD8FF).
+  FJ=$(mktemp)
+  FHC=$(curl -s -m 12 -o "$FJ" -w '%{http_code}' "http://localhost:1984/api/frame.jpeg?src=$CAM")
+  if [ "$FHC" = 200 ] && [ -s "$FJ" ] && [ "$(od -An -tx1 -N3 "$FJ" 2>/dev/null | tr -d "[:space:]")" = "ffd8ff" ]; then F=1; else F=0; fi
+  rm -f "$FJ"
   D=$(echo "$DISC" | awk -v m="$MAC" '$2==m{print $1; exit}')
   if [ -n "$D" ] && [ "$D" = "$IP" ]; then M=1; else M=0; fi
   echo "smartfarm_camera_ping_up{cam=\"$CAM\"} $P"

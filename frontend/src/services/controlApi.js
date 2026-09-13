@@ -20,6 +20,31 @@ const TIMEOUT = 10000;
 const RETRY_ATTEMPTS = 2;
 
 /**
+ * 제어 이력 기록 — **성공·실패를 모두** 남긴다 (2026-09-13 추가).
+ * 전에는 성공만 저장해서, 키오스크가 nginx→NR 502 로 전부 실패하는 동안 이력이 "성공 10 / 실패 0" 이었다.
+ * 실패가 한 건도 안 남으니 지표·화면 어디에도 흔적이 없어 진단이 늦어졌다.
+ * 실패 사유(HTTP 상태·메시지)를 error 에 담아 이력 화면과 알림에서 바로 보이게 한다.
+ * 비동기 fire-and-forget 이라 UI 를 늦추지 않고, 서버가 죽어 있으면 saveControlLog 가 조용히 삼킨다.
+ */
+const logControl = (houseId, deviceId, command, operator, meta, result, extra = {}) => {
+  saveControlLog({
+    farmId: meta.farmId,
+    houseId: meta.originalHouseId || houseId,
+    controlHouseId: houseId,
+    deviceId,
+    deviceType: meta.deviceType || guessDeviceType(deviceId),
+    deviceName: meta.deviceName || deviceId,
+    command,
+    success: !!result.success,
+    error: result.success ? null : (result.error || '알 수 없는 제어 실패'),
+    requestId: result.requestId || null,
+    operator,
+    operatorName: meta.operatorName || null,
+    ...extra,
+  });
+};
+
+/**
  * 제어 명령 전송 + 이력 자동 저장
  * 모드에 따라 AWS 또는 로컬 경로를 자동 선택
  *
@@ -37,21 +62,8 @@ export const sendControlCommand = async (houseId, deviceId, command, operator = 
     console.log(`🎮 팜로컬 제어: ${houseId}/${deviceId} ${command.toUpperCase()}`);
     const result = await sendLocalControl(houseId, deviceId, command, operator, meta);
 
-    // PC 서버 온라인이면 이력 저장 (비동기)
-    if (result.success && mode.serverOnline) {
-      saveControlLog({
-        farmId: meta.farmId,
-        houseId: meta.originalHouseId || houseId,
-        controlHouseId: houseId,
-        deviceId,
-        deviceType: meta.deviceType || guessDeviceType(deviceId),
-        deviceName: meta.deviceName || deviceId,
-        command,
-        success: true,
-        operator,
-        operatorName: meta.operatorName || null,
-      });
-    }
+    // 이력 저장 (비동기) — 실패도 남긴다. 서버가 꺼져 있으면 saveControlLog 가 조용히 삼킨다.
+    logControl(houseId, deviceId, command, operator, meta, result);
     return result;
   }
 
@@ -65,41 +77,15 @@ export const sendControlCommand = async (houseId, deviceId, command, operator = 
     const localResult = await sendLocalControl(houseId, deviceId, command, operator, meta);
     if (localResult.success) {
       localResult.fallback = true; // 폴백으로 성공했음을 표시
-      saveControlLog({
-        farmId: meta.farmId,
-        houseId: meta.originalHouseId || houseId,
-        controlHouseId: houseId,
-        deviceId,
-        deviceType: meta.deviceType || guessDeviceType(deviceId),
-        deviceName: meta.deviceName || deviceId,
-        command,
-        success: true,
-        operator,
-        operatorName: meta.operatorName || null,
-      });
+      logControl(houseId, deviceId, command, operator, meta, localResult);
       return localResult;
     }
     // 로컬도 실패하면 AWS 결과 반환
   }
 
-  // 이력 자동 저장 (서버 온라인 시만, 비동기)
-  if (result.success) {
-    saveControlLog({
-      farmId: meta.farmId,
-      houseId: meta.originalHouseId || houseId,
-      controlHouseId: houseId,
-      deviceId,
-      deviceType: meta.deviceType || guessDeviceType(deviceId),
-      deviceName: meta.deviceName || deviceId,
-      command,
-      success: result.success,
-      error: result.error || null,
-      requestId: result.requestId,
-      operator,
-      operatorName: meta.operatorName || null,
-      lambdaResponse: result.lambdaResponse || null,
-    });
-  }
+  // 이력 자동 저장 (비동기) — 성공·실패 모두
+  logControl(houseId, deviceId, command, operator, meta, result,
+    result.lambdaResponse ? { lambdaResponse: result.lambdaResponse } : {});
 
   return result;
 };

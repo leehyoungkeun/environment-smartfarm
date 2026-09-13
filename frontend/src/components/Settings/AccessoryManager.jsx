@@ -25,6 +25,9 @@ const LEDDisplayCard = ({ farmId }) => {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState(null);
+  // 제어기에서 실제로 적용된 OS 상태. 화면의 체크박스는 '내가 원하는 값' 이고
+  // 이 값은 '기기가 실제로 그렇게 되었는가' 다. 둘을 구분해서 보여준다.
+  const [net, setNet] = useState(null);
 
   useEffect(() => {
     let alive = true;
@@ -47,15 +50,30 @@ const LEDDisplayCard = ({ farmId }) => {
   const save = async () => {
     setSaving(true);
     try {
-      await axios.put(`${API_BASE}/config/system-settings/${farmId}`, {
+      const res = await axios.put(`${API_BASE}/config/system-settings/${farmId}`, {
         settings: { display: config },
       });
-      setMessage({ type: 'ok', text: `저장 완료 — 최대 ${Math.ceil(config.interval / 60)}분 내 전광판 반영` });
+      // 예전엔 저장만 되면 무조건 '저장 완료' 였다. 제어기가 꺼져 있어도 그렇게 떠서
+      // 농장주는 반영된 줄 알고 전광판이 왜 그대로인지 알 수 없었다.
+      const push = res.data?.displayPush;
+      setNet(push?.network || null);
+      if (!push) {
+        setMessage({ type: 'ok', text: '저장 완료' });
+      } else if (!push.delivered) {
+        setMessage({
+          type: 'err',
+          text: '설정은 저장했지만 제어기에 전달하지 못했습니다. 제어기 전원과 네트워크를 확인한 뒤 다시 저장하세요.',
+        });
+      } else if (config.enabled) {
+        setMessage({ type: 'ok', text: `제어기에 반영했습니다 — 최대 ${Math.ceil(config.interval / 60)}분 내 전광판 표시` });
+      } else {
+        setMessage({ type: 'ok', text: '제어기에 반영했습니다. 전광판 전용 DHCP 와 이더넷 설정도 함께 내렸습니다.' });
+      }
     } catch (e) {
       setMessage({ type: 'err', text: '저장 실패: ' + (e.response?.data?.error || e.message) });
     } finally {
       setSaving(false);
-      setTimeout(() => setMessage(null), 5000);
+      setTimeout(() => setMessage(null), 8000);
     }
   };
 
@@ -185,6 +203,27 @@ const LEDDisplayCard = ({ farmId }) => {
         }`}>
           {message.text}
         </p>
+      )}
+
+      {/* 제어기에서 실제로 적용된 상태. 체크 한 칸이 OS 까지 내려갔는지 눈으로 확인한다. */}
+      {net && (
+        <div className="mt-3 pt-3 border-t border-gray-100 text-xs text-gray-500 space-y-1">
+          <p className="font-bold text-gray-600">제어기 적용 상태</p>
+          <p>
+            전광판 전용 DHCP{' '}
+            <b className={net.dhcp?.active === 'active' ? 'text-green-600' : 'text-gray-700'}>
+              {net.dhcp?.active === 'active' ? '가동 중' : '정지'}
+            </b>
+            {net.dhcp?.enabled === 'enabled' ? ', 부팅 시 자동 시작' : ', 부팅 시 시작 안 함'}
+          </p>
+          <p>
+            전광판 랜선{' '}
+            <b className={net.eth0?.carrier === 1 ? 'text-green-600' : 'text-gray-700'}>
+              {net.eth0?.carrier === 1 ? '연결됨' : '연결 안 됨'}
+            </b>
+          </p>
+          {net.note ? <p className="text-amber-600">{net.note}</p> : null}
+        </div>
       )}
     </div>
   );

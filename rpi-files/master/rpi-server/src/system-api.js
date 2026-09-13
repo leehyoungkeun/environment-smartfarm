@@ -191,17 +191,37 @@ app.use('/api/system/wifi', (req, res, next) => {
   });
 });
 
+/**
+ * 저장된 WiFi 프로필을 SSID 기준으로 모은다.
+ *
+ * 프로필 이름과 SSID 는 대개 같지만 항상 같지는 않다. 이름으로만 비교하면
+ * 이미 저장된 망을 못 알아보고 비밀번호를 다시 묻게 된다 (2026-09-14 현장 확인).
+ * 그래서 프로필마다 실제 ssid 를 읽어 짝을 만든다.
+ */
+async function savedWifiProfiles() {
+  const r = await nmcli(['-t', '-f', 'NAME,TYPE', 'con', 'show']);
+  const names = rowsOf(r.out).filter((x) => x[1] === '802-11-wireless').map((x) => x[0]);
+  const pairs = await Promise.all(
+    names.map(async (name) => {
+      const g = await nmcli(['-g', '802-11-wireless.ssid', 'con', 'show', name], 8000);
+      return { name, ssid: (g.out || name).trim() || name };
+    })
+  );
+  return pairs;
+}
+
 // GET /api/system/wifi — 현재 연결·저장된 프로필·IP
 app.get('/api/system/wifi', async (req, res) => {
-  const [active, saved] = await Promise.all([
+  const [active, profiles] = await Promise.all([
     nmcli(['-t', '-f', 'NAME,TYPE,DEVICE', 'con', 'show', '--active']),
-    nmcli(['-t', '-f', 'NAME,TYPE', 'con', 'show']),
+    savedWifiProfiles(),
   ]);
   const cur = rowsOf(active.out).find((r) => r[1] === '802-11-wireless');
   res.json({
     success: true,
     connected: cur ? { ssid: cur[0], device: cur[2] } : null,
-    saved: rowsOf(saved.out).filter((r) => r[1] === '802-11-wireless').map((r) => r[0]),
+    // 화면은 이 목록으로 '저장됨' 을 판단하고, 저장된 망이면 비밀번호를 묻지 않는다.
+    saved: profiles.map((x) => x.ssid),
     ip: primaryIPv4(),
     hostname: os.hostname(),
   });
@@ -242,19 +262,33 @@ app.post('/api/system/wifi/connect', async (req, res) => {
   if (password && (password.length < 8 || password.length > 63)) {
     return res.status(400).json({ success: false, error: 'WPA 비밀번호는 8~63자입니다' });
   }
-  const args = ['dev', 'wifi', 'connect', ssid];
-  if (password) args.push('password', password);
 
-  const r = await nmcli(args, 45000);
+  // 한 번 붙었던 망이면 비밀번호를 다시 받지 않는다.
+  // NetworkManager 가 이미 그 망의 비밀번호를 갖고 있으므로 저장된 프로필을 그대로 올린다.
+  // 비밀번호를 같이 보내오면 (농장에서 공유기 비밀번호를 바꾼 경우) 새 값으로 다시 붙인다.
+  const profiles = await savedWifiProfiles();
+  const known = profiles.find((x) => x.ssid === ssid);
+  const useSaved = !!known && !password;
+
+  let r;
+  if (useSaved) {
+    r = await nmcli(['con', 'up', known.name], 45000);
+  } else {
+    const args = ['dev', 'wifi', 'connect', ssid];
+    if (password) args.push('password', password);
+    r = await nmcli(args, 45000);
+  }
   const after = await nmcli(['-t', '-f', 'NAME,TYPE', 'con', 'show', '--active']);
   const connected = rowsOf(after.out).some((f) => f[0] === ssid && f[1] === '802-11-wireless');
 
   if (!connected) {
     // 200 으로 내려 화면이 사유를 그대로 보여주게 한다 (500 은 프록시 계층에서 뭉개진다)
     const why = (r.err || r.out || '연결하지 못했습니다').split(NL)[0];
-    return res.json({ success: false, ssid, error: why, ip: primaryIPv4() });
+    // 저장된 비밀번호로 붙다 실패했다면 공유기 비밀번호가 바뀐 경우가 흔하다.
+    // 화면이 그때만 키보드를 열 수 있도록 알려준다.
+    return res.json({ success: false, ssid, error: why, usedSaved: useSaved, needPassword: useSaved, ip: primaryIPv4() });
   }
-  res.json({ success: true, ssid, ip: primaryIPv4(), message: '연결되었습니다' });
+  res.json({ success: true, ssid, usedSaved: useSaved, ip: primaryIPv4(), message: '연결되었습니다' });
 });
 
 // ─────────── Setup 라우터 마운트 ───────────

@@ -10,6 +10,10 @@ import 'react-simple-keyboard/build/css/index.css';
 // 경로: 같은 출처(nginx) `/api/system/wifi*` → RPi system-api(3100) → nmcli.
 //   포트(3100)를 직접 부르지 않는다 — 서비스에 루프백 가드가 있어 패널에서만 동작하고,
 //   같은 출처라 CORS 도 필요 없다. 패널이 아닌 곳에서 열면 403 이 오고 그대로 안내한다.
+//
+// 2026-09-14: 저장된 WiFi 인데도 비밀번호를 다시 묻던 결함 수정.
+//   제어기가 이미 그 망의 비밀번호를 갖고 있으므로 묻지 않고 저장된 프로필을 그대로 올린다.
+//   공유기 비밀번호가 바뀐 경우에만 사람이 직접 키보드를 연다.
 
 const SIGNAL_BARS = (s) => (s >= 75 ? '▂▄▆█' : s >= 50 ? '▂▄▆_' : s >= 25 ? '▂▄__' : '▂___');
 
@@ -17,16 +21,19 @@ export const NetworkManager = () => {
   const [status, setStatus] = useState(null);      // { connected, saved, ip }
   const [networks, setNetworks] = useState([]);
   const [scanning, setScanning] = useState(false);
-  const [target, setTarget] = useState(null);      // 비밀번호 입력 중인 네트워크
+  const [target, setTarget] = useState(null);      // 연결하려는 네트워크
+  const [askPassword, setAskPassword] = useState(false);
   const [password, setPassword] = useState('');
   const [connecting, setConnecting] = useState(false);
   const [message, setMessage] = useState(null);    // { type, text }
   const [blocked, setBlocked] = useState(false);   // 패널이 아닌 곳에서 열었을 때
   const keyboardRef = useRef(null);
 
+  const isKnown = (ssid) => !!(status?.saved || []).includes(ssid);
+
   const loadStatus = useCallback(async () => {
     try {
-      const r = await axios.get('/api/system/wifi', { timeout: 10000 });
+      const r = await axios.get('/api/system/wifi', { timeout: 15000 });
       setStatus(r.data);
       setBlocked(false);
     } catch (e) {
@@ -57,9 +64,18 @@ export const NetworkManager = () => {
 
   useEffect(() => { loadStatus(); scan(); }, [loadStatus, scan]);
 
+  // 목록에서 하나를 고른다. 저장된 망이면 키보드를 열지 않는다.
+  const pick = (n) => {
+    setTarget(n);
+    setPassword('');
+    keyboardRef.current?.setInput('');
+    setMessage(null);
+    setAskPassword(n.secured && !isKnown(n.ssid));
+  };
+
   const connect = async () => {
     if (!target) return;
-    if (target.secured && password.length < 8) {
+    if (askPassword && password.length < 8) {
       setMessage({ type: 'warn', text: '비밀번호는 8자 이상입니다' });
       return;
     }
@@ -67,16 +83,21 @@ export const NetworkManager = () => {
     setMessage(null);
     try {
       const r = await axios.post('/api/system/wifi/connect',
-        { ssid: target.ssid, password: target.secured ? password : '' },
+        { ssid: target.ssid, password: askPassword ? password : '' },
         { timeout: 60000 });
       if (r.data?.success) {
         setMessage({ type: 'ok', text: target.ssid + ' 에 연결되었습니다. 새 주소 ' + (r.data.ip || '-') });
         setTarget(null);
         setPassword('');
+        setAskPassword(false);
         await loadStatus();
         scan();
+      } else if (r.data?.needPassword) {
+        // 저장된 비밀번호로 붙다 실패했다. 공유기 비밀번호가 바뀐 경우가 흔하다.
+        setAskPassword(true);
+        setMessage({ type: 'err', text: '저장된 비밀번호로 연결되지 않았습니다. 공유기 비밀번호가 바뀌었다면 아래에서 새로 입력하세요.' });
       } else {
-        setMessage({ type: 'err', text: '연결하지 못했습니다 — ' + (r.data?.error || '비밀번호를 확인하세요') });
+        setMessage({ type: 'err', text: '연결하지 못했습니다: ' + (r.data?.error || '비밀번호를 확인하세요') });
       }
     } catch (e) {
       setMessage({ type: 'err', text: '연결 요청 실패: ' + (e.response?.data?.error || e.message) });
@@ -106,6 +127,8 @@ export const NetworkManager = () => {
     : message?.type === 'warn' ? 'bg-amber-50 border-amber-300 text-amber-800'
     : 'bg-rose-50 border-rose-300 text-rose-700';
 
+  const targetKnown = target ? isKnown(target.ssid) : false;
+
   return (
     <div className="space-y-4 animate-fade-in-up">
       {/* 현재 연결 */}
@@ -126,24 +149,33 @@ export const NetworkManager = () => {
           </button>
         </div>
         <p className="text-xs text-gray-500 mt-2">
-          농장을 옮겼다면 아래 목록에서 새 WiFi 를 골라 연결하세요. 연결에 실패해도 원래 쓰던 WiFi 로 자동 복귀합니다.
+          농장을 옮겼다면 아래 목록에서 새 WiFi 를 골라 연결하세요. 전에 연결한 적 있는 WiFi 는 비밀번호를 다시 넣지 않아도 됩니다.
         </p>
       </div>
 
       {message && <p className={'text-base font-semibold rounded-md p-3 border ' + msgClass}>{message.text}</p>}
 
-      {/* 비밀번호 입력 */}
+      {/* 연결 패널 */}
       {target && (
         <div className="card p-4 border-2 border-blue-300">
           <div className="flex flex-wrap items-center gap-3 mb-3">
             <span className="text-base font-bold text-gray-900">{target.ssid}</span>
-            {target.secured
-              ? <span className="text-xs text-gray-500">🔒 비밀번호 필요</span>
-              : <span className="text-xs text-gray-500">공개 네트워크</span>}
-            <button onClick={() => { setTarget(null); setPassword(''); }}
+            {!target.secured
+              ? <span className="text-xs text-gray-500">공개 네트워크</span>
+              : askPassword
+                ? <span className="text-xs text-gray-500">🔒 비밀번호 입력</span>
+                : <span className="text-xs text-emerald-700 font-semibold">🔒 저장된 비밀번호 사용</span>}
+            <button onClick={() => { setTarget(null); setPassword(''); setAskPassword(false); }}
               className="ml-auto text-sm text-gray-500 hover:underline">취소</button>
           </div>
-          {target.secured && (
+
+          {targetKnown && !askPassword && (
+            <p className="text-sm text-gray-600 mb-2">
+              전에 연결한 적 있는 WiFi 입니다. 그대로 연결을 누르세요.
+            </p>
+          )}
+
+          {askPassword && (
             <>
               <input type="text" value={password} readOnly placeholder="아래 키보드로 입력하세요"
                 className="input-field text-lg w-full text-center tracking-widest mb-2" />
@@ -164,10 +196,18 @@ export const NetworkManager = () => {
               />
             </>
           )}
+
           <button onClick={connect} disabled={connecting}
             className="btn-primary w-full text-base py-3 mt-3">
             {connecting ? '연결 중… (최대 45초)' : '🔗 ' + target.ssid + ' 에 연결'}
           </button>
+
+          {targetKnown && !askPassword && (
+            <button onClick={() => { setAskPassword(true); setPassword(''); keyboardRef.current?.setInput(''); }}
+              className="w-full text-center text-sm text-blue-700 hover:underline mt-2 py-1">
+              공유기 비밀번호를 바꿨다면 여기를 눌러 다시 입력
+            </button>
+          )}
         </div>
       )}
 
@@ -181,11 +221,9 @@ export const NetworkManager = () => {
         )}
         <div className="divide-y divide-gray-100">
           {networks.map((n) => {
-            const known = status?.saved?.includes(n.ssid);
+            const known = isKnown(n.ssid);
             return (
-              <button key={n.ssid}
-                onClick={() => { setTarget(n); setPassword(''); keyboardRef.current?.setInput(''); setMessage(null); }}
-                disabled={connecting}
+              <button key={n.ssid} onClick={() => pick(n)} disabled={connecting}
                 className="w-full flex items-center gap-3 py-3 px-1 text-left hover:bg-blue-50 rounded">
                 <span className="font-mono text-lg text-gray-400 w-14">{SIGNAL_BARS(n.signal)}</span>
                 <span className="font-bold text-gray-900 text-base flex-1 truncate">{n.ssid}</span>

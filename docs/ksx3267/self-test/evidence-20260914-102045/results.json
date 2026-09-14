@@ -1,0 +1,337 @@
+{
+ "meta": {
+  "at": "2026-09-14 10:19:20",
+  "transport": "tcp 127.0.0.1:5020"
+ },
+ "results": [
+  {
+   "id": "116-재연결",
+   "title": "연결단자 해제·재연결 후 2분 이내 정상 복귀 (5회)",
+   "ref": "KOAT 검정기준 116/117 통합제어기 마. 시험방법 1-가)·2-가)",
+   "ok": true,
+   "steps": [
+    {
+     "step": "시작 전: 센서·구동기 노드 모두 정상",
+     "ok": true,
+     "detail": ""
+    },
+    {
+     "step": "1회 해제: 제어기가 두 노드 모두 '응답 없음' 을 인지",
+     "ok": true,
+     "detail": "3.0s 만에 인지"
+    },
+    {
+     "step": "1회 재연결: 120초 이내 정상 복귀 (드라이버)",
+     "ok": true,
+     "detail": "3.0s"
+    },
+    {
+     "step": "1회 재연결: 화면 경로(NR 프록시)에서도 정상",
+     "ok": true,
+     "detail": "재연결 후 3.0s"
+    },
+    {
+     "step": "2회 해제: 제어기가 두 노드 모두 '응답 없음' 을 인지",
+     "ok": true,
+     "detail": "4.0s 만에 인지"
+    },
+    {
+     "step": "2회 재연결: 120초 이내 정상 복귀 (드라이버)",
+     "ok": true,
+     "detail": "3.0s"
+    },
+    {
+     "step": "2회 재연결: 화면 경로(NR 프록시)에서도 정상",
+     "ok": true,
+     "detail": "재연결 후 3.0s"
+    },
+    {
+     "step": "3회 해제: 제어기가 두 노드 모두 '응답 없음' 을 인지",
+     "ok": true,
+     "detail": "4.0s 만에 인지"
+    },
+    {
+     "step": "3회 재연결: 120초 이내 정상 복귀 (드라이버)",
+     "ok": true,
+     "detail": "3.0s"
+    },
+    {
+     "step": "3회 재연결: 화면 경로(NR 프록시)에서도 정상",
+     "ok": true,
+     "detail": "재연결 후 3.0s"
+    },
+    {
+     "step": "4회 해제: 제어기가 두 노드 모두 '응답 없음' 을 인지",
+     "ok": true,
+     "detail": "4.0s 만에 인지"
+    },
+    {
+     "step": "4회 재연결: 120초 이내 정상 복귀 (드라이버)",
+     "ok": true,
+     "detail": "3.0s"
+    },
+    {
+     "step": "4회 재연결: 화면 경로(NR 프록시)에서도 정상",
+     "ok": true,
+     "detail": "재연결 후 3.0s"
+    },
+    {
+     "step": "5회 해제: 제어기가 두 노드 모두 '응답 없음' 을 인지",
+     "ok": true,
+     "detail": "4.0s 만에 인지"
+    },
+    {
+     "step": "5회 재연결: 120초 이내 정상 복귀 (드라이버)",
+     "ok": true,
+     "detail": "3.0s"
+    },
+    {
+     "step": "5회 재연결: 화면 경로(NR 프록시)에서도 정상",
+     "ok": true,
+     "detail": "재연결 후 3.0s"
+    },
+    {
+     "step": "복귀 시간 요약 (기준 120초)",
+     "ok": true,
+     "detail": "최소 3.0s / 최대 3.0s / 평균 3.0s"
+    }
+   ]
+  }
+ ],
+ "manual": [
+  "116 연결 해제·재연결 화면 증적: 신고한 관제 방식(키오스크·웹·모바일)마다 표준노드 탭 '응답 없음' → 정상 복귀를 캡처. 실물은 M12 커넥터를 물리적으로 해제(노드 1/3 이상)"
+ ],
+ "stats": {
+  "tx": 37490,
+  "rx": 37475,
+  "exceptions": 0,
+  "timeouts": 35,
+  "scan_misses": 0
+ },
+ "events": [
+  {
+   "t": 1789311270.4724019,
+   "kind": "actuator",
+   "unit": 1,
+   "supported": true,
+   "devices": 24
+  },
+  {
+   "t": 1789311270.5193622,
+   "kind": "sensor",
+   "unit": 2,
+   "supported": true,
+   "devices": 30
+  },
+  {
+   "t": 1789348762.7937772,
+   "kind": "poll_timeout",
+   "unit": 1,
+   "error": "Modbus Error: [Input/Output] No response received after 0 retries, continue with next request"
+  },
+  {
+   "t": 1789348763.7971213,
+   "kind": "poll_timeout",
+   "unit": 2,
+   "error": "Modbus Error: [Input/Output] No response received after 0 retries, continue with next request"
+  },
+  {
+   "t": 1789348766.80129,
+   "kind": "poll_timeout",
+   "unit": 1,
+   "error": "Modbus Error: [Input/Output] No response received after 0 retries, continue with next request"
+  },
+  {
+   "t": 1789348767.8027306,
+   "kind": "poll_timeout",
+   "unit": 2,
+   "error": "Modbus Error: [Input/Output] No response received after 0 retries, continue with next request"
+  },
+  {
+   "t": 1789348770.8044522,
+   "kind": "poll_timeout",
+   "unit": 1,
+   "error": "Modbus Error: [Input/Output] ERROR: No response received of the last requests (default: retries+3), CLOSING CONNECTION."
+  },
+  {
+   "t": 1789348771.805726,
+   "kind": "poll_timeout",
+   "unit": 2,
+   "error": "Modbus Error: [Input/Output] ERROR: No response received of the last requests (default: retries+3), CLOSING CONNECTION."
+  },
+  {
+   "t": 1789348774.8071744,
+   "kind": "poll_timeout",
+   "unit": 1,
+   "error": "Modbus Error: [Input/Output] ERROR: No response received of the last requests (default: retries+3), CLOSING CONNECTION."
+  },
+  {
+   "t": 1789348779.8189237,
+   "kind": "poll_timeout",
+   "unit": 1,
+   "error": "Modbus Error: [Input/Output] No response received after 0 retries, continue with next request"
+  },
+  {
+   "t": 1789348780.8230145,
+   "kind": "poll_timeout",
+   "unit": 2,
+   "error": "Modbus Error: [Input/Output] No response received after 0 retries, continue with next request"
+  },
+  {
+   "t": 1789348783.827446,
+   "kind": "poll_timeout",
+   "unit": 1,
+   "error": "Modbus Error: [Input/Output] No response received after 0 retries, continue with next request"
+  },
+  {
+   "t": 1789348784.8288922,
+   "kind": "poll_timeout",
+   "unit": 2,
+   "error": "Modbus Error: [Input/Output] No response received after 0 retries, continue with next request"
+  },
+  {
+   "t": 1789348787.8308597,
+   "kind": "poll_timeout",
+   "unit": 1,
+   "error": "Modbus Error: [Input/Output] ERROR: No response received of the last requests (default: retries+3), CLOSING CONNECTION."
+  },
+  {
+   "t": 1789348788.8321242,
+   "kind": "poll_timeout",
+   "unit": 2,
+   "error": "Modbus Error: [Input/Output] ERROR: No response received of the last requests (default: retries+3), CLOSING CONNECTION."
+  },
+  {
+   "t": 1789348791.8336031,
+   "kind": "poll_timeout",
+   "unit": 1,
+   "error": "Modbus Error: [Input/Output] ERROR: No response received of the last requests (default: retries+3), CLOSING CONNECTION."
+  },
+  {
+   "t": 1789348796.8457022,
+   "kind": "poll_timeout",
+   "unit": 1,
+   "error": "Modbus Error: [Input/Output] No response received after 0 retries, continue with next request"
+  },
+  {
+   "t": 1789348797.8497488,
+   "kind": "poll_timeout",
+   "unit": 2,
+   "error": "Modbus Error: [Input/Output] No response received after 0 retries, continue with next request"
+  },
+  {
+   "t": 1789348800.8548028,
+   "kind": "poll_timeout",
+   "unit": 1,
+   "error": "Modbus Error: [Input/Output] No response received after 0 retries, continue with next request"
+  },
+  {
+   "t": 1789348801.8562577,
+   "kind": "poll_timeout",
+   "unit": 2,
+   "error": "Modbus Error: [Input/Output] No response received after 0 retries, continue with next request"
+  },
+  {
+   "t": 1789348804.8578854,
+   "kind": "poll_timeout",
+   "unit": 1,
+   "error": "Modbus Error: [Input/Output] ERROR: No response received of the last requests (default: retries+3), CLOSING CONNECTION."
+  },
+  {
+   "t": 1789348805.8591743,
+   "kind": "poll_timeout",
+   "unit": 2,
+   "error": "Modbus Error: [Input/Output] ERROR: No response received of the last requests (default: retries+3), CLOSING CONNECTION."
+  },
+  {
+   "t": 1789348808.8606153,
+   "kind": "poll_timeout",
+   "unit": 1,
+   "error": "Modbus Error: [Input/Output] ERROR: No response received of the last requests (default: retries+3), CLOSING CONNECTION."
+  },
+  {
+   "t": 1789348813.8715887,
+   "kind": "poll_timeout",
+   "unit": 1,
+   "error": "Modbus Error: [Input/Output] No response received after 0 retries, continue with next request"
+  },
+  {
+   "t": 1789348814.8757596,
+   "kind": "poll_timeout",
+   "unit": 2,
+   "error": "Modbus Error: [Input/Output] No response received after 0 retries, continue with next request"
+  },
+  {
+   "t": 1789348817.8813598,
+   "kind": "poll_timeout",
+   "unit": 1,
+   "error": "Modbus Error: [Input/Output] No response received after 0 retries, continue with next request"
+  },
+  {
+   "t": 1789348818.882788,
+   "kind": "poll_timeout",
+   "unit": 2,
+   "error": "Modbus Error: [Input/Output] No response received after 0 retries, continue with next request"
+  },
+  {
+   "t": 1789348821.8843653,
+   "kind": "poll_timeout",
+   "unit": 1,
+   "error": "Modbus Error: [Input/Output] ERROR: No response received of the last requests (default: retries+3), CLOSING CONNECTION."
+  },
+  {
+   "t": 1789348822.88563,
+   "kind": "poll_timeout",
+   "unit": 2,
+   "error": "Modbus Error: [Input/Output] ERROR: No response received of the last requests (default: retries+3), CLOSING CONNECTION."
+  },
+  {
+   "t": 1789348825.8871245,
+   "kind": "poll_timeout",
+   "unit": 1,
+   "error": "Modbus Error: [Input/Output] ERROR: No response received of the last requests (default: retries+3), CLOSING CONNECTION."
+  },
+  {
+   "t": 1789348830.8992038,
+   "kind": "poll_timeout",
+   "unit": 1,
+   "error": "Modbus Error: [Input/Output] No response received after 0 retries, continue with next request"
+  },
+  {
+   "t": 1789348831.9038866,
+   "kind": "poll_timeout",
+   "unit": 2,
+   "error": "Modbus Error: [Input/Output] No response received after 0 retries, continue with next request"
+  },
+  {
+   "t": 1789348834.9097292,
+   "kind": "poll_timeout",
+   "unit": 1,
+   "error": "Modbus Error: [Input/Output] No response received after 0 retries, continue with next request"
+  },
+  {
+   "t": 1789348835.9111865,
+   "kind": "poll_timeout",
+   "unit": 2,
+   "error": "Modbus Error: [Input/Output] No response received after 0 retries, continue with next request"
+  },
+  {
+   "t": 1789348838.9128134,
+   "kind": "poll_timeout",
+   "unit": 1,
+   "error": "Modbus Error: [Input/Output] ERROR: No response received of the last requests (default: retries+3), CLOSING CONNECTION."
+  },
+  {
+   "t": 1789348839.9140944,
+   "kind": "poll_timeout",
+   "unit": 2,
+   "error": "Modbus Error: [Input/Output] ERROR: No response received of the last requests (default: retries+3), CLOSING CONNECTION."
+  },
+  {
+   "t": 1789348842.9156578,
+   "kind": "poll_timeout",
+   "unit": 1,
+   "error": "Modbus Error: [Input/Output] ERROR: No response received of the last requests (default: retries+3), CLOSING CONNECTION."
+  }
+ ]
+}

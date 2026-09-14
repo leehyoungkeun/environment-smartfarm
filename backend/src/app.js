@@ -245,6 +245,83 @@ new promClient.Gauge({
   },
 });
 
+// ── KOAT 116/117 검정 준비: 30일 데이터 창 ───────────────────────────
+// 2026-09-12 정전·09-13 농장 이동으로 표준 구동기 하루 손실률이 43%·48% 가 되어 30일 창이
+// 끊겼는데 아무도 몰랐다. 검정은 입고 시점 기준 30일 1분 데이터를 요구하므로, 입고일을 잡기 전에
+// 알아야 한다. 계산은 utils/ksDataWindow.js (순수 함수·테스트). 40일치 GROUP BY 는 무거우니 10분 캐시.
+// 센서는 표준 구동기가 있는 농장(=검정 대상)만 센다 — 전 농장 40일 스캔을 30초마다 돌리지 않기 위해.
+let ksWindowCache = { at: 0, series: null };
+async function ksWindowSeries() {
+  if (ksWindowCache.series && Date.now() - ksWindowCache.at < 10 * 60 * 1000) return ksWindowCache.series;
+  const { pool } = await import("./db.js");
+  const { analyzeWindow, kstToday, daysBetween, isActiveSeries } = await import("./utils/ksDataWindow.js");
+  const { rows } = await pool.query(
+    `SELECT a.farm_id, a.house_id, a.device_id AS series, 'actuator' AS kind,
+            to_char((a.timestamp AT TIME ZONE 'Asia/Seoul')::date, 'YYYY-MM-DD') AS day,
+            count(*)::int AS n
+       FROM actuator_status a
+       JOIN farms f ON f.farm_id = a.farm_id AND f.status = 'active'
+      WHERE a.timestamp > now() - interval '40 days'
+      GROUP BY a.farm_id, a.house_id, a.device_id, day
+     UNION ALL
+     SELECT sd.farm_id, sd.house_id, sd.house_id AS series, 'sensor' AS kind,
+            to_char((sd.timestamp AT TIME ZONE 'Asia/Seoul')::date, 'YYYY-MM-DD') AS day,
+            count(*)::int AS n
+       FROM sensor_data sd
+       JOIN farms f ON f.farm_id = sd.farm_id AND f.status = 'active'
+      WHERE sd.timestamp > now() - interval '40 days'
+        AND (sd.metadata->>'quality') IS DISTINCT FROM 'simulated'  -- 시뮬레이션 제외 (B4): 가짜 값은 수집으로 세지 않는다
+        AND sd.farm_id IN (SELECT DISTINCT x.farm_id FROM actuator_status x WHERE x.timestamp > now() - interval '40 days')
+      GROUP BY sd.farm_id, sd.house_id, day`
+  );
+  const today = kstToday();
+  const bySeries = new Map();
+  for (const r of rows) {
+    const key = [r.farm_id, r.house_id, r.series, r.kind].join("|");
+    if (!bySeries.has(key)) {
+      bySeries.set(key, { labels: { farm_id: r.farm_id, house_id: r.house_id, series: r.series, kind: r.kind }, counts: {} });
+    }
+    bySeries.get(key).counts[r.day] = r.n;
+  }
+  // 삭제한 시험 장치(ks_test_sw1, 9/4 삭제)는 어제 손실이 100% 로 계산돼 경보가 영원히 울린다 — 운영 중인 계열만
+  const series = [...bySeries.values()].filter((x) => isActiveSeries(x.counts, today)).map((x) => {
+    const w = analyzeWindow(x.counts, today);
+    return { labels: x.labels, ...w, readyInDays: w.readyOn ? Math.max(0, daysBetween(today, w.readyOn)) : null };
+  });
+  ksWindowCache = { at: Date.now(), series };
+  return series;
+}
+
+function ksWindowGauge(name, help, pick) {
+  new promClient.Gauge({
+    name,
+    help,
+    labelNames: ["farm_id", "house_id", "series", "kind"],
+    async collect() {
+      try {
+        const series = await ksWindowSeries();
+        this.reset();
+        for (const x of series) {
+          const v = pick(x);
+          if (v !== null && v !== undefined) this.set(x.labels, v);
+        }
+      } catch {
+        // 남겨두면 마지막 값이 계속 보고돼 장애 중에도 창이 멀쩡해 보인다
+        this.reset();
+      }
+    },
+  });
+}
+ksWindowGauge("smartfarm_ks_data_loss_yesterday_pct",
+  "KOAT 116: yesterday (KST) 1-minute data loss percent per standard actuator / sensor house (limit 3)",
+  (x) => x.yesterdayLoss);
+ksWindowGauge("smartfarm_ks_data_window_days",
+  "KOAT 116: consecutive full days (KST, ending yesterday) with 1-minute data loss <= 3 percent",
+  (x) => x.windowDays);
+ksWindowGauge("smartfarm_ks_data_ready_in_days",
+  "KOAT 116: days until the 30-day data window completes (0 = ready for submission)",
+  (x) => x.readyInDays);
+
 // 하우스·장치 구성 — 규모를 한눈에 보고, 갑자기 줄면 설정 사고를 의심할 수 있다
 new promClient.Gauge({
   name: "smartfarm_house_count",

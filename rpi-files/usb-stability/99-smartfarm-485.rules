@@ -1,36 +1,35 @@
 # /etc/udev/rules.d/99-smartfarm-485.rules
-# SmartFarm USB-485 어댑터 안정화
-#
-# 1) 안정적 심볼릭 링크: /dev/smartfarm-485 → /dev/ttyUSBn (재인식 시에도 같은 이름)
-# 2) USB autosuspend 비활성화 (CH340 절전 후 disconnect 방지)
-# 3) add 이벤트 시 Node-RED 자동 재시작 (재연결 후 fd 점유 해제)
-# 4) remove 이벤트 시 백엔드에 USB_DISCONNECT 알림
+# SmartFarm USB-485 어댑터 안정화 (2026-09-02: 표준 노드 FTDI 분리)
+#  - CH340(1a86) = 자체 장치(Waveshare 릴레이·XY-MD02) → /dev/smartfarm-485
+#  - FTDI(0403)  = KS X 3267 표준 노드 전용 → /dev/smartfarm-485-std (자체와 물리·심링크 분리)
 #
 # 적용:
 #   sudo cp 99-smartfarm-485.rules /etc/udev/rules.d/
 #   sudo udevadm control --reload-rules
 #   sudo udevadm trigger
+#
+# ⚠ FTDI 를 꽂기 전에 이 규칙부터 넣을 것. 옛 규칙은 VID 만 봐서 CH340 과 FTDI 를 둘 다
+#   smartfarm-485 로 보냈고, FTDI 를 꽂는 순간 자체 485 심링크를 빼앗겨 측창·센서가
+#   빈 버스를 가리켰다 (2026-09-02 farm_0001). 두 칩이 모두 CH340 이면 KERNELS== 포트경로로 고정.
+#   이 사본은 2026-09-14 farm_0001 라이브(/etc/udev/rules.d/99-smartfarm-485.rules)와 동기화함.
 
-# CH340 (현재 어댑터)
+# CH340 = 자체 485
 SUBSYSTEM=="tty", ATTRS{idVendor}=="1a86", ATTRS{idProduct}=="7523", \
     SYMLINK+="smartfarm-485", \
     GROUP="dialout", MODE="0660", \
     RUN+="/usr/local/bin/smartfarm-usb-event.sh add %k"
 
-# FTDI (교체 후를 대비, FT232/FT231X 등)
+# FTDI = KS 표준 노드 전용 485 (NR 재시작 RUN 없음 — ks3267d 가 소유)
 SUBSYSTEM=="tty", ATTRS{idVendor}=="0403", \
-    SYMLINK+="smartfarm-485", \
-    GROUP="dialout", MODE="0660", \
-    RUN+="/usr/local/bin/smartfarm-usb-event.sh add %k"
+    SYMLINK+="smartfarm-485-std", \
+    GROUP="dialout", MODE="0660"
 
 # USB autosuspend 비활성화 (CH340)
 ACTION=="add", SUBSYSTEM=="usb", ATTR{idVendor}=="1a86", ATTR{idProduct}=="7523", \
     TEST=="power/control", ATTR{power/control}="on"
-
 # USB autosuspend 비활성화 (FTDI)
 ACTION=="add", SUBSYSTEM=="usb", ATTR{idVendor}=="0403", \
     TEST=="power/control", ATTR{power/control}="on"
-
 # USB-485 분리 감지 → 백엔드 알림
 ACTION=="remove", SUBSYSTEM=="tty", KERNEL=="ttyUSB*", \
     RUN+="/usr/local/bin/smartfarm-usb-event.sh remove %k"

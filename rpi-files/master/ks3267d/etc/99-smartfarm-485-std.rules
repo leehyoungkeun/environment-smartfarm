@@ -1,3 +1,7 @@
+# ⚠ 2026-09-14: 이 파일은 옛 템플릿이다. 실제 적용 규칙은 rpi-files/usb-stability/99-smartfarm-485.rules 하나로 통합됐다.
+#   (CH340→smartfarm-485, FTDI→smartfarm-485-std 를 한 파일에서 칩별로 분리). 이 파일은 두 어댑터가
+#   같은 칩일 때 serial/KERNELS 로 구분하는 예시로만 남긴다. 두 파일을 함께 넣지 말 것.
+#
 # KS X 3267 표준 노드 전용 RS485 포트 — 기존 /dev/smartfarm-485 (Waveshare/XY-MD02) 와 분리.
 # 절연형 USB-485 를 권장. 같은 CH340 이면 serial 이 없을 수 있으므로 KERNELS(USB 포트 경로)로 고정한다:
 #   udevadm info -a -n /dev/ttyUSB1 | grep -E 'KERNELS|serial' 로 값 확인 후 아래를 채운다.

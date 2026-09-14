@@ -310,6 +310,55 @@ def t_extra_level2(c):
     return t.done()
 
 
+# ── KOAT 116/117 「연결단자 해제·재연결」 — 5회, 각 2분 이내 정상 복귀 (2026-09-14) ──
+# 검정기준 마. 시험방법 1-가)·2-가): 노드 1/3 이상의 연결단자를 해제했다가 재연결하고 2분 이내 정상 출력을
+# 5회 확인한다. 시험장비의 /fault 는 버스의 모든 노드에 걸리므로 센서·구동기 노드 100% 가 해제된다(≥ 1/3).
+# 실물 시험은 M12 커넥터를 물리적으로 뽑는다 — 이 자동 시험은 '응답 없음' 을 같은 방식으로 만들어
+# 제어기의 인지·복귀 경로(드라이버 폴링 → 화면 프록시)가 기준 안에 도는지를 증명한다.
+def _unit_ok(st):
+    """드라이버 상태가 정상 폴링 결과인가 — 오류가 없고 센서/디바이스 값이 실려 있다"""
+    if not st or st.get("error"):
+        return False
+    return bool(st.get("sensors") or st.get("devices"))
+
+
+def _proxy_ok(c, unit):
+    """화면 경로: NR /api/ks3267/status — 표준노드 탭·제어판 배지가 쓰는 프록시에서도 정상인가"""
+    code, body = http("GET", f"{c.nr}/api/ks3267/status?unit={unit}", timeout=10)
+    st = body.get("state") if isinstance(body, dict) else None
+    return code == 200 and _unit_ok(st)
+
+
+def t_116_reconnect(c, cycles=5, hold=10, limit=120):
+    t = Test(c, "116-재연결", "연결단자 해제·재연결 후 2분 이내 정상 복귀 (5회)",
+             "KOAT 검정기준 116/117 통합제어기 마. 시험방법 1-가)·2-가)")
+    units = [c.su, c.au]
+    t.step("시작 전: 센서·구동기 노드 모두 정상", all(_unit_ok(c.d_status(u)) for u in units))
+    recov = []
+    try:
+        for i in range(1, cycles + 1):
+            c.s_post("/fault", {"fault": "timeout"})
+            t0 = time.time()
+            lost = c.wait_until(lambda: all(not _unit_ok(c.d_status(u)) for u in units), timeout=30, every=0.5)
+            t.step(f"{i}회 해제: 제어기가 두 노드 모두 '응답 없음' 을 인지", bool(lost), f"{time.time() - t0:.1f}s 만에 인지")
+            time.sleep(hold)
+            c.s_post("/fault", {"fault": "none"})
+            t1 = time.time()
+            back = c.wait_until(lambda: all(_unit_ok(c.d_status(u)) for u in units), timeout=limit + 10, every=0.5)
+            sec = time.time() - t1
+            recov.append(sec)
+            t.step(f"{i}회 재연결: {limit}초 이내 정상 복귀 (드라이버)", bool(back) and sec <= limit, f"{sec:.1f}s")
+            ui = c.wait_until(lambda: all(_proxy_ok(c, u) for u in units), timeout=limit, every=1.0)
+            t.step(f"{i}회 재연결: 화면 경로(NR 프록시)에서도 정상", bool(ui), f"재연결 후 {time.time() - t1:.1f}s")
+    finally:
+        c.s_post("/fault", {"fault": "none"})   # 어떤 경우에도 시험장비를 정상으로 되돌린다
+    if recov:
+        t.step("복귀 시간 요약 (기준 120초)", max(recov) <= limit,
+               f"최소 {min(recov):.1f}s / 최대 {max(recov):.1f}s / 평균 {sum(recov) / len(recov):.1f}s")
+    c.manual.append("116 연결 해제·재연결 화면 증적: 신고한 관제 방식(키오스크·웹·모바일)마다 표준노드 탭 '응답 없음' → 정상 복귀를 캡처. 실물은 M12 커넥터를 물리적으로 해제(노드 1/3 이상)")
+    return t.done()
+
+
 # ── 보고서 ────────────────────────────────────────────────────────────
 def write_report(c, out, meta):
     os.makedirs(out, exist_ok=True)
@@ -358,7 +407,7 @@ def main():
     health = c.d_get("/health")
     if not health.get("ok"):
         print("드라이버(ks3267d) 응답 없음:", health); sys.exit(2)
-    tests = [("5.4.1", t_541), ("5.4.2", t_542), ("5.4.3", t_543), ("5.5.1", t_551), ("5.5.2", t_552), ("5.5.3", t_553), ("부가-L2", t_extra_level2)]
+    tests = [("5.4.1", t_541), ("5.4.2", t_542), ("5.4.3", t_543), ("5.5.1", t_551), ("5.5.2", t_552), ("5.5.3", t_553), ("부가-L2", t_extra_level2), ("116-재연결", t_116_reconnect)]
     only = {x.strip() for x in a.only.split(",") if x.strip()}
     for tid, fn in tests:
         if only and tid not in only:

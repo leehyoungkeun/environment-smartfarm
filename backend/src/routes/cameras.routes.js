@@ -4,6 +4,8 @@
 import { Router } from "express";
 import { prisma } from "../db.js";
 import logger from "../utils/logger.js";
+import { planCameraUpdate } from "../utils/cameraPlan.js";
+import { getRpiBase } from "./config.routes.js";
 
 const router = Router();
 
@@ -18,6 +20,30 @@ function maskCamera(c) {
 }
 
 const GO2RTC_URL = process.env.GO2RTC_URL || "https://cctv.smartgreen.kr";
+
+// ━━━ 카메라 임시 사용 중단을 제어기로 전달 (2026-09-14) ━━━
+// 카메라를 사무실에 두고 제어기만 다른 농장으로 옮기면 매분 점검이 실패해 경보가 계속 울렸다.
+// 삭제하면 주소·계정을 다시 넣어야 하므로, 사용 여부만 제어기에 알려 점검·경보를 멈춘다.
+// 영상 서버 스트림은 건드리지 않는다 — 요청이 있을 때만 카메라에 붙으므로 꺼둔 동안 연결 시도가 없다.
+// 결과를 기다려 사실대로 돌려준다(전광판 설정과 같은 원칙: fire-and-forget 은 "저장 완료" 거짓 표시를 낳는다).
+async function pushCameraState(farmId, camId, enabled) {
+  try {
+    const base = getRpiBase(farmId).replace(":1880", ":3001");
+    const r = await fetch(`${base}/local-config/camera`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ camId, enabled }),
+      signal: AbortSignal.timeout(8000),
+    });
+    const body = await r.json().catch(() => ({}));
+    const delivered = r.ok && body.success === true;
+    if (!delivered) logger.warn(`📹 카메라 사용 여부 전달 거절 (${farmId}/${camId}): HTTP ${r.status}`);
+    return { delivered, status: r.status, state: body.state };
+  } catch (e) {
+    logger.warn(`📹 카메라 사용 여부 전달 실패 (${farmId}/${camId}): ${e.message}`);
+    return { delivered: false, error: e.message };
+  }
+}
 
 // ━━━ go2rtc 스트림 동기화 ━━━
 async function syncGo2rtc(farmId) {
@@ -113,6 +139,10 @@ router.post("/:farmId", async (req, res) => {
 router.put("/:farmId/:camId", async (req, res) => {
   try {
     const { name, location, rtspUrl, enabled, sortOrder } = req.body;
+    const plan = planCameraUpdate(req.body);
+    if (plan.enabledInvalid) {
+      return res.status(400).json({ success: false, error: "enabled 는 true/false 여야 합니다" });
+    }
     const update = { updatedAt: new Date() };
     if (name !== undefined) update.name = name;
     if (location !== undefined) update.location = location;
@@ -128,13 +158,20 @@ router.put("/:farmId/:camId", async (req, res) => {
 
     logger.info(`📹 카메라 수정: ${req.params.farmId}/${req.params.camId}`);
 
-    // go2rtc 동기화 (RTSP URL 변경 또는 활성화 상태 변경 시)
-    if (rtspUrl !== undefined || enabled !== undefined) {
+    // 사용 여부는 제어기로 (점검·경보). 결과를 기다린다.
+    const cameraPush = plan.pushToController
+      ? await pushCameraState(req.params.farmId, req.params.camId, camera.enabled)
+      : undefined;
+
+    // 영상 서버는 사람이 주소를 새로 넣었을 때만 갱신한다.
+    // 예전엔 사용 여부·가린 주소만 와도 DB 주소로 덮어써서 동작 중인 스트림을 깨뜨릴 수 있었다 (utils/cameraPlan.js).
+    if (plan.syncGo2rtc) {
       const syncResult = await syncGo2rtc(req.params.farmId);
-      return res.json({ success: true, data: camera, go2rtc: syncResult });
+      return res.json({ success: true, data: maskCamera(camera), go2rtc: syncResult, cameraPush });
     }
 
-    res.json({ success: true, data: camera });
+    // 응답에서도 비밀번호를 가린다 — 예전엔 PUT 응답만 원본 주소를 그대로 실어 보냈다.
+    res.json({ success: true, data: maskCamera(camera), cameraPush });
   } catch (error) {
     res.status(500).json({ success: false, error: error.message });
   }

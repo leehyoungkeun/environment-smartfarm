@@ -6,6 +6,8 @@
 # 카메라 목록: /etc/smartfarm/cameras.conf ("name mac" 한 줄씩) — smartfarm-camera-setup.sh 가 관리.
 CFG=/home/lhk/smartfarm/go2rtc.yaml
 CONF=/etc/smartfarm/cameras.conf
+# 사용 중단한 카메라 (설정 화면 토글 → 서버 → rpi-server /local-config/camera 가 쓴다, 2026-09-14)
+STATE=/home/lhk/smartfarm/cameras-state.json
 OUT=/var/lib/prometheus/node-exporter/smartfarm_camera.prom
 DISCOVER_PY=/usr/local/lib/smartfarm/onvif-discover.py
 [ -s "$CONF" ] || { rm -f "$OUT"; exit 0; }
@@ -24,9 +26,19 @@ echo '# HELP smartfarm_camera_ip_match 1 if ONVIF-discovered IP (by MAC) equals 
 echo '# TYPE smartfarm_camera_ip_match gauge'
 echo '# HELP smartfarm_camera_info configured vs discovered IP'
 echo '# TYPE smartfarm_camera_info gauge'
+echo '# HELP smartfarm_camera_enabled 1 if camera is in use, 0 if temporarily disabled in settings (not probed)'
+echo '# TYPE smartfarm_camera_enabled gauge'
 while read -r CAM MAC; do
   [ -z "$CAM" ] && continue
   MAC=$(echo "$MAC" | tr 'A-Z' 'a-z')
+  # 사용 중단한 카메라는 점검하지 않고 도달성 지표도 내지 않는다 → Camera* 경보가 풀린다.
+  # 카메라를 두고 제어기만 다른 농장에 갔을 때 경보가 매분 울리던 문제 (2026-09-14). 파일·키가 없으면 사용.
+  EN=$(python3 -c "import json;print(json.load(open('$STATE')).get('$CAM', True))" 2>/dev/null || echo True)
+  if [ "$EN" = "False" ]; then
+    echo "smartfarm_camera_enabled{cam=\"$CAM\"} 0"
+    continue
+  fi
+  echo "smartfarm_camera_enabled{cam=\"$CAM\"} 1"
   IP=$(python3 -c "import yaml,re;d=yaml.safe_load(open('$CFG'));print(re.search(r'@([0-9.]+):',d['streams']['$CAM'][0]).group(1))" 2>/dev/null)
   if [ -z "$IP" ]; then
     echo "smartfarm_camera_info{cam=\"$CAM\",configured_ip=\"none\",discovered_ip=\"none\"} 1"

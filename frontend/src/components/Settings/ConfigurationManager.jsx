@@ -170,6 +170,38 @@ const CameraManager = ({ farmId }) => {
     } catch { alert('삭제 실패'); }
   };
 
+  // ━━━ 임시 사용 중단 토글 (2026-09-14) ━━━
+  // 카메라를 사무실에 두고 제어기만 다른 농장에 오면 매분 점검이 실패해 경보가 계속 떴다.
+  // 삭제하면 주소·계정을 다시 넣어야 하므로, 끄면 점검·경보만 멈추고 켜면 바로 다시 쓴다.
+  // 서버가 제어기까지 전달됐는지 기다려 알려주므로 결과를 그대로 보여준다.
+  const [togglingId, setTogglingId] = React.useState(null);
+  const [camMsg, setCamMsg] = React.useState(null);
+  const toggleEnabled = async (cam) => {
+    const next = !cam.enabled;
+    setTogglingId(cam.camId);
+    setCamMsg(null);
+    try {
+      const res = await fetch(`${API}/cameras/${farmId}/${cam.camId}`, {
+        method: 'PUT', headers: headers(), body: JSON.stringify({ enabled: next })
+      });
+      const data = await res.json();
+      if (!data.success) {
+        setCamMsg({ type: 'err', text: '변경 실패: ' + (data.error || res.status) });
+      } else if (data.cameraPush && !data.cameraPush.delivered) {
+        setCamMsg({ type: 'err', text: `${cam.name}: 설정은 저장했지만 제어기에 전달하지 못했습니다. 제어기 전원과 네트워크를 확인한 뒤 토글을 다시 눌러 주세요.` });
+      } else {
+        setCamMsg({ type: 'ok', text: next
+          ? `${cam.name}: 다시 사용합니다. 점검과 경보가 재개됩니다.`
+          : `${cam.name}: 임시 사용 중단. 주소와 계정은 그대로 두고 점검과 경보를 멈췄습니다.` });
+      }
+      fetchCameras();
+    } catch (e) {
+      setCamMsg({ type: 'err', text: '변경 실패: ' + e.message });
+    } finally {
+      setTogglingId(null);
+    }
+  };
+
   const startEdit = (cam) => {
     setEditCam(cam);
     setForm({ name: cam.name, location: cam.location, brand: 'custom', ip: '', user: '', pass: '', port: '554', rtspUrl: cam.rtspUrl });
@@ -271,6 +303,12 @@ const CameraManager = ({ farmId }) => {
         </div>
       )}
 
+      {camMsg && (
+        <p className={`text-sm font-semibold rounded-lg px-3 py-2 border ${camMsg.type === 'ok' ? 'bg-emerald-50 border-emerald-200 text-emerald-700' : 'bg-rose-50 border-rose-200 text-rose-700'}`}>
+          {camMsg.text}
+        </p>
+      )}
+
       {cameras.length === 0 ? (
         <div className="glass-card p-8 text-center text-gray-400">
           <div className="text-4xl mb-2">📹</div>
@@ -289,14 +327,23 @@ const CameraManager = ({ farmId }) => {
                   <div className="text-sm font-bold text-gray-800 flex items-center gap-2">
                     {cam.name}
                     <span className={`px-1.5 py-0.5 rounded text-[10px] font-semibold ${cam.enabled ? 'bg-emerald-100 text-emerald-700' : 'bg-gray-100 text-gray-500'}`}>
-                      {cam.enabled ? '활성' : '비활성'}
+                      {cam.enabled ? '사용' : '사용 중단'}
                     </span>
                   </div>
                   <div className="text-xs text-gray-400">{cam.location || '-'}</div>
                   <div className="text-[10px] text-gray-300 font-mono mt-0.5 truncate max-w-[300px]">{cam.rtspUrl}</div>
+                  {!cam.enabled && (
+                    <div className="text-[11px] text-gray-500 mt-0.5">임시 사용 중단 — 설정은 보존, 점검·경보 멈춤</div>
+                  )}
                 </div>
               </div>
               <div className="flex gap-1.5">
+                <button onClick={() => toggleEnabled(cam)} disabled={togglingId === cam.camId}
+                  title={cam.enabled ? '임시 사용 중단' : '다시 사용'}
+                  aria-label={cam.enabled ? '임시 사용 중단' : '다시 사용'}
+                  className={`relative w-11 h-6 self-center rounded-full transition-all ${cam.enabled ? 'bg-emerald-500' : 'bg-gray-300'} ${togglingId === cam.camId ? 'opacity-50' : ''}`}>
+                  <span className={`absolute top-0.5 w-5 h-5 bg-white rounded-full shadow transition-all ${cam.enabled ? 'left-[22px]' : 'left-0.5'}`} />
+                </button>
                 <button onClick={() => startEdit(cam)}
                   className="px-2.5 py-1.5 rounded-lg text-xs font-semibold bg-gray-100 text-gray-600 hover:bg-gray-200">수정</button>
                 <button onClick={() => handleDelete(cam)}

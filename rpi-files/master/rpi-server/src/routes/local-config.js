@@ -109,5 +109,48 @@ router.put('/display', async (req, res) => {
   }
 });
 
+// ── 카메라 임시 사용 중단 (2026-09-14) ─────────────────────────────────
+// 카메라를 사무실에 두고 제어기만 다른 농장으로 옮기자 매분 점검(smartfarm-camera-probe.sh)이 실패해
+// CameraUnreachable·CameraIpDrift 경보가 계속 울렸다. 삭제하면 주소·계정을 다시 넣어야 한다.
+// 사용 여부만 이 파일에 적고, 점검 스크립트가 꺼진 카메라를 건너뛴다(지표가 사라져 경보가 풀린다).
+// 영상 서버(go2rtc)와 그 설정 파일은 건드리지 않는다 — 요청이 있을 때만 카메라에 붙으므로
+// 꺼둔 동안 연결 시도가 없고, 주소·계정도 그대로 보존된다. 켜면 바로 다시 쓸 수 있다.
+// 파일이 없거나 카메라 키가 없으면 "사용" 으로 본다(기본값).
+const CAMERA_STATE_PATH = '/home/lhk/smartfarm/cameras-state.json';
+
+function readCameraState() {
+  try {
+    const d = JSON.parse(fs.readFileSync(CAMERA_STATE_PATH, 'utf-8'));
+    return d && typeof d === 'object' && !Array.isArray(d) ? d : {};
+  } catch {
+    return {};
+  }
+}
+
+router.get('/camera', (req, res) => {
+  res.json({ success: true, state: readCameraState() });
+});
+
+router.put('/camera', (req, res) => {
+  const { camId, enabled } = req.body || {};
+  if (!/^[A-Za-z0-9_-]{1,40}$/.test(String(camId || ''))) {
+    return res.status(400).json({ success: false, message: 'camId 형식 오류' });
+  }
+  if (typeof enabled !== 'boolean') {
+    return res.status(400).json({ success: false, message: 'enabled 는 true/false' });
+  }
+  try {
+    const state = readCameraState();
+    state[camId] = enabled;
+    fs.mkdirSync(path.dirname(CAMERA_STATE_PATH), { recursive: true });
+    const tmp = CAMERA_STATE_PATH + '.tmp';          // 쓰는 도중 점검이 반쪽 파일을 읽지 않게
+    fs.writeFileSync(tmp, JSON.stringify(state, null, 2));
+    fs.renameSync(tmp, CAMERA_STATE_PATH);
+    return res.json({ success: true, state });
+  } catch (e) {
+    return res.status(500).json({ success: false, message: e.message });
+  }
+});
+
 module.exports = router;
 module.exports.reconcileDisplayNetwork = reconcileDisplayNetwork;

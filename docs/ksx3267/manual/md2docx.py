@@ -3,6 +3,7 @@
 실행: python docs/ksx3267/manual/md2docx.py
 """
 import io
+import sys
 import os
 import re
 
@@ -14,8 +15,13 @@ from docx.oxml.ns import qn
 from docx.shared import Pt, RGBColor, Cm
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-SRC = os.path.join(HERE, "사용설명서.md")
-OUT = os.path.join(HERE, "사용설명서.docx")
+# 대상 문서: 인자 없으면 사용설명서. Windows 콘솔에서 한글 인자가 깨지므로 영문 별칭을 받는다 (2026-09-15).
+#   python md2docx.py            → 사용설명서
+#   python md2docx.py spec       → 규격및성능설명서 (예전엔 사용설명서로 고정돼 규격서 docx 가 9/2 판에 멈춰 있었다)
+_ALIAS = {"manual": "사용설명서", "spec": "규격및성능설명서"}
+_NAME = _ALIAS.get(sys.argv[1], sys.argv[1]) if len(sys.argv) > 1 else "사용설명서"
+SRC = os.path.join(HERE, _NAME + ".md")
+OUT = os.path.join(HERE, _NAME + ".docx")
 FONT = "맑은 고딕"
 
 

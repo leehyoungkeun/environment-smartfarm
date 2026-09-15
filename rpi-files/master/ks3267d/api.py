@@ -167,6 +167,9 @@ def make_handler(master, comm_ctx=None):
                     return self._json(200, r)
                 except (KeyError, ValueError, TypeError) as e:
                     return self._json(400, {"ok": False, "error": f"bad request: {e}"})
+            if u.path == "/stats/reset":
+                # 예외·타임아웃·스캔 미응답 카운터를 0 으로 (진단 프레임은 남긴다). 시험 당일 연결 시험·§5.3 뒤 화면 정리용.
+                return self._json(200, {"ok": True, "stats": master.t.frames.reset_stats()})
             if u.path == "/test/opid":
                 # §5.3.4 f)·l)·q)·w) 전용: 쓰기영역의 OPID 워드만 새 값으로 (시험장비 역할). 화면·NR 은 쓰지 않는다. 2026-09-15
                 try:

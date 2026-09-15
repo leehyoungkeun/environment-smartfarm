@@ -200,6 +200,14 @@ router.get('/ks3267/conntest', async (req, res) => {
   res.json(await ksDaemon('GET', '/conntest?unit=' + (Number.isFinite(unit) ? unit : ''), null, 20000));
 });
 
+// 드라이버 통계(예외·타임아웃·스캔 미응답) 0 으로 — 패널/관리자 경로만
+router.post('/ks3267/stats-reset', async (req, res) => {
+  if (!isLoopbackOrTailscale(req)) {
+    return res.status(403).json({ ok: false, error: '통계 초기화는 제어기 패널 또는 관리자 원격 경로에서만 가능합니다' });
+  }
+  res.json(await ksDaemon('POST', '/stats/reset', {}));
+});
+
 // §5.4.4 제어기 로컬 1분 스냅샷(SQLite) — 인터넷 없이 저장을 보인다. 읽기 전용, 쿼리 그대로 전달 (unit, idx, start, end, limit, days).
 for (const kind of ['sensor-status', 'actuator-status', 'summary']) {
   router.get(`/ks3267/local-${kind}`, async (req, res) => {

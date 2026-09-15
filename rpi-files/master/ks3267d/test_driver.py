@@ -183,6 +183,15 @@ class Commands(unittest.TestCase):
         wr = [c for c in self.bus.calls if c[0] == "W"][-1]
         self.assertEqual((wr[2], wr[3]), (568, [w2["opid"]]))
 
+    def test_stats_reset_keeps_frames(self):
+        """통계 초기화는 카운터만 0 — 진단 프레임 버퍼는 남는다 (2026-09-16)"""
+        self.m.command(1, "switch", 1, "on")
+        self.bus.frames.stats["timeouts"] = 3
+        n_frames = len(self.bus.frames.recent(200))
+        st = self.bus.frames.reset_stats()
+        self.assertEqual(set(st.values()), {0})
+        self.assertEqual(len(self.bus.frames.recent(200)), n_frames)
+
     def test_explicit_opid_not_used_by_default(self):
         a = self.m.command(1, "switch", 1, "on")["opid"]
         b = self.m.command(1, "switch", 1, "on")["opid"]

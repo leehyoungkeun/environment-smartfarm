@@ -151,6 +151,17 @@ export const KsNodeManager = ({ farmId }) => {
     }
   };
 
+  // 예외·타임아웃 카운터 0 으로 — 시험 당일 연결 전 타임아웃·§5.3 의도된 예외가 빨갛게 남아 시험관 질문을 부르지 않게. 프레임은 남는다.
+  const resetStats = async () => {
+    if (!window.confirm('예외·타임아웃·스캔 미응답 카운터를 0 으로 되돌립니다. 진단 프레임은 남습니다. 계속할까요?')) return;
+    try {
+      const d = (await axios.post('/api/ks3267-comm/stats-reset', {}, { timeout: 10000 })).data;   // 패널 같은 출처 전용
+      if (d?.ok) setTick((x) => x + 1); else setMessage({ type: 'err', text: d?.error || '통계를 초기화하지 못했습니다' });
+    } catch (e) {
+      setMessage({ type: 'err', text: '통계 초기화 실패: ' + (e.response?.data?.error || e.message) });
+    }
+  };
+
   const runConnTest = async () => {
     setTesting(true);
     setConnTest(null);
@@ -305,6 +316,9 @@ export const KsNodeManager = ({ farmId }) => {
               <span title="폴링·명령 중 노드가 돌려준 Modbus 예외 응답 (실제 장애 지표)">예외 <b className={`${(health.stats?.exceptions ?? 0) > 0 ? 'text-rose-700' : 'text-gray-800'}`}>{health.stats?.exceptions ?? 0}</b></span>
               <span title="폴링·명령 중 응답 없음 (실제 장애 지표)">타임아웃 <b className={`${(health.stats?.timeouts ?? 0) > 0 ? 'text-rose-700' : 'text-gray-800'}`}>{health.stats?.timeouts ?? 0}</b></span>
               {health.stats?.scan_misses !== undefined && <span title="자동스캔이 두드린 빈 주소 — 장애 아님">스캔 미응답 <b className="text-gray-500">{health.stats.scan_misses}</b></span>}
+              {onPanel && ((health.stats?.exceptions ?? 0) + (health.stats?.timeouts ?? 0) + (health.stats?.scan_misses ?? 0)) > 0 && (
+                <button onClick={resetStats} className="text-xs text-blue-700 underline" title="카운터만 0 으로 — 진단 프레임은 남습니다">통계 초기화</button>
+              )}
             </div>
           )}
         </div>

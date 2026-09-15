@@ -46,6 +46,13 @@ class FrameLog:
         with self.lock:
             return list(self.buf)[-n:]
 
+    def reset_stats(self):
+        """통계만 0 으로 (프레임 버퍼는 유지) — 시험 준비가 끝난 뒤 §5.3 의 의도된 예외·연결 전 타임아웃 숫자가 화면에 빨갛게 남지 않게 (2026-09-16)"""
+        with self.lock:
+            for k in self.stats:
+                self.stats[k] = 0
+            return dict(self.stats)
+
 
 class PymodbusTransport:
     """pymodbus 3.x 동기 클라이언트 래퍼 — RTU(시리얼) 또는 TCP(시뮬레이터/개발)"""

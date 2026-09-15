@@ -198,32 +198,79 @@ app.use('/api/system/wifi', (req, res, next) => {
  * 이미 저장된 망을 못 알아보고 비밀번호를 다시 묻게 된다 (2026-09-14 현장 확인).
  * 그래서 프로필마다 실제 ssid 를 읽어 짝을 만든다.
  */
+const wifiPlan = require('./wifiPlan');
+
 async function savedWifiProfiles() {
   const r = await nmcli(['-t', '-f', 'NAME,TYPE', 'con', 'show']);
   const names = rowsOf(r.out).filter((x) => x[1] === '802-11-wireless').map((x) => x[0]);
   const pairs = await Promise.all(
     names.map(async (name) => {
-      const g = await nmcli(['-g', '802-11-wireless.ssid', 'con', 'show', name], 8000);
-      return { name, ssid: (g.out || name).trim() || name };
+      const [g, t] = await Promise.all([
+        nmcli(['-g', '802-11-wireless.ssid', 'con', 'show', name], 8000),
+        nmcli(['-g', 'connection.timestamp', 'con', 'show', name], 8000),
+      ]);
+      // everConnected: 한 번이라도 연결에 성공했는가 (2026-09-15).
+      // 틀린 비밀번호로 저장만 된 프로필을 '저장됨' 으로 착각해 비밀번호를 다시 묻지 않던 사고를 막는다.
+      return { name, ssid: (g.out || name).trim() || name, everConnected: wifiPlan.isEverConnected(t.out) };
     })
   );
   return pairs;
 }
 
+async function activeWifiName() {
+  const a = await nmcli(['-t', '-f', 'NAME,TYPE', 'con', 'show', '--active']);
+  const row = rowsOf(a.out).find((r) => r[1] === '802-11-wireless');
+  return row ? row[0] : null;
+}
+
+// 연결 결과를 장치 상태로 판정한다. 비밀번호가 틀리면 몇 초 만에 need-auth 가 이어진다.
+// 예전엔 이걸 모르고 NetworkManager 가 2분 뒤 스스로 포기할 때까지 무선이 붙잡혀 있었다.
+async function waitActivation(target, limitMs) {
+  const start = Date.now();
+  let streak = 0;
+  for (;;) {
+    await new Promise((r) => setTimeout(r, 1000));
+    const d = await nmcli(['-g', 'GENERAL.STATE,GENERAL.CONNECTION', 'dev', 'show', 'wlan0'], 5000);
+    const lines = (d.out || '').split(NL);
+    const code = wifiPlan.stateCode(lines[0] || '');
+    streak = code === 60 ? streak + 1 : 0;
+    const outcome = wifiPlan.classifyState({
+      code, connection: (lines[1] || '').trim(), target,
+      elapsedMs: Date.now() - start, needAuthStreak: streak, limitMs,
+    });
+    if (outcome !== 'waiting') return outcome;
+  }
+}
+
 // GET /api/system/wifi — 현재 연결·저장된 프로필·IP
+//
+// 2026-09-15: '현재 연결' 을 장치 상태로 판정한다. 예전엔 활성 연결 목록(con show --active)의 첫 무선을 썼는데,
+// 그 목록에는 연결 중·끊기는 중인 연결도 들어 있어 실패한 703HO 가 끊기는 순간 '현재 연결' 로 찍혔다.
+// 화면이 한눈에 확인하도록 신호·대역·채널·보안·주소·공유기·인터넷 상태를 함께 준다 (판정은 wifiPlan.describeLink).
 app.get('/api/system/wifi', async (req, res) => {
-  const [active, profiles] = await Promise.all([
-    nmcli(['-t', '-f', 'NAME,TYPE,DEVICE', 'con', 'show', '--active']),
+  const [devs, aps, ipinfo, conn, profiles] = await Promise.all([
+    nmcli(['-t', '-f', 'DEVICE,TYPE,STATE,CONNECTION', 'dev']),
+    nmcli(['-t', '-f', 'IN-USE,SSID,SIGNAL,FREQ,CHAN,RATE,SECURITY', 'dev', 'wifi', 'list', '--rescan', 'no']),
+    nmcli(['-g', 'IP4.ADDRESS,IP4.GATEWAY', 'dev', 'show', 'wlan0']),
+    nmcli(['networking', 'connectivity']),
     savedWifiProfiles(),
   ]);
-  const cur = rowsOf(active.out).find((r) => r[1] === '802-11-wireless');
+  const link = wifiPlan.describeLink({
+    device: rowsOf(devs.out).find((r) => r[0] === 'wlan0'),
+    apRows: rowsOf(aps.out),
+    ipText: ipinfo.out,
+    connectivity: conn.out,
+  });
   res.json({
     success: true,
-    connected: cur ? { ssid: cur[0], device: cur[2] } : null,
+    connected: link.state === 'connected' ? { ssid: link.ssid, device: 'wlan0' } : null,
+    link,
     // 화면은 이 목록으로 '저장됨' 을 판단하고, 저장된 망이면 비밀번호를 묻지 않는다.
-    saved: profiles.map((x) => x.ssid),
-    ip: primaryIPv4(),
+    // 실제로 연결에 성공한 적 있는 망만 넣는다 — 틀린 비밀번호로 저장만 된 망은 빠진다.
+    saved: profiles.filter((x) => x.everConnected).map((x) => x.ssid),
+    ip: link.ip || primaryIPv4(),
     hostname: os.hostname(),
+    checkedAt: Date.now(),
   });
 });
 
@@ -254,7 +301,13 @@ app.get('/api/system/wifi/scan', async (req, res) => {
 });
 
 // POST /api/system/wifi/connect  { ssid, password? }
-// 실패해도 기존 프로필은 지우지 않는다 → NetworkManager 가 원래 망으로 자동 복귀한다.
+//
+// 2026-09-15 재작성. 판단은 wifiPlan.js(순수·시험), 여기서는 실행과 정리만 한다.
+//   - 저장만 되고 성공한 적 없는 프로필은 쓰지 않고 지운 뒤 비밀번호를 받는다.
+//   - 새 비밀번호는 저장된 프로필에 명시적으로 넣고 올린다.
+//   - 결과는 장치 상태로 몇 초 안에 판정하고, 실패하면 붙잡힌 활성화를 내린다.
+//   - 실패한 새 프로필은 지우고, 잘 되던 프로필은 원래 비밀번호로 되돌린 뒤 원래 망으로 복귀시킨다.
+// 응답은 늘 200 — 500 은 프록시 계층에서 뭉개져 화면이 사유를 못 보여준다.
 app.post('/api/system/wifi/connect', async (req, res) => {
   const ssid = String((req.body && req.body.ssid) || '').trim();
   const password = String((req.body && req.body.password) || '');
@@ -263,32 +316,72 @@ app.post('/api/system/wifi/connect', async (req, res) => {
     return res.status(400).json({ success: false, error: 'WPA 비밀번호는 8~63자입니다' });
   }
 
-  // 한 번 붙었던 망이면 비밀번호를 다시 받지 않는다.
-  // NetworkManager 가 이미 그 망의 비밀번호를 갖고 있으므로 저장된 프로필을 그대로 올린다.
-  // 비밀번호를 같이 보내오면 (농장에서 공유기 비밀번호를 바꾼 경우) 새 값으로 다시 붙인다.
+  const LIMIT_MS = 30000;
+  const prevActive = await activeWifiName();
   const profiles = await savedWifiProfiles();
-  const known = profiles.find((x) => x.ssid === ssid);
-  const useSaved = !!known && !password;
+  const profile = profiles.find((x) => x.ssid === ssid) || null;
+  const plan = wifiPlan.planConnect({ password, profile });
 
-  let r;
-  if (useSaved) {
-    r = await nmcli(['con', 'up', known.name], 45000);
+  if (plan.action === 'need-password') {
+    if (plan.deleteStale) await nmcli(['con', 'delete', profile.name]);
+    return res.json({
+      success: false, ssid, needPassword: true, reason: 'need_password',
+      error: '이 WiFi 는 아직 연결에 성공한 적이 없어 비밀번호가 필요합니다. 비밀번호를 입력하세요.',
+      ip: primaryIPv4(),
+    });
+  }
+
+  let started;
+  let oldPsk = null;
+  let targetName = profile ? profile.name : ssid;
+  if (plan.action === 'up-saved') {
+    started = await nmcli(['-w', '0', 'con', 'up', profile.name], 10000);
+  } else if (plan.action === 'modify-then-up') {
+    if (plan.restorePskOnFail) {
+      const g = await nmcli(['-s', '-g', '802-11-wireless-security.psk', 'con', 'show', profile.name], 8000);
+      oldPsk = g.ok ? g.out : null;
+    }
+    const m = await nmcli(['con', 'modify', profile.name, 'wifi-sec.psk', password], 10000);
+    started = m.ok ? await nmcli(['-w', '0', 'con', 'up', profile.name], 10000) : m;
   } else {
-    const args = ['dev', 'wifi', 'connect', ssid];
+    const args = ['-w', '0', 'dev', 'wifi', 'connect', ssid];
     if (password) args.push('password', password);
-    r = await nmcli(args, 45000);
+    started = await nmcli(args, 15000);
   }
-  const after = await nmcli(['-t', '-f', 'NAME,TYPE', 'con', 'show', '--active']);
-  const connected = rowsOf(after.out).some((f) => f[0] === ssid && f[1] === '802-11-wireless');
 
-  if (!connected) {
-    // 200 으로 내려 화면이 사유를 그대로 보여주게 한다 (500 은 프록시 계층에서 뭉개진다)
-    const why = (r.err || r.out || '연결하지 못했습니다').split(NL)[0];
-    // 저장된 비밀번호로 붙다 실패했다면 공유기 비밀번호가 바뀐 경우가 흔하다.
-    // 화면이 그때만 키보드를 열 수 있도록 알려준다.
-    return res.json({ success: false, ssid, error: why, usedSaved: useSaved, needPassword: useSaved, ip: primaryIPv4() });
+  let outcome = 'failed';
+  if (started.ok) {
+    if (plan.action === 'add-connect') {
+      const created = (await savedWifiProfiles()).find((x) => x.ssid === ssid);
+      if (created) targetName = created.name;
+    }
+    outcome = await waitActivation(targetName, LIMIT_MS);
   }
-  res.json({ success: true, ssid, usedSaved: useSaved, ip: primaryIPv4(), message: '연결되었습니다' });
+
+  if (outcome === 'connected') {
+    return res.json({ success: true, ssid, usedSaved: plan.action === 'up-saved', ip: primaryIPv4(), message: '연결되었습니다' });
+  }
+
+  // 실패 정리: 무선을 붙잡은 활성화를 내리고, 틀린 흔적을 남기지 않는다
+  const cur = (await savedWifiProfiles()).find((x) => x.ssid === ssid);
+  if (cur) {
+    if (plan.deleteOnFail && !cur.everConnected) {
+      await nmcli(['con', 'delete', cur.name]);
+    } else {
+      await nmcli(['con', 'down', cur.name]);
+      if (plan.restorePskOnFail && oldPsk) await nmcli(['con', 'modify', cur.name, 'wifi-sec.psk', oldPsk]);
+    }
+  }
+  const returnedTo = prevActive && prevActive !== (cur && cur.name) ? prevActive : null;
+  if (returnedTo) nmcli(['con', 'up', returnedTo], 45000);   // 원래 쓰던 망으로 복귀 — 기다리지 않는다
+
+  const why = wifiPlan.failureMessage(outcome, started.err || started.out);
+  return res.json({
+    success: false, ssid, reason: why.reason, error: why.message,
+    needPassword: why.reason === 'wrong_password' || plan.action === 'up-saved',
+    usedSaved: plan.action === 'up-saved',
+    returnedTo, ip: primaryIPv4(),
+  });
 });
 
 // ─────────── Setup 라우터 마운트 ───────────

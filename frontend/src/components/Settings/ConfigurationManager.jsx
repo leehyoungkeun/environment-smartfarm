@@ -525,12 +525,14 @@ const ConfigurationManager = ({ farmId = import.meta.env.VITE_FARM_ID || 'farm_0
 
   const tabs = [
     { id: 'houses', label: '하우스/센서', icon: '🏠' },
+    // 네트워크는 하우스/센서 바로 다음 (2026-09-15). 키오스크 폭(1024)에서 탭 줄 끝에 잘려
+    // 농장을 옮긴 직후 가장 먼저 찾아야 할 화면을 옆으로 밀어야 보였다.
+    ...(IS_PANEL_BUILD ? [{ id: 'network', label: '네트워크', icon: '📶' }] : []),
     { id: 'cameras', label: '카메라', icon: '📹' },
     { id: 'automation', label: '자동화규칙', icon: '🤖' },
     { id: 'alerts', label: '알림설정', icon: '🔔' },
     { id: 'accessories', label: '부가장치', icon: '📺' },
     { id: 'ks3267', label: '표준노드', icon: '📐' },
-    ...(IS_PANEL_BUILD ? [{ id: 'network', label: '네트워크', icon: '📶' }] : []),
     { id: 'system', label: '시스템', icon: '⚙️' },
   ];
 

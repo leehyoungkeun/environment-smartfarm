@@ -27,6 +27,13 @@ route:
       group_interval: 1m
       repeat_interval: 1m
       continue: false
+    # KOAT 116 30일 데이터 창 경보 (2026-09-14)
+    # "어제" 손실률로 판정하므로 하루 종일 값이 같다. 4시간마다 반복하면 같은 내용이 쌓이기만 한다.
+    # 하루 한 번이면 충분하다. 해소는 send_resolved 로 그대로 온다.
+    - matchers:
+        - alertname = "KsDataWindowBroken"
+      receiver: 'backend-webhook'
+      repeat_interval: 24h
     - matchers:
         - severity = "critical"
       receiver: 'backend-webhook'

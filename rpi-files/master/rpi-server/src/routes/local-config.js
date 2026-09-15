@@ -200,6 +200,15 @@ router.get('/ks3267/conntest', async (req, res) => {
   res.json(await ksDaemon('GET', '/conntest?unit=' + (Number.isFinite(unit) ? unit : ''), null, 20000));
 });
 
+// §5.4.4 제어기 로컬 1분 스냅샷(SQLite) — 인터넷 없이 저장을 보인다. 읽기 전용, 쿼리 그대로 전달 (unit, idx, start, end, limit, days).
+for (const kind of ['sensor-status', 'actuator-status', 'summary']) {
+  router.get(`/ks3267/local-${kind}`, async (req, res) => {
+    const qs = new URLSearchParams();
+    for (const k of ['unit', 'idx', 'start', 'end', 'limit', 'days']) if (req.query[k] !== undefined) qs.set(k, String(req.query[k]));
+    res.json(await ksDaemon('GET', `/local/${kind}${qs.toString() ? '?' + qs : ''}`, null, 20000));
+  });
+}
+
 // §5.4.3 데이터 확인 — 센서 관측치·상태 변화 이력 (드라이버 폴링 해상도). 읽기 전용.
 router.get('/ks3267/changes', async (req, res) => {
   const unit = parseInt(req.query.unit, 10);

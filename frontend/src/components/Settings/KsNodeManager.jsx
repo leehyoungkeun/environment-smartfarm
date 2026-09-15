@@ -59,8 +59,12 @@ const kindLabel = (k) => (k === 'sensor' ? '센서 노드' : k === 'actuator' ? 
 
 export const KsNodeManager = ({ farmId }) => {
   const api = getApiBase();
-  const ks = useCallback((action, params) =>
-    axios.get(`${api}/config/${farmId}/ks3267/${action}`, { params, timeout: 12000 }).then(r => r.data), [api, farmId]);
+  // 패널(localhost)은 같은 출처 /api/ks3267/:action (nginx → NR 프록시 → 데몬, 인터넷·JWT 불필요) — 입고 시험장에 인터넷이 없어도 탭이 뜬다 (2026-09-15).
+  // 웹은 클라우드 백엔드 /config/:farmId/ks3267/:action 이 같은 NR 프록시로 되돌아온다.
+  const panelHost = typeof window !== 'undefined' && ['localhost', '127.0.0.1'].includes(window.location.hostname);
+  const ks = useCallback((action, params) => (panelHost
+    ? axios.get(`/api/ks3267/${action}`, { params, timeout: action === 'scan' ? 125000 : 12000 })
+    : axios.get(`${api}/config/${farmId}/ks3267/${action}`, { params, timeout: 12000 })).then(r => r.data), [api, farmId, panelHost]);
 
   const [health, setHealth] = useState(null);      // { ok, transport, nodes, stats } | { success:false, error }
   const [nodes, setNodes] = useState({});          // unit → discovery node
@@ -97,6 +101,7 @@ export const KsNodeManager = ({ farmId }) => {
   const [changes, setChanges] = useState({});      // unit → 센서 변화 이력 (§5.4.3, 드라이버 /changes)
   const [storage, setStorage] = useState({});      // unit → 서버 저장 행 최근 60분 (§5.4.4, /api/sensor-status)
   const [stateAt, setStateAt] = useState(0);       // 상태를 받은 브라우저 시각(ms) — §5.1.3 표 남은시간 카운트다운 기준
+  const [local, setLocal] = useState({});          // unit → 제어기 로컬 1분 스냅샷(SQLite) 최근 60분 — 인터넷 없이 §5.4.4·116 저장을 보인다
 
   const loadComm = useCallback(async () => {
     try {
@@ -189,6 +194,14 @@ export const KsNodeManager = ({ farmId }) => {
             .then((r) => r.data).catch((e) => ({ error: e.response?.data?.error || e.message }))));
           if (!alive) return;
           setStorage(Object.fromEntries(sensorUnits.map((u, i) => [u, sts[i]])));
+          if (onPanel) {
+            const allUnits = Object.entries(n.nodes || {}).filter(([, nd]) => nd?.kind === 'sensor' || nd?.kind === 'actuator');
+            const start = Math.floor(Date.now() / 1000) - 3600;
+            const loc = await Promise.all(allUnits.map(([u, nd]) => commGet(nd.kind === 'sensor' ? 'local-sensor-status' : 'local-actuator-status', { unit: u, start })
+              .catch((e) => ({ ok: false, error: e.response?.data?.error || e.message }))));
+            if (!alive) return;
+            setLocal(Object.fromEntries(allUnits.map(([u], i) => [u, loc[i]])));
+          }
           if (showDiag) {
             const [f, e] = await Promise.all([ks('frames', { n: 40 }), ks('events', { n: 30 })]);
             if (!alive) return;
@@ -201,7 +214,7 @@ export const KsNodeManager = ({ farmId }) => {
       }
     })();
     return () => { alive = false; };
-  }, [ks, commGet, api, farmId, tick, showDiag]);
+  }, [ks, commGet, api, farmId, onPanel, tick, showDiag]);
 
   useEffect(() => {
     const t = setInterval(() => setTick(x => x + 1), 10000);
@@ -521,7 +534,7 @@ export const KsNodeManager = ({ farmId }) => {
             아직 찾은 노드가 없습니다.{daemonUp ? ' 위 ② 에서 탐색하거나 스캔하세요.' : ' 먼저 ① 드라이버가 연결되어야 합니다.'}
           </div>
         ) : unitList.map(unit => (
-          <NodeCard key={unit} unit={unit} node={nodes[unit]} st={state[unit]} mapping={mapping.map} changes={changes[unit] || []} storage={storage[unit]} stateAt={stateAt} />
+          <NodeCard key={unit} unit={unit} node={nodes[unit]} st={state[unit]} mapping={mapping.map} changes={changes[unit] || []} storage={storage[unit]} stateAt={stateAt} local={local[unit]} />
         ))}
       </Section>
 
@@ -570,7 +583,7 @@ export const KsNodeManager = ({ farmId }) => {
   );
 };
 
-const NodeCard = ({ unit, node, st, mapping, changes = [], storage, stateAt = 0 }) => {
+const NodeCard = ({ unit, node, st, mapping, changes = [], storage, stateAt = 0, local }) => {
   // §5.5.2 f)·§5.5.3 f)o) — 남은 작동시간은 10초 폴링 사이에도 흘러야 '적절히 표시' 다. 받은 시각부터 지난 초를 뺀다.
   const [nowMs, setNowMs] = useState(Date.now());
   useEffect(() => { const id = setInterval(() => setNowMs(Date.now()), 1000); return () => clearInterval(id); }, []);
@@ -749,7 +762,7 @@ const NodeCard = ({ unit, node, st, mapping, changes = [], storage, stateAt = 0 
               {storage?.error ? (
                 <p className="text-sm text-rose-700">서버 저장 행을 읽지 못했습니다: {storage.error}</p>
               ) : sc.sensors.length === 0 ? (
-                <p className="text-sm text-gray-500">최근 60분 저장 행이 없습니다. NR 「표준 구동기 1분 스냅샷」이 센서 행(sensorRows)을 보내는 판이어야 합니다.</p>
+                <p className="text-sm text-gray-500">서버에 최근 60분 저장 행이 없습니다(인터넷·NR 스냅샷 확인). 인터넷이 없으면 아래 「제어기 로컬 저장」 으로 확인하세요.</p>
               ) : (
                 <div className="space-y-3">
                   <div className="overflow-x-auto">
@@ -787,6 +800,51 @@ const NodeCard = ({ unit, node, st, mapping, changes = [], storage, stateAt = 0 
                       </tbody>
                     </table>
                   </details>
+                </div>
+              )}
+            </SubBox>
+          );
+        })()}
+
+        {/* 제어기 로컬 1분 저장 (SQLite, 60일) — 패널에서만. 인터넷 없이 §5.4.4(센서)·116(구동기) 저장을 그 자리에서 보인다 (2026-09-15) */}
+        {local && (() => {
+          const rows = local.data || [];
+          const lc = storageCheck(rows, local.intervalSec || 60);
+          const fmt = (t) => new Date(t).toLocaleTimeString('ko-KR', { hour12: false });
+          const isSensor = node.kind === 'sensor';
+          return (
+            <SubBox title={isSensor ? '§5.4.4 제어기 로컬 저장 (SQLite)' : '116 구동기 상태 1분 저장 — 제어기 로컬 (SQLite)'}
+              desc="드라이버가 매분 남기는 사본, 60일 보존 — 서버가 안 닿아도 이 자리에서 확인" tone="gray"
+              right={<>
+                {lc.total > 0 && <Pill tone={lc.ok ? 'on' : 'warn'}>{lc.ok ? '저장주기대로' : '빈틈 있음'}</Pill>}
+                <Pill tone={lc.total ? 'ok' : 'muted'}>{lc.total}행 / 60분</Pill>
+              </>}>
+              {local.error || local.ok === false ? (
+                <p className="text-sm text-rose-700">로컬 저장소를 읽지 못했습니다: {local.error || '드라이버 응답 없음'}</p>
+              ) : lc.sensors.length === 0 ? (
+                <p className="text-sm text-gray-500">아직 로컬 행이 없습니다. 드라이버가 분이 바뀔 때 첫 행을 남깁니다.</p>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="text-gray-600 text-left bg-gray-50 border-y border-gray-200">
+                        <th className="py-1 px-2">{isSensor ? '센서' : '디바이스'}</th><th className="px-2">저장 행</th><th className="px-2">기대(1분)</th><th className="px-2">빈틈</th><th className="px-2">상태코드 종류</th><th className="px-2">마지막</th><th className="px-2">판정</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {lc.sensors.map(x => (
+                        <tr key={x.idx} className="border-b border-gray-100">
+                          <td className="py-1 px-2">#{x.idx} {x.name}</td>
+                          <td className="px-2 font-mono">{x.rows}</td>
+                          <td className="px-2 font-mono">{x.expected}</td>
+                          <td className="px-2 font-mono">{x.gaps}</td>
+                          <td className="px-2 font-mono">{x.statuses.join(', ')}</td>
+                          <td className="px-2 font-mono">{x.last ? `${fmt(x.last.timestamp)} · ${isSensor ? (x.last.value ?? '—') : ('남은 ' + (x.last.remain ?? 0) + 's')} · ${x.last.status}` : '—'}</td>
+                          <td className="px-2"><Pill tone={x.ok ? 'on' : x.rows < 2 ? 'muted' : 'warn'}>{x.ok ? '✓ 저장주기대로' : x.rows < 2 ? '행 부족' : '빈틈 ' + x.gaps}</Pill></td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
                 </div>
               )}
             </SubBox>

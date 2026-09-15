@@ -267,7 +267,8 @@ def t_544(c):
     start = dt.datetime.utcfromtimestamp(t0).strftime("%Y-%m-%dT%H:%M:%SZ")
     end = dt.datetime.utcfromtimestamp(t1).strftime("%Y-%m-%dT%H:%M:%SZ")
     url = f"{c.server}/internal/sensor-status?farmId={c.farm_id}&unit={c.su}&idx={idx}&startDate={start}&endDate={end}"
-    req = urllib.request.Request(url, headers={"x-api-key": key})
+    # User-Agent 필수 — 기본 'Python-urllib' 는 Cloudflare 가 403 으로 막는다 (2026-09-15 첫 실행에서 확인)
+    req = urllib.request.Request(url, headers={"x-api-key": key, "User-Agent": "ks3267-selftest/1.0", "Accept": "application/json"})
     try:
         with urllib.request.urlopen(req, timeout=20) as r:
             body = json.loads(r.read().decode("utf-8"))

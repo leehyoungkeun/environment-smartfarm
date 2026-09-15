@@ -94,6 +94,32 @@ def make_handler(master, comm_ctx=None):
                     if "unit" in q:
                         return self._json(200, {"ok": True, "now": time.time(), "changes": master.changes.get(int(q["unit"][0]), [])[-n:]})
                     return self._json(200, {"ok": True, "now": time.time(), "changes": {str(u_): v[-n:] for u_, v in master.changes.items()}})
+                if u.path.startswith("/local/"):
+                    # 제어기 로컬 1분 스냅샷 (SQLite) — 인터넷 없이 §5.4.4·116 저장을 그 자리에서 보인다 (2026-09-15)
+                    store = ctx.get("store") if ctx else None
+                    if store is None:
+                        return self._json(200, {"ok": False, "error": "로컬 스냅샷 저장소가 없습니다"})
+                    g = lambda k, d=None: (q.get(k, [d])[0] if k in q else d)
+                    f = lambda k: (float(g(k)) if g(k) not in (None, "") else None)
+                    if u.path == "/local/summary":
+                        return self._json(200, {"ok": True, "days": store.summary(int(g("days", "31"))), "path": store.path})
+                    kind = u.path[len("/local/"):]
+                    if kind not in ("sensor-status", "actuator-status"):
+                        return self._json(404, {"ok": False, "error": "not found"})
+                    unit = int(g("unit")) if g("unit") not in (None, "") else None
+                    fn = store.query_sensor if kind == "sensor-status" else store.query_actuator
+                    rows = fn(unit=unit, idx=g("idx"), start=f("start"), end=f("end"), limit=int(g("limit", "5000")))
+                    if g("format") == "csv":
+                        cols = ["timestamp", "unit", "idx", "code", "name", "value", "status", "status_name"] if kind == "sensor-status" \
+                            else ["timestamp", "unit", "idx", "kind", "n", "name", "opid", "status", "status_name", "remain"]
+                        body = store.to_csv(rows, cols).encode("utf-8")
+                        self.send_response(200)
+                        self.send_header("Content-Type", "text/csv; charset=utf-8")
+                        self.send_header("Content-Length", str(len(body)))
+                        self.end_headers()
+                        self.wfile.write(body)
+                        return None
+                    return self._json(200, {"ok": True, "now": time.time(), "intervalSec": 60, "count": len(rows), "data": rows})
                 if u.path == "/comm":
                     if not ctx:
                         return self._json(200, {"ok": False, "error": "이 실행 방식은 통신 설정 변경을 지원하지 않습니다"})

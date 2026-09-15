@@ -24,6 +24,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from api import serve  # noqa: E402
 from comm import list_ports, load_comm  # noqa: E402
+from localstore import LocalStore  # noqa: E402
 from master import KsMaster  # noqa: E402
 from transport import FrameLog, ModbusExc, PymodbusTransport, TransportTimeout  # noqa: E402
 
@@ -42,10 +43,17 @@ def push_status(url, payload):
 HEARTBEAT_SEC = 60  # 변화가 없어도 이 주기로 NR 에 상태를 밀어준다 — NR 1분 스냅샷(116 검정)이 "낡은 상태"로 버리지 않게
 
 
-def poll_loop(master, units, interval, nr_url, stop):
+def poll_loop(master, units, interval, nr_url, stop, store=None):
     last = {}
     last_push = {}
     while not stop.is_set():
+        if store is not None:
+            try:
+                r = store.record(master.state)   # 분이 바뀌었을 때만 로컬 1분 스냅샷 (§5.4.4 오프라인 조회, 2026-09-15)
+                if r and (r["sensors"] or r["actuators"]):
+                    log.debug("로컬 스냅샷 %s: 센서 %d·구동기 %d", r["minute"], r["sensors"], r["actuators"])
+            except Exception as e:
+                log.warning("로컬 스냅샷 실패: %s", e)
         for unit in list(units):
             if unit not in master.nodes:
                 try:
@@ -80,6 +88,7 @@ def main():
     p.add_argument("--retries", type=int, default=0, help="기본 0 — 버스 문제를 재시도로 가리지 않는다")
     p.add_argument("--state-dir", default=os.path.join(os.path.dirname(os.path.abspath(__file__)), "state"))
     p.add_argument("--nr-url", default="", help="상태 변화 POST 대상 (예: http://127.0.0.1:1880/api/ks3267/status)")
+    p.add_argument("--local-days", type=int, default=60, help="로컬 1분 스냅샷 보존 일수 (state/snapshots.db)")
     a = p.parse_args()
     os.makedirs(a.state_dir, exist_ok=True)
     comm_path = os.path.join(a.state_dir, "comm.json")
@@ -115,10 +124,11 @@ def main():
 
     master = KsMaster(t, state_dir=a.state_dir)
     units = [int(x) for x in a.units.split(",") if x.strip()]
-    srv = serve(master, port=a.api_port, comm_ctx={"path": comm_path, "build": build, "list_ports": list_ports})
-    log.info("ks3267d 시작 — %s, units=%s, api=127.0.0.1:%d, retries=%d", t.desc, units, a.api_port, a.retries)
+    store = LocalStore(os.path.join(a.state_dir, "snapshots.db"), retention_days=a.local_days)
+    srv = serve(master, port=a.api_port, comm_ctx={"path": comm_path, "build": build, "list_ports": list_ports, "store": store})
+    log.info("ks3267d 시작 — %s, units=%s, api=127.0.0.1:%d, retries=%d, 로컬 스냅샷 %s (%d일)", t.desc, units, a.api_port, a.retries, store.path, a.local_days)
     stop = threading.Event()
-    th = threading.Thread(target=poll_loop, args=(master, units, a.poll, a.nr_url, stop), daemon=True)
+    th = threading.Thread(target=poll_loop, args=(master, units, a.poll, a.nr_url, stop, store), daemon=True)
     th.start()
     try:
         while True:

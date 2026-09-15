@@ -33,12 +33,42 @@ for (const house of (config.houses || [])) {
     }
 }
 
+// 표준 센서 1분 스냅샷 (SPS-7466 §5.4.4 c·d, 2026-09-15) — 탐색된 표준 센서 노드의 **모든** 센서 관측치·상태를 매분 남긴다.
+// 운영 파이프라인(③ 수집)은 상태 101~103 인 값을 일부러 생략하지만, 여기는 상태가 무엇이든 그대로 기록한다(시험·116 센서 상태정보).
+// 매핑(하우스/센서)이 있으면 house_id/sensor_id 를 같이 적는다. 같은 요청의 sensorRows 로 보낸다(서버 표 ks_sensor_status).
+const sensorRows = [];
+const mapOf = {};
+for (const house of (config.houses || [])) {
+    for (const s of (house.sensors || [])) {
+        if (s.ks3267) mapOf[Number(s.ks3267.unit) + ':' + Number(s.ks3267.index)] = { houseId: house.houseId, sensorId: s.sensorId };
+    }
+}
+for (const unitKey of Object.keys(all)) {
+    const st = all[unitKey];
+    if (!st || st.kind !== 'sensor' || !st.sensors) continue;
+    const rec = Date.parse(st.receivedAt || '') || 0;
+    if (now - rec > STALE_MS) continue;
+    for (const idxKey of Object.keys(st.sensors)) {
+        const r = st.sensors[idxKey];
+        if (!r || r.status === undefined) continue;
+        const m = mapOf[Number(unitKey) + ':' + Number(idxKey)] || {};
+        sensorRows.push({
+            timestamp: minuteIso, unit: Number(unitKey), idx: Number(idxKey), code: Number(r.code) || null, name: r.name || null,
+            value: (typeof r.value === 'number' && isFinite(r.value)) ? r.value : null,
+            status: Number(r.status), statusName: r.status_name || null, houseId: m.houseId || null, sensorId: m.sensorId || null
+        });
+    }
+}
+
 let queue = (flow.get('ksSnapshotQueue') || []).concat(rows);
 if (queue.length > 20000) queue = queue.slice(queue.length - 20000);
 flow.set('ksSnapshotQueue', queue);
+let squeue = (flow.get('ksSensorSnapshotQueue') || []).concat(sensorRows);
+if (squeue.length > 60000) squeue = squeue.slice(squeue.length - 60000);   // 30센서 × 2000분
+flow.set('ksSensorSnapshotQueue', squeue);
 
-if (queue.length === 0) {
-    node.status({ fill: 'grey', shape: 'ring', text: '표준 장치 없음/상태 낡음 — 기록 없음' });
+if (queue.length === 0 && squeue.length === 0) {
+    node.status({ fill: 'grey', shape: 'ring', text: '표준 장치·센서 없음/상태 낡음 — 기록 없음' });
     return null;
 }
 
@@ -47,8 +77,9 @@ const pcServer = global.get('pcServerUrl') || 'https://api.smartgreen.kr';
 msg.method = 'POST';
 msg.url = pcServer + '/internal/actuator-status';
 msg.headers = { 'Content-Type': 'application/json', 'x-api-key': env.get('SENSOR_API_KEY') || global.get('sensorApiKey') || '' };
-msg.payload = { farmId: global.get('farmId') || env.get('FARM_ID') || 'farm_0001', rows: queue.slice(0, BATCH) };
+msg.payload = { farmId: global.get('farmId') || env.get('FARM_ID') || 'farm_0001', rows: queue.slice(0, BATCH), sensorRows: squeue.slice(0, BATCH) };
 msg.requestTimeout = 10000;
 msg._sent = Math.min(queue.length, BATCH);
-node.status({ fill: 'blue', shape: 'dot', text: '전송 ' + msg._sent + '행 (이번 분 ' + rows.length + ')' });
+msg._sentSensors = Math.min(squeue.length, BATCH);
+node.status({ fill: 'blue', shape: 'dot', text: '전송 장치 ' + msg._sent + '·센서 ' + msg._sentSensors + '행 (이번 분 ' + rows.length + '/' + sensorRows.length + ')' });
 return msg;

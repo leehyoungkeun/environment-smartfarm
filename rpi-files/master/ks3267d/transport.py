@@ -55,6 +55,12 @@ class PymodbusTransport:
         from pymodbus.framer import FramerType
         self.frames = frames or FrameLog()
         self.probing = False   # master.scan() 이 켠다 — 그동안의 실패는 scan_misses 로 집계
+        # 화면의 통신 설정·§5.4.1 연결 시험이 읽는다 (2026-09-15)
+        self.mode = "tcp" if tcp else "serial"
+        self.port = None if tcp else port
+        self.baud = None if tcp else baud
+        self.tcp = tcp
+        self.timeout = timeout
         if tcp:
             host, _, p = tcp.partition(":")
             self.client = ModbusTcpClient(host, port=int(p or 502), timeout=timeout, retries=retries,
@@ -68,6 +74,9 @@ class PymodbusTransport:
 
     def connect(self):
         return self.client.connect()
+
+    def is_connected(self):
+        return bool(getattr(self.client, "connected", False))
 
     def close(self):
         self.client.close()

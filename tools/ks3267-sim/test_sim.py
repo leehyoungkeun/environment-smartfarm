@@ -115,6 +115,56 @@ class SensorNodeBehavior(unittest.TestCase):
         self.assertEqual(codes[0], 1); self.assertEqual(codes[3], 2)
         self.assertEqual(codes[1], 0, "미부착은 0")
 
+    def test_set_attached_rewrites_device_codes_at_runtime(self):
+        """§5.4.2 b) 시험장비 스펙 설정 — 실행 중 부착 집합을 바꾸면 101+i 코드가 따라 바뀐다 (2026-09-15)"""
+        n = DefaultMapNode("sensor")
+        self.assertEqual(sum(1 for c in n.read(101, 30) if c), 30)
+        n.set_attached([1, 2, 3, 4, 13])
+        codes = n.read(101, 30)
+        self.assertEqual([i + 1 for i, c in enumerate(codes) if c], [1, 2, 3, 4, 13])
+        self.assertEqual((codes[0], codes[3], codes[12]), (1, 2, 11), "온도·습도·CO2 코드")
+        self.assertEqual(n.read(M.sensor_value_reg(1), 2), n.read(M.sensor_value_reg(1), 2), "값·상태 레지스터는 그대로 (코드만 바뀐다)")
+        n.set_attached(None)
+        self.assertEqual(sum(1 for c in n.read(101, 30) if c), 30, "None = 전부 부착으로 복귀")
+        self.assertEqual(n.log[-1][1], "spec_set")
+
+    def test_status_cycle_changes_every_period(self):
+        """§5.4.3 c) 상태가 일정 주기마다 바뀐다 — 첫 원소 즉시, 이후 period 마다 다음 원소, 값은 유지 (2026-09-15)"""
+        clk = FakeClock()
+        n = DefaultMapNode("sensor", clock=clk)
+        n.set_sensor(1, 28.8, M.ST_READY)
+        n.set_cycle(1, statuses=[103, 102, 0], period=4.0)
+        st = lambda: n.read(M.sensor_status_reg(1), 1)[0]
+        self.assertEqual(st(), 103, "첫 원소 즉시")
+        clk.advance(3.9); n.tick(); self.assertEqual(st(), 103, "주기 전엔 그대로")
+        clk.advance(0.2); n.tick(); self.assertEqual(st(), 102)
+        clk.advance(4.0); n.tick(); self.assertEqual(st(), 0)
+        clk.advance(4.0); n.tick(); self.assertEqual(st(), 103, "순환")
+        self.assertAlmostEqual(regs_to_float(*n.read(M.sensor_value_reg(1), 2)), 28.8, places=2, msg="값은 유지")
+        clk.advance(8.5); n.tick(); self.assertEqual(st(), 0, "틱이 늦어도 주기 수를 맞춘다 (2주기 진행)")
+        n.set_cycle(1)  # 해제
+        self.assertNotIn(1, n.cycles)
+        clk.advance(4.0); n.tick(); self.assertEqual(st(), 0, "해제 후 변화 없음")
+
+    def test_value_cycle_keeps_status(self):
+        clk = FakeClock()
+        n = DefaultMapNode("sensor", clock=clk)
+        n.set_sensor(4, 60.0, 103)
+        n.set_cycle(4, values=[10.0, 20.0], period=1.0)
+        self.assertAlmostEqual(regs_to_float(*n.read(M.sensor_value_reg(4), 2)), 10.0, places=3)
+        self.assertEqual(n.read(M.sensor_status_reg(4), 1)[0], 103, "상태는 유지")
+        clk.advance(1.0); n.tick()
+        self.assertAlmostEqual(regs_to_float(*n.read(M.sensor_value_reg(4), 2)), 20.0, places=3)
+        with self.assertRaises(ValueError):
+            n.set_cycle(4, values=[1.0], period=0)
+
+    def test_set_attached_actuator(self):
+        n = DefaultMapNode("actuator")
+        n.set_attached([1, 17])
+        codes = n.read(101, 24)
+        self.assertEqual([i + 1 for i, c in enumerate(codes) if c], [1, 17])
+        self.assertEqual((codes[0], codes[16]), (M.DEV_SWITCH_L1, M.DEV_OPENER_L1))
+
     def test_sensor_value_roundtrip(self):
         n = DefaultMapNode("sensor")
         n.set_sensor(1, 28.8)

@@ -1,0 +1,82 @@
+{
+ "meta": {
+  "at": "2026-09-15 22:44:10",
+  "transport": "tcp 127.0.0.1:5020"
+ },
+ "results": [
+  {
+   "id": "5.4.3",
+   "title": "데이터 확인 시험",
+   "ref": "SPS-7466 §5.4.3 a)~d) (관측치 CDAB float · 상태코드 주기 변경)",
+   "ok": true,
+   "steps": [
+    {
+     "step": "a)b) 관측치 21.5 가상 설정 → 제어기가 읽음",
+     "ok": true,
+     "detail": "{'name': '온도1', 'code': 1, 'value': 21.5, 'status': 0, 'status_name': 'READY'}"
+    },
+    {
+     "step": "a)b) 관측치 30.25 가상 설정 → 제어기가 읽음",
+     "ok": true,
+     "detail": "{'name': '온도1', 'code': 1, 'value': 30.25, 'status': 0, 'status_name': 'READY'}"
+    },
+    {
+     "step": "a)b) 관측치 -3.0 가상 설정 → 제어기가 읽음",
+     "ok": true,
+     "detail": "{'name': '온도1', 'code': 1, 'value': -3.0, 'status': 0, 'status_name': 'READY'}"
+    },
+    {
+     "step": "a)b) 관측치 28.8 가상 설정 → 제어기가 읽음",
+     "ok": true,
+     "detail": "{'name': '온도1', 'code': 1, 'value': 28.8, 'status': 0, 'status_name': 'READY'}"
+    },
+    {
+     "step": "c) 시험장비 상태를 4.0s 주기로 [103, 102, 0] 순환하도록 설정",
+     "ok": true,
+     "detail": "{'ok': True, 'index': 1, 'cycle': {'values': [], 'statuses': [103, 102, 0], 'period': 4.0}}"
+    },
+    {
+     "step": "d) 제어기가 상태 변화를 매번 순서대로 읽음 — 관측 [103, 102, 0, 103]",
+     "ok": true,
+     "detail": "변화 이력 4건, 상태명 ['NEED_CHECK', 'NEED_CALIBRATION', 'READY', 'NEED_CHECK']"
+    },
+    {
+     "step": "d') 변화 간격 ≈ 설정 주기 4.0s (폴링 2.0s 오차 내)",
+     "ok": true,
+     "detail": "간격 [4.0, 4.0, 4.0]s"
+    },
+    {
+     "step": "   해제 후 상태 0(READY) 복귀 확인",
+     "ok": true,
+     "detail": "{'name': '온도1', 'code': 1, 'value': 28.8, 'status': 0, 'status_name': 'READY'}"
+    }
+   ]
+  }
+ ],
+ "manual": [
+  "§5.4.4 데이터 저장 시험(10분 이상): 센서를 하우스/센서 탭에서 표준 노드에 매핑(temp_std ← U2 센서1) 후 10분 뒤 API `GET /api/sensors/farm_0001/house_0001/history?startDate=…` 로 1분 단위 저장 확인 — 이 스크립트는 운영 houseConfig 를 건드리지 않는다"
+ ],
+ "stats": {
+  "tx": 36,
+  "rx": 36,
+  "exceptions": 0,
+  "timeouts": 0,
+  "scan_misses": 0
+ },
+ "events": [
+  {
+   "t": 1789479844.9797106,
+   "kind": "actuator",
+   "unit": 1,
+   "supported": true,
+   "devices": 24
+  },
+  {
+   "t": 1789479844.996146,
+   "kind": "sensor",
+   "unit": 2,
+   "supported": true,
+   "devices": 30
+  }
+ ]
+}

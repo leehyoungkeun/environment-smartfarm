@@ -7,6 +7,7 @@ import Config from "../models/Config.js";
 import { pool } from "../db.js";
 import logger from "../utils/logger.js";
 import mqttService from "../services/mqttClient.js";
+import { authorize } from "../middleware/auth.middleware.js";
 
 const router = express.Router();
 
@@ -729,6 +730,50 @@ router.get("/:farmId/ks3267/:action", async (req, res) => {
   } catch (error) {
     res.json({ ok: false, success: false, error: `RPi 연결 실패: ${error.message}` });
   }
+});
+
+// ━━━ KS X 3267 표준 노드 — 통신 설정·§5.4.1 연결 시험 (2026-09-15) ━━━
+// 통신 설정은 쓰기라 Node-RED 의 읽기 전용 프록시를 거치지 않는다.
+// RPi rpi-server(3001, Tailscale 허용) /local-config/ks3267/* → 드라이버(127.0.0.1:3002).
+// 변경은 사람(JWT)만, 농장 소유자 이상. 농장 키 요청(장치)은 req.user 가 없어 authorize 에서 401.
+async function ksCommProxy(farmId, method, pathname, body) {
+  const base = getRpiBase(farmId).replace(":1880", ":3001");
+  try {
+    const r = await fetch(`${base}/local-config${pathname}`, {
+      method,
+      headers: { ...(await rpiHeaders(farmId)), ...(body ? { "Content-Type": "application/json" } : {}) },
+      body: body ? JSON.stringify(body) : undefined,
+      signal: AbortSignal.timeout(25000),
+    });
+    const data = await r.json().catch(() => ({ ok: false, error: `RPi 응답 파싱 실패 (${r.status})` }));
+    // 502 로 내보내지 않는다 — Cloudflare 가 삼켜 브라우저엔 Network Error 로만 보인다
+    if (!r.ok) data.upstreamStatus = r.status;
+    return data;
+  } catch (error) {
+    return { ok: false, error: `RPi 연결 실패: ${error.message}` };
+  }
+}
+
+router.get("/:farmId/ks3267-comm", async (req, res) => {
+  res.json(await ksCommProxy(req.params.farmId, "GET", "/ks3267/comm"));
+});
+
+router.put("/:farmId/ks3267-comm", authorize("owner"), async (req, res) => {
+  const who = req.user?.username || req.user?.id || "?";
+  logger.info(`📐 표준 노드 통신 설정 변경: ${req.params.farmId} by ${who} ${JSON.stringify(req.body || {})}`);
+  res.json(await ksCommProxy(req.params.farmId, "PUT", "/ks3267/comm", req.body || {}));
+});
+
+router.get("/:farmId/ks3267-conntest", async (req, res) => {
+  const unit = parseInt(req.query.unit, 10);
+  res.json(await ksCommProxy(req.params.farmId, "GET", `/ks3267/conntest?unit=${Number.isFinite(unit) ? unit : ""}`));
+});
+
+// §5.4.3 데이터 확인 — 센서 관측치·상태 변화 이력 (읽기 전용)
+router.get("/:farmId/ks3267-changes", async (req, res) => {
+  const unit = parseInt(req.query.unit, 10);
+  const n = Math.min(Math.max(parseInt(req.query.n, 10) || 60, 1), 300);
+  res.json(await ksCommProxy(req.params.farmId, "GET", `/ks3267/changes?n=${n}${Number.isFinite(unit) ? `&unit=${unit}` : ""}`));
 });
 
 router.get("/sync-status/:farmId", async (req, res) => {

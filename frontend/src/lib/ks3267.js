@@ -289,3 +289,152 @@ export function frameRows(frames) {
     error: f.error || '',
   }));
 }
+
+/**
+ * 통신 설정을 바꾸기 전에 확인받을 경고 (2026-09-15).
+ * current / next: { mode: 'serial'|'tcp', port, baud }
+ */
+export function commChangeWarnings(current, next) {
+  const w = [];
+  if (!next) return w;
+  const cur = current || {};
+  if (cur.mode === 'tcp' && next.mode === 'serial') {
+    w.push('시뮬레이터에서 실제 RS485 로 바꿉니다. 노드가 배선돼 있지 않으면 표준 구동기 1분 데이터가 끊겨 검정 30일 데이터 창이 다시 시작됩니다.');
+  }
+  if (cur.mode === 'serial' && next.mode === 'tcp') {
+    w.push('실제 RS485 에서 시뮬레이터로 바꿉니다. 이후 표준 노드 값은 실측이 아니라 시험장비 값입니다.');
+  }
+  if (next.mode === 'serial' && Number(next.baud) !== 9600) {
+    w.push(`통신 속도 ${next.baud} 는 KS X 3267 표준(9600)이 아닙니다. 검정에서는 9600 을 쓰세요.`);
+  }
+  if (cur.mode === 'serial' && next.mode === 'serial' && cur.port && next.port && cur.port !== next.port) {
+    w.push('포트를 바꾸면 지금 포트의 노드와 연결이 끊깁니다.');
+  }
+  return w;
+}
+
+// ── §5.1.2 e) 디바이스 코드 대조 · §5.1.3 선행 조건과 관측치 범위 (2026-09-15) ──
+// 점검에서 찾은 빈틈 세 가지:
+//   1) 센서 코드가 디폴트맵 위치의 기대 코드와 달라도 「연결된 디바이스」 표에 정상처럼 보였다
+//      (드라이버 메모가 '미지원' 표시의 마우스 올림 설명에만 있었고, 센서는 미지원으로 분류되지 않음).
+//   2) §5.1.3 은 §5.1.2 를 통과한 경우에 한다(a)는데, 불일치 노드에서도 '전 항목 적절' 이 나왔다.
+//   3) '적절한 값' 판정이 정의된 상태코드 + 숫자 관측치까지라, 습도 250% 도 적절로 보였다.
+
+/** 부속서 A.1.2 센서 노드 디바이스 순번 → 기대 장치코드. rpi-files/master/ks3267d/ks3267core/ksmap.py SENSOR_DEVICE_CODES 와 같아야 한다 (시험이 대조). */
+export const KS_SENSOR_EXPECTED_CODE = {
+  1: 1, 2: 1, 3: 1, 4: 2, 5: 3, 6: 4, 7: 5, 8: 6, 9: 7, 10: 8, 11: 9, 12: 10,
+  13: 11, 14: 12, 15: 13, 16: 14, 17: 15, 18: 16, 19: 17,
+  20: 1, 21: 1, 22: 1, 23: 1, 24: 1, 25: 1, 26: 1, 27: 2, 28: 2, 29: 18, 30: 18,
+};
+
+/** 연결된 디바이스 개수·종류 요약 — §5.4.2 d)·§5.5.1 d) "연결된 센서(구동기)의 개수와 종류가 설정대로" 를 시험장비 설정과 한눈에 대조한다.
+ *  센서는 장치코드 → 종류(온도·습도·CO2…), 구동기는 스위치/개폐기. 예: { count: 5, text: '온도 3 · 습도 1 · CO2 1' } */
+export function deviceKindSummary(node) {
+  if (!node || !Array.isArray(node.devices) || node.devices.length === 0) return { count: 0, text: '' };
+  const counts = new Map();
+  for (const d of node.devices) {
+    const name = node.kind === 'sensor'
+      ? (KS_SENSOR_KIND[Number(d.code)]?.[0] || `코드 ${d.code}`)
+      : d.kind === 'switch' ? '스위치' : d.kind === 'opener' ? '개폐기' : (d.kind || `코드 ${d.code}`);
+    counts.set(name, (counts.get(name) || 0) + 1);
+  }
+  return { count: node.devices.length, text: [...counts].map(([k, n]) => `${k} ${n}`).join(' · ') };
+}
+
+/** §5.4.3 b)·d) — 드라이버가 남긴 센서 변화 이력(/changes)을 센서별로 요약한다.
+ *  상태 변화가 일정 주기로 오는지(c)를 보이려고 상태 변화 사이 간격의 평균을 낸다. 값 변화는 횟수만.
+ *  → { sensors: [{ index, name, valueChanges, statusChanges, statusSeq, statusPeriod, last }], total } */
+export function changeStats(changes) {
+  const by = new Map();
+  for (const c of changes || []) {
+    const k = Number(c.index);
+    const s = by.get(k) || { index: k, name: c.name, valueChanges: 0, statusChanges: 0, statusSeq: [], statusTimes: [], last: null };
+    if (c.what === 'value' || c.what === 'both') s.valueChanges += 1;
+    if (c.what === 'status' || c.what === 'both') { s.statusChanges += 1; s.statusSeq.push(Number(c.status)); s.statusTimes.push(Number(c.t)); }
+    s.last = c;
+    by.set(k, s);
+  }
+  const sensors = [...by.values()].map((s) => {
+    const gaps = s.statusTimes.slice(1).map((t, i) => t - s.statusTimes[i]);
+    const statusPeriod = gaps.length ? Math.round((gaps.reduce((a, b) => a + b, 0) / gaps.length) * 10) / 10 : null;
+    const { statusTimes, ...rest } = s;
+    return { ...rest, statusSeq: s.statusSeq.slice(-6), statusPeriod };
+  }).sort((a, b) => a.index - b.index);
+  return { sensors, total: (changes || []).length };
+}
+
+/** §5.4.4 c)·d) — 서버에 저장된 표준 센서 1분 행(ks_sensor_status)이 저장주기(기본 60초)대로 있는지.
+ *  센서(unit·idx)별: 행 수, 기간으로 기대되는 행 수, 저장주기보다 긴 빈틈 수, 상태코드 종류, 마지막 행. ok = 빈틈 0 이고 행 2개 이상.
+ *  기대 행 수는 첫 행~마지막 행 사이(끝 포함) — 아직 첫 분이 안 지난 센서는 기대 1. */
+export function storageCheck(rows, intervalSec = 60) {
+  const by = new Map();
+  for (const r of rows || []) {
+    const k = `${r.unit}:${r.idx}`;
+    const s = by.get(k) || { unit: Number(r.unit), idx: Number(r.idx), name: r.name, code: r.code, rows: 0, times: [], statuses: new Set(), last: null, valueRows: 0 };
+    s.rows += 1;
+    s.times.push(new Date(r.timestamp).getTime());
+    s.statuses.add(Number(r.status));
+    if (r.value !== null && r.value !== undefined) s.valueRows += 1;
+    s.last = r;
+    by.set(k, s);
+  }
+  const tol = intervalSec * 1000 * 1.5;
+  const sensors = [...by.values()].map((s) => {
+    const t = s.times.slice().sort((a, b) => a - b);
+    const gaps = t.slice(1).filter((x, i) => x - t[i] > tol).length;
+    const expected = t.length ? Math.round((t[t.length - 1] - t[0]) / (intervalSec * 1000)) + 1 : 0;
+    const { times, statuses, ...rest } = s;
+    return { ...rest, expected, gaps, statuses: [...statuses].sort((a, b) => a - b), ok: t.length >= 2 && gaps === 0 };
+  }).sort((a, b) => a.unit - b.unit || a.idx - b.idx);
+  return { sensors, total: (rows || []).length, ok: sensors.length > 0 && sensors.every((s) => s.ok) };
+}
+
+/** 디폴트맵 위치별 기대 코드와 실제 코드를 대조한다. 코드 0(미연결)은 드라이버가 목록에서 이미 뺀다. */
+export function deviceCodeCheck(node) {
+  if (!node || !Array.isArray(node.devices)) return { rows: [], issues: 0 };
+  const rows = node.devices.map((d) => {
+    const i = Number(d.index);
+    let expected = null;
+    if (node.kind === 'sensor') expected = KS_SENSOR_EXPECTED_CODE[i] ?? null;
+    else if (node.kind === 'actuator') expected = i >= 1 && i <= 16 ? 102 : i >= 17 && i <= 24 ? 112 : null;
+    const code = Number(d.code);
+    return { index: i, code, expected, ok: expected === null ? null : code === expected };
+  });
+  return { rows, issues: rows.filter((r) => r.ok === false).length };
+}
+
+/**
+ * 센서 종류(장치코드)별 참고 측정 범위. KS X 3267 이 정한 값이 아니라 일반적인 센서 범위다.
+ * 벗어나면 '범위 밖 의심' 경고만 하고 §5.1.3 판정은 바꾸지 않는다. 범위를 모르는 종류(감우·유량·전압)는 경고하지 않는다.
+ */
+export const KS_SENSOR_RANGE = {
+  1: [-40, 100], 2: [0, 100], 3: [-60, 60], 6: [0, 500], 7: [0, 2000], 8: [0, 75], 9: [0, 360],
+  11: [0, 10000], 12: [0, 20], 13: [0, 3000], 14: [0, 100], 15: [-1500, 1500], 16: [0, 14], 17: [-40, 80], 18: [0, 100000],
+};
+
+export function sensorRangeWarn(code, value) {
+  const r = KS_SENSOR_RANGE[Number(code)];
+  if (!r || value === null || value === undefined || value === '') return null;
+  const v = Number(value);
+  if (!Number.isFinite(v)) return null;
+  return v < r[0] || v > r[1] ? { min: r[0], max: r[1] } : null;
+}
+
+/** §5.1.3 표에 선행 조건(§5.1.2 통과)과 범위 경고를 붙인다. 판정 자체는 nodeReadRows 그대로. */
+export function nodeReadView(node, st) {
+  const rd = nodeReadRows(node, st);
+  if (!rd) return null;
+  const infoFail = nodeInfoRows(node).filter((r) => r.ok === false).length;
+  const codeIssues = deviceCodeCheck(node).issues;
+  const prereqOk = infoFail === 0 && codeIssues === 0;
+  const codeOf = Object.fromEntries((node.devices || []).map((d) => [Number(d.index), d.code]));
+  const rows = rd.rows.map((r) => {
+    if (r.kind !== 'sensor') return { ...r, rangeWarn: null };
+    const sv = st && st.sensors ? st.sensors[r.index] : null;
+    return { ...r, rangeWarn: sensorRangeWarn(sv && sv.code != null ? sv.code : codeOf[Number(r.index)], r.value) };
+  });
+  return {
+    ...rd, rows, prereqOk, hold: !prereqOk, infoFail, codeIssues,
+    rangeWarnCount: rows.filter((r) => r.rangeWarn).length,
+  };
+}

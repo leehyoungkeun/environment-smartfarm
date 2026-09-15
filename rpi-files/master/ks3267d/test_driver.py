@@ -163,6 +163,31 @@ class Commands(unittest.TestCase):
         self.assertFalse(r["ok"]); self.assertEqual(r["exception"], 3)
         self.assertEqual(self.m.events[-1]["kind"], "command_exception")
 
+    def test_same_opid_ignored_and_new_opid_activates(self):
+        """§5.3.4 d)~n): 같은 OPID 의 작동 명령은 노드가 무시 → OPID 워드만 새 값으로 바꾸면 활성화 →
+        작동 명령과 같은 OPID 의 중지는 무시(계속 작동) → 새 OPID 로 바꾸면 중지 (2026-09-15)"""
+        a = self.m.command(1, "opener", 1, "stop")["opid"]
+        r = self.m.command(1, "opener", 1, "timed_open", seconds=30, opid=a)      # d) 같은 OPID
+        self.assertTrue(r["ok"]); self.assertEqual(r["opid"], a); self.assertFalse(r["accepted"])
+        self.assertEqual(self.act.status_of("opener", 1)["status"], M.ST_READY)     # e) 작동 안 함
+        w = self.m.write_opid(1, "opener", 1)                                       # f) 새 OPID
+        self.assertTrue(w["ok"]); self.assertNotEqual(w["opid"], a)
+        st = self.act.status_of("opener", 1)
+        self.assertEqual((st["status"], st["opid"]), (M.ST_OPENER_OPENING, w["opid"]))  # g)h)
+        self.m.command(1, "opener", 1, "stop", opid=w["opid"])                      # i) 같은 OPID 중지
+        self.assertEqual(self.act.status_of("opener", 1)["status"], M.ST_OPENER_OPENING)  # j)k) 여전히 작동
+        w2 = self.m.write_opid(1, "opener", 1)                                      # l) 새 OPID
+        self.assertEqual(self.act.status_of("opener", 1)["status"], M.ST_READY)     # m)n) 중지
+        self.assertEqual(w2["status"], M.ST_READY)
+        # 1 워드만 썼는지 (cmd+1 주소, [opid])
+        wr = [c for c in self.bus.calls if c[0] == "W"][-1]
+        self.assertEqual((wr[2], wr[3]), (568, [w2["opid"]]))
+
+    def test_explicit_opid_not_used_by_default(self):
+        a = self.m.command(1, "switch", 1, "on")["opid"]
+        b = self.m.command(1, "switch", 1, "on")["opid"]
+        self.assertNotEqual(a, b, "지정하지 않으면 매 명령 새 OPID")
+
     def test_timed_requires_seconds(self):
         r = self.m.command(1, "switch", 1, "timed_on", seconds=0)
         self.assertFalse(r["ok"])

@@ -91,6 +91,17 @@ export function actuatorStatusTable(rows) {
   return { columns, rows: rows.map((r) => ({ ...r, timestamp: formatTs(r.timestamp) })) };
 }
 
+/** ks_sensor_status 행 → 추출 표 (§5.4.4 관측치·상태 1분 행) */
+export function sensorStatusTable(rows) {
+  const columns = [
+    { key: "timestamp", label: "timestamp" }, { key: "unit", label: "unit" }, { key: "idx", label: "idx" },
+    { key: "code", label: "code" }, { key: "name", label: "name" }, { key: "value", label: "value" },
+    { key: "status", label: "status" }, { key: "status_name", label: "status_name" },
+    { key: "house_id", label: "house_id" }, { key: "sensor_id", label: "sensor_id" },
+  ];
+  return { columns, rows: rows.map((r) => ({ ...r, timestamp: formatTs(r.timestamp) })) };
+}
+
 /** Content-Disposition 파일명 (ASCII 안전) */
 export function exportFilename(kind, farmId, houseId, start, end, format) {
   const d = (x) => formatTs(x).slice(0, 10).replace(/-/g, "");

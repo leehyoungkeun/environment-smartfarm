@@ -19,7 +19,9 @@ const KINDS = [
   { id: 'sensor', label: '센서 관측치', icon: '🌡️' },
   { id: 'control', label: '구동기 제어 이력', icon: '🎛️' },
   { id: 'actuator', label: '표준 구동기 상태 (KS X 3267)', icon: '📐' },
+  { id: 'sensorstatus', label: '표준 센서 관측치·상태 (KS X 3267)', icon: '📐' },  // §5.4.4 — 상태가 무엇이든 매분 저장된 원본
 ];
+const NO_HOUSE_KINDS = ['actuator', 'sensorstatus'];  // 하우스 없이도 조회되는 종류
 const PERIODS = [{ d: 1, label: '1일' }, { d: 7, label: '7일' }, { d: 30, label: '30일' }, { d: 0, label: '직접 입력' }];
 const PAGE = 200;
 
@@ -68,6 +70,13 @@ export default function DataExplorer({ farmId }) {
       setItems((house?.sensors || []).map(s => ({ id: s.sensorId, label: `${s.name || s.sensorId} (${s.unit || ''})` })));
     } else if (kind === 'control') {
       setItems((house?.devices || []).map(d => ({ id: d.deviceId, label: d.name || d.deviceId })));
+    } else if (kind === 'sensorstatus') {
+      let alive = true;
+      axios.get(`${api}/sensor-status/${farmId}/sensors`, { params: { startDate: range.start.toISOString(), endDate: range.end.toISOString() }, timeout: 10000 })
+        .then(r => { if (!alive) return; setItems((r.data?.data || []).filter(s => !houseId || !s.house_id || s.house_id === houseId)
+          .map(s => ({ id: `${s.unit}:${s.idx}`, label: `U${s.unit} #${s.idx} ${s.name || ''}${s.sensor_id ? ' → ' + s.sensor_id : ''} (${s.rows}행)` }))); })
+        .catch(e => { if (alive) setError('표준 센서 목록 조회 실패: ' + (e.response?.data?.error || e.message)); });
+      return () => { alive = false; };
     } else {
       let alive = true;
       axios.get(`${api}/actuator-status/${farmId}/devices`, { params: { startDate: range.start.toISOString(), endDate: range.end.toISOString() }, timeout: 10000 })
@@ -99,6 +108,16 @@ export default function DataExplorer({ farmId }) {
         const filtered = selected.length > 1 ? all.filter(l => selected.includes(l.deviceId)) : all;
         setColumns(['timestamp', 'deviceId', 'deviceName', 'command', 'success', 'operator', 'operatorName', 'isAutomatic', 'automationReason']);
         setRows(filtered.map(l => ({ ...l, timestamp: new Date(l.timestamp || l.createdAt).toLocaleString('ko-KR', { hour12: false }), success: l.success === false ? 'N' : 'Y', isAutomatic: l.isAutomatic ? 'Y' : 'N' })));
+      } else if (kind === 'sensorstatus') {
+        // 선택 항목은 'unit:idx' — 한 노드(unit)만 고를 수 있을 때 idx 목록으로 좁힌다
+        const units = [...new Set(selected.map(s => s.split(':')[0]))];
+        const p = { ...params, houseId: houseId || undefined };
+        if (units.length === 1) { p.unit = units[0]; p.idx = selected.map(s => s.split(':')[1]).join(','); }
+        const r = await axios.get(`${api}/sensor-status/${farmId}`, { params: p, timeout: 180000 });
+        const all = r.data?.data || [];
+        const filtered = selected.length && units.length > 1 ? all.filter(x => selected.includes(`${x.unit}:${x.idx}`)) : all;
+        setColumns(['timestamp', 'unit', 'idx', 'code', 'name', 'value', 'status', 'status_name', 'house_id', 'sensor_id']);
+        setRows(filtered.map(x => ({ ...x, timestamp: new Date(x.timestamp).toLocaleString('ko-KR', { hour12: false }) })));
       } else {
         const r = await axios.get(`${api}/actuator-status/${farmId}`, { params: { ...params, houseId: houseId || undefined, deviceId: selected.join(',') || undefined }, timeout: 180000 });
         setColumns(['timestamp', 'house_id', 'device_id', 'unit', 'kind', 'n', 'status', 'status_name', 'remain', 'opid']);
@@ -132,6 +151,11 @@ export default function DataExplorer({ farmId }) {
       let url;
       if (kind === 'sensor') { url = `${api}/sensors/${farmId}/${houseId}/export`; if (selected.length) params.sensorIds = selected.join(','); }
       else if (kind === 'control') { url = `${api}/control-logs/${farmId}/export`; params.houseId = houseId; if (selected.length === 1) params.deviceId = selected[0]; }
+      else if (kind === 'sensorstatus') {
+        url = `${api}/sensor-status/${farmId}/export`; if (houseId) params.houseId = houseId;
+        const units = [...new Set(selected.map(s => s.split(':')[0]))];
+        if (units.length === 1) { params.unit = units[0]; params.idx = selected.map(s => s.split(':')[1]).join(','); }
+      }
       else { url = `${api}/actuator-status/${farmId}/export`; if (houseId) params.houseId = houseId; if (selected.length) params.deviceId = selected.join(','); }
       const r = await axios.get(url, { params, responseType: 'blob', timeout: 180000 });
       download(r.data, `${baseName()}.${format}`);
@@ -169,7 +193,7 @@ export default function DataExplorer({ farmId }) {
           <div>
             <label className="text-xs text-gray-500 mb-1 block">하우스</label>
             <select value={houseId} onChange={e => setHouseId(e.target.value)} className="input-field text-sm">
-              {kind === 'actuator' && <option value="">전체</option>}
+              {NO_HOUSE_KINDS.includes(kind) && <option value="">전체</option>}
               {houses.map(h => <option key={h.houseId} value={h.houseId}>{h.name || h.houseId}</option>)}
             </select>
           </div>
@@ -202,10 +226,10 @@ export default function DataExplorer({ farmId }) {
           </div>
         </div>
         <div className="flex flex-wrap items-center gap-2 pt-1">
-          <button onClick={query} disabled={loading || (kind !== 'actuator' && !houseId)} className="btn-primary text-sm">{loading ? '조회 중…' : '🔍 조회 (1분 단위)'}</button>
+          <button onClick={query} disabled={loading || (!NO_HOUSE_KINDS.includes(kind) && !houseId)} className="btn-primary text-sm">{loading ? '조회 중…' : '🔍 조회 (1분 단위)'}</button>
           <span className="text-xs text-gray-400">추출:</span>
           {['csv', 'txt'].map(f => (
-            <button key={f} onClick={() => exportServer(f)} disabled={!!exporting || (kind !== 'actuator' && !houseId)}
+            <button key={f} onClick={() => exportServer(f)} disabled={!!exporting || (!NO_HOUSE_KINDS.includes(kind) && !houseId)}
               className="px-3 py-1.5 rounded-lg text-xs font-bold bg-emerald-50 text-emerald-700 border border-emerald-200 hover:bg-emerald-100 disabled:opacity-50">
               {exporting === f ? '생성 중…' : `.${f}`}
             </button>

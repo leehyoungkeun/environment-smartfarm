@@ -1,0 +1,1433 @@
+{
+ "meta": {
+  "at": "2026-09-15 22:08:06",
+  "transport": "tcp 127.0.0.1:5020"
+ },
+ "results": [
+  {
+   "id": "5.5.2",
+   "title": "레벨 1 스위치 제어 시험",
+   "ref": "SPS-7466 §5.5.2 / 5.2.1 a)~m) (202 TIMED_ON → 만료 → 202 → 0 OFF)",
+   "ok": true,
+   "steps": [
+    {
+     "step": "a) 디바이스코드에 레벨 1 스위치(102) 포함 — switch1",
+     "ok": true,
+     "detail": "탐색 코드 102 (디폴트맵 순번 1, 노드 1)"
+    },
+    {
+     "step": "b) 쓰기영역에 작동시간 작동 명령 (OPID·202·12s) — 제어기 화면 경로",
+     "ok": true,
+     "detail": "{'success': True, 'data': {'request_id': 'local_1789477686954', 'device_id': 'kstest_sw1', 'command': 'on', 'executed_at': '2026-09-15T13:08:06.954Z', 'mode': 'local'}}"
+    },
+    {
+     "step": "c) 시험장비가 202 + 동일 작동시간 수신 → 작동",
+     "ok": true,
+     "detail": "{'ok': True, 'kind': 'switch', 'n': 1, 'cmd': 202, 'cmd_opid': 141, 'time': 12, 'opid': 141, 'status': 201, 'remain': 12}"
+    },
+    {
+     "step": "d) 읽기영역: OPID 동일 + 상태 작동중(201)",
+     "ok": true,
+     "detail": "명령 OPID 141 / 읽은 {'name': '스위치1', 'kind': 'switch', 'n': 1, 'opid': 141, 'status': 201, 'status_name': 'ON', 'remain': 12}"
+    },
+    {
+     "step": "d') 남은 작동시간이 적절히 줄어든다",
+     "ok": true,
+     "detail": "12 → 8"
+    },
+    {
+     "step": "e) 남은시간 업데이트 주기 (노드 레지스터 직접 측정)",
+     "ok": true,
+     "detail": "노드 갱신 주기 ≈ 1.01s (4회 변화 관측) / 제어기 폴링·표시 주기 2.0s"
+    },
+    {
+     "step": "f) 정해진 작동시간(12s) 후 스스로 중지",
+     "ok": true,
+     "detail": "{'name': '스위치1', 'kind': 'switch', 'n': 1, 'opid': 0, 'status': 0, 'status_name': 'READY', 'remain': 0}"
+    },
+    {
+     "step": "g) 읽기영역: 중지 후 OPID 확인 + 상태 READY(0)",
+     "ok": true,
+     "detail": "READY, OPID 0 (표 16: 실행 중 명령 없음) — 명령 OPID 는 141"
+    },
+    {
+     "step": "h) 다시 작동시간 작동 명령 (OPID·202·12s)",
+     "ok": true,
+     "detail": "{'success': True, 'data': {'request_id': 'local_1789477699510', 'device_id': 'kstest_sw1', 'command': 'on', 'executed_at': '2026-09-15T13:08:19.510Z', 'mode': 'local'}}"
+    },
+    {
+     "step": "i) 시험장비가 202 수신 (OPID 는 매 명령 변경)",
+     "ok": true,
+     "detail": "{'ok': True, 'kind': 'switch', 'n': 1, 'cmd': 202, 'cmd_opid': 142, 'time': 12, 'opid': 142, 'status': 201, 'remain': 12} (이전 OPID 141)"
+    },
+    {
+     "step": "j) 읽기영역: OPID 동일 + 상태 작동중(201)",
+     "ok": true,
+     "detail": "명령 OPID 142 / 읽은 {'name': '스위치1', 'kind': 'switch', 'n': 1, 'opid': 142, 'status': 201, 'status_name': 'ON', 'remain': 10}"
+    },
+    {
+     "step": "k) 쓰기영역에 작동중지 명령 (OPID·0)",
+     "ok": true,
+     "detail": "{'success': True, 'data': {'request_id': 'local_1789477701520', 'device_id': 'kstest_sw1', 'command': 'off', 'executed_at': '2026-09-15T13:08:21.520Z', 'mode': 'local'}}"
+    },
+    {
+     "step": "l) 시험장비가 0 수신 → 중지",
+     "ok": true,
+     "detail": "{'ok': True, 'kind': 'switch', 'n': 1, 'cmd': 0, 'cmd_opid': 143, 'time': 0, 'opid': 0, 'status': 0, 'remain': 0}"
+    },
+    {
+     "step": "m) 읽기영역: 중지 후 OPID 확인 + 상태 READY(0)",
+     "ok": true,
+     "detail": "READY, OPID 0 (표 16: 실행 중 명령 없음) — 명령 OPID 는 143"
+    }
+   ]
+  },
+  {
+   "id": "5.5.3",
+   "title": "레벨 1 개폐기 제어 시험",
+   "ref": "SPS-7466 §5.5.3 a)~s) (303 TIMED_OPEN / 304 TIMED_CLOSE / 0 STOP)",
+   "ok": true,
+   "steps": [
+    {
+     "step": "a) 디바이스코드에 레벨 1 개폐기(112) 포함 — opener1",
+     "ok": true,
+     "detail": "탐색 코드 112 (디폴트맵 순번 17, 노드 1)"
+    },
+    {
+     "step": "b) 쓰기영역에 작동시간 열기 명령 (OPID·303·12s) — 제어기 화면 경로",
+     "ok": true,
+     "detail": "{'success': True, 'data': {'request_id': 'local_1789477703535', 'device_id': 'kstest_op1', 'command': 'open', 'executed_at': '2026-09-15T13:08:23.535Z', 'mode': 'local'}}"
+    },
+    {
+     "step": "c) 시험장비가 303 + 동일 작동시간 수신 (OPID 는 매 명령 변경)",
+     "ok": true,
+     "detail": "{'ok': True, 'kind': 'opener', 'n': 1, 'cmd': 303, 'cmd_opid': 144, 'time': 12, 'opid': 144, 'status': 301, 'remain': 12} (이전 OPID None)"
+    },
+    {
+     "step": "d)e) 읽기영역: OPID 동일 + 상태 열림중(301) 표시",
+     "ok": true,
+     "detail": "명령 OPID 144 / 읽은 {'name': '개폐기1', 'kind': 'opener', 'n': 1, 'opid': 144, 'status': 301, 'status_name': 'OPENING', 'remain': 10}"
+    },
+    {
+     "step": "f) 남은 작동시간이 적절히 표시·감소 (노드 갱신 주기 ≈ 1.01s, 제어기 표시 주기 2.0s)",
+     "ok": true,
+     "detail": "10 → 6 / 4회 변화"
+    },
+    {
+     "step": "g) 쓰기영역에 중지 명령 (OPID·0) — 제어기 화면 경로",
+     "ok": true,
+     "detail": "{'success': True, 'data': {'request_id': 'local_1789477709571', 'device_id': 'kstest_op1', 'command': 'stop', 'executed_at': '2026-09-15T13:08:29.571Z', 'mode': 'local'}}"
+    },
+    {
+     "step": "h)i) 시험장비가 0 수신 → 중지중",
+     "ok": true,
+     "detail": "{'ok': True, 'kind': 'opener', 'n': 1, 'cmd': 0, 'cmd_opid': 145, 'time': 0, 'opid': 0, 'status': 0, 'remain': 0}"
+    },
+    {
+     "step": "j) 읽기영역: 중지중(READY) 표시 + OPID 확인",
+     "ok": true,
+     "detail": "READY, OPID 0 (표 16: 실행 중 명령 없음) — 명령 OPID 는 145"
+    },
+    {
+     "step": "k) 쓰기영역에 작동시간 닫기 명령 (OPID·304·12s) — 제어기 화면 경로",
+     "ok": true,
+     "detail": "{'success': True, 'data': {'request_id': 'local_1789477711580', 'device_id': 'kstest_op1', 'command': 'close', 'executed_at': '2026-09-15T13:08:31.580Z', 'mode': 'local'}}"
+    },
+    {
+     "step": "l) 시험장비가 304 + 동일 작동시간 수신 (OPID 는 매 명령 변경)",
+     "ok": true,
+     "detail": "{'ok': True, 'kind': 'opener', 'n': 1, 'cmd': 304, 'cmd_opid': 146, 'time': 12, 'opid': 146, 'status': 302, 'remain': 12} (이전 OPID 145)"
+    },
+    {
+     "step": "m)n) 읽기영역: OPID 동일 + 상태 닫힘중(302) 표시",
+     "ok": true,
+     "detail": "명령 OPID 146 / 읽은 {'name': '개폐기1', 'kind': 'opener', 'n': 1, 'opid': 146, 'status': 302, 'status_name': 'CLOSING', 'remain': 10}"
+    },
+    {
+     "step": "o) 남은 작동시간이 적절히 표시·감소 (노드 갱신 주기 ≈ 1.01s, 제어기 표시 주기 2.0s)",
+     "ok": true,
+     "detail": "10 → 6 / 4회 변화"
+    },
+    {
+     "step": "p) 쓰기영역에 중지 명령 (OPID·0) — 제어기 화면 경로",
+     "ok": true,
+     "detail": "{'success': True, 'data': {'request_id': 'local_1789477717614', 'device_id': 'kstest_op1', 'command': 'stop', 'executed_at': '2026-09-15T13:08:37.614Z', 'mode': 'local'}}"
+    },
+    {
+     "step": "q)r) 시험장비가 0 수신 → 중지중",
+     "ok": true,
+     "detail": "{'ok': True, 'kind': 'opener', 'n': 1, 'cmd': 0, 'cmd_opid': 147, 'time': 0, 'opid': 0, 'status': 0, 'remain': 0}"
+    },
+    {
+     "step": "s) 읽기영역: 중지중(READY) 표시 + OPID 확인",
+     "ok": true,
+     "detail": "READY, OPID 0 (표 16: 실행 중 명령 없음) — 명령 OPID 는 147"
+    }
+   ]
+  }
+ ],
+ "manual": [
+  "§5.5.2 화면 증적: 제어판 kstest_sw1 「📐 시간 지정 ON」 12초 → 📐 배지 '켜짐 NNs' 감소 → 'READY' 자동 복귀 캡처, 표준노드 탭 §5.1.3 표(상태코드 201/0·OPID·남은 s), ④ 진단 프레임(FC16 503~506 / FC03 203~206)",
+  "§5.5.3 화면 증적: 제어판 kstest_op1 카드 「📐 작동시간」 12초 → ⏱ 시간 열기 → 📐 배지 '열리는 중 NNs' 감소 → ■ 정지 → 'READY' → ⏱ 시간 닫기 → '닫히는 중 NNs' → 정지 캡처, 표준노드 탭 §5.1.3 표(301/302/0·OPID·남은 s), ④ 진단 프레임(FC16 567~570 / FC03 267~270)"
+ ],
+ "stats": {
+  "tx": 2137,
+  "rx": 1894,
+  "exceptions": 0,
+  "timeouts": 243,
+  "scan_misses": 0
+ },
+ "events": [
+  {
+   "t": 1789475772.6549888,
+   "kind": "poll_timeout",
+   "unit": 2,
+   "error": "Modbus Error: [Input/Output] ERROR: No response received of the last requests (default: retries+3), CLOSING CONNECTION."
+  },
+  {
+   "t": 1789475775.658278,
+   "kind": "poll_timeout",
+   "unit": 1,
+   "error": "Modbus Error: [Input/Output] ERROR: No response received of the last requests (default: retries+3), CLOSING CONNECTION."
+  },
+  {
+   "t": 1789475776.6616294,
+   "kind": "poll_timeout",
+   "unit": 2,
+   "error": "Modbus Error: [Input/Output] ERROR: No response received of the last requests (default: retries+3), CLOSING CONNECTION."
+  },
+  {
+   "t": 1789475779.6634622,
+   "kind": "poll_timeout",
+   "unit": 1,
+   "error": "Modbus Error: [Input/Output] ERROR: No response received of the last requests (default: retries+3), CLOSING CONNECTION."
+  },
+  {
+   "t": 1789475780.6658828,
+   "kind": "poll_timeout",
+   "unit": 2,
+   "error": "Modbus Error: [Input/Output] ERROR: No response received of the last requests (default: retries+3), CLOSING CONNECTION."
+  },
+  {
+   "t": 1789475783.6672087,
+   "kind": "poll_timeout",
+   "unit": 1,
+   "error": "Modbus Error: [Input/Output] ERROR: No response received of the last requests (default: retries+3), CLOSING CONNECTION."
+  },
+  {
+   "t": 1789475784.672616,
+   "kind": "poll_timeout",
+   "unit": 2,
+   "error": "Modbus Error: [Input/Output] ERROR: No response received of the last requests (default: retries+3), CLOSING CONNECTION."
+  },
+  {
+   "t": 1789475787.6783385,
+   "kind": "poll_timeout",
+   "unit": 1,
+   "error": "Modbus Error: [Input/Output] ERROR: No response received of the last requests (default: retries+3), CLOSING CONNECTION."
+  },
+  {
+   "t": 1789475788.681516,
+   "kind": "poll_timeout",
+   "unit": 2,
+   "error": "Modbus Error: [Input/Output] ERROR: No response received of the last requests (default: retries+3), CLOSING CONNECTION."
+  },
+  {
+   "t": 1789475791.683335,
+   "kind": "poll_timeout",
+   "unit": 1,
+   "error": "Modbus Error: [Input/Output] ERROR: No response received of the last requests (default: retries+3), CLOSING CONNECTION."
+  },
+  {
+   "t": 1789475792.6851172,
+   "kind": "poll_timeout",
+   "unit": 2,
+   "error": "Modbus Error: [Input/Output] ERROR: No response received of the last requests (default: retries+3), CLOSING CONNECTION."
+  },
+  {
+   "t": 1789475795.688072,
+   "kind": "poll_timeout",
+   "unit": 1,
+   "error": "Modbus Error: [Input/Output] ERROR: No response received of the last requests (default: retries+3), CLOSING CONNECTION."
+  },
+  {
+   "t": 1789475796.6897295,
+   "kind": "poll_timeout",
+   "unit": 2,
+   "error": "Modbus Error: [Input/Output] ERROR: No response received of the last requests (default: retries+3), CLOSING CONNECTION."
+  },
+  {
+   "t": 1789475799.692968,
+   "kind": "poll_timeout",
+   "unit": 1,
+   "error": "Modbus Error: [Input/Output] ERROR: No response received of the last requests (default: retries+3), CLOSING CONNECTION."
+  },
+  {
+   "t": 1789475800.6946845,
+   "kind": "poll_timeout",
+   "unit": 2,
+   "error": "Modbus Error: [Input/Output] ERROR: No response received of the last requests (default: retries+3), CLOSING CONNECTION."
+  },
+  {
+   "t": 1789475803.6979911,
+   "kind": "poll_timeout",
+   "unit": 1,
+   "error": "Modbus Error: [Input/Output] ERROR: No response received of the last requests (default: retries+3), CLOSING CONNECTION."
+  },
+  {
+   "t": 1789475804.7013993,
+   "kind": "poll_timeout",
+   "unit": 2,
+   "error": "Modbus Error: [Input/Output] ERROR: No response received of the last requests (default: retries+3), CLOSING CONNECTION."
+  },
+  {
+   "t": 1789475807.7045984,
+   "kind": "poll_timeout",
+   "unit": 1,
+   "error": "Modbus Error: [Input/Output] ERROR: No response received of the last requests (default: retries+3), CLOSING CONNECTION."
+  },
+  {
+   "t": 1789475808.7053673,
+   "kind": "poll_timeout",
+   "unit": 2,
+   "error": "Modbus Error: [Input/Output] ERROR: No response received of the last requests (default: retries+3), CLOSING CONNECTION."
+  },
+  {
+   "t": 1789475811.7075126,
+   "kind": "poll_timeout",
+   "unit": 1,
+   "error": "Modbus Error: [Input/Output] ERROR: No response received of the last requests (default: retries+3), CLOSING CONNECTION."
+  },
+  {
+   "t": 1789475812.7099795,
+   "kind": "poll_timeout",
+   "unit": 2,
+   "error": "Modbus Error: [Input/Output] ERROR: No response received of the last requests (default: retries+3), CLOSING CONNECTION."
+  },
+  {
+   "t": 1789475815.7139773,
+   "kind": "poll_timeout",
+   "unit": 1,
+   "error": "Modbus Error: [Input/Output] ERROR: No response received of the last requests (default: retries+3), CLOSING CONNECTION."
+  },
+  {
+   "t": 1789475816.7159355,
+   "kind": "poll_timeout",
+   "unit": 2,
+   "error": "Modbus Error: [Input/Output] ERROR: No response received of the last requests (default: retries+3), CLOSING CONNECTION."
+  },
+  {
+   "t": 1789475819.7169883,
+   "kind": "poll_timeout",
+   "unit": 1,
+   "error": "Modbus Error: [Input/Output] ERROR: No response received of the last requests (default: retries+3), CLOSING CONNECTION."
+  },
+  {
+   "t": 1789475820.718417,
+   "kind": "poll_timeout",
+   "unit": 2,
+   "error": "Modbus Error: [Input/Output] ERROR: No response received of the last requests (default: retries+3), CLOSING CONNECTION."
+  },
+  {
+   "t": 1789475823.7210052,
+   "kind": "poll_timeout",
+   "unit": 1,
+   "error": "Modbus Error: [Input/Output] ERROR: No response received of the last requests (default: retries+3), CLOSING CONNECTION."
+  },
+  {
+   "t": 1789475824.7228882,
+   "kind": "poll_timeout",
+   "unit": 2,
+   "error": "Modbus Error: [Input/Output] ERROR: No response received of the last requests (default: retries+3), CLOSING CONNECTION."
+  },
+  {
+   "t": 1789475827.725277,
+   "kind": "poll_timeout",
+   "unit": 1,
+   "error": "Modbus Error: [Input/Output] ERROR: No response received of the last requests (default: retries+3), CLOSING CONNECTION."
+  },
+  {
+   "t": 1789475828.7292616,
+   "kind": "poll_timeout",
+   "unit": 2,
+   "error": "Modbus Error: [Input/Output] ERROR: No response received of the last requests (default: retries+3), CLOSING CONNECTION."
+  },
+  {
+   "t": 1789475831.730804,
+   "kind": "poll_timeout",
+   "unit": 1,
+   "error": "Modbus Error: [Input/Output] ERROR: No response received of the last requests (default: retries+3), CLOSING CONNECTION."
+  },
+  {
+   "t": 1789475832.732431,
+   "kind": "poll_timeout",
+   "unit": 2,
+   "error": "Modbus Error: [Input/Output] ERROR: No response received of the last requests (default: retries+3), CLOSING CONNECTION."
+  },
+  {
+   "t": 1789475835.7351565,
+   "kind": "poll_timeout",
+   "unit": 1,
+   "error": "Modbus Error: [Input/Output] ERROR: No response received of the last requests (default: retries+3), CLOSING CONNECTION."
+  },
+  {
+   "t": 1789475836.7394378,
+   "kind": "poll_timeout",
+   "unit": 2,
+   "error": "Modbus Error: [Input/Output] ERROR: No response received of the last requests (default: retries+3), CLOSING CONNECTION."
+  },
+  {
+   "t": 1789475839.741694,
+   "kind": "poll_timeout",
+   "unit": 1,
+   "error": "Modbus Error: [Input/Output] ERROR: No response received of the last requests (default: retries+3), CLOSING CONNECTION."
+  },
+  {
+   "t": 1789475840.7434382,
+   "kind": "poll_timeout",
+   "unit": 2,
+   "error": "Modbus Error: [Input/Output] ERROR: No response received of the last requests (default: retries+3), CLOSING CONNECTION."
+  },
+  {
+   "t": 1789475843.7474437,
+   "kind": "poll_timeout",
+   "unit": 1,
+   "error": "Modbus Error: [Input/Output] ERROR: No response received of the last requests (default: retries+3), CLOSING CONNECTION."
+  },
+  {
+   "t": 1789475844.753712,
+   "kind": "poll_timeout",
+   "unit": 2,
+   "error": "Modbus Error: [Input/Output] ERROR: No response received of the last requests (default: retries+3), CLOSING CONNECTION."
+  },
+  {
+   "t": 1789475847.7595618,
+   "kind": "poll_timeout",
+   "unit": 1,
+   "error": "Modbus Error: [Input/Output] ERROR: No response received of the last requests (default: retries+3), CLOSING CONNECTION."
+  },
+  {
+   "t": 1789475848.762129,
+   "kind": "poll_timeout",
+   "unit": 2,
+   "error": "Modbus Error: [Input/Output] ERROR: No response received of the last requests (default: retries+3), CLOSING CONNECTION."
+  },
+  {
+   "t": 1789475851.7644546,
+   "kind": "poll_timeout",
+   "unit": 1,
+   "error": "Modbus Error: [Input/Output] ERROR: No response received of the last requests (default: retries+3), CLOSING CONNECTION."
+  },
+  {
+   "t": 1789475852.7674484,
+   "kind": "poll_timeout",
+   "unit": 2,
+   "error": "Modbus Error: [Input/Output] ERROR: No response received of the last requests (default: retries+3), CLOSING CONNECTION."
+  },
+  {
+   "t": 1789475855.7708595,
+   "kind": "poll_timeout",
+   "unit": 1,
+   "error": "Modbus Error: [Input/Output] ERROR: No response received of the last requests (default: retries+3), CLOSING CONNECTION."
+  },
+  {
+   "t": 1789475856.7751117,
+   "kind": "poll_timeout",
+   "unit": 2,
+   "error": "Modbus Error: [Input/Output] ERROR: No response received of the last requests (default: retries+3), CLOSING CONNECTION."
+  },
+  {
+   "t": 1789475859.779488,
+   "kind": "poll_timeout",
+   "unit": 1,
+   "error": "Modbus Error: [Input/Output] ERROR: No response received of the last requests (default: retries+3), CLOSING CONNECTION."
+  },
+  {
+   "t": 1789475860.781137,
+   "kind": "poll_timeout",
+   "unit": 2,
+   "error": "Modbus Error: [Input/Output] ERROR: No response received of the last requests (default: retries+3), CLOSING CONNECTION."
+  },
+  {
+   "t": 1789475863.7821906,
+   "kind": "poll_timeout",
+   "unit": 1,
+   "error": "Modbus Error: [Input/Output] ERROR: No response received of the last requests (default: retries+3), CLOSING CONNECTION."
+  },
+  {
+   "t": 1789475864.7854674,
+   "kind": "poll_timeout",
+   "unit": 2,
+   "error": "Modbus Error: [Input/Output] ERROR: No response received of the last requests (default: retries+3), CLOSING CONNECTION."
+  },
+  {
+   "t": 1789475867.7858706,
+   "kind": "poll_timeout",
+   "unit": 1,
+   "error": "Modbus Error: [Input/Output] ERROR: No response received of the last requests (default: retries+3), CLOSING CONNECTION."
+  },
+  {
+   "t": 1789475868.786414,
+   "kind": "poll_timeout",
+   "unit": 2,
+   "error": "Modbus Error: [Input/Output] ERROR: No response received of the last requests (default: retries+3), CLOSING CONNECTION."
+  },
+  {
+   "t": 1789475871.7882743,
+   "kind": "poll_timeout",
+   "unit": 1,
+   "error": "Modbus Error: [Input/Output] ERROR: No response received of the last requests (default: retries+3), CLOSING CONNECTION."
+  },
+  {
+   "t": 1789475872.7900078,
+   "kind": "poll_timeout",
+   "unit": 2,
+   "error": "Modbus Error: [Input/Output] ERROR: No response received of the last requests (default: retries+3), CLOSING CONNECTION."
+  },
+  {
+   "t": 1789475875.7920191,
+   "kind": "poll_timeout",
+   "unit": 1,
+   "error": "Modbus Error: [Input/Output] ERROR: No response received of the last requests (default: retries+3), CLOSING CONNECTION."
+  },
+  {
+   "t": 1789475876.7944825,
+   "kind": "poll_timeout",
+   "unit": 2,
+   "error": "Modbus Error: [Input/Output] ERROR: No response received of the last requests (default: retries+3), CLOSING CONNECTION."
+  },
+  {
+   "t": 1789475879.7974248,
+   "kind": "poll_timeout",
+   "unit": 1,
+   "error": "Modbus Error: [Input/Output] ERROR: No response received of the last requests (default: retries+3), CLOSING CONNECTION."
+  },
+  {
+   "t": 1789475880.799388,
+   "kind": "poll_timeout",
+   "unit": 2,
+   "error": "Modbus Error: [Input/Output] ERROR: No response received of the last requests (default: retries+3), CLOSING CONNECTION."
+  },
+  {
+   "t": 1789475883.8010302,
+   "kind": "poll_timeout",
+   "unit": 1,
+   "error": "Modbus Error: [Input/Output] ERROR: No response received of the last requests (default: retries+3), CLOSING CONNECTION."
+  },
+  {
+   "t": 1789475884.8033173,
+   "kind": "poll_timeout",
+   "unit": 2,
+   "error": "Modbus Error: [Input/Output] ERROR: No response received of the last requests (default: retries+3), CLOSING CONNECTION."
+  },
+  {
+   "t": 1789475887.8065798,
+   "kind": "poll_timeout",
+   "unit": 1,
+   "error": "Modbus Error: [Input/Output] ERROR: No response received of the last requests (default: retries+3), CLOSING CONNECTION."
+  },
+  {
+   "t": 1789475888.8090572,
+   "kind": "poll_timeout",
+   "unit": 2,
+   "error": "Modbus Error: [Input/Output] ERROR: No response received of the last requests (default: retries+3), CLOSING CONNECTION."
+  },
+  {
+   "t": 1789475891.8109457,
+   "kind": "poll_timeout",
+   "unit": 1,
+   "error": "Modbus Error: [Input/Output] ERROR: No response received of the last requests (default: retries+3), CLOSING CONNECTION."
+  },
+  {
+   "t": 1789475892.8127341,
+   "kind": "poll_timeout",
+   "unit": 2,
+   "error": "Modbus Error: [Input/Output] ERROR: No response received of the last requests (default: retries+3), CLOSING CONNECTION."
+  },
+  {
+   "t": 1789475895.815496,
+   "kind": "poll_timeout",
+   "unit": 1,
+   "error": "Modbus Error: [Input/Output] ERROR: No response received of the last requests (default: retries+3), CLOSING CONNECTION."
+  },
+  {
+   "t": 1789475896.818657,
+   "kind": "poll_timeout",
+   "unit": 2,
+   "error": "Modbus Error: [Input/Output] ERROR: No response received of the last requests (default: retries+3), CLOSING CONNECTION."
+  },
+  {
+   "t": 1789475899.8224218,
+   "kind": "poll_timeout",
+   "unit": 1,
+   "error": "Modbus Error: [Input/Output] ERROR: No response received of the last requests (default: retries+3), CLOSING CONNECTION."
+  },
+  {
+   "t": 1789475900.8242989,
+   "kind": "poll_timeout",
+   "unit": 2,
+   "error": "Modbus Error: [Input/Output] ERROR: No response received of the last requests (default: retries+3), CLOSING CONNECTION."
+  },
+  {
+   "t": 1789475903.8273494,
+   "kind": "poll_timeout",
+   "unit": 1,
+   "error": "Modbus Error: [Input/Output] ERROR: No response received of the last requests (default: retries+3), CLOSING CONNECTION."
+  },
+  {
+   "t": 1789475904.8330002,
+   "kind": "poll_timeout",
+   "unit": 2,
+   "error": "Modbus Error: [Input/Output] ERROR: No response received of the last requests (default: retries+3), CLOSING CONNECTION."
+  },
+  {
+   "t": 1789475907.838432,
+   "kind": "poll_timeout",
+   "unit": 1,
+   "error": "Modbus Error: [Input/Output] ERROR: No response received of the last requests (default: retries+3), CLOSING CONNECTION."
+  },
+  {
+   "t": 1789475908.839839,
+   "kind": "poll_timeout",
+   "unit": 2,
+   "error": "Modbus Error: [Input/Output] ERROR: No response received of the last requests (default: retries+3), CLOSING CONNECTION."
+  },
+  {
+   "t": 1789475911.843146,
+   "kind": "poll_timeout",
+   "unit": 1,
+   "error": "Modbus Error: [Input/Output] ERROR: No response received of the last requests (default: retries+3), CLOSING CONNECTION."
+  },
+  {
+   "t": 1789475912.8461566,
+   "kind": "poll_timeout",
+   "unit": 2,
+   "error": "Modbus Error: [Input/Output] ERROR: No response received of the last requests (default: retries+3), CLOSING CONNECTION."
+  },
+  {
+   "t": 1789475915.8491328,
+   "kind": "poll_timeout",
+   "unit": 1,
+   "error": "Modbus Error: [Input/Output] ERROR: No response received of the last requests (default: retries+3), CLOSING CONNECTION."
+  },
+  {
+   "t": 1789475916.8499663,
+   "kind": "poll_timeout",
+   "unit": 2,
+   "error": "Modbus Error: [Input/Output] ERROR: No response received of the last requests (default: retries+3), CLOSING CONNECTION."
+  },
+  {
+   "t": 1789475919.8524938,
+   "kind": "poll_timeout",
+   "unit": 1,
+   "error": "Modbus Error: [Input/Output] ERROR: No response received of the last requests (default: retries+3), CLOSING CONNECTION."
+  },
+  {
+   "t": 1789475920.8548543,
+   "kind": "poll_timeout",
+   "unit": 2,
+   "error": "Modbus Error: [Input/Output] ERROR: No response received of the last requests (default: retries+3), CLOSING CONNECTION."
+  },
+  {
+   "t": 1789475923.8576722,
+   "kind": "poll_timeout",
+   "unit": 1,
+   "error": "Modbus Error: [Input/Output] ERROR: No response received of the last requests (default: retries+3), CLOSING CONNECTION."
+  },
+  {
+   "t": 1789475924.8603773,
+   "kind": "poll_timeout",
+   "unit": 2,
+   "error": "Modbus Error: [Input/Output] ERROR: No response received of the last requests (default: retries+3), CLOSING CONNECTION."
+  },
+  {
+   "t": 1789475927.8644235,
+   "kind": "poll_timeout",
+   "unit": 1,
+   "error": "Modbus Error: [Input/Output] ERROR: No response received of the last requests (default: retries+3), CLOSING CONNECTION."
+  },
+  {
+   "t": 1789475928.867392,
+   "kind": "poll_timeout",
+   "unit": 2,
+   "error": "Modbus Error: [Input/Output] ERROR: No response received of the last requests (default: retries+3), CLOSING CONNECTION."
+  },
+  {
+   "t": 1789475931.869353,
+   "kind": "poll_timeout",
+   "unit": 1,
+   "error": "Modbus Error: [Input/Output] ERROR: No response received of the last requests (default: retries+3), CLOSING CONNECTION."
+  },
+  {
+   "t": 1789475932.87199,
+   "kind": "poll_timeout",
+   "unit": 2,
+   "error": "Modbus Error: [Input/Output] ERROR: No response received of the last requests (default: retries+3), CLOSING CONNECTION."
+  },
+  {
+   "t": 1789475935.8749647,
+   "kind": "poll_timeout",
+   "unit": 1,
+   "error": "Modbus Error: [Input/Output] ERROR: No response received of the last requests (default: retries+3), CLOSING CONNECTION."
+  },
+  {
+   "t": 1789475936.875794,
+   "kind": "poll_timeout",
+   "unit": 2,
+   "error": "Modbus Error: [Input/Output] ERROR: No response received of the last requests (default: retries+3), CLOSING CONNECTION."
+  },
+  {
+   "t": 1789475939.8794162,
+   "kind": "poll_timeout",
+   "unit": 1,
+   "error": "Modbus Error: [Input/Output] ERROR: No response received of the last requests (default: retries+3), CLOSING CONNECTION."
+  },
+  {
+   "t": 1789475940.8811474,
+   "kind": "poll_timeout",
+   "unit": 2,
+   "error": "Modbus Error: [Input/Output] ERROR: No response received of the last requests (default: retries+3), CLOSING CONNECTION."
+  },
+  {
+   "t": 1789475943.8826852,
+   "kind": "poll_timeout",
+   "unit": 1,
+   "error": "Modbus Error: [Input/Output] ERROR: No response received of the last requests (default: retries+3), CLOSING CONNECTION."
+  },
+  {
+   "t": 1789475944.8844903,
+   "kind": "poll_timeout",
+   "unit": 2,
+   "error": "Modbus Error: [Input/Output] ERROR: No response received of the last requests (default: retries+3), CLOSING CONNECTION."
+  },
+  {
+   "t": 1789475947.8858724,
+   "kind": "poll_timeout",
+   "unit": 1,
+   "error": "Modbus Error: [Input/Output] ERROR: No response received of the last requests (default: retries+3), CLOSING CONNECTION."
+  },
+  {
+   "t": 1789475948.8884153,
+   "kind": "poll_timeout",
+   "unit": 2,
+   "error": "Modbus Error: [Input/Output] ERROR: No response received of the last requests (default: retries+3), CLOSING CONNECTION."
+  },
+  {
+   "t": 1789475951.891552,
+   "kind": "poll_timeout",
+   "unit": 1,
+   "error": "Modbus Error: [Input/Output] ERROR: No response received of the last requests (default: retries+3), CLOSING CONNECTION."
+  },
+  {
+   "t": 1789475952.8933542,
+   "kind": "poll_timeout",
+   "unit": 2,
+   "error": "Modbus Error: [Input/Output] ERROR: No response received of the last requests (default: retries+3), CLOSING CONNECTION."
+  },
+  {
+   "t": 1789475955.8960786,
+   "kind": "poll_timeout",
+   "unit": 1,
+   "error": "Modbus Error: [Input/Output] ERROR: No response received of the last requests (default: retries+3), CLOSING CONNECTION."
+  },
+  {
+   "t": 1789475956.8966942,
+   "kind": "poll_timeout",
+   "unit": 2,
+   "error": "Modbus Error: [Input/Output] ERROR: No response received of the last requests (default: retries+3), CLOSING CONNECTION."
+  },
+  {
+   "t": 1789475959.8982275,
+   "kind": "poll_timeout",
+   "unit": 1,
+   "error": "Modbus Error: [Input/Output] ERROR: No response received of the last requests (default: retries+3), CLOSING CONNECTION."
+  },
+  {
+   "t": 1789475960.9022367,
+   "kind": "poll_timeout",
+   "unit": 2,
+   "error": "Modbus Error: [Input/Output] ERROR: No response received of the last requests (default: retries+3), CLOSING CONNECTION."
+  },
+  {
+   "t": 1789475963.9058022,
+   "kind": "poll_timeout",
+   "unit": 1,
+   "error": "Modbus Error: [Input/Output] ERROR: No response received of the last requests (default: retries+3), CLOSING CONNECTION."
+  },
+  {
+   "t": 1789475964.9128275,
+   "kind": "poll_timeout",
+   "unit": 2,
+   "error": "Modbus Error: [Input/Output] ERROR: No response received of the last requests (default: retries+3), CLOSING CONNECTION."
+  },
+  {
+   "t": 1789475967.9185772,
+   "kind": "poll_timeout",
+   "unit": 1,
+   "error": "Modbus Error: [Input/Output] ERROR: No response received of the last requests (default: retries+3), CLOSING CONNECTION."
+  },
+  {
+   "t": 1789475968.920731,
+   "kind": "poll_timeout",
+   "unit": 2,
+   "error": "Modbus Error: [Input/Output] ERROR: No response received of the last requests (default: retries+3), CLOSING CONNECTION."
+  },
+  {
+   "t": 1789475971.9229963,
+   "kind": "poll_timeout",
+   "unit": 1,
+   "error": "Modbus Error: [Input/Output] ERROR: No response received of the last requests (default: retries+3), CLOSING CONNECTION."
+  },
+  {
+   "t": 1789475972.9259143,
+   "kind": "poll_timeout",
+   "unit": 2,
+   "error": "Modbus Error: [Input/Output] ERROR: No response received of the last requests (default: retries+3), CLOSING CONNECTION."
+  },
+  {
+   "t": 1789475975.9263191,
+   "kind": "poll_timeout",
+   "unit": 1,
+   "error": "Modbus Error: [Input/Output] ERROR: No response received of the last requests (default: retries+3), CLOSING CONNECTION."
+  },
+  {
+   "t": 1789475976.9268847,
+   "kind": "poll_timeout",
+   "unit": 2,
+   "error": "Modbus Error: [Input/Output] ERROR: No response received of the last requests (default: retries+3), CLOSING CONNECTION."
+  },
+  {
+   "t": 1789475979.9294696,
+   "kind": "poll_timeout",
+   "unit": 1,
+   "error": "Modbus Error: [Input/Output] ERROR: No response received of the last requests (default: retries+3), CLOSING CONNECTION."
+  },
+  {
+   "t": 1789475980.9314096,
+   "kind": "poll_timeout",
+   "unit": 2,
+   "error": "Modbus Error: [Input/Output] ERROR: No response received of the last requests (default: retries+3), CLOSING CONNECTION."
+  },
+  {
+   "t": 1789475983.9347286,
+   "kind": "poll_timeout",
+   "unit": 1,
+   "error": "Modbus Error: [Input/Output] ERROR: No response received of the last requests (default: retries+3), CLOSING CONNECTION."
+  },
+  {
+   "t": 1789475984.9372056,
+   "kind": "poll_timeout",
+   "unit": 2,
+   "error": "Modbus Error: [Input/Output] ERROR: No response received of the last requests (default: retries+3), CLOSING CONNECTION."
+  },
+  {
+   "t": 1789475987.938143,
+   "kind": "poll_timeout",
+   "unit": 1,
+   "error": "Modbus Error: [Input/Output] ERROR: No response received of the last requests (default: retries+3), CLOSING CONNECTION."
+  },
+  {
+   "t": 1789475988.9401343,
+   "kind": "poll_timeout",
+   "unit": 2,
+   "error": "Modbus Error: [Input/Output] ERROR: No response received of the last requests (default: retries+3), CLOSING CONNECTION."
+  },
+  {
+   "t": 1789475991.9423916,
+   "kind": "poll_timeout",
+   "unit": 1,
+   "error": "Modbus Error: [Input/Output] ERROR: No response received of the last requests (default: retries+3), CLOSING CONNECTION."
+  },
+  {
+   "t": 1789475992.946434,
+   "kind": "poll_timeout",
+   "unit": 2,
+   "error": "Modbus Error: [Input/Output] ERROR: No response received of the last requests (default: retries+3), CLOSING CONNECTION."
+  },
+  {
+   "t": 1789475995.9500108,
+   "kind": "poll_timeout",
+   "unit": 1,
+   "error": "Modbus Error: [Input/Output] ERROR: No response received of the last requests (default: retries+3), CLOSING CONNECTION."
+  },
+  {
+   "t": 1789475996.9511611,
+   "kind": "poll_timeout",
+   "unit": 2,
+   "error": "Modbus Error: [Input/Output] ERROR: No response received of the last requests (default: retries+3), CLOSING CONNECTION."
+  },
+  {
+   "t": 1789475999.9541783,
+   "kind": "poll_timeout",
+   "unit": 1,
+   "error": "Modbus Error: [Input/Output] ERROR: No response received of the last requests (default: retries+3), CLOSING CONNECTION."
+  },
+  {
+   "t": 1789476000.956417,
+   "kind": "poll_timeout",
+   "unit": 2,
+   "error": "Modbus Error: [Input/Output] ERROR: No response received of the last requests (default: retries+3), CLOSING CONNECTION."
+  },
+  {
+   "t": 1789476003.958939,
+   "kind": "poll_timeout",
+   "unit": 1,
+   "error": "Modbus Error: [Input/Output] ERROR: No response received of the last requests (default: retries+3), CLOSING CONNECTION."
+  },
+  {
+   "t": 1789476004.9604914,
+   "kind": "poll_timeout",
+   "unit": 2,
+   "error": "Modbus Error: [Input/Output] ERROR: No response received of the last requests (default: retries+3), CLOSING CONNECTION."
+  },
+  {
+   "t": 1789476007.9638295,
+   "kind": "poll_timeout",
+   "unit": 1,
+   "error": "Modbus Error: [Input/Output] ERROR: No response received of the last requests (default: retries+3), CLOSING CONNECTION."
+  },
+  {
+   "t": 1789476008.964957,
+   "kind": "poll_timeout",
+   "unit": 2,
+   "error": "Modbus Error: [Input/Output] ERROR: No response received of the last requests (default: retries+3), CLOSING CONNECTION."
+  },
+  {
+   "t": 1789476011.9670482,
+   "kind": "poll_timeout",
+   "unit": 1,
+   "error": "Modbus Error: [Input/Output] ERROR: No response received of the last requests (default: retries+3), CLOSING CONNECTION."
+  },
+  {
+   "t": 1789476012.9703321,
+   "kind": "poll_timeout",
+   "unit": 2,
+   "error": "Modbus Error: [Input/Output] ERROR: No response received of the last requests (default: retries+3), CLOSING CONNECTION."
+  },
+  {
+   "t": 1789476015.9739144,
+   "kind": "poll_timeout",
+   "unit": 1,
+   "error": "Modbus Error: [Input/Output] ERROR: No response received of the last requests (default: retries+3), CLOSING CONNECTION."
+  },
+  {
+   "t": 1789476016.9757268,
+   "kind": "poll_timeout",
+   "unit": 2,
+   "error": "Modbus Error: [Input/Output] ERROR: No response received of the last requests (default: retries+3), CLOSING CONNECTION."
+  },
+  {
+   "t": 1789476019.97824,
+   "kind": "poll_timeout",
+   "unit": 1,
+   "error": "Modbus Error: [Input/Output] ERROR: No response received of the last requests (default: retries+3), CLOSING CONNECTION."
+  },
+  {
+   "t": 1789476020.9807432,
+   "kind": "poll_timeout",
+   "unit": 2,
+   "error": "Modbus Error: [Input/Output] ERROR: No response received of the last requests (default: retries+3), CLOSING CONNECTION."
+  },
+  {
+   "t": 1789476023.981423,
+   "kind": "poll_timeout",
+   "unit": 1,
+   "error": "Modbus Error: [Input/Output] ERROR: No response received of the last requests (default: retries+3), CLOSING CONNECTION."
+  },
+  {
+   "t": 1789476024.9872673,
+   "kind": "poll_timeout",
+   "unit": 2,
+   "error": "Modbus Error: [Input/Output] ERROR: No response received of the last requests (default: retries+3), CLOSING CONNECTION."
+  },
+  {
+   "t": 1789476027.9937134,
+   "kind": "poll_timeout",
+   "unit": 1,
+   "error": "Modbus Error: [Input/Output] ERROR: No response received of the last requests (default: retries+3), CLOSING CONNECTION."
+  },
+  {
+   "t": 1789476028.9970918,
+   "kind": "poll_timeout",
+   "unit": 2,
+   "error": "Modbus Error: [Input/Output] ERROR: No response received of the last requests (default: retries+3), CLOSING CONNECTION."
+  },
+  {
+   "t": 1789476031.9990017,
+   "kind": "poll_timeout",
+   "unit": 1,
+   "error": "Modbus Error: [Input/Output] ERROR: No response received of the last requests (default: retries+3), CLOSING CONNECTION."
+  },
+  {
+   "t": 1789476033.0031867,
+   "kind": "poll_timeout",
+   "unit": 2,
+   "error": "Modbus Error: [Input/Output] ERROR: No response received of the last requests (default: retries+3), CLOSING CONNECTION."
+  },
+  {
+   "t": 1789476036.0062392,
+   "kind": "poll_timeout",
+   "unit": 1,
+   "error": "Modbus Error: [Input/Output] ERROR: No response received of the last requests (default: retries+3), CLOSING CONNECTION."
+  },
+  {
+   "t": 1789476037.006723,
+   "kind": "poll_timeout",
+   "unit": 2,
+   "error": "Modbus Error: [Input/Output] ERROR: No response received of the last requests (default: retries+3), CLOSING CONNECTION."
+  },
+  {
+   "t": 1789476040.0091293,
+   "kind": "poll_timeout",
+   "unit": 1,
+   "error": "Modbus Error: [Input/Output] ERROR: No response received of the last requests (default: retries+3), CLOSING CONNECTION."
+  },
+  {
+   "t": 1789476041.011207,
+   "kind": "poll_timeout",
+   "unit": 2,
+   "error": "Modbus Error: [Input/Output] ERROR: No response received of the last requests (default: retries+3), CLOSING CONNECTION."
+  },
+  {
+   "t": 1789476044.011761,
+   "kind": "poll_timeout",
+   "unit": 1,
+   "error": "Modbus Error: [Input/Output] ERROR: No response received of the last requests (default: retries+3), CLOSING CONNECTION."
+  },
+  {
+   "t": 1789476045.0151281,
+   "kind": "poll_timeout",
+   "unit": 2,
+   "error": "Modbus Error: [Input/Output] ERROR: No response received of the last requests (default: retries+3), CLOSING CONNECTION."
+  },
+  {
+   "t": 1789476048.0158508,
+   "kind": "poll_timeout",
+   "unit": 1,
+   "error": "Modbus Error: [Input/Output] ERROR: No response received of the last requests (default: retries+3), CLOSING CONNECTION."
+  },
+  {
+   "t": 1789476049.0165384,
+   "kind": "poll_timeout",
+   "unit": 2,
+   "error": "Modbus Error: [Input/Output] ERROR: No response received of the last requests (default: retries+3), CLOSING CONNECTION."
+  },
+  {
+   "t": 1789476052.019166,
+   "kind": "poll_timeout",
+   "unit": 1,
+   "error": "Modbus Error: [Input/Output] ERROR: No response received of the last requests (default: retries+3), CLOSING CONNECTION."
+  },
+  {
+   "t": 1789476053.0223105,
+   "kind": "poll_timeout",
+   "unit": 2,
+   "error": "Modbus Error: [Input/Output] ERROR: No response received of the last requests (default: retries+3), CLOSING CONNECTION."
+  },
+  {
+   "t": 1789476056.0259397,
+   "kind": "poll_timeout",
+   "unit": 1,
+   "error": "Modbus Error: [Input/Output] ERROR: No response received of the last requests (default: retries+3), CLOSING CONNECTION."
+  },
+  {
+   "t": 1789476057.027324,
+   "kind": "poll_timeout",
+   "unit": 2,
+   "error": "Modbus Error: [Input/Output] ERROR: No response received of the last requests (default: retries+3), CLOSING CONNECTION."
+  },
+  {
+   "t": 1789476060.0306203,
+   "kind": "poll_timeout",
+   "unit": 1,
+   "error": "Modbus Error: [Input/Output] ERROR: No response received of the last requests (default: retries+3), CLOSING CONNECTION."
+  },
+  {
+   "t": 1789476061.0321472,
+   "kind": "poll_timeout",
+   "unit": 2,
+   "error": "Modbus Error: [Input/Output] ERROR: No response received of the last requests (default: retries+3), CLOSING CONNECTION."
+  },
+  {
+   "t": 1789476064.034389,
+   "kind": "poll_timeout",
+   "unit": 1,
+   "error": "Modbus Error: [Input/Output] ERROR: No response received of the last requests (default: retries+3), CLOSING CONNECTION."
+  },
+  {
+   "t": 1789476065.036544,
+   "kind": "poll_timeout",
+   "unit": 2,
+   "error": "Modbus Error: [Input/Output] ERROR: No response received of the last requests (default: retries+3), CLOSING CONNECTION."
+  },
+  {
+   "t": 1789476068.0405052,
+   "kind": "poll_timeout",
+   "unit": 1,
+   "error": "Modbus Error: [Input/Output] ERROR: No response received of the last requests (default: retries+3), CLOSING CONNECTION."
+  },
+  {
+   "t": 1789476069.040914,
+   "kind": "poll_timeout",
+   "unit": 2,
+   "error": "Modbus Error: [Input/Output] ERROR: No response received of the last requests (default: retries+3), CLOSING CONNECTION."
+  },
+  {
+   "t": 1789476072.0432544,
+   "kind": "poll_timeout",
+   "unit": 1,
+   "error": "Modbus Error: [Input/Output] ERROR: No response received of the last requests (default: retries+3), CLOSING CONNECTION."
+  },
+  {
+   "t": 1789476073.0453794,
+   "kind": "poll_timeout",
+   "unit": 2,
+   "error": "Modbus Error: [Input/Output] ERROR: No response received of the last requests (default: retries+3), CLOSING CONNECTION."
+  },
+  {
+   "t": 1789476076.0486867,
+   "kind": "poll_timeout",
+   "unit": 1,
+   "error": "Modbus Error: [Input/Output] ERROR: No response received of the last requests (default: retries+3), CLOSING CONNECTION."
+  },
+  {
+   "t": 1789476077.0515149,
+   "kind": "poll_timeout",
+   "unit": 2,
+   "error": "Modbus Error: [Input/Output] ERROR: No response received of the last requests (default: retries+3), CLOSING CONNECTION."
+  },
+  {
+   "t": 1789476080.053394,
+   "kind": "poll_timeout",
+   "unit": 1,
+   "error": "Modbus Error: [Input/Output] ERROR: No response received of the last requests (default: retries+3), CLOSING CONNECTION."
+  },
+  {
+   "t": 1789476081.0556269,
+   "kind": "poll_timeout",
+   "unit": 2,
+   "error": "Modbus Error: [Input/Output] ERROR: No response received of the last requests (default: retries+3), CLOSING CONNECTION."
+  },
+  {
+   "t": 1789476084.0589046,
+   "kind": "poll_timeout",
+   "unit": 1,
+   "error": "Modbus Error: [Input/Output] ERROR: No response received of the last requests (default: retries+3), CLOSING CONNECTION."
+  },
+  {
+   "t": 1789476085.062179,
+   "kind": "poll_timeout",
+   "unit": 2,
+   "error": "Modbus Error: [Input/Output] ERROR: No response received of the last requests (default: retries+3), CLOSING CONNECTION."
+  },
+  {
+   "t": 1789476088.0681717,
+   "kind": "poll_timeout",
+   "unit": 1,
+   "error": "Modbus Error: [Input/Output] ERROR: No response received of the last requests (default: retries+3), CLOSING CONNECTION."
+  },
+  {
+   "t": 1789476089.071002,
+   "kind": "poll_timeout",
+   "unit": 2,
+   "error": "Modbus Error: [Input/Output] ERROR: No response received of the last requests (default: retries+3), CLOSING CONNECTION."
+  },
+  {
+   "t": 1789476092.0731769,
+   "kind": "poll_timeout",
+   "unit": 1,
+   "error": "Modbus Error: [Input/Output] ERROR: No response received of the last requests (default: retries+3), CLOSING CONNECTION."
+  },
+  {
+   "t": 1789476093.0769424,
+   "kind": "poll_timeout",
+   "unit": 2,
+   "error": "Modbus Error: [Input/Output] ERROR: No response received of the last requests (default: retries+3), CLOSING CONNECTION."
+  },
+  {
+   "t": 1789476096.0792322,
+   "kind": "poll_timeout",
+   "unit": 1,
+   "error": "Modbus Error: [Input/Output] ERROR: No response received of the last requests (default: retries+3), CLOSING CONNECTION."
+  },
+  {
+   "t": 1789476097.0826018,
+   "kind": "poll_timeout",
+   "unit": 2,
+   "error": "Modbus Error: [Input/Output] ERROR: No response received of the last requests (default: retries+3), CLOSING CONNECTION."
+  },
+  {
+   "t": 1789476100.0841131,
+   "kind": "poll_timeout",
+   "unit": 1,
+   "error": "Modbus Error: [Input/Output] ERROR: No response received of the last requests (default: retries+3), CLOSING CONNECTION."
+  },
+  {
+   "t": 1789476101.085455,
+   "kind": "poll_timeout",
+   "unit": 2,
+   "error": "Modbus Error: [Input/Output] ERROR: No response received of the last requests (default: retries+3), CLOSING CONNECTION."
+  },
+  {
+   "t": 1789476104.0886545,
+   "kind": "poll_timeout",
+   "unit": 1,
+   "error": "Modbus Error: [Input/Output] ERROR: No response received of the last requests (default: retries+3), CLOSING CONNECTION."
+  },
+  {
+   "t": 1789476105.092152,
+   "kind": "poll_timeout",
+   "unit": 2,
+   "error": "Modbus Error: [Input/Output] ERROR: No response received of the last requests (default: retries+3), CLOSING CONNECTION."
+  },
+  {
+   "t": 1789476108.0957081,
+   "kind": "poll_timeout",
+   "unit": 1,
+   "error": "Modbus Error: [Input/Output] ERROR: No response received of the last requests (default: retries+3), CLOSING CONNECTION."
+  },
+  {
+   "t": 1789476109.098748,
+   "kind": "poll_timeout",
+   "unit": 2,
+   "error": "Modbus Error: [Input/Output] ERROR: No response received of the last requests (default: retries+3), CLOSING CONNECTION."
+  },
+  {
+   "t": 1789476112.1007376,
+   "kind": "poll_timeout",
+   "unit": 1,
+   "error": "Modbus Error: [Input/Output] ERROR: No response received of the last requests (default: retries+3), CLOSING CONNECTION."
+  },
+  {
+   "t": 1789476113.1039207,
+   "kind": "poll_timeout",
+   "unit": 2,
+   "error": "Modbus Error: [Input/Output] ERROR: No response received of the last requests (default: retries+3), CLOSING CONNECTION."
+  },
+  {
+   "t": 1789476116.1075811,
+   "kind": "poll_timeout",
+   "unit": 1,
+   "error": "Modbus Error: [Input/Output] ERROR: No response received of the last requests (default: retries+3), CLOSING CONNECTION."
+  },
+  {
+   "t": 1789476117.1090589,
+   "kind": "poll_timeout",
+   "unit": 2,
+   "error": "Modbus Error: [Input/Output] ERROR: No response received of the last requests (default: retries+3), CLOSING CONNECTION."
+  },
+  {
+   "t": 1789476120.111327,
+   "kind": "poll_timeout",
+   "unit": 1,
+   "error": "Modbus Error: [Input/Output] ERROR: No response received of the last requests (default: retries+3), CLOSING CONNECTION."
+  },
+  {
+   "t": 1789476121.1131904,
+   "kind": "poll_timeout",
+   "unit": 2,
+   "error": "Modbus Error: [Input/Output] ERROR: No response received of the last requests (default: retries+3), CLOSING CONNECTION."
+  },
+  {
+   "t": 1789476124.11552,
+   "kind": "poll_timeout",
+   "unit": 1,
+   "error": "Modbus Error: [Input/Output] ERROR: No response received of the last requests (default: retries+3), CLOSING CONNECTION."
+  },
+  {
+   "t": 1789476125.117485,
+   "kind": "poll_timeout",
+   "unit": 2,
+   "error": "Modbus Error: [Input/Output] ERROR: No response received of the last requests (default: retries+3), CLOSING CONNECTION."
+  },
+  {
+   "t": 1789476128.1188653,
+   "kind": "poll_timeout",
+   "unit": 1,
+   "error": "Modbus Error: [Input/Output] ERROR: No response received of the last requests (default: retries+3), CLOSING CONNECTION."
+  },
+  {
+   "t": 1789476129.1212218,
+   "kind": "poll_timeout",
+   "unit": 2,
+   "error": "Modbus Error: [Input/Output] ERROR: No response received of the last requests (default: retries+3), CLOSING CONNECTION."
+  },
+  {
+   "t": 1789476132.1230047,
+   "kind": "poll_timeout",
+   "unit": 1,
+   "error": "Modbus Error: [Input/Output] ERROR: No response received of the last requests (default: retries+3), CLOSING CONNECTION."
+  },
+  {
+   "t": 1789476133.124752,
+   "kind": "poll_timeout",
+   "unit": 2,
+   "error": "Modbus Error: [Input/Output] ERROR: No response received of the last requests (default: retries+3), CLOSING CONNECTION."
+  },
+  {
+   "t": 1789476136.1276677,
+   "kind": "poll_timeout",
+   "unit": 1,
+   "error": "Modbus Error: [Input/Output] ERROR: No response received of the last requests (default: retries+3), CLOSING CONNECTION."
+  },
+  {
+   "t": 1789476137.1285062,
+   "kind": "poll_timeout",
+   "unit": 2,
+   "error": "Modbus Error: [Input/Output] ERROR: No response received of the last requests (default: retries+3), CLOSING CONNECTION."
+  },
+  {
+   "t": 1789476140.1318593,
+   "kind": "poll_timeout",
+   "unit": 1,
+   "error": "Modbus Error: [Input/Output] ERROR: No response received of the last requests (default: retries+3), CLOSING CONNECTION."
+  },
+  {
+   "t": 1789476141.1341584,
+   "kind": "poll_timeout",
+   "unit": 2,
+   "error": "Modbus Error: [Input/Output] ERROR: No response received of the last requests (default: retries+3), CLOSING CONNECTION."
+  },
+  {
+   "t": 1789476144.137162,
+   "kind": "poll_timeout",
+   "unit": 1,
+   "error": "Modbus Error: [Input/Output] ERROR: No response received of the last requests (default: retries+3), CLOSING CONNECTION."
+  },
+  {
+   "t": 1789476145.1432009,
+   "kind": "poll_timeout",
+   "unit": 2,
+   "error": "Modbus Error: [Input/Output] ERROR: No response received of the last requests (default: retries+3), CLOSING CONNECTION."
+  },
+  {
+   "t": 1789476145.9403052,
+   "kind": "comm_changed",
+   "desc": "tcp 127.0.0.1:5020"
+  },
+  {
+   "t": 1789477382.683615,
+   "kind": "command",
+   "unit": 1,
+   "dev": "switch1",
+   "op": 202,
+   "opid": 138,
+   "status": 201,
+   "remain": 12,
+   "accepted": true
+  },
+  {
+   "t": 1789477395.237213,
+   "kind": "command",
+   "unit": 1,
+   "dev": "switch1",
+   "op": 202,
+   "opid": 139,
+   "status": 201,
+   "remain": 12,
+   "accepted": true
+  },
+  {
+   "t": 1789477397.2469444,
+   "kind": "command",
+   "unit": 1,
+   "dev": "switch1",
+   "op": 0,
+   "opid": 140,
+   "status": 0,
+   "remain": 0,
+   "accepted": true
+  },
+  {
+   "t": 1789477686.9517944,
+   "kind": "actuator",
+   "unit": 1,
+   "supported": true,
+   "devices": 24
+  },
+  {
+   "t": 1789477686.9606814,
+   "kind": "command",
+   "unit": 1,
+   "dev": "switch1",
+   "op": 202,
+   "opid": 141,
+   "status": 201,
+   "remain": 12,
+   "accepted": true
+  },
+  {
+   "t": 1789477699.515205,
+   "kind": "command",
+   "unit": 1,
+   "dev": "switch1",
+   "op": 202,
+   "opid": 142,
+   "status": 201,
+   "remain": 12,
+   "accepted": true
+  },
+  {
+   "t": 1789477701.526908,
+   "kind": "command",
+   "unit": 1,
+   "dev": "switch1",
+   "op": 0,
+   "opid": 143,
+   "status": 0,
+   "remain": 0,
+   "accepted": true
+  },
+  {
+   "t": 1789477703.5331576,
+   "kind": "actuator",
+   "unit": 1,
+   "supported": true,
+   "devices": 24
+  },
+  {
+   "t": 1789477703.543373,
+   "kind": "command",
+   "unit": 1,
+   "dev": "opener1",
+   "op": 303,
+   "opid": 144,
+   "status": 301,
+   "remain": 12,
+   "accepted": true
+  },
+  {
+   "t": 1789477709.5757923,
+   "kind": "command",
+   "unit": 1,
+   "dev": "opener1",
+   "op": 0,
+   "opid": 145,
+   "status": 0,
+   "remain": 0,
+   "accepted": true
+  },
+  {
+   "t": 1789477711.5854087,
+   "kind": "command",
+   "unit": 1,
+   "dev": "opener1",
+   "op": 304,
+   "opid": 146,
+   "status": 302,
+   "remain": 12,
+   "accepted": true
+  },
+  {
+   "t": 1789477717.6200807,
+   "kind": "command",
+   "unit": 1,
+   "dev": "opener1",
+   "op": 0,
+   "opid": 147,
+   "status": 0,
+   "remain": 0,
+   "accepted": true
+  }
+ ]
+}

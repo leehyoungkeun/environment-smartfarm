@@ -531,13 +531,68 @@ router.post("/actuator-status", async (req, res) => {
       params.push(ts, farmId, r.houseId || houseId, String(r.deviceId), r.unit ?? null, r.kind ?? null, r.n ?? null,
         Number(r.status), r.statusName ?? r.status_name ?? null, Number(r.remain) || 0, Number(r.opid) || 0);
     }
-    if (values.length === 0) return res.status(400).json({ success: false, error: "유효한 행 없음 (deviceId, status 필수)" });
-    const result = await pool.query(
-      `INSERT INTO actuator_status ("timestamp", farm_id, house_id, device_id, unit, kind, n, status, status_name, remain, opid)
-       VALUES ${values.join(",")} ON CONFLICT DO NOTHING`, params);
-    res.json({ success: true, inserted: result.rowCount, received: rows.length });
+    // 표준 센서 1분 스냅샷 (§5.4.4, 2026-09-15) — 같은 요청에 sensorRows 로 함께 온다. 상태가 무엇이든 관측치·상태를 그대로 남긴다.
+    const sensorRows = Array.isArray(req.body?.sensorRows) ? req.body.sensorRows.slice(0, ACTUATOR_STATUS_MAX_BATCH) : [];
+    let sensorInserted = 0;
+    if (sensorRows.length > 0) {
+      const sv = [];
+      const sp = [];
+      let j = 1;
+      for (const r of sensorRows) {
+        if (!r || r.unit === undefined || r.idx === undefined || r.status === undefined || r.status === null) continue;
+        const ts = new Date(r.timestamp || Date.now());
+        if (Number.isNaN(ts.getTime())) continue;
+        const val = r.value === null || r.value === undefined || !Number.isFinite(Number(r.value)) ? null : Number(r.value);
+        sv.push(`($${j++}, $${j++}, $${j++}, $${j++}, $${j++}, $${j++}, $${j++}, $${j++}, $${j++}, $${j++}, $${j++})`);
+        sp.push(ts, farmId, Number(r.unit), Number(r.idx), r.code ?? null, r.name ?? null, val,
+          Number(r.status), r.statusName ?? r.status_name ?? null, r.houseId ?? null, r.sensorId ?? null);
+      }
+      if (sv.length > 0) {
+        const sr = await pool.query(
+          `INSERT INTO ks_sensor_status ("timestamp", farm_id, unit, idx, code, name, value, status, status_name, house_id, sensor_id)
+           VALUES ${sv.join(",")} ON CONFLICT DO NOTHING`, sp);
+        sensorInserted = sr.rowCount;
+      }
+    }
+    if (values.length === 0 && sensorRows.length === 0) return res.status(400).json({ success: false, error: "유효한 행 없음 (deviceId, status 필수)" });
+    let inserted = 0;
+    if (values.length > 0) {
+      const result = await pool.query(
+        `INSERT INTO actuator_status ("timestamp", farm_id, house_id, device_id, unit, kind, n, status, status_name, remain, opid)
+         VALUES ${values.join(",")} ON CONFLICT DO NOTHING`, params);
+      inserted = result.rowCount;
+    }
+    res.json({ success: true, inserted, received: rows.length, sensorInserted, sensorReceived: sensorRows.length });
   } catch (error) {
     logger.error("❌ actuator-status 저장 실패:", error.message);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+/**
+ * GET /internal/sensor-status?farmId&unit&idx&startDate&endDate&limit
+ * 표준 센서 1분 스냅샷 읽기 (농장 키) — RPi 자가시험 §5.4.4 가 "저장주기대로 저장됐는가" 를 서버에서 되읽는다.
+ */
+router.get("/sensor-status", async (req, res) => {
+  try {
+    const { farmId } = resolveFarmHouse(req);
+    const end = req.query.endDate ? new Date(req.query.endDate) : new Date();
+    const start = req.query.startDate ? new Date(req.query.startDate) : new Date(end.getTime() - 3600 * 1000);
+    if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || end - start > 2 * 86400 * 1000) {
+      return res.status(400).json({ success: false, error: "startDate/endDate 형식 오류 또는 2일 초과" });
+    }
+    const params = [farmId, start, end];
+    let sql = `SELECT "timestamp", unit, idx, code, name, value, status, status_name, house_id, sensor_id
+               FROM ks_sensor_status WHERE farm_id = $1 AND "timestamp" >= $2 AND "timestamp" <= $3`;
+    const unit = parseInt(req.query.unit, 10);
+    if (Number.isFinite(unit)) { params.push(unit); sql += ` AND unit = $${params.length}`; }
+    const idx = parseInt(req.query.idx, 10);
+    if (Number.isFinite(idx)) { params.push(idx); sql += ` AND idx = $${params.length}`; }
+    params.push(Math.min(parseInt(req.query.limit, 10) || 5000, 20000));
+    sql += ` ORDER BY "timestamp" ASC, unit ASC, idx ASC LIMIT $${params.length}`;
+    const { rows } = await pool.query(sql, params);
+    res.json({ success: true, count: rows.length, data: rows });
+  } catch (error) {
     res.status(500).json({ success: false, error: error.message });
   }
 });

@@ -1,0 +1,101 @@
+{
+ "meta": {
+  "at": "2026-09-15 22:30:59",
+  "transport": "tcp 127.0.0.1:5020"
+ },
+ "results": [
+  {
+   "id": "5.4.1",
+   "title": "연결시험",
+   "ref": "SPS-7466 §5.4.1 a)~d) + 당일 준비 점검",
+   "ok": true,
+   "steps": [
+    {
+     "step": "a) 시험장비-제어기 연결 — 시뮬레이터 환경: 루프백 TCP 가 RS485 케이블을 대신",
+     "ok": true,
+     "detail": "tcp 127.0.0.1:5020 · 열림 / 시험장비 {'ok': True, 'units': {'1': 'actuator', '2': 'sensor'}}"
+    },
+    {
+     "step": "b) 시험장비 통신 설정 — 시뮬레이터 --tcp 5020, 노드 주소 2(센서)·1(구동기)",
+     "ok": true,
+     "detail": "{'ok': True, 'units': {'1': 'actuator', '2': 'sensor'}}"
+    },
+    {
+     "step": "c) 제어기 통신 설정 — 시뮬레이터 주소로 연결됨 (당일엔 RS485·표준 포트·9600)",
+     "ok": true,
+     "detail": "tcp 127.0.0.1:5020"
+    },
+    {
+     "step": "c') 노드 슬레이브 아이디 입력 2",
+     "ok": true,
+     "detail": "2"
+    },
+    {
+     "step": "d) 통신 연결 수행 — 센서 노드 2 응답",
+     "ok": true,
+     "detail": "센서 노드 · 프로토콜 10 · 채널 30"
+    },
+    {
+     "step": "d) 통신 연결 수행 — 구동기 노드 1 응답",
+     "ok": true,
+     "detail": "구동기 노드 · 프로토콜 10 · 채널 24"
+    },
+    {
+     "step": "준비) 표준 노드 포트(FTDI, 고정 이름 /dev/smartfarm-485-std) 인식",
+     "ok": true,
+     "detail": "표준 노드 포트 · FTDI · ttyUSB1"
+    },
+    {
+     "step": "준비) 표준 포트 열림 시험 (9600 8N1)",
+     "ok": true,
+     "detail": "열고 닫음 · 정상"
+    }
+   ]
+  }
+ ],
+ "manual": [],
+ "stats": {
+  "tx": 12,
+  "rx": 12,
+  "exceptions": 0,
+  "timeouts": 0,
+  "scan_misses": 0
+ },
+ "events": [
+  {
+   "t": 1789479058.0377018,
+   "kind": "actuator",
+   "unit": 1,
+   "supported": true,
+   "devices": 24
+  },
+  {
+   "t": 1789479058.0556426,
+   "kind": "sensor",
+   "unit": 2,
+   "supported": true,
+   "devices": 30
+  },
+  {
+   "t": 1789479058.9518907,
+   "kind": "sensor",
+   "unit": 2,
+   "supported": true,
+   "devices": 30
+  },
+  {
+   "t": 1789479059.0537488,
+   "kind": "sensor",
+   "unit": 2,
+   "supported": true,
+   "devices": 30
+  },
+  {
+   "t": 1789479059.0699844,
+   "kind": "actuator",
+   "unit": 1,
+   "supported": true,
+   "devices": 24
+  }
+ ]
+}

@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import axiosBase from 'axios';
 import { getApiBase } from '../../services/apiSwitcher';
-import { describeStatus, discoveryRows, nodeSummary, nodeInfoRows, nodeReadRows, mappingIndex, mappingKey, frameRows } from '../../lib/ks3267';
+import { describeStatus, discoveryRows, nodeSummary, nodeInfoRows, nodeReadRows, mappingIndex, mappingKey, frameRows, commChangeWarnings, deviceCodeCheck, nodeReadView, deviceKindSummary, changeStats, storageCheck } from '../../lib/ks3267';
 
 // ━━━ KS X 3267 표준노드 탭 (P4, 2026-08-30 / UI 재구성 2026-09-04) ━━━
 // 읽기 전용 진단 UI. 백엔드 /config/:farmId/ks3267/:action → RPi NR → ks3267d 데몬(127.0.0.1:3002).
@@ -75,6 +75,89 @@ export const KsNodeManager = ({ farmId }) => {
   const [scanResult, setScanResult] = useState(null);
   const [message, setMessage] = useState(null);
   const [showDiag, setShowDiag] = useState(false);
+
+  // ── 통신 설정·§5.4.1 연결 시험 (2026-09-15) ──
+  // 이 탭은 읽기 전용이 원칙인데 통신 설정만 예외로 쓴다. 제어는 여전히 여기서 하지 않는다.
+  // 패널(localhost)은 같은 출처 /api/ks3267-comm (nginx 루프백 전용, 인터넷 없어도 됨),
+  // 웹은 클라우드 백엔드 /config/:farmId/ks3267-comm (변경은 농장 소유자 이상).
+  const onPanel = typeof window !== 'undefined' && ['localhost', '127.0.0.1'].includes(window.location.hostname);
+  const commGet = useCallback((path, params) => (onPanel
+    ? axios.get(`/api/ks3267-comm/${path}`, { params, timeout: 25000 })
+    : axios.get(`${api}/config/${farmId}/ks3267-${path}`, { params, timeout: 25000 })).then(r => r.data), [api, farmId, onPanel]);
+  const commPut = useCallback((body) => (onPanel
+    ? axios.put('/api/ks3267-comm/comm', body, { timeout: 30000 })
+    : axios.put(`${api}/config/${farmId}/ks3267-comm`, body, { timeout: 30000 })).then(r => r.data), [api, farmId, onPanel]);
+  const [comm, setComm] = useState(null);          // { ok, current, ports, standard, allowedBauds }
+  const [commForm, setCommForm] = useState(null);  // { mode, port, baud, timeout, tcp }
+  const [commBusy, setCommBusy] = useState(false);
+  const [commMsg, setCommMsg] = useState(null);
+  const [testUnit, setTestUnit] = useState('1');
+  const [connTest, setConnTest] = useState(null);  // { rows, passed, at } | { rows: [], error }
+  const [testing, setTesting] = useState(false);
+  const [changes, setChanges] = useState({});      // unit → 센서 변화 이력 (§5.4.3, 드라이버 /changes)
+  const [storage, setStorage] = useState({});      // unit → 서버 저장 행 최근 60분 (§5.4.4, /api/sensor-status)
+  const [stateAt, setStateAt] = useState(0);       // 상태를 받은 브라우저 시각(ms) — §5.1.3 표 남은시간 카운트다운 기준
+
+  const loadComm = useCallback(async () => {
+    try {
+      const d = await commGet('comm');
+      setComm(d);
+      if (d?.ok && d.current) {
+        setCommForm((f) => f || {
+          mode: d.current.mode,
+          port: d.current.port || (d.ports || []).find((p) => p.role === 'standard')?.stable || '',
+          baud: d.current.baud || 9600,
+          timeout: d.current.timeout || 1,
+          tcp: d.current.tcp || '127.0.0.1:5020',
+        });
+      }
+    } catch (e) {
+      setComm({ ok: false, error: e.response?.data?.error || e.message });
+    }
+  }, [commGet]);
+
+  useEffect(() => { loadComm(); }, [loadComm]);
+
+  const applyComm = async () => {
+    if (!commForm || !comm?.current) return;
+    const warns = commChangeWarnings(comm.current, commForm);
+    if (warns.length && !window.confirm(warns.join('\n\n') + '\n\n계속할까요?')) return;
+    setCommBusy(true);
+    setCommMsg(null);
+    try {
+      const d = await commPut({
+        mode: commForm.mode, port: commForm.port, baud: Number(commForm.baud),
+        timeout: Number(commForm.timeout), tcp: commForm.tcp,
+      });
+      if (d?.ok) {
+        setCommMsg({ type: 'ok', text: `적용했습니다. 지금 연결: ${d.current?.desc}` });
+        setComm((c) => ({ ...c, current: d.current }));
+        setConnTest(null);
+      } else {
+        setCommMsg({ type: 'err', text: d?.error || '적용하지 못했습니다' });
+      }
+    } catch (e) {
+      const s = e.response?.status;
+      setCommMsg({ type: 'err', text: s === 403 || s === 401
+        ? '통신 설정을 바꿀 권한이 없습니다. 농장 소유자 이상으로 로그인하거나 제어기 패널에서 바꾸세요.'
+        : '적용 실패: ' + (e.response?.data?.error || e.message) });
+    } finally {
+      setCommBusy(false);
+    }
+  };
+
+  const runConnTest = async () => {
+    setTesting(true);
+    setConnTest(null);
+    try {
+      const d = await commGet('conntest', { unit: parseInt(testUnit, 10) });
+      setConnTest(d?.rows ? d : { rows: [], passed: false, error: d?.error || '시험하지 못했습니다' });
+    } catch (e) {
+      setConnTest({ rows: [], passed: false, error: e.response?.data?.error || e.message });
+    } finally {
+      setTesting(false);
+    }
+  };
   const [frames, setFrames] = useState({ frames: [], stats: null });
   const [events, setEvents] = useState([]);
   const [tick, setTick] = useState(0);
@@ -94,6 +177,18 @@ export const KsNodeManager = ({ farmId }) => {
           if (!alive) return;
           setNodes(n.nodes || {});
           setState(s.state || {});
+          setStateAt(Date.now());
+          // §5.4.3 — 센서 노드마다 변화 이력. 드라이버가 폴링 해상도로 남기므로 화면 10초 주기여도 빠지지 않는다.
+          const sensorUnits = Object.entries(n.nodes || {}).filter(([, nd]) => nd?.kind === 'sensor').map(([u]) => u);
+          const chs = await Promise.all(sensorUnits.map((u) => commGet('changes', { unit: u, n: 80 }).catch(() => null)));
+          if (!alive) return;
+          setChanges(Object.fromEntries(sensorUnits.map((u, i) => [u, chs[i]?.changes || []])));
+          // §5.4.4 — 서버(ks_sensor_status)에 매분 저장된 관측치·상태. 최근 60분. 서버 미배포·미인증이면 조용히 빈 값.
+          const since = new Date(Date.now() - 60 * 60000).toISOString();
+          const sts = await Promise.all(sensorUnits.map((u) => axios.get(`${api}/sensor-status/${farmId}`, { params: { unit: u, startDate: since }, timeout: 15000 })
+            .then((r) => r.data).catch((e) => ({ error: e.response?.data?.error || e.message }))));
+          if (!alive) return;
+          setStorage(Object.fromEntries(sensorUnits.map((u, i) => [u, sts[i]])));
           if (showDiag) {
             const [f, e] = await Promise.all([ks('frames', { n: 40 }), ks('events', { n: 30 })]);
             if (!alive) return;
@@ -106,7 +201,7 @@ export const KsNodeManager = ({ farmId }) => {
       }
     })();
     return () => { alive = false; };
-  }, [ks, tick, showDiag]);
+  }, [ks, commGet, api, farmId, tick, showDiag]);
 
   useEffect(() => {
     const t = setInterval(() => setTick(x => x + 1), 10000);
@@ -209,6 +304,136 @@ export const KsNodeManager = ({ farmId }) => {
         {mapping.duplicates.length > 0 && (
           <p className="text-sm text-rose-700 font-semibold bg-rose-50 rounded-md p-3 border border-rose-200">⚠ 같은 표준 디바이스에 둘 이상 매핑됨: {mapping.duplicates.join(', ')} — 하우스/센서 탭에서 정리하세요</p>
         )}
+
+        {/* 통신 설정 — SPS-7466 §5.4.1 b) 통신 설정값 세팅 (2026-09-15) */}
+        <SubBox title="통신 설정" desc="표준 노드 RS485 포트와 속도" tone="blue"
+          right={comm?.current && <Pill tone={comm.current.connected ? 'on' : 'bad'}>{comm.current.connected ? '포트 열림' : '포트 닫힘'}</Pill>}>
+          {!comm ? (
+            <p className="text-sm text-gray-500">불러오는 중…</p>
+          ) : !comm.ok ? (
+            <p className="text-sm text-rose-700">{comm.error || '드라이버에서 통신 설정을 읽지 못했습니다'}</p>
+          ) : commForm && (
+            <div className="space-y-3">
+              <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
+                <label className="text-sm font-semibold text-gray-700">연결 방식
+                  <select value={commForm.mode} onChange={e => setCommForm({ ...commForm, mode: e.target.value })}
+                    className="input-field mt-1 w-full">
+                    <option value="serial">RS485 (실제 노드)</option>
+                    <option value="tcp">시뮬레이터 (시험장비)</option>
+                  </select>
+                </label>
+                {commForm.mode === 'serial' ? (
+                  <>
+                    <label className="text-sm font-semibold text-gray-700 md:col-span-2">포트
+                      <select value={commForm.port} onChange={e => setCommForm({ ...commForm, port: e.target.value })}
+                        className="input-field mt-1 w-full font-mono">
+                        {(comm.ports || []).length === 0 && <option value="">USB-RS485 변환기를 찾지 못했습니다</option>}
+                        {(comm.ports || []).map(p => (
+                          <option key={p.path} value={p.stable || p.path} disabled={!p.selectable}>{p.label}</option>
+                        ))}
+                      </select>
+                    </label>
+                    <label className="text-sm font-semibold text-gray-700">통신 속도
+                      <select value={commForm.baud} onChange={e => setCommForm({ ...commForm, baud: Number(e.target.value) })}
+                        className="input-field mt-1 w-full">
+                        {(comm.allowedBauds || [9600]).map(b => <option key={b} value={b}>{b}{b === 9600 ? ' (표준)' : ''}</option>)}
+                      </select>
+                    </label>
+                  </>
+                ) : (
+                  <label className="text-sm font-semibold text-gray-700 md:col-span-3">시뮬레이터 주소
+                    <input value={commForm.tcp} onChange={e => setCommForm({ ...commForm, tcp: e.target.value })}
+                      className="input-field mt-1 w-full font-mono" />
+                  </label>
+                )}
+              </div>
+              <div className="flex flex-wrap items-center gap-x-5 gap-y-2 text-sm text-gray-600">
+                <span>데이터 형식 <b className="text-gray-800">8N1 · RTU</b> <span className="text-gray-400">표준 고정</span></span>
+                <span>지금 연결 <b className="font-mono text-gray-800">{comm.current?.desc}</b></span>
+                <label className="inline-flex items-center gap-1">응답 대기
+                  <input type="number" min={0.2} max={5} step={0.1} value={commForm.timeout}
+                    onChange={e => setCommForm({ ...commForm, timeout: e.target.value })}
+                    className="input-field w-20 py-1" />초
+                </label>
+                {(() => {
+                  // §5.4.1 c) 당일 한 번에: RS485 · 표준 포트 · 9600. 적용은 따로 눌러야 한다(경고 확인 경로 유지).
+                  const std = (comm.ports || []).find(x => x.role === 'standard');
+                  const isPreset = commForm.mode === 'serial' && Number(commForm.baud) === 9600 && std && commForm.port === (std.stable || std.path);
+                  return (
+                    <button onClick={() => setCommForm({ ...commForm, mode: 'serial', port: std.stable || std.path, baud: 9600 })}
+                      disabled={!std || isPreset} className="ml-auto btn-secondary text-sm px-3 py-2"
+                      title={std ? '연결 방식 RS485, 표준 노드 포트, 9600 으로 채웁니다' : '표준 노드 포트(FTDI)를 찾지 못했습니다'}>
+                      {isPreset ? '✓ 시험 당일 값' : '시험 당일 값으로'}
+                    </button>
+                  );
+                })()}
+                <button onClick={applyComm} disabled={commBusy} className="btn-primary text-sm px-4 py-2">
+                  {commBusy ? '적용 중…' : '적용'}
+                </button>
+              </div>
+              {commForm.mode === 'serial' && Number(commForm.baud) !== 9600 && (
+                <p className="text-sm text-amber-700 font-semibold">⚠ 9600 이 아니면 KS X 3267 표준 밖입니다.</p>
+              )}
+              {commMsg && (
+                <p className={`text-sm font-semibold rounded-md p-2 border ${commMsg.type === 'ok' ? 'bg-emerald-50 border-emerald-200 text-emerald-800' : 'bg-rose-50 border-rose-200 text-rose-700'}`}>
+                  {commMsg.text}
+                </p>
+              )}
+            </div>
+          )}
+        </SubBox>
+
+        {/* §5.4.1 연결 시험 a)~d) (2026-09-15) */}
+        <SubBox title="§5.4.1 연결 시험" desc="a)~d) 를 한 번에 판정합니다" tone="green"
+          right={connTest?.rows?.length > 0 && <Pill tone={connTest.passed ? 'on' : 'bad'}>{connTest.passed ? '통과' : '불통과'}</Pill>}>
+          <div className="flex flex-wrap items-end gap-3 mb-3">
+            <label className="text-sm font-semibold text-gray-700">노드 슬레이브 아이디
+              <input type="number" min={1} max={247} value={testUnit} onChange={e => setTestUnit(e.target.value)}
+                className="input-field mt-1 w-28 block" />
+            </label>
+            <button onClick={runConnTest} disabled={testing || !daemonUp} className="btn-primary text-sm px-4 py-2">
+              {testing ? '시험 중…' : '▶ 연결 시험 실행'}
+            </button>
+          </div>
+          {connTest?.error && <p className="text-sm text-rose-700">{connTest.error}</p>}
+          {connTest?.rows?.length > 0 && (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="text-left text-gray-500 border-b">
+                    <th className="py-1 pr-2">단계</th><th className="py-1 pr-2">항목</th><th className="py-1 pr-2">기대</th>
+                    <th className="py-1 pr-2">실제</th><th className="py-1">판정</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {connTest.rows.map(r => (
+                    <tr key={r.step} className="border-b border-gray-100 align-top">
+                      <td className="py-1.5 pr-2 font-bold">{r.step})</td>
+                      <td className="py-1.5 pr-2">{r.title}{r.note && <div className="text-xs text-amber-700 mt-0.5">{r.note}</div>}</td>
+                      <td className="py-1.5 pr-2 text-gray-600">{r.expected}</td>
+                      <td className="py-1.5 pr-2 font-mono text-gray-800 break-all">{r.actual}</td>
+                      <td className="py-1.5"><Pill tone={r.ok ? 'on' : 'bad'}>{r.ok ? '일치' : '불일치'}</Pill></td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+          {connTest?.prep?.length > 0 && (
+            <div className="mt-3 pt-3 border-t border-gray-100">
+              <p className="text-sm font-semibold text-gray-700 mb-1">당일 준비 점검 <span className="text-gray-400 font-normal">— a)~d) 판정과 별개. 시뮬레이터로 쓰는 동안에도 표준 포트가 준비됐는지 봅니다</span></p>
+              <ul className="space-y-1 text-sm">
+                {connTest.prep.map((r, i) => (
+                  <li key={i} className="flex flex-wrap items-start gap-2">
+                    <Pill tone={r.ok === null ? 'muted' : r.ok ? 'on' : 'bad'}>{r.ok === null ? '안내' : r.ok ? '준비됨' : '미비'}</Pill>
+                    <span className="text-gray-800">{r.title}</span>
+                    <span className="text-gray-500 break-all">{r.detail}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </SubBox>
       </Section>
 
       {/* ② 노드 찾기 */}
@@ -296,7 +521,7 @@ export const KsNodeManager = ({ farmId }) => {
             아직 찾은 노드가 없습니다.{daemonUp ? ' 위 ② 에서 탐색하거나 스캔하세요.' : ' 먼저 ① 드라이버가 연결되어야 합니다.'}
           </div>
         ) : unitList.map(unit => (
-          <NodeCard key={unit} unit={unit} node={nodes[unit]} st={state[unit]} mapping={mapping.map} />
+          <NodeCard key={unit} unit={unit} node={nodes[unit]} st={state[unit]} mapping={mapping.map} changes={changes[unit] || []} storage={storage[unit]} stateAt={stateAt} />
         ))}
       </Section>
 
@@ -345,11 +570,19 @@ export const KsNodeManager = ({ farmId }) => {
   );
 };
 
-const NodeCard = ({ unit, node, st, mapping }) => {
+const NodeCard = ({ unit, node, st, mapping, changes = [], storage, stateAt = 0 }) => {
+  // §5.5.2 f)·§5.5.3 f)o) — 남은 작동시간은 10초 폴링 사이에도 흘러야 '적절히 표시' 다. 받은 시각부터 지난 초를 뺀다.
+  const [nowMs, setNowMs] = useState(Date.now());
+  useEffect(() => { const id = setInterval(() => setNowMs(Date.now()), 1000); return () => clearInterval(id); }, []);
+  const remainNow = (remain) => (remain > 0 && stateAt > 0 ? Math.max(0, remain - Math.floor((nowMs - stateAt) / 1000)) : remain);
   const sum = nodeSummary(node);
   const rows = discoveryRows(node);
   const infoRows = nodeInfoRows(node);
   const infoFail = infoRows.filter(r => r.ok === false).length;
+  // §5.1.2 e) 위치별 기대 코드 대조 — 센서 코드가 틀려도 표에 정상처럼 보이던 빈틈 (2026-09-15)
+  const codeCheck = deviceCodeCheck(node);
+  const codeByIndex = Object.fromEntries(codeCheck.rows.map(c => [c.index, c]));
+  const kindSum = deviceKindSummary(node);  // §5.4.2 d)·§5.5.1 d) — 시험장비 설정(개수·종류)과 한눈에 대조
   const nodeStatus = st && !st.error ? describeStatus(st.node_status) : null;
   const lastSeen = st?.t ? new Date(st.t * 1000).toLocaleTimeString('ko-KR', { hour12: false }) : null;
   return (
@@ -402,16 +635,20 @@ const NodeCard = ({ unit, node, st, mapping }) => {
 
         {/* 노드 데이터 읽기 시험표 (§5.1.3 b·c) — 상태코드 숫자+의미, 관측치+단위, 읽은 시각 */}
         {(() => {
-          const rd = nodeReadRows(node, st);
+          const rd = nodeReadView(node, st);
           if (!rd) return null;
           const t = rd.readAt ? rd.readAt.toLocaleTimeString('ko-KR', { hour12: false }) : null;
           const Verdict = ({ ok }) => ok === null ? <span className="text-gray-400">미읽음</span>
+            : rd.hold ? <span className="text-amber-700 font-bold">보류</span>
             : ok ? <span className="text-emerald-700 font-bold">✓ 정의된 값</span> : <span className="text-rose-600 font-bold">✗ 부적절</span>;
           return (
-            <SubBox title="노드 데이터 읽기 시험표" desc="§5.1.3 b·c — 상태코드가 정의된 값인지, 관측치가 읽히는지" tone={rd.fail === 0 && rd.node.ok ? 'green' : 'gray'}
+            <SubBox title="노드 데이터 읽기 시험표" desc="§5.1.3 b·c — 상태코드가 정의된 값인지, 관측치가 읽히는지" tone={!rd.hold && rd.fail === 0 && rd.node.ok ? 'green' : 'gray'}
               right={<>
                 {t ? <span className="text-sm text-gray-500">읽은 시각 {t}</span> : <span className="text-sm text-rose-600">아직 읽지 못함</span>}
-                {rd.node.ok !== null && (rd.fail === 0 ? <Pill tone="on">전 항목 적절</Pill> : <Pill tone="bad">부적절 {rd.fail}건</Pill>)}
+                {rd.hold
+                  ? <Pill tone="warn" title="§5.1.3 은 §5.1.2 를 통과한 노드에만 판정합니다">§5.1.2 미통과 · 판정 보류</Pill>
+                  : rd.node.ok !== null && (rd.fail === 0 ? <Pill tone="on">전 항목 적절</Pill> : <Pill tone="bad">부적절 {rd.fail}건</Pill>)}
+                {rd.rangeWarnCount > 0 && <Pill tone="warn" title="표준이 정한 범위가 아니라 일반적인 센서 측정 범위입니다">범위 밖 의심 {rd.rangeWarnCount}건</Pill>}
               </>}>
               <div className="overflow-x-auto">
                 <table className="w-full text-sm">
@@ -437,23 +674,132 @@ const NodeCard = ({ unit, node, st, mapping }) => {
                         <td className="px-3">{r.code === null ? <span className="text-gray-400">—</span> : <Pill tone={r.tone}>{r.meaning}</Pill>}</td>
                         <td className="px-3">
                           {r.kind === 'sensor'
-                            ? (r.value === null ? <span className="text-gray-400">—</span> : <><span className="font-mono font-bold text-gray-900 text-base">{r.value}</span>{r.unit && <span className="ml-1 text-gray-500">{r.unit}</span>}</>)
-                            : (r.code === null ? <span className="text-gray-400">—</span> : <span className="text-gray-700">{r.remain > 0 ? `남은 ${r.remain}s` : '대기/완료'}{r.opid ? <span className="ml-2 text-xs text-gray-400">OPID {r.opid}</span> : null}</span>)}
+                            ? (r.value === null ? <span className="text-gray-400">—</span> : <><span className="font-mono font-bold text-gray-900 text-base">{r.value}</span>{r.unit && <span className="ml-1 text-gray-500">{r.unit}</span>}{r.rangeWarn && <span className="ml-2 inline-block px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 text-xs font-bold" title="표준이 정한 범위가 아니라 일반적인 센서 측정 범위입니다">범위 밖 의심 {r.rangeWarn.min}~{r.rangeWarn.max}</span>}</>)
+                            : (r.code === null ? <span className="text-gray-400">—</span> : <span className="text-gray-700">{r.remain > 0 ? <><span className="font-mono font-bold text-gray-900 text-base">남은 {remainNow(r.remain)}s</span><span className="ml-1 text-xs text-gray-400" title="드라이버가 마지막으로 읽은 값 — 표시값은 읽은 시각부터 초 단위로 흐릅니다">(읽은 값 {r.remain})</span></> : '대기/완료'}{r.opid ? <span className="ml-2 text-xs text-gray-400">OPID {r.opid}</span> : null}</span>)}
                         </td>
                         <td className="px-3"><Verdict ok={r.ok} /></td>
                       </tr>
                     ))}
                   </tbody>
                 </table>
-                <p className="text-xs text-gray-500 mt-2">판정 "정의된 값" = 표준 표 B.x 의 상태코드(0~6·101~103·201/299·301/302/399·900~999) 이고, 센서는 관측치가 숫자로 읽힘. 값이 시험장비 설정값과 맞는지는 이 표의 관측치를 대조하세요. 10초마다 갱신.</p>
+                <p className="text-xs text-gray-500 mt-2">판정 "정의된 값" = 표준 표 B.x 의 상태코드(0~6·101~103·201/299·301/302/399·900~999) 이고, 센서는 관측치가 숫자로 읽힘. 값이 시험장비 설정값과 맞는지는 이 표의 관측치를 대조하세요. 「범위 밖 의심」 은 일반적인 센서 측정 범위를 벗어났다는 참고 경고이며 판정을 바꾸지 않습니다. §5.1.2 가 불일치인 노드는 판정을 보류합니다. 10초마다 갱신, 남은 작동시간은 읽은 시각부터 초 단위로 흐르고 다음 읽기에 재동기됩니다.</p>
               </div>
+            </SubBox>
+          );
+        })()}
+
+        {/* §5.4.3 데이터 확인 — 관측 변화 이력 (2026-09-15). 시험장비가 값·상태를 바꾸면 제어기가 읽은 변화가 순서·시각과 함께 쌓인다 */}
+        {node.kind === 'sensor' && (() => {
+          const cs = changeStats(changes);
+          const fmt = (t) => new Date(t * 1000).toLocaleTimeString('ko-KR', { hour12: false });
+          return (
+            <SubBox title="§5.4.3 데이터 확인 — 관측 변화 이력" desc="시험장비에서 관측치·상태를 바꾸면 제어기가 읽은 변화가 여기 쌓입니다 (드라이버 폴링 해상도)" tone="green"
+              right={<Pill tone={cs.total ? 'on' : 'muted'}>{cs.total}건</Pill>}>
+              {cs.sensors.length === 0 ? (
+                <p className="text-sm text-gray-500">아직 변화가 없습니다. 시험장비에서 관측치나 상태를 바꿔 보세요.</p>
+              ) : (
+                <div className="space-y-3">
+                  <div className="flex flex-wrap gap-2">
+                    {cs.sensors.map(x => (
+                      <div key={x.index} className="rounded-md border border-gray-200 px-3 py-2 text-sm">
+                        <b>#{x.index} {x.name}</b> · 값 변화 {x.valueChanges}회 · 상태 변화 {x.statusChanges}회
+                        {x.statusPeriod !== null && <span className="ml-2 text-emerald-700 font-semibold" title="c) 상태가 일정 주기마다 바뀌는지 — 상태 변화 사이 간격의 평균">상태 변화 주기 ≈ {x.statusPeriod}s</span>}
+                        {x.statusSeq.length > 0 && <span className="ml-2 font-mono text-gray-600">{x.statusSeq.join(' → ')}</span>}
+                      </div>
+                    ))}
+                  </div>
+                  <div className="overflow-x-auto max-h-56 overflow-y-auto">
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="text-gray-600 text-left bg-gray-50 border-y border-gray-200">
+                          <th className="py-1 px-2">시각</th><th className="px-2">센서</th><th className="px-2">값</th><th className="px-2">상태</th><th className="px-2">변화</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {changes.slice().reverse().map((c, i) => (
+                          <tr key={i} className="border-b border-gray-100">
+                            <td className="py-1 px-2 font-mono">{fmt(c.t)}</td>
+                            <td className="px-2">#{c.index} {c.name}</td>
+                            <td className="px-2 font-mono">{c.what !== 'status' ? <>{c.prev_value} → <b>{c.value}</b></> : c.value}</td>
+                            <td className="px-2 font-mono">{c.what !== 'value' ? <>{c.prev_status} → <b>{c.status}</b></> : c.status} <span className="text-gray-500 font-sans">{c.status_name}</span></td>
+                            <td className="px-2">{c.what === 'both' ? '값·상태' : c.what === 'value' ? '값' : '상태'}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+            </SubBox>
+          );
+        })()}
+
+        {/* §5.4.4 데이터 저장 확인 (2026-09-15) — 서버에 1분마다 저장된 관측치·상태가 저장주기대로 있는가 */}
+        {node.kind === 'sensor' && (() => {
+          const rows = storage?.data || [];
+          const sc = storageCheck(rows, storage?.intervalSec || 60);
+          const fmt = (t) => new Date(t).toLocaleTimeString('ko-KR', { hour12: false });
+          const recent = rows.slice(-12).reverse();
+          return (
+            <SubBox title="§5.4.4 데이터 저장 확인" desc="저장주기 1분 — 서버 ks_sensor_status 최근 60분. 상태가 점검군(101~103)이어도 관측치·상태를 그대로 저장" tone="green"
+              right={<>
+                {sc.total > 0 && <Pill tone={sc.ok ? 'on' : 'warn'}>{sc.ok ? '저장주기대로' : '빈틈 있음'}</Pill>}
+                <Pill tone={sc.total ? 'ok' : 'muted'}>{sc.total}행</Pill>
+              </>}>
+              {storage?.error ? (
+                <p className="text-sm text-rose-700">서버 저장 행을 읽지 못했습니다: {storage.error}</p>
+              ) : sc.sensors.length === 0 ? (
+                <p className="text-sm text-gray-500">최근 60분 저장 행이 없습니다. NR 「표준 구동기 1분 스냅샷」이 센서 행(sensorRows)을 보내는 판이어야 합니다.</p>
+              ) : (
+                <div className="space-y-3">
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="text-gray-600 text-left bg-gray-50 border-y border-gray-200">
+                          <th className="py-1 px-2">센서</th><th className="px-2">저장 행</th><th className="px-2">기대(1분 간격)</th><th className="px-2">빈틈</th><th className="px-2">상태코드 종류</th><th className="px-2">마지막</th><th className="px-2">판정</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {sc.sensors.map(x => (
+                          <tr key={x.idx} className="border-b border-gray-100">
+                            <td className="py-1 px-2">#{x.idx} {x.name}</td>
+                            <td className="px-2 font-mono">{x.rows}</td>
+                            <td className="px-2 font-mono">{x.expected}</td>
+                            <td className="px-2 font-mono">{x.gaps}</td>
+                            <td className="px-2 font-mono">{x.statuses.join(', ')}</td>
+                            <td className="px-2 font-mono">{x.last ? `${fmt(x.last.timestamp)} · ${x.last.value ?? '—'} · ${x.last.status}` : '—'}</td>
+                            <td className="px-2"><Pill tone={x.ok ? 'on' : x.rows < 2 ? 'muted' : 'warn'}>{x.ok ? '✓ 저장주기대로' : x.rows < 2 ? '행 부족' : '빈틈 ' + x.gaps}</Pill></td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                  <details>
+                    <summary className="text-sm text-gray-600 cursor-pointer">최근 저장 행 {recent.length}개 보기</summary>
+                    <table className="w-full text-sm mt-2">
+                      <thead><tr className="text-gray-600 text-left bg-gray-50 border-y border-gray-200"><th className="py-1 px-2">시각</th><th className="px-2">센서</th><th className="px-2">값</th><th className="px-2">상태</th></tr></thead>
+                      <tbody>
+                        {recent.map((r, i) => (
+                          <tr key={i} className="border-b border-gray-100 font-mono">
+                            <td className="py-0.5 px-2">{fmt(r.timestamp)}</td><td className="px-2">#{r.idx} {r.name}</td><td className="px-2">{r.value ?? '—'}</td><td className="px-2">{r.status} <span className="text-gray-500 font-sans">{r.status_name}</span></td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </details>
+                </div>
+              )}
             </SubBox>
           );
         })()}
 
         {/* 연결된 디바이스 (§5.1.2 d·e) */}
         <SubBox title="연결된 디바이스" desc="§5.1.2 d·e — 101번지부터 채널수만큼 읽어, 연결된 것만"
-          right={<Pill tone={rows.length ? 'ok' : 'muted'}>{rows.length}개</Pill>}>
+          right={<>
+            {kindSum.text && <span className="text-sm text-gray-700" title="§5.4.2 d) / §5.5.1 d) — 시험장비에 설정한 개수·종류와 대조">{kindSum.text}</span>}
+            {codeCheck.issues > 0 && <Pill tone="bad">코드 불일치 {codeCheck.issues}건</Pill>}
+            <Pill tone={rows.length ? 'ok' : 'muted'}>{rows.length}개</Pill>
+          </>}>
           {rows.length === 0 ? (
             <p className="text-sm text-gray-500">연결된 디바이스가 없습니다 (디바이스 코드가 모두 0).</p>
           ) : (
@@ -482,7 +828,12 @@ const NodeCard = ({ unit, node, st, mapping }) => {
                       <tr key={r.index} className={`border-b border-gray-100 ${r.supported ? '' : 'opacity-60'}`}>
                         <td className="py-2 px-3 text-gray-500">{r.index}</td>
                         <td className="px-3 font-bold text-gray-900">{r.name}{r.level ? <span className="ml-1 text-xs text-gray-400 font-normal">L{r.level}</span> : null}</td>
-                        <td className="px-3 font-mono text-gray-700">{r.code}</td>
+                        <td className="px-3 font-mono text-gray-700">
+                          {r.code}
+                          {codeByIndex[r.index]?.ok === false && (
+                            <span className="ml-2 inline-block px-1.5 py-0.5 rounded bg-rose-100 text-rose-700 text-xs font-bold font-sans">표준 기대 {codeByIndex[r.index].expected}</span>
+                          )}
+                        </td>
                         <td className="px-3">
                           {!r.supported ? <Pill tone="warn" title={r.note}>미지원</Pill>
                             : cur ? <>{cur.text && <span className="font-mono font-bold text-gray-900 mr-2">{cur.text}</span>}<Pill tone={cur.s.tone}>{cur.s.text}</Pill>{cur.remain > 0 && <span className="ml-1 text-xs text-gray-500">{cur.remain}s</span>}</>

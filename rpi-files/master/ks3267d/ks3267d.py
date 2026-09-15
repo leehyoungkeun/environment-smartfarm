@@ -6,6 +6,10 @@
 
 시작 시 --units 를 탐색·등록하고, --poll 주기로 상태를 읽어 변화가 있으면 --nr-url 로 POST 한다.
 NR 은 이 데몬의 REST 를 부르는 오케스트레이터다 (제어 판단·자동화는 NR/백엔드에 그대로).
+
+통신 설정 (2026-09-15):
+  화면에서 바꾼 설정은 state/comm.json 에 저장되고, 실행 인자보다 우선한다.
+  저장된 설정으로 포트를 열지 못하면(변환기를 뽑았을 때 등) 실행 인자로 대신 연결해 데몬이 죽지 않게 한다.
 """
 import argparse
 import json
@@ -19,6 +23,7 @@ import urllib.request
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from api import serve  # noqa: E402
+from comm import list_ports, load_comm  # noqa: E402
 from master import KsMaster  # noqa: E402
 from transport import FrameLog, ModbusExc, PymodbusTransport, TransportTimeout  # noqa: E402
 
@@ -76,18 +81,41 @@ def main():
     p.add_argument("--state-dir", default=os.path.join(os.path.dirname(os.path.abspath(__file__)), "state"))
     p.add_argument("--nr-url", default="", help="상태 변화 POST 대상 (예: http://127.0.0.1:1880/api/ks3267/status)")
     a = p.parse_args()
-    if not a.port and not a.tcp:
-        p.error("--port 또는 --tcp 필요")
-    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
     os.makedirs(a.state_dir, exist_ok=True)
+    comm_path = os.path.join(a.state_dir, "comm.json")
+    saved = load_comm(comm_path)
+    if not a.port and not a.tcp and not saved:
+        p.error("--port 또는 --tcp 필요 (화면에서 저장한 통신 설정도 없음)")
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 
-    t = PymodbusTransport(port=a.port, baud=a.baud, tcp=a.tcp, timeout=a.timeout, retries=a.retries,
-                          frames=FrameLog())
-    if not t.connect():
-        log.error("전송 연결 실패: %s", t.desc); sys.exit(1)
+    frames = FrameLog()   # 전송을 바꿔도 진단 프레임·통계는 이어진다
+
+    def build(cfg):
+        return PymodbusTransport(port=cfg.get("port"), baud=cfg.get("baud") or 9600, tcp=cfg.get("tcp"),
+                                 timeout=float(cfg.get("timeout") or a.timeout), retries=a.retries, frames=frames)
+
+    t = None
+    if saved:
+        t = build(saved)
+        if t.connect():
+            log.info("저장된 통신 설정 사용 (%s): %s", comm_path, t.desc)
+        else:
+            log.error("저장된 통신 설정으로 연결 실패 — 실행 인자로 대신 연결: %s", t.desc)
+            try:
+                t.close()
+            except Exception:
+                pass
+            t = None
+    if t is None:
+        if not a.port and not a.tcp:
+            log.error("실행 인자에 대신 쓸 연결이 없습니다"); sys.exit(1)
+        t = build({"port": a.port, "baud": a.baud, "tcp": a.tcp, "timeout": a.timeout})
+        if not t.connect():
+            log.error("전송 연결 실패: %s", t.desc); sys.exit(1)
+
     master = KsMaster(t, state_dir=a.state_dir)
     units = [int(x) for x in a.units.split(",") if x.strip()]
-    srv = serve(master, port=a.api_port)
+    srv = serve(master, port=a.api_port, comm_ctx={"path": comm_path, "build": build, "list_ports": list_ports})
     log.info("ks3267d 시작 — %s, units=%s, api=127.0.0.1:%d, retries=%d", t.desc, units, a.api_port, a.retries)
     stop = threading.Event()
     th = threading.Thread(target=poll_loop, args=(master, units, a.poll, a.nr_url, stop), daemon=True)
@@ -98,7 +126,7 @@ def main():
     except KeyboardInterrupt:
         pass
     finally:
-        stop.set(); srv.shutdown(); t.close()
+        stop.set(); srv.shutdown(); master.t.close()   # 화면에서 전송을 바꿨을 수 있으니 현재 것을 닫는다
 
 
 if __name__ == "__main__":

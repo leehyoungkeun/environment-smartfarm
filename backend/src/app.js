@@ -37,6 +37,7 @@ import camerasRoutes from "./routes/cameras.routes.js";
 import devicePositionsRoutes from "./routes/device-positions.routes.js";
 import relayStatusRoutes from "./routes/relay-status.routes.js";
 import actuatorStatusRoutes from "./routes/actuator-status.routes.js";
+import sensorStatusRoutes from "./routes/sensor-status.routes.js";
 import kakaoRoutes from "./routes/kakao.routes.js";
 import {
   authenticate,
@@ -894,6 +895,7 @@ app.use("/api/farms", authenticate, enforceTenant, farmsRoutes); // 2026-08-31 �
 app.use("/api/alerts", authenticate, enforceTenant, alertsRoutes);
 app.use("/api/control-logs", authenticate, enforceTenant, controlLogRoutes);
 app.use("/api/actuator-status", authenticate, enforceTenant, actuatorStatusRoutes); // 2026-08-30 KS X 3267 구동기 1분 스냅샷 (116 검정)
+app.use("/api/sensor-status", authenticate, enforceTenant, sensorStatusRoutes); // 2026-09-15 KS X 3267 센서 관측치·상태 1분 스냅샷 (§5.4.4)
 app.use("/api/audit-logs", authenticate, enforceTenant, auditLogRoutes);
 app.use("/api/reports", authenticate, enforceTenant, reportRoutes);
 

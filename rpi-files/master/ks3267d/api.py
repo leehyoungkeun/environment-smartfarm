@@ -9,6 +9,11 @@ GET  /status[?unit=N]        마지막 폴링 상태
 POST /command  {unit, kind, n, op, seconds}
 GET  /frames[?n=50]          최근 TX/RX hex (진단·시험 증적)
 GET  /events[?n=50]
+GET  /comm                   통신 설정·포트 목록 (2026-09-15)
+POST /comm   {mode, port, baud, timeout, tcp}   통신 설정 변경 — 재시작 없이 다시 연결하고 저장
+GET  /conntest?unit=N        SPS-7466 §5.4.1 연결시험 a)~d) 판정
+
+통신 설정 변경은 rpi-server(/local-config/ks3267/comm)가 권한을 거른 뒤 부른다 — 이 데몬은 루프백에만 뜬다.
 """
 import json
 import threading
@@ -16,10 +21,26 @@ import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
 
+import comm as commlib
 from transport import ModbusExc, TransportTimeout
 
 
-def make_handler(master):
+def transport_info(t):
+    """화면·연결 시험이 보는 현재 전송 정보"""
+    connected = None
+    if hasattr(t, "is_connected"):
+        try:
+            connected = bool(t.is_connected())
+        except Exception:
+            connected = False
+    return {"mode": getattr(t, "mode", None), "port": getattr(t, "port", None), "baud": getattr(t, "baud", None),
+            "tcp": getattr(t, "tcp", None), "timeout": getattr(t, "timeout", None),
+            "desc": getattr(t, "desc", "?"), "connected": connected}
+
+
+def make_handler(master, comm_ctx=None):
+    ctx = comm_ctx or {}
+
     class H(BaseHTTPRequestHandler):
         def log_message(self, *a):  # 조용히
             pass
@@ -67,6 +88,36 @@ def make_handler(master):
                 if u.path == "/events":
                     n = int(q.get("n", ["50"])[0])
                     return self._json(200, {"ok": True, "events": master.events[-n:]})
+                if u.path == "/changes":
+                    # §5.4.3 — 센서 관측치·상태 변화 이력 (폴링 해상도). unit 없으면 전체
+                    n = int(q.get("n", ["60"])[0])
+                    if "unit" in q:
+                        return self._json(200, {"ok": True, "now": time.time(), "changes": master.changes.get(int(q["unit"][0]), [])[-n:]})
+                    return self._json(200, {"ok": True, "now": time.time(), "changes": {str(u_): v[-n:] for u_, v in master.changes.items()}})
+                if u.path == "/comm":
+                    if not ctx:
+                        return self._json(200, {"ok": False, "error": "이 실행 방식은 통신 설정 변경을 지원하지 않습니다"})
+                    return self._json(200, {"ok": True, "current": transport_info(master.t), "ports": ctx["list_ports"](),
+                                            "standard": commlib.STANDARD, "allowedBauds": list(commlib.ALLOWED_BAUDS),
+                                            "saved": commlib.load_comm(ctx["path"]) is not None})
+                if u.path == "/conntest":
+                    try:
+                        unit = int(q.get("unit", [""])[0])
+                    except ValueError:
+                        unit = None
+                    discovery = None
+                    if unit is not None and 1 <= unit <= 247:
+                        try:
+                            discovery = {"ok": True, "node": master.discover(unit)}
+                        except ModbusExc as e:
+                            discovery = {"ok": False, "error": str(e)}
+                        except TransportTimeout:
+                            discovery = {"ok": False, "error": "timeout — 응답 없음"}
+                    info = transport_info(master.t)
+                    # 당일 준비 점검: 표준 포트 인식 + 9600 으로 열리는지 (드라이버가 쓰는 포트는 prep_rows 가 다시 열지 않는다)
+                    prep = commlib.prep_rows(ctx["list_ports"]() if ctx else [], info, probe=commlib.probe_serial_open)
+                    result = commlib.conn_test_rows(info, unit, discovery, prep=prep)
+                    return self._json(200, {"ok": True, "at": time.time(), **result})
                 return self._json(404, {"ok": False, "error": "not found"})
             except Exception as e:  # 진단 API 가 죽으면 안 된다
                 return self._json(500, {"ok": False, "error": str(e)})
@@ -80,9 +131,20 @@ def make_handler(master):
                 return self._json(400, {"ok": False, "error": "invalid json"})
             if u.path == "/command":
                 try:
+                    # test_unsupported: §5.3 노드 비정상 명령 시험(203/305/306)에서 우리 드라이버가 시험장비 마스터 역할을 할 때만 쓴다.
+                    # 화면·NR 경로는 이 키를 보내지 않으므로 레벨2 명령은 평소처럼 로컬 거부된다 (자가시험 부가-L2 가 그것을 검증). 2026-09-15
+                    # test_opid: §5.3.4 동일 OPID 시험 전용 — OPID 를 지정해 보낸다. 평소엔 매 명령 새 OPID.
                     r = master.command(int(body["unit"]), body["kind"], int(body["n"]), body["op"],
-                                       seconds=int(body.get("seconds", 0) or 0))
+                                       seconds=int(body.get("seconds", 0) or 0),
+                                       allow_unsupported=bool(body.get("test_unsupported", False)),
+                                       opid=body.get("test_opid"))
                     return self._json(200, r)
+                except (KeyError, ValueError, TypeError) as e:
+                    return self._json(400, {"ok": False, "error": f"bad request: {e}"})
+            if u.path == "/test/opid":
+                # §5.3.4 f)·l)·q)·w) 전용: 쓰기영역의 OPID 워드만 새 값으로 (시험장비 역할). 화면·NR 은 쓰지 않는다. 2026-09-15
+                try:
+                    return self._json(200, master.write_opid(int(body["unit"]), body["kind"], int(body["n"]), body.get("opid")))
                 except (KeyError, ValueError, TypeError) as e:
                     return self._json(400, {"ok": False, "error": f"bad request: {e}"})
             if u.path == "/discover":
@@ -90,12 +152,27 @@ def make_handler(master):
                     return self._json(200, {"ok": True, "node": master.discover(int(body["unit"]))})
                 except (ModbusExc, TransportTimeout) as e:
                     return self._json(200, {"ok": False, "error": str(e)})
+            if u.path == "/comm":
+                if not ctx:
+                    return self._json(200, {"ok": False, "error": "이 실행 방식은 통신 설정 변경을 지원하지 않습니다"})
+                try:
+                    cfg, err = commlib.validate_comm(body, ctx["list_ports"]())
+                    if err:
+                        return self._json(200, {"ok": False, "error": err, "current": transport_info(master.t)})
+                    ok, _t = master.reconnect(lambda: ctx["build"](cfg))
+                    if not ok:
+                        return self._json(200, {"ok": False, "current": transport_info(master.t),
+                                                "error": "새 설정으로 포트를 열지 못해 이전 설정을 그대로 유지합니다"})
+                    commlib.save_comm(ctx["path"], cfg)
+                    return self._json(200, {"ok": True, "current": transport_info(master.t), "nonStandard": cfg["nonStandard"]})
+                except Exception as e:
+                    return self._json(200, {"ok": False, "error": f"통신 설정 적용 실패: {e}", "current": transport_info(master.t)})
             return self._json(404, {"ok": False, "error": "not found"})
     return H
 
 
-def serve(master, port=3002, host="127.0.0.1"):
-    srv = ThreadingHTTPServer((host, port), make_handler(master))
+def serve(master, port=3002, host="127.0.0.1", comm_ctx=None):
+    srv = ThreadingHTTPServer((host, port), make_handler(master, comm_ctx))
     th = threading.Thread(target=srv.serve_forever, daemon=True, name="ks3267-api")
     th.start()
     return srv

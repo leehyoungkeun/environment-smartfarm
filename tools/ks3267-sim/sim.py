@@ -165,10 +165,7 @@ def make_ctl_handler(nodes):
                     return self._json(404, {"ok": False, "error": f"unit {unit} 없음"})
                 if u.path == "/state":
                     # 노드 스펙: 부착 디바이스 순번 → 디바이스 코드 (101+i), 시험 §5.4.2 b) / §5.5.1 b)
-                    total = M.SENSOR_CHANNELS if node.kind == "sensor" else M.ACTUATOR_CHANNELS
-                    devs = {i: node.regs.get(M.REG_DEVICE_CODE_BASE + i, 0) for i in range(1, total + 1)}
-                    devs = {i: c for i, c in devs.items() if c}
-                    return self._json(200, {"ok": True, "unit": unit, "kind": node.kind, "attached": sorted(devs), "devices": devs})
+                    return self._json(200, spec_view(node, unit))
                 if u.path == "/device":
                     kind = q.get("kind", ["switch"])[0]; n = int(q.get("n", ["1"])[0])
                     return self._json(200, dev_view(node, kind, n))
@@ -197,6 +194,22 @@ def make_ctl_handler(nodes):
                 node.set_sensor(idx, val, st)
                 node._log("sensor_set", {"index": idx, "value": val, "status": st})
                 return self._json(200, {"ok": True, "index": idx, "value": val, "status": st})
+            if u.path == "/sensor/cycle":    # 관측치·상태 주기 변경 (§5.4.3 a·c "일정주기마다 변경되도록 설정"). values/statuses 둘 다 비면 해제 (2026-09-15)
+                if node.kind != "sensor":
+                    return self._json(400, {"ok": False, "error": "센서 노드가 아님"})
+                try:
+                    idx = int(body["index"])
+                    node.set_cycle(idx, body.get("values"), body.get("statuses"), float(body.get("period", 5.0)))
+                except (KeyError, TypeError, ValueError) as e:
+                    return self._json(400, {"ok": False, "error": f"bad request: {e}"})
+                cy = node.cycles.get(idx)
+                return self._json(200, {"ok": True, "index": idx, "cycle": None if cy is None else {k: cy[k] for k in ("values", "statuses", "period")}})
+            if u.path == "/spec":            # 노드 스펙 설정 — 부착 디바이스 순번 목록 (§5.4.2 b, §5.5.1 b). attached 생략/null = 전부 부착 (2026-09-15)
+                att = body.get("attached")
+                if att is not None and not (isinstance(att, list) and all(isinstance(i, int) and i >= 1 for i in att)):
+                    return self._json(400, {"ok": False, "error": "attached 는 1 이상 정수 목록 또는 null"})
+                node.set_attached(att)
+                return self._json(200, spec_view(node, unit))
             if u.path == "/fault":           # 결함 주입 전환 (§5.3 재현)
                 for ad in ADAPTERS.values():
                     ad.fault = body.get("fault", "none")
@@ -208,12 +221,20 @@ def make_ctl_handler(nodes):
 ADAPTERS = {}
 
 
+def spec_view(node, unit):
+    """노드 스펙(부착 디바이스 순번 → 코드) — /state 와 /spec 응답"""
+    total = M.SENSOR_CHANNELS if node.kind == "sensor" else M.ACTUATOR_CHANNELS
+    devs = {i: node.regs.get(M.REG_DEVICE_CODE_BASE + i, 0) for i in range(1, total + 1)}
+    devs = {i: c for i, c in devs.items() if c}
+    return {"ok": True, "unit": unit, "kind": node.kind, "attached": sorted(devs), "devices": devs}
+
+
 def start_ctl(nodes, port):
     from http.server import ThreadingHTTPServer
     import threading
     srv = ThreadingHTTPServer(("127.0.0.1", port), make_ctl_handler(nodes))
     threading.Thread(target=srv.serve_forever, daemon=True, name="sim-ctl").start()
-    log.info("시험장비 제어 API http://127.0.0.1:%d (/health /state /device /log /sensor /fault)", port)
+    log.info("시험장비 제어 API http://127.0.0.1:%d (/health /state /device /log /sensor /sensor/cycle /spec /fault)", port)
     return srv
 
 

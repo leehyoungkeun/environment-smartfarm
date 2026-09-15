@@ -1,7 +1,21 @@
 // 데이터 추출(116 검정: 1분 단위·조회기간·csv/txt) — 순수 변환 로직. 값을 지어내지 않고(빈 셀), 이스케이프가 정확해야 한다.
 import { test, describe } from "node:test";
 import assert from "node:assert/strict";
-import { csvCell, toDelimited, sensorTable, controlLogTable, actuatorStatusTable, exportFilename, resolveRange, formatTs, formatSpec } from "../../src/utils/exportCsv.js";
+import { csvCell, toDelimited, sensorTable, controlLogTable, actuatorStatusTable, sensorStatusTable, exportFilename, resolveRange, formatTs, formatSpec } from "../../src/utils/exportCsv.js";
+
+describe("sensorStatusTable — §5.4.4 표준 센서 관측치·상태 1분 행", () => {
+  test("열 순서와 값 그대로, 값 없음(null)은 빈 칸", () => {
+    const { columns, rows } = sensorStatusTable([
+      { timestamp: new Date(2026, 8, 15, 22, 40), unit: 2, idx: 1, code: 1, name: "온도1", value: 21.5, status: 103, status_name: "NEED_CHECK", house_id: "house_0002", sensor_id: "temp_0001" },
+      { timestamp: new Date(2026, 8, 15, 22, 41), unit: 2, idx: 4, code: 2, name: "습도1", value: null, status: 0, status_name: "READY", house_id: null, sensor_id: null },
+    ]);
+    assert.deepEqual(columns.map((c) => c.key), ["timestamp", "unit", "idx", "code", "name", "value", "status", "status_name", "house_id", "sensor_id"]);
+    assert.equal(rows[0].timestamp, "2026-09-15 22:40:00");
+    const csv = toDelimited(rows, columns, "csv");
+    assert.match(csv, /2026-09-15 22:40:00,2,1,1,온도1,21.5,103,NEED_CHECK,house_0002,temp_0001/);
+    assert.match(csv, /2026-09-15 22:41:00,2,4,2,습도1,,0,READY,,/);
+  });
+});
 
 describe("csvCell / toDelimited", () => {
   test("따옴표·구분자·개행 이스케이프 (RFC 4180)", () => {

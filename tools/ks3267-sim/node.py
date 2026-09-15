@@ -38,6 +38,8 @@ class DefaultMapNode:
         self.log = []  # (t, event, detail) — 시험 증적
         self._last_opid = {}      # dev_key → 마지막 활성화 opid
         self._active = {}         # dev_key → {"end": t|None, "status": code}
+        self._sensor_last = {}    # 센서 i → (value, status) 마지막 설정값 (주기 변경이 한쪽만 바꿀 때 다른 쪽 유지)
+        self.cycles = {}          # 센서 i → 주기 변경 설정 (§5.4.3 a·c)
         self._init_regs(serial)
 
     # ── 초기화 ──────────────────────────────────────────────────────
@@ -79,12 +81,58 @@ class DefaultMapNode:
     def _is_attached(self, i):
         return self.attached is None or i in self.attached
 
+    def set_attached(self, devices):
+        """부착 디바이스 집합을 바꾸고 디바이스 코드(101+i)를 다시 쓴다 — SPS-7466 §5.4.2 b)/§5.5.1 b) "시험장비에 노드 스펙을 설정".
+        None 이면 전부 부착. 값·상태·명령 레지스터는 그대로 두고(미부착 디바이스는 읽기·명령이 예외), 코드만 바뀐다. (2026-09-15)"""
+        self.attached = set(int(i) for i in devices) if devices is not None else None
+        total = M.SENSOR_CHANNELS if self.kind == "sensor" else M.ACTUATOR_CHANNELS
+        for i in range(1, total + 1):
+            if self.kind == "sensor":
+                code = M.SENSOR_DEVICE_CODES[i]
+            else:
+                kind_i, _ = M.actuator_device_index(i)
+                code = M.DEV_SWITCH_L1 if kind_i == "switch" else M.DEV_OPENER_L1
+            self.regs[M.device_code_reg(i)] = code if self._is_attached(i) else M.DEV_NONE
+        self._log("spec_set", {"attached": sorted(self.attached) if self.attached is not None else "all"})
+
     # ── 센서 ─────────────────────────────────────────────────────────
     def set_sensor(self, i, value, status=M.ST_READY):
         lo, hi = float_to_regs(value)
         a = M.sensor_value_reg(i)
         self.regs[a], self.regs[a + 1] = lo, hi
         self.regs[M.sensor_status_reg(i)] = status
+        self._sensor_last[i] = (value, status)
+
+    def set_cycle(self, index, values=None, statuses=None, period=5.0):
+        """SPS-7466 §5.4.3 a)/c) — 관측치·상태를 일정 주기마다 목록 순서대로 바꾼다 (첫 원소는 즉시, 이후 period 마다 다음 원소).
+        values 만 주면 상태는 유지, statuses 만 주면 값은 유지. 둘 다 비면 해제. (2026-09-15)"""
+        values = list(values or []); statuses = list(statuses or [])
+        if not values and not statuses:
+            self.cycles.pop(index, None)
+            self._log("cycle_clear", {"index": index})
+            return
+        period = float(period)
+        if period <= 0:
+            raise ValueError("period > 0")
+        self.cycles[index] = {"values": values, "statuses": statuses, "period": period, "next": self.clock() + period, "i": 0}
+        self._apply_cycle(index, self.cycles[index])
+        self._log("cycle_set", {"index": index, "values": values, "statuses": statuses, "period": period})
+
+    def _apply_cycle(self, index, cy):
+        v, st = self._sensor_last.get(index, (0.0, M.ST_READY))
+        if cy["values"]:
+            v = float(cy["values"][cy["i"] % len(cy["values"])])
+        if cy["statuses"]:
+            st = int(cy["statuses"][cy["i"] % len(cy["statuses"])])
+        self.set_sensor(index, v, st)
+        self._log("cycle", {"index": index, "i": cy["i"], "value": v, "status": st})
+
+    def _tick_cycles(self, now):
+        for index, cy in list(self.cycles.items()):
+            while now >= cy["next"]:        # 틱이 늦어도 주기 수를 맞춘다
+                cy["i"] += 1
+                cy["next"] += cy["period"]
+                self._apply_cycle(index, cy)
 
     # ── 레지스터 접근 (모드버스 어댑터가 부른다) ─────────────────────
     def read(self, address, count):
@@ -173,8 +221,10 @@ class DefaultMapNode:
 
     # ── 시간 진행 ────────────────────────────────────────────────────
     def tick(self):
-        """주기적으로 호출 — 남은시간 갱신, 만료 시 READY 전이"""
+        """주기적으로 호출 — 남은시간 갱신, 만료 시 READY 전이, 센서 주기 변경(§5.4.3)"""
         now = self.clock()
+        if self.cycles:
+            self._tick_cycles(now)
         for key, a in list(self._active.items()):
             if a["end"] is not None and now >= a["end"]:
                 kind, n = key

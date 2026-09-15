@@ -75,6 +75,35 @@ class KsMaster:
         self.state = {}     # unit → 마지막 폴링 결과
         self.events = []    # 최근 이벤트 (진단)
         self.max_events = 200
+        self.changes = {}   # unit → 센서 관측치·상태 변화 이력 (§5.4.3 b·d — 제어기가 변화를 매번 읽었다는 증적, 2026-09-15)
+        self.max_changes = 300
+
+    # ── 통신 설정 변경 (2026-09-15) ────────────────────────────────────
+    def reconnect(self, build):
+        """버스 락 안에서 기존 연결을 닫고 새 전송으로 연결한다. → (성공 여부, 현재 전송)
+
+        같은 시리얼 포트를 속도만 바꿔 다시 여는 경우가 있어 새로 열기 전에 먼저 닫는다.
+        새 설정으로 열지 못하면 기존 설정으로 되돌려 연결을 잃지 않는다.
+        """
+        with self.lock:
+            old = self.t
+            try:
+                old.close()
+            except Exception:
+                pass
+            new = build()
+            if new.connect():
+                self.t = new
+                self.state = {}   # 이전 포트에서 읽은 상태는 더 이상 사실이 아니다
+                self._event("comm_changed", desc=getattr(new, "desc", "?"))
+                return True, new
+            try:
+                new.close()
+            except Exception:
+                pass
+            old.connect()
+            self._event("comm_change_failed", desc=getattr(new, "desc", "?"), kept=getattr(old, "desc", "?"))
+            return False, old
 
     # ── 이벤트 ──────────────────────────────────────────────────────
     def _event(self, ev, **detail):
@@ -163,8 +192,30 @@ class KsMaster:
                 st = {"error": "timeout"}
         st["t"] = now
         st["unit"] = unit
+        if st.get("kind") == "sensor":
+            self._record_sensor_changes(unit, self.state.get(unit), st, now)
         self.state[unit] = st
         return st
+
+    def _record_sensor_changes(self, unit, prev, st, now):
+        """직전 폴링과 비교해 값·상태가 바뀐 센서만 남긴다. 폴링 주기 그대로의 해상도라 화면 갱신(10초)보다 촘촘하다."""
+        ps = (prev or {}).get("sensors") or {}
+        if not ps:
+            return  # 첫 폴링·오류 복귀 직후는 기준이 없다
+        lst = self.changes.setdefault(unit, [])
+        for idx, s in (st.get("sensors") or {}).items():
+            p = ps.get(idx)
+            if not p:
+                continue
+            dv = p.get("value") != s.get("value")
+            ds = p.get("status") != s.get("status")
+            if not (dv or ds):
+                continue
+            lst.append({"t": now, "index": idx, "name": s.get("name"), "value": s.get("value"), "status": s.get("status"),
+                        "status_name": s.get("status_name"), "prev_value": p.get("value"), "prev_status": p.get("status"),
+                        "what": "both" if dv and ds else ("value" if dv else "status")})
+        if len(lst) > self.max_changes:
+            del lst[:len(lst) - self.max_changes]
 
     def _poll_sensor(self, unit, d):
         # 노드 상태 202 + 센서 영역 203..292 를 한 번에 (91 워드)
@@ -197,22 +248,30 @@ class KsMaster:
         return out
 
     # ── 명령 ─────────────────────────────────────────────────────────
-    def command(self, unit, kind, n, op, seconds=0, allow_unsupported=False):
-        """op: 'on'|'off'|'timed_on' (스위치) / 'open'|'close'|'stop'|'timed_open'|'timed_close' (개폐기)
-        또는 정수 코드. 반환: {ok, opid, status, remain, exception?}"""
+    def _actuator_dev(self, unit, kind, n):
+        """등록된 구동기 노드의 탐색된 지원 디바이스 → (dev, None) | (None, 오류 dict)"""
         d = self.nodes.get(unit)
         if not d or d.get("kind") != "actuator":
-            return {"ok": False, "error": f"unit {unit}: 등록된 구동기 노드가 아님"}
+            return None, {"ok": False, "error": f"unit {unit}: 등록된 구동기 노드가 아님"}
         dev = next((x for x in d["devices"] if x.get("kind") == kind and x.get("n") == n), None)
         if not dev or not dev.get("supported"):
-            return {"ok": False, "error": f"{kind}{n}: 탐색된 지원 디바이스가 아님"}
+            return None, {"ok": False, "error": f"{kind}{n}: 탐색된 지원 디바이스가 아님"}
+        return dev, None
+
+    def command(self, unit, kind, n, op, seconds=0, allow_unsupported=False, opid=None):
+        """op: 'on'|'off'|'timed_on' (스위치) / 'open'|'close'|'stop'|'timed_open'|'timed_close' (개폐기)
+        또는 정수 코드. 반환: {ok, opid, status, remain, exception?}
+        opid 지정은 §5.3.4 동일 OPID 시험에서 드라이버가 시험장비 역할을 할 때만 쓴다 (평소엔 매 명령 새 OPID)."""
+        dev, err = self._actuator_dev(unit, kind, n)
+        if err:
+            return err
         table = SWITCH_OPS if kind == "switch" else OPENER_OPS
         code = table.get(op) if isinstance(op, str) else int(op)
         if code is None or (code in LEVEL2_OPS and not allow_unsupported):
             return {"ok": False, "error": f"명령 {op}: 레벨1 {kind} 에서 미지원 (레벨2/자동등록 전용)"}
         if code in TIMED_OPS and int(seconds) <= 0:
             return {"ok": False, "error": "TIMED_* 명령은 동작시간(초) > 0 필요"}
-        opid = self.opid.next()
+        opid = int(opid) if opid else self.opid.next()
         lo, hi = uint32_to_regs(int(seconds) if code in TIMED_OPS else 0)
         c = dev["cmd"]
         with self.lock:
@@ -232,6 +291,29 @@ class KsMaster:
                     accepted=accepted)
         return {"ok": True, "accepted": accepted, "opid": opid, "op": code, "status": st,
                 "status_name": status_name(st), "remain": remain}
+
+    def write_opid(self, unit, kind, n, opid=None):
+        """쓰기영역의 OPID 워드만 새 값으로 바꾼다 — §5.3.4 f)·l)·q)·w) "쓰기 영역에 OPID 를 새로운 값으로 변경한다".
+        명령코드·작동시간은 그대로 두고 FC16 1 워드(cmd+1). 노드는 OPID 변경 시점에 블록을 활성화한다 (KS X 3267 6.3.3).
+        시험장비 역할 전용 — 화면·NR 경로는 쓰지 않는다. 반환: {ok, opid, status, remain}"""
+        dev, err = self._actuator_dev(unit, kind, n)
+        if err:
+            return err
+        opid = int(opid) if opid else self.opid.next()
+        with self.lock:
+            try:
+                self.t.write(unit, dev["cmd"]["opid"], [opid])
+                s = dev["status"]
+                rb = self.t.read(unit, s["opid"], 4)
+            except ModbusExc as e:
+                self._event("command_exception", unit=unit, dev=f"{kind}{n}", op="opid", opid=opid, code=e.code)
+                return {"ok": False, "opid": opid, "exception": e.code, "error": str(e)}
+            except TransportTimeout:
+                self._event("command_timeout", unit=unit, dev=f"{kind}{n}", op="opid", opid=opid)
+                return {"ok": False, "opid": opid, "error": "timeout"}
+        st = rb[1]; remain = regs_to_uint32(rb[2], rb[3])
+        self._event("write_opid", unit=unit, dev=f"{kind}{n}", opid=opid, status=st, remain=remain)
+        return {"ok": True, "opid": opid, "status": st, "status_name": status_name(st), "remain": remain}
 
     def snapshot(self):
         return {"nodes": self.nodes, "state": self.state, "events": self.events[-50:],

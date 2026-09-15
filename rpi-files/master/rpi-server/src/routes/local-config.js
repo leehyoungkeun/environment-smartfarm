@@ -152,5 +152,60 @@ router.put('/camera', (req, res) => {
   }
 });
 
+// ── 표준 노드 통신 설정·§5.4.1 연결 시험 (2026-09-15) ─────────────────────
+// 표준노드 탭이 포트·속도를 바꾸고 연결 시험을 돌린다. 드라이버(ks3267d)는 127.0.0.1:3002 에만 떠 있어 여기서 넘긴다.
+// Node-RED 의 KS 프록시는 읽기 전용이라 거치지 않는다.
+// 읽기는 LAN·Tailscale 허용. 변경은 이 제어기 자신(패널, nginx 루프백)과 Tailscale(클라우드 백엔드가
+// 관리자 역할을 확인한 뒤 부름)만 — 같은 농장 LAN 의 다른 기기가 표준 노드 버스를 바꾸지 못하게.
+const http = require('http');
+
+function ksDaemon(method, pathname, body, timeoutMs = 15000) {
+  return new Promise((resolve) => {
+    const data = body ? Buffer.from(JSON.stringify(body)) : null;
+    const req = http.request({
+      host: '127.0.0.1', port: 3002, method, path: pathname, timeout: timeoutMs,
+      headers: data ? { 'Content-Type': 'application/json', 'Content-Length': data.length } : {},
+    }, (r) => {
+      let raw = '';
+      r.on('data', (c) => { raw += c; });
+      r.on('end', () => {
+        try { resolve(JSON.parse(raw || '{}')); } catch { resolve({ ok: false, error: '드라이버 응답을 읽지 못했습니다' }); }
+      });
+    });
+    req.on('timeout', () => req.destroy(new Error('드라이버 응답 시간 초과')));
+    req.on('error', (e) => resolve({ ok: false, error: '드라이버(ks3267d)에 연결하지 못했습니다: ' + e.message }));
+    if (data) req.write(data);
+    req.end();
+  });
+}
+
+function isLoopbackOrTailscale(req) {
+  const ip = String(req.ip || (req.connection && req.connection.remoteAddress) || '').replace(/^::ffff:/, '');
+  return ip === '127.0.0.1' || ip === '::1' || /^100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\./.test(ip);
+}
+
+router.get('/ks3267/comm', async (req, res) => {
+  res.json(await ksDaemon('GET', '/comm'));
+});
+
+router.put('/ks3267/comm', async (req, res) => {
+  if (!isLoopbackOrTailscale(req)) {
+    return res.status(403).json({ ok: false, error: '통신 설정 변경은 제어기 패널 또는 관리자 원격 경로에서만 가능합니다' });
+  }
+  res.json(await ksDaemon('POST', '/comm', req.body || {}, 20000));
+});
+
+router.get('/ks3267/conntest', async (req, res) => {
+  const unit = parseInt(req.query.unit, 10);
+  res.json(await ksDaemon('GET', '/conntest?unit=' + (Number.isFinite(unit) ? unit : ''), null, 20000));
+});
+
+// §5.4.3 데이터 확인 — 센서 관측치·상태 변화 이력 (드라이버 폴링 해상도). 읽기 전용.
+router.get('/ks3267/changes', async (req, res) => {
+  const unit = parseInt(req.query.unit, 10);
+  const n = Math.min(Math.max(parseInt(req.query.n, 10) || 60, 1), 300);
+  res.json(await ksDaemon('GET', `/changes?n=${n}` + (Number.isFinite(unit) ? `&unit=${unit}` : '')));
+});
+
 module.exports = router;
 module.exports.reconcileDisplayNetwork = reconcileDisplayNetwork;

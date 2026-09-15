@@ -7,6 +7,177 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 const here = dirname(fileURLToPath(import.meta.url));
 const lib = await import(pathToFileURL(join(here, "..", "..", "..", "frontend", "src", "lib", "ks3267.js")).href);
 
+describe("commChangeWarnings — 통신 설정 변경 전 경고 (2026-09-15)", () => {
+  test("시뮬레이터 → RS485 는 30일 데이터 창 경고", () => {
+    const w = lib.commChangeWarnings({ mode: "tcp" }, { mode: "serial", port: "/dev/smartfarm-485-std", baud: 9600 });
+    assert.equal(w.length, 1);
+    assert.match(w[0], /30일/);
+  });
+  test("표준 밖 속도 경고", () => {
+    const w = lib.commChangeWarnings({ mode: "serial", port: "/dev/smartfarm-485-std", baud: 9600 },
+      { mode: "serial", port: "/dev/smartfarm-485-std", baud: 19200 });
+    assert.ok(w.some((x) => /9600/.test(x)));
+  });
+  test("RS485 → 시뮬레이터는 실측 아님 경고", () => {
+    assert.ok(lib.commChangeWarnings({ mode: "serial", baud: 9600 }, { mode: "tcp" }).some((x) => /시뮬레이터/.test(x)));
+  });
+  test("같은 포트에서 다른 포트로 바꾸면 연결 끊김 경고", () => {
+    const w = lib.commChangeWarnings({ mode: "serial", port: "/dev/ttyUSB1", baud: 9600 }, { mode: "serial", port: "/dev/ttyUSB2", baud: 9600 });
+    assert.ok(w.some((x) => /끊깁니다/.test(x)));
+  });
+  test("같은 설정 그대로면 경고 없음 (변이 프로브)", () => {
+    const s = { mode: "serial", port: "/dev/smartfarm-485-std", baud: 9600 };
+    assert.deepEqual(lib.commChangeWarnings(s, { ...s }), []);
+  });
+});
+
+// ── §5.1.2 e) 코드 대조 · §5.1.3 선행 조건과 범위 경고 (2026-09-15) ──
+const SEN_OK = {
+  unit: 2, kind: "sensor", cert_authority: 0, company_code: 0, product_type: 1, product_code: 0, protocol_version: 10, channels: 30, serial: 0,
+  devices: [{ index: 1, code: 1, name: "온도1" }, { index: 4, code: 2, name: "습도1" }, { index: 13, code: 11, name: "CO2" }],
+};
+
+describe("deviceCodeCheck — 디폴트맵 위치별 기대 코드", () => {
+  test("표준대로면 불일치 0", () => {
+    assert.equal(lib.deviceCodeCheck(SEN_OK).issues, 0);
+  });
+  test("점검에서 찾은 빈틈 재현: 습도 자리(4)에 온도 코드(1) → 불일치로 잡는다", () => {
+    const bad = { ...SEN_OK, devices: [{ index: 4, code: 1, name: "습도1" }] };
+    const r = lib.deviceCodeCheck(bad);
+    assert.equal(r.issues, 1);
+    assert.equal(r.rows[0].expected, 2);
+  });
+  test("구동기: 스위치 자리 1~16 은 102, 개폐기 자리 17~24 는 112", () => {
+    const act = { kind: "actuator", devices: [{ index: 3, code: 102 }, { index: 17, code: 102 }, { index: 18, code: 112 }] };
+    const r = lib.deviceCodeCheck(act);
+    assert.deepEqual(r.rows.map((x) => x.ok), [true, false, true]);
+  });
+  test("노드 없음·종류 모름은 판정하지 않는다", () => {
+    assert.equal(lib.deviceCodeCheck(null).issues, 0);
+    assert.equal(lib.deviceCodeCheck({ kind: "integrated", devices: [{ index: 1, code: 9 }] }).rows[0].ok, null);
+  });
+  test("화면 코드표가 드라이버 코드표(ksmap.py)와 같다 — 한쪽만 고치면 실패", async () => {
+    const { readFileSync } = await import("node:fs");
+    const py = readFileSync(join(here, "..", "..", "..", "rpi-files", "master", "ks3267d", "ks3267core", "ksmap.py"), "utf8");
+    const body = py.match(/SENSOR_DEVICE_CODES\s*=\s*\{([\s\S]*?)\}/)[1].replace(/#.*$/gm, "");
+    const fromPy = {};
+    for (const m of body.matchAll(/(\d+)\s*:\s*(\d+)/g)) fromPy[Number(m[1])] = Number(m[2]);
+    assert.deepEqual(fromPy, Object.fromEntries(Object.entries(lib.KS_SENSOR_EXPECTED_CODE).map(([k, v]) => [Number(k), v])));
+  });
+});
+
+describe("sensorRangeWarn — 참고 측정 범위 (판정은 바꾸지 않는 경고)", () => {
+  test("습도 250% 는 범위 밖 의심, 60% 는 정상", () => {
+    assert.deepEqual(lib.sensorRangeWarn(2, 250), { min: 0, max: 100 });
+    assert.equal(lib.sensorRangeWarn(2, 60), null);
+  });
+  test("영하 온도는 정상 — 자가시험이 −3.0 을 넣는다", () => {
+    assert.equal(lib.sensorRangeWarn(1, -3), null);
+  });
+  test("범위를 모르는 종류·값 없음·숫자 아님은 경고하지 않는다", () => {
+    assert.equal(lib.sensorRangeWarn(4, 99999), null, "감우는 범위 미지정");
+    assert.equal(lib.sensorRangeWarn(2, null), null);
+    assert.equal(lib.sensorRangeWarn(2, "abc"), null);
+  });
+  test("경계값은 범위 안 (변이 프로브)", () => {
+    assert.equal(lib.sensorRangeWarn(2, 100), null);
+    assert.equal(lib.sensorRangeWarn(16, 14), null);
+    assert.ok(lib.sensorRangeWarn(16, 14.01));
+  });
+});
+
+describe("deviceKindSummary — §5.4.2 d) 개수·종류 요약", () => {
+  test("센서: 코드별 종류 이름과 개수, 순서는 등장순", () => {
+    const n = { kind: "sensor", devices: [{ index: 1, code: 1 }, { index: 2, code: 1 }, { index: 3, code: 1 }, { index: 4, code: 2 }, { index: 13, code: 11 }] };
+    assert.deepEqual(lib.deviceKindSummary(n), { count: 5, text: "온도 3 · 습도 1 · CO2 1" });
+  });
+  test("구동기: 스위치/개폐기", () => {
+    const n = { kind: "actuator", devices: [{ index: 1, kind: "switch", n: 1, code: 102 }, { index: 17, kind: "opener", n: 1, code: 112 }, { index: 18, kind: "opener", n: 2, code: 112 }] };
+    assert.equal(lib.deviceKindSummary(n).text, "스위치 1 · 개폐기 2");
+  });
+  test("모르는 코드는 코드 번호로, 비어 있으면 빈 요약", () => {
+    assert.equal(lib.deviceKindSummary({ kind: "sensor", devices: [{ index: 1, code: 77 }] }).text, "코드 77 1");
+    assert.deepEqual(lib.deviceKindSummary({ kind: "sensor", devices: [] }), { count: 0, text: "" });
+    assert.deepEqual(lib.deviceKindSummary(null), { count: 0, text: "" });
+  });
+});
+
+describe("changeStats — §5.4.3 변화 이력 요약", () => {
+  const ch = [
+    { t: 100, index: 1, name: "온도1", value: 21.5, status: 0, what: "value" },
+    { t: 104, index: 1, name: "온도1", value: 21.5, status: 103, what: "status" },
+    { t: 108, index: 1, name: "온도1", value: 21.5, status: 102, what: "status" },
+    { t: 112.2, index: 1, name: "온도1", value: 28.8, status: 0, what: "both" },
+    { t: 110, index: 4, name: "습도1", value: 61, status: 0, what: "value" },
+  ];
+  test("센서별 값·상태 변화 횟수, 상태 순서, 상태 변화 평균 간격", () => {
+    const r = lib.changeStats(ch);
+    assert.equal(r.total, 5);
+    const t1 = r.sensors.find((s) => s.index === 1);
+    assert.equal(t1.valueChanges, 2, "value + both");
+    assert.equal(t1.statusChanges, 3, "status + both");
+    assert.deepEqual(t1.statusSeq, [103, 102, 0]);
+    assert.equal(t1.statusPeriod, 4.1, "(4 + 4.2) / 2");
+    assert.equal(r.sensors.find((s) => s.index === 4).statusPeriod, null, "상태 변화 1건 이하면 주기 없음");
+  });
+  test("빈 이력·null", () => {
+    assert.deepEqual(lib.changeStats([]), { sensors: [], total: 0 });
+    assert.deepEqual(lib.changeStats(null), { sensors: [], total: 0 });
+  });
+});
+
+describe("storageCheck — §5.4.4 저장주기대로 저장됐는가", () => {
+  const T0 = Date.parse("2026-09-15T10:00:00Z");
+  const row = (min, idx, status = 0, value = 21.5) => ({ timestamp: new Date(T0 + min * 60000).toISOString(), unit: 2, idx, name: "온도1", code: 1, value, status });
+  test("1분 간격 11행 = 빈틈 0, 기대 11, 상태 종류 기록", () => {
+    const rows = [];
+    for (let m = 0; m <= 10; m++) rows.push(row(m, 1, m % 3 === 0 ? 103 : 0));
+    const r = lib.storageCheck(rows);
+    assert.equal(r.ok, true);
+    assert.deepEqual([r.sensors[0].rows, r.sensors[0].expected, r.sensors[0].gaps], [11, 11, 0]);
+    assert.deepEqual(r.sensors[0].statuses, [0, 103]);
+  });
+  test("3분 빠지면 빈틈 1, 기대 11 > 행 8", () => {
+    const rows = [0, 1, 2, 3, 7, 8, 9, 10].map((m) => row(m, 1));
+    const r = lib.storageCheck(rows);
+    assert.equal(r.ok, false);
+    assert.deepEqual([r.sensors[0].rows, r.sensors[0].expected, r.sensors[0].gaps], [8, 11, 1]);
+  });
+  test("행 1개는 아직 판정 불가(ok false), 순서 섞여도 정렬해서 본다, 센서별 분리", () => {
+    assert.equal(lib.storageCheck([row(0, 1)]).sensors[0].ok, false);
+    const r = lib.storageCheck([row(2, 1), row(0, 1), row(1, 1), row(0, 4), row(1, 4)]);
+    assert.equal(r.ok, true);
+    assert.deepEqual(r.sensors.map((s) => s.idx), [1, 4]);
+  });
+  test("빈 입력", () => {
+    assert.deepEqual(lib.storageCheck([]), { sensors: [], total: 0, ok: false });
+  });
+});
+
+describe("nodeReadView — §5.1.3 선행 조건과 범위 경고", () => {
+  const ST = { t: 1, node_status: 0, kind: "sensor", sensors: { 1: { value: 25, status: 0, code: 1 }, 4: { value: 250, status: 0, code: 2 }, 13: { value: 600, status: 0, code: 11 } } };
+  test("§5.1.2 통과 노드: 보류 아님, 습도 250 은 적절 판정이지만 범위 경고 1건", () => {
+    const v = lib.nodeReadView(SEN_OK, ST);
+    assert.equal(v.hold, false);
+    assert.equal(v.fail, 0, "범위 경고는 판정을 바꾸지 않는다");
+    assert.equal(v.rangeWarnCount, 1);
+    assert.deepEqual(v.rows.find((r) => r.index === 4).rangeWarn, { min: 0, max: 100 });
+  });
+  test("§5.1.2 노드정보 불일치(제품코드 5) → 판정 보류", () => {
+    const v = lib.nodeReadView({ ...SEN_OK, product_code: 5 }, ST);
+    assert.equal(v.hold, true);
+    assert.equal(v.infoFail, 1);
+  });
+  test("§5.1.2 디바이스 코드 불일치 → 판정 보류 (변이 프로브)", () => {
+    const v = lib.nodeReadView({ ...SEN_OK, devices: [...SEN_OK.devices.slice(0, 1), { index: 4, code: 1, name: "습도1" }] }, ST);
+    assert.equal(v.hold, true);
+    assert.equal(v.codeIssues, 1);
+  });
+  test("노드 없으면 null", () => {
+    assert.equal(lib.nodeReadView(null, ST), null);
+  });
+});
+
 const ACT = { unit: 1, kind: "actuator", supported: true, default_map: true, protocol_version: 10, channels: 24, serial: 1234, company_code: 0, product_type: 2, product_code: 1, notes: [],
   devices: [
     { index: 3, code: 102, kind: "switch", n: 3, name: "스위치3", level: 1, supported: true, status: { opid: 211, status: 212, remain: [213, 214] }, cmd: { cmd: 511, opid: 512, time: [513, 514] } },

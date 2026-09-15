@@ -1,0 +1,118 @@
+{
+ "meta": {
+  "at": "2026-09-15 22:37:06",
+  "transport": "tcp 127.0.0.1:5020"
+ },
+ "results": [
+  {
+   "id": "5.4.2",
+   "title": "디폴트 레지스터맵 센서 노드 검색 시험",
+   "ref": "SPS-7466 §5.4.2 a)~d) (KS X 3267 노드정보 1~8 · 디바이스 코드 101~)",
+   "ok": true,
+   "steps": [
+    {
+     "step": "a) 5.4.1 연결시험 이후 — 연결 시험 d) 노드 2 응답",
+     "ok": true,
+     "detail": "센서 노드 · 프로토콜 10 · 채널 30"
+    },
+    {
+     "step": "b) 시험장비 노드 스펙 설정 — 센서 5개: 온도 3 · 습도 1 · CO2 1 (순번 [1, 2, 3, 4, 13])",
+     "ok": true,
+     "detail": "{'ok': True, 'unit': 2, 'kind': 'sensor', 'attached': [1, 2, 3, 4, 13], 'devices': {'1': 1, '2': 1, '3': 1, '4': 2, '13': 11}}"
+    },
+    {
+     "step": "c) 제어기가 노드정보를 읽어 디폴트 레지스터맵 센서 노드로 인지",
+     "ok": true,
+     "detail": "{'kind': 'sensor', 'default_map': True, 'supported': True, 'product_type': 1, 'protocol_version': 10, 'channels': 30, 'serial': 0}"
+    },
+    {
+     "step": "   노드정보 1~6 디폴트값 (기관 0, 회사 0, 제품타입 1, 제품코드 0, 프로토콜 10, 채널 30)",
+     "ok": true,
+     "detail": ""
+    },
+    {
+     "step": "d) 연결된 센서 개수·종류가 설정대로 — 제어기 5개 온도 3 · 습도 1 · CO2 1 / 설정 5개 온도 3 · 습도 1 · CO2 1",
+     "ok": true,
+     "detail": "제어기=[(1, 1), (2, 1), (3, 1), (4, 2), (13, 11)] 시험장비=[(1, 1), (2, 1), (3, 1), (4, 2), (13, 11)]"
+    },
+    {
+     "step": "d') 스펙을 전체로 되돌린 뒤 — 제어기 30개 온도 10 · 습도 3 · 이슬점 1 · 감우 1 · 유량 1 · 강우 1 · 일사 1 · 풍속 1 · 풍향 1 · 전압 1 · CO2 1 · EC 1 · 광양자 1 · 토양함수율 1 · 토양수분장력 1 · pH 1 · 지온 1 · 무게 2 / 설정 30개",
+     "ok": true,
+     "detail": "제어기=[(1, 1), (2, 1), (3, 1), (4, 2), (5, 3), (6, 4), (7, 5), (8, 6), (9, 7), (10, 8), (11, 9), (12, 10), (13, 11), (14, 12), (15, 13), (16, 14), (17, 15), (18, 16), (19, 17), (20, 1), (21, 1), (22, 1), (23, 1), (24, 1), (25, 1), (26, 1), (27, 2), (28, 2), (29, 18), (30, 18)]"
+    }
+   ]
+  }
+ ],
+ "manual": [],
+ "stats": {
+  "tx": 384,
+  "rx": 383,
+  "exceptions": 0,
+  "timeouts": 1,
+  "scan_misses": 0
+ },
+ "events": [
+  {
+   "t": 1789479058.0377018,
+   "kind": "actuator",
+   "unit": 1,
+   "supported": true,
+   "devices": 24
+  },
+  {
+   "t": 1789479058.0556426,
+   "kind": "sensor",
+   "unit": 2,
+   "supported": true,
+   "devices": 30
+  },
+  {
+   "t": 1789479058.9518907,
+   "kind": "sensor",
+   "unit": 2,
+   "supported": true,
+   "devices": 30
+  },
+  {
+   "t": 1789479059.0537488,
+   "kind": "sensor",
+   "unit": 2,
+   "supported": true,
+   "devices": 30
+  },
+  {
+   "t": 1789479059.0699844,
+   "kind": "actuator",
+   "unit": 1,
+   "supported": true,
+   "devices": 24
+  },
+  {
+   "t": 1789479420.5737672,
+   "kind": "poll_timeout",
+   "unit": 1,
+   "error": "Modbus Error: [Connection] ModbusTcpClient 127.0.0.1:5020: Connection unexpectedly closed 0.000 seconds into read of unbounded read bytes without response from device before it closed connection"
+  },
+  {
+   "t": 1789479426.3632622,
+   "kind": "sensor",
+   "unit": 2,
+   "supported": true,
+   "devices": 30
+  },
+  {
+   "t": 1789479426.3771484,
+   "kind": "sensor",
+   "unit": 2,
+   "supported": true,
+   "devices": 5
+  },
+  {
+   "t": 1789479426.3803,
+   "kind": "sensor",
+   "unit": 2,
+   "supported": true,
+   "devices": 30
+  }
+ ]
+}

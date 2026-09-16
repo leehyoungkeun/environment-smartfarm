@@ -599,8 +599,15 @@ export const KsNodeManager = ({ farmId }) => {
 
 const NodeCard = ({ unit, node, st, mapping, changes = [], storage, stateAt = 0, local }) => {
   // §5.5.2 f)·§5.5.3 f)o) — 남은 작동시간은 10초 폴링 사이에도 흘러야 '적절히 표시' 다. 받은 시각부터 지난 초를 뺀다.
+  // 1초 틱은 남은 작동시간이 흐르는 동안만 — 카드 두 장(행 54개)을 매초 다시 그리면 키오스크 렌더러 CPU 가 20% 를 먹는다 (2026-09-16 실측, 발열 원인 재발 방지)
+  const hasRemain = !!st && Object.values(st.devices || {}).some(d => (Number(d?.remain) || 0) > 0);
   const [nowMs, setNowMs] = useState(Date.now());
-  useEffect(() => { const id = setInterval(() => setNowMs(Date.now()), 1000); return () => clearInterval(id); }, []);
+  useEffect(() => {
+    if (!hasRemain) return undefined;
+    setNowMs(Date.now());
+    const id = setInterval(() => setNowMs(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, [hasRemain]);
   const remainNow = (remain) => (remain > 0 && stateAt > 0 ? Math.max(0, remain - Math.floor((nowMs - stateAt) / 1000)) : remain);
   const sum = nodeSummary(node);
   const rows = discoveryRows(node);

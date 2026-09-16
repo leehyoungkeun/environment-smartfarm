@@ -317,6 +317,8 @@ app.post('/api/system/wifi/connect', async (req, res) => {
   }
 
   const LIMIT_MS = 30000;
+  // 실패 원인 판별용 저널 기준점 — 시각이 아니라 커서로 (부팅 직후 NTP 전엔 시계가 10시간 틀려 --since 가 빗나간다, 2026-09-16)
+  const cursor = await journalCursor();
   const prevActive = await activeWifiName();
   const profiles = await savedWifiProfiles();
   const profile = profiles.find((x) => x.ssid === ssid) || null;
@@ -375,14 +377,51 @@ app.post('/api/system/wifi/connect', async (req, res) => {
   const returnedTo = prevActive && prevActive !== (cur && cur.name) ? prevActive : null;
   if (returnedTo) nmcli(['con', 'up', returnedTo], 45000);   // 원래 쓰던 망으로 복귀 — 기다리지 않는다
 
-  const why = wifiPlan.failureMessage(outcome, started.err || started.out);
+  // need-auth 는 '비밀번호 틀림' 과 '공유기 무응답(association 시간 초과)' 둘 다에서 나온다 — 저널로 가른다 (2026-09-16 사고)
+  const diag = wifiPlan.diagnoseSupplicant(await journalSince(cursor));
+  const finalOutcome = diag || outcome;
+  const signal = await scanSignalOf(ssid);
+  const why = wifiPlan.failureMessage(finalOutcome, started.err || started.out, signal);
+  console.log(`[wifi] connect '${ssid}' ${plan.action} → ${outcome}${diag ? ' (저널: ' + diag + ')' : ''} signal=${signal ?? '?'} returnedTo=${returnedTo || '-'}`);
   return res.json({
     success: false, ssid, reason: why.reason, error: why.message,
-    needPassword: why.reason === 'wrong_password' || plan.action === 'up-saved',
+    needPassword: why.reason === 'wrong_password',   // 무응답·신호 없음엔 키보드를 열지 않는다 — 비밀번호를 다시 넣어도 소용없다
     usedSaved: plan.action === 'up-saved',
-    returnedTo, ip: primaryIPv4(),
+    signal, returnedTo, ip: primaryIPv4(),
   });
 });
+
+/** 저널 커서 — 연결 시도 전에 받아 두고, 실패 뒤 그 이후 줄만 읽는다 */
+function journalCursor() {
+  return new Promise((resolve) => {
+    execFile('journalctl', ['-n', '0', '-q', '--show-cursor'], { timeout: 5000 }, (err, stdout) => {
+      const m = String(stdout || '').match(/-- cursor:\s*(\S+)/);
+      resolve(!err && m ? m[1] : null);
+    });
+  });
+}
+
+/** 커서 이후의 wpa_supplicant·NetworkManager 저널 (없으면 빈 문자열) — lhk 는 adm 그룹이라 읽을 수 있다 */
+function journalSince(cursor) {
+  return new Promise((resolve) => {
+    // -u 둘: 같은 필드(_SYSTEMD_UNIT)라 OR. -t 와 -u 를 섞으면 AND 가 되어 아무것도 안 나온다 (2026-09-16 실측)
+    const args = ['-u', 'NetworkManager', '-u', 'wpa_supplicant', '-o', 'cat', '--no-pager', '-q'];
+    if (cursor) args.push('--after-cursor=' + cursor); else args.push('-n', '80');
+    execFile('journalctl', args, { timeout: 8000, maxBuffer: 2 * 1024 * 1024 }, (err, stdout) => resolve(err ? '' : String(stdout || '')));
+  });
+}
+
+/** 마지막 스캔에서 본 SSID 의 신호 세기(%) — 무응답 안내에 붙인다 */
+async function scanSignalOf(ssid) {
+  const r = await nmcli(['-t', '-f', 'SSID,SIGNAL', 'dev', 'wifi', 'list', '--rescan', 'no'], 8000);
+  if (!r.ok) return null;
+  let best = null;
+  for (const line of String(r.out || '').split(NL)) {
+    const row = splitNmcli(line);
+    if (row[0] === ssid) best = Math.max(best ?? 0, Number(row[1]) || 0);
+  }
+  return best;
+}
 
 // ─────────── Setup 라우터 마운트 ───────────
 // /setup        → setup.js router.get('/')  : 설정 웹 페이지

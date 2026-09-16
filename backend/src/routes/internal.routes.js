@@ -516,7 +516,10 @@ router.post("/actuator-status", async (req, res) => {
   try {
     const { farmId, houseId } = resolveFarmHouse(req);
     const rows = Array.isArray(req.body?.rows) ? req.body.rows : [];
-    if (rows.length === 0) return res.json({ success: true, inserted: 0, received: 0 });
+    const hasSensorRows = Array.isArray(req.body?.sensorRows) && req.body.sensorRows.length > 0;
+    // 구동기 행이 없어도 센서 행(sensorRows)이 있으면 처리한다 — 2026-09-16 사고: 표준 장치가 매핑된 하우스가 지워져 rows 가 비자
+    // 이 조기 반환이 sensorRows 를 통째로 무시해 NR 큐가 1,110행까지 쌓였다 (응답에 sensorInserted 가 없어 NR 은 큐를 보존했다).
+    if (rows.length === 0 && !hasSensorRows) return res.json({ success: true, inserted: 0, received: 0, sensorInserted: 0, sensorReceived: 0 });
     if (rows.length > ACTUATOR_STATUS_MAX_BATCH) {
       return res.status(400).json({ success: false, error: `한 번에 최대 ${ACTUATOR_STATUS_MAX_BATCH}행` });
     }

@@ -5,8 +5,39 @@ import assert from "node:assert/strict";
 import { createRequire } from "node:module";
 
 const require = createRequire(import.meta.url);
-const { isEverConnected, planConnect, stateCode, classifyState, failureMessage, describeLink } =
+const { isEverConnected, planConnect, stateCode, classifyState, diagnoseSupplicant, failureMessage, describeLink } =
   require("../../../rpi-files/master/rpi-server/src/wifiPlan.js");
+
+describe("diagnoseSupplicant — 저널로 '비밀번호 틀림' 과 '공유기 무응답' 을 가른다 (2026-09-16 사고)", () => {
+  const assocReject = [
+    "wlan0: Trying to associate with 02:1d:ec:1d:ee:90 (SSID='705ho' freq=2432 MHz)",
+    "wlan0: CTRL-EVENT-ASSOC-REJECT bssid=00:00:00:00:00:00 status_code=16",
+    "wlan0: CTRL-EVENT-SSID-TEMP-DISABLED id=0 ssid=\"705ho\" auth_failures=1 duration=10 reason=CONN_FAILED",
+    "device (wlan0): Activation: (wifi) association took too long",
+    "device (wlan0): state change: config -> need-auth (reason 'none', managed-type: 'full')",
+  ].join("\n");
+  test("사고 재현: 공유기가 인증에 답하지 않음 → need-auth 여도 비밀번호 틀림이 아니다", () => {
+    assert.equal(diagnoseSupplicant(assocReject), "no_response");
+  });
+  test("진짜 비밀번호 틀림은 WRONG_KEY / 4-way 핸드셰이크 실패", () => {
+    assert.equal(diagnoseSupplicant("wlan0: CTRL-EVENT-SSID-TEMP-DISABLED id=0 ssid=\"603ho\" auth_failures=1 duration=10 reason=WRONG_KEY"), "wrong_password");
+    assert.equal(diagnoseSupplicant("device (wlan0): supplicant interface state: 4way_handshake -> disconnected"), "wrong_password");
+  });
+  test("둘이 섞이면 비밀번호 틀림이 우선 (핸드셰이크까지 갔다는 뜻)", () => {
+    assert.equal(diagnoseSupplicant(assocReject + "\nreason=WRONG_KEY"), "wrong_password");
+  });
+  test("신호 없음·빈 로그", () => {
+    assert.equal(diagnoseSupplicant("state change: config -> failed (reason 'ssid-not-found')"), "not_found");
+    assert.equal(diagnoseSupplicant(""), null);
+  });
+  test("무응답 안내는 신호 세기를 붙이고 '비밀번호 문제가 아닙니다' 라고 말한다", () => {
+    const m = failureMessage("no_response", "", 43);
+    assert.equal(m.reason, "no_response");
+    assert.match(m.message, /43%/);
+    assert.match(m.message, /비밀번호 문제가 아닙니다/);
+    assert.doesNotMatch(failureMessage("no_response", "", null).message, /%/);
+  });
+});
 
 describe("describeLink — 화면의 '현재 연결' 은 장치가 실제로 연결된 망만", () => {
   const ap603 = ["*", "603ho", "85", "2412 MHz", "1", "130 Mbit/s", "WPA2 WPA3"];

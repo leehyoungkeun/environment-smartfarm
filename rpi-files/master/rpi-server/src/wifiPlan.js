@@ -72,13 +72,34 @@ function classifyState(s) {
   return 'waiting';
 }
 
-/** 사람이 읽을 실패 사유 */
-function failureMessage(outcome, nmcliText) {
+/**
+ * wpa_supplicant·NetworkManager 저널로 실패 종류를 가른다 (2026-09-16).
+ * 사고: 705ho 에 붙이려는데 공유기가 인증 요청에 답하지 않았다(ASSOC-REJECT status 16, "association took too long").
+ *   NetworkManager 는 이때도 need-auth 로 들어가 "새 비밀번호를 달라" 고 하므로 장치 상태만 보면 비밀번호 틀림과 구분이 안 된다.
+ *   화면이 "비밀번호가 맞지 않습니다" 라 해서 사용자가 맞는 비밀번호를 몇 번이나 다시 넣었다. 진짜 비밀번호 틀림은
+ *   4-way 핸드셰이크에서 실패하고 wpa_supplicant 가 reason=WRONG_KEY 를 남긴다.
+ * @returns {'wrong_password'|'no_response'|'not_found'|null}
+ */
+function diagnoseSupplicant(logText) {
+  const t = String(logText || '');
+  if (/reason=WRONG_KEY|4way_handshake -> disconnected|4-way handshake failed/i.test(t)) return 'wrong_password';
+  if (/ssid-not-found|No network with SSID/i.test(t)) return 'not_found';
+  if (/CTRL-EVENT-ASSOC-REJECT|reason=CONN_FAILED|association took too long|CTRL-EVENT-AUTH-REJECT/i.test(t)) return 'no_response';
+  return null;
+}
+
+/** 사람이 읽을 실패 사유. signal 은 마지막 스캔의 신호 세기(%) — 있으면 함께 알려 준다. */
+function failureMessage(outcome, nmcliText, signal) {
   if (outcome === 'wrong_password') {
     return { reason: 'wrong_password', message: '비밀번호가 맞지 않습니다. 대소문자와 기호를 확인해 다시 입력하세요.' };
   }
+  if (outcome === 'no_response') {
+    const sig = Number.isFinite(Number(signal)) && signal !== null ? ` (신호 ${Number(signal)}%)` : '';
+    return { reason: 'no_response',
+      message: `공유기가 이 제어기의 접속 요청에 답하지 않습니다${sig}. 비밀번호 문제가 아닙니다 — 제어기를 공유기 가까이로 옮기거나 공유기를 다시 켠 뒤 시도하세요.` };
+  }
   const t = String(nmcliText || '');
-  if (/no network with ssid/i.test(t)) {
+  if (outcome === 'not_found' || /no network with ssid/i.test(t)) {
     return { reason: 'not_found', message: '이 WiFi 신호를 찾지 못했습니다. 공유기 가까이에서 다시 찾아보세요.' };
   }
   if (outcome === 'timeout') {
@@ -152,4 +173,4 @@ function describeLink(input) {
   };
 }
 
-module.exports = { isEverConnected, planConnect, stateCode, classifyState, failureMessage, linkState, bandOf, describeLink };
+module.exports = { isEverConnected, planConnect, stateCode, classifyState, diagnoseSupplicant, failureMessage, linkState, bandOf, describeLink };

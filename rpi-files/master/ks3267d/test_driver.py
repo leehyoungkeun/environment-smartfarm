@@ -237,8 +237,6 @@ class Names(unittest.TestCase):
         self.assertEqual(status_name(7), "UNKNOWN_7")
 
 
-if __name__ == "__main__":
-    unittest.main()
 
 
 class ScanStats(unittest.TestCase):
@@ -274,3 +272,49 @@ class ScanStats(unittest.TestCase):
             self.bus.read = orig
         self.assertFalse(self.bus.probing)
 
+
+
+class FrameLogRxMerge(unittest.TestCase):
+    """시리얼에서 pymodbus 가 한 응답을 조각마다(누적 버퍼 반복 포함) trace_packet 에 넘긴다 — 한 항목으로 합쳐야 rx 가 tx 와 맞는다 (2026-09-19 실노드에서 발견)"""
+    def setUp(self):
+        self.f = FrameLog()
+
+    def test_repeated_identical_rx_chunks_count_once(self):
+        self.f.trace_packet(True, bytes([1, 3, 0, 0xCA, 0, 0x5B, 0, 0]))
+        full = bytes([2, 3, 0xB6] + [0] * 5)
+        for _ in range(6):
+            self.f.trace_packet(False, full)
+        self.assertEqual(self.f.stats, {"tx": 1, "rx": 1, "exceptions": 0, "timeouts": 0, "scan_misses": 0})
+        self.assertEqual([x["dir"] for x in self.f.recent()], ["TX", "RX"])
+
+    def test_growing_rx_chunks_keep_longest(self):
+        self.f.trace_packet(True, bytes([1, 3, 0, 1, 0, 8]))
+        self.f.trace_packet(False, bytes([1, 3, 0x10, 0, 0]))
+        self.f.trace_packet(False, bytes([1, 3, 0x10, 0, 0, 0, 0, 0, 1]))
+        self.f.trace_packet(False, bytes([1, 3, 0x10, 0, 0, 0, 0, 0, 1, 0, 0, 0, 10, 0, 30]))
+        r = self.f.recent()
+        self.assertEqual(len(r), 2)
+        self.assertEqual(r[-1]["hex"], "01 03 10 00 00 00 00 00 01 00 00 00 0A 00 1E")
+        self.assertEqual(self.f.stats["rx"], 1)
+
+    def test_distinct_responses_are_separate(self):
+        self.f.trace_packet(False, bytes([1, 3, 2, 0, 1]))
+        self.f.trace_packet(False, bytes([2, 3, 2, 0, 1]))
+        self.assertEqual(self.f.stats["rx"], 2)
+
+    def test_tx_never_merges_and_empty_ignored(self):
+        self.f.trace_packet(True, bytes([1, 3, 0, 1, 0, 8]))
+        self.f.trace_packet(True, bytes([1, 3, 0, 1, 0, 8]))
+        self.f.trace_packet(False, b"")
+        self.assertEqual(self.f.stats["tx"], 2)
+        self.assertEqual(self.f.stats["rx"], 0)
+
+    def test_old_identical_rx_is_new_entry(self):
+        self.f.trace_packet(False, bytes([1, 3, 2, 0, 1]))
+        self.f.buf[-1]["t"] -= 5   # 5초 전 응답
+        self.f.trace_packet(False, bytes([1, 3, 2, 0, 1]))
+        self.assertEqual(self.f.stats["rx"], 2)
+
+
+if __name__ == "__main__":
+    unittest.main()

@@ -73,6 +73,16 @@ pm2 start ks3267d/ks3267d.py   --name ks3267d   --interpreter ./venv/bin/python 
 5. 사용설명서 `docs/ksx3267/manual/사용설명서.md`
 운영 반영 순서: 서버 DB 에 `migration-actuator-status.sql` 적용 → 백엔드 배포 → NR 에서 `ks3267-snapshot-nodes.json` 가져오기(탭 열고) → Deploy → 제어판 매핑 장치 있으면 1분 뒤 `actuator_status` 행 확인
 
+## 3.4 실노드 증적 — 화면 버튼 하나 (2026-09-19)
+
+입고 시험장에는 인터넷도 SSH 도 없다. 자가시험 스크립트는 시험장비(시뮬레이터) API 로 값을 바꿔 가며 판정하므로 실 노드엔 못 쓴다. 그래서 표준노드 탭 **⑤ 「실노드 증적 만들기」** 를 두었다.
+
+- 드라이버 `evidence.py` 가 "지금 읽히는 것" 만으로 판정한다: §5.4.1 a)~d)(`/conntest` 와 같은 판정) → §5.4.2/§5.5.1(노드정보 1~8·디바이스 코드·개수·종류) → 센서면 §5.4.3(마지막 폴링 관측치·상태코드 정의값, 변화 이력)·§5.4.4(로컬 SQLite 최근 10분 빈틈 없음) / 구동기면 §5.5.2·5.5.3(지금 상태·최근 명령 이력)·116 저장. 결과는 자가시험과 같은 3종 `report.md`·`results.json`·`frames.txt`(TX/RX 400개) 로 `~/smartfarm/ks3267/evidence/realnode-YYYYmmdd-HHMMSS/`.
+- 경로: 패널 같은 출처 `/api/ks3267-comm/evidence` → rpi-server → 드라이버 `POST /evidence {unit}`(루프백). 웹은 `/config/:farmId/ks3267-evidence`(생성·삭제는 농장 소유자). 파일은 JSON `{content}` 로 받아 브라우저가 내려받기를 만든다.
+- 판정이 통과하려면: 센서 노드는 등록 뒤 10분(§5.4.4) + 관측치 변화 1회 이상(§5.4.3), 구동기 노드는 제어판 명령 1회 이상(§5.5.2/5.5.3). 화면 캡처 항목은 report 의 「수동 증적 항목」에 체크리스트로.
+- 첫 실노드 묶음: **`evidence-realnode-20260919-165013/` — 우노(ATmega328P+MAX485) 센서 노드 unit 1, 4/4 통과**. 노드 펌웨어는 `docs/stand_node/ksx3267_sensor_node_uno/`.
+- 단위시험 `test_evidence.py`(가짜 master·store, 12개).
+
 ## 4. 시험기관 사전 확인 (PLAN §4 그대로 + 문서 읽고 추가)
 - SPS-7466 §5.4.1 b) "슬레이브 아이디" — 시험장비 노드 주소를 시험 당일 알려주는지, 우리는 표준노드 탭에서 입력 탐색
 - §5.4.4 "제어기에서 제시한 저장주기" — 우리는 1분. 표준 센서를 기존 수집 파이프라인에 합류시키므로 저장주기 = 수집주기

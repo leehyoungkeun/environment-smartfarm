@@ -94,6 +94,18 @@ describe("지표 SQL — 오늘 만든 규칙이 유지된다", () => {
     }
   });
 
+  test("센서 수집 중단 지표는 지금 있는(enabled) 하우스만 센다", () => {
+    // 2026-09-19: house_0002 를 9/16 에 지운 뒤에도 sensor_data 7일 창 안에 옛 행이 남아
+    // SensorDataStalled 가 사흘째 울렸다. 하우스 존재 여부는 house_configs 가 기준이다.
+    const q = queries.find((x) => /FROM\s+sensor_data/i.test(x) && /max\(sd\.timestamp\)/i.test(x));
+    assert.ok(q, "sensor_last_seen 쿼리를 찾지 못함");
+    assert.match(
+      q,
+      /JOIN\s+house_configs\s+hc\s+ON[\s\S]*hc\.house_id\s*=\s*sd\.house_id[\s\S]*hc\.enabled\s*=\s*true/i,
+      `삭제된 하우스가 지표에 남는 쿼리:\n${q.trim()}`
+    );
+  });
+
   test("지표 collect() 의 catch 는 반드시 reset() 한다", () => {
     // 지표 collect 안의 catch 에 reset() 이 없으면, DB 오류 시 마지막 정상값이 그대로 남아
     // 장애 중에도 "정상" 으로 보인다(2026-08-27 에 고친 것). 지표 정의 블록만 검사한다 —

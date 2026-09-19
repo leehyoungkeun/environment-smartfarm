@@ -204,10 +204,12 @@ class Reconnect(unittest.TestCase):
         old.connect()
         m = KsMaster(old)
         m.state = {1: {"stale": True}}
+        m.nodes = {1: {"kind": "actuator", "devices": [], "supported": True}}   # 옛 버스(시뮬)에서 탐색한 노드
         ok, cur = m.reconnect(lambda: self.T("rtu std 9600"))
         self.assertTrue(ok)
         self.assertEqual(m.t.desc, "rtu std 9600")
         self.assertEqual(m.state, {}, "이전 포트에서 읽은 상태는 버린다")
+        self.assertEqual(m.nodes, {}, "탐색 결과도 옛 버스의 것 — 비워서 새 버스에서 다시 탐색하게 한다 (2026-09-16)")
         self.assertFalse(old.open, "같은 포트를 다시 열 수 있게 기존 연결을 먼저 닫는다")
 
     def test_failure_keeps_old_transport_connected(self):

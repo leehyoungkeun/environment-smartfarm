@@ -35,10 +35,25 @@ class FrameLog:
         # exceptions/timeouts = 폴링·명령 중 실제 장애. scan_misses = 자동스캔이 두드린 빈 주소의 무응답/예외(장애 아님)
         self.stats = {"tx": 0, "rx": 0, "exceptions": 0, "timeouts": 0, "scan_misses": 0}
 
+    RX_MERGE_SEC = 2.0   # 한 응답의 수신 조각들이 이 안에 들어온다 (9600 bps 최대 프레임 256B ≈ 0.27 s + 타임아웃 여유)
+
     def trace_packet(self, sending, data):
+        """pymodbus trace_packet 훅. 시리얼(RTU)에서는 pymodbus 가 응답을 **조각마다** 이 훅에 넘겨(누적 버퍼를 반복해서
+        주기도 한다) 같은 응답이 여러 줄로 찍히고 rx 가 tx 의 몇 배로 부풀었다(2026-09-19 실노드에서 발견).
+        RX 는 직전 RX 항목과 같은 응답의 조각이면(같거나 한쪽이 다른쪽의 앞부분) 한 항목으로 합친다 — 긴 쪽을 남긴다."""
+        if not data:
+            return data
+        hx = " ".join(f"{b:02X}" for b in data)
+        now = time.time()
         with self.lock:
-            self.buf.append({"t": time.time(), "dir": "TX" if sending else "RX",
-                             "hex": " ".join(f"{b:02X}" for b in data)})
+            if not sending and self.buf:
+                last = self.buf[-1]
+                if last["dir"] == "RX" and now - last["t"] < self.RX_MERGE_SEC and \
+                        (hx == last["hex"] or hx.startswith(last["hex"]) or last["hex"].startswith(hx)):
+                    if len(hx) > len(last["hex"]):
+                        last["hex"] = hx
+                    return data
+            self.buf.append({"t": now, "dir": "TX" if sending else "RX", "hex": hx})
             self.stats["tx" if sending else "rx"] += 1
         return data
 

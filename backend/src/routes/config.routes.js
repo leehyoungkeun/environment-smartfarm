@@ -776,6 +776,36 @@ router.get("/:farmId/ks3267-changes", async (req, res) => {
   res.json(await ksCommProxy(req.params.farmId, "GET", `/ks3267/changes?n=${n}${Number.isFinite(unit) ? `&unit=${unit}` : ""}`));
 });
 
+// 실노드 증적 묶음 (2026-09-19) — 목록·파일은 읽기, 생성·삭제는 농장 소유자 이상 (rpi-server 가 Tailscale 출처로 허용)
+const KS_EVIDENCE_ID = /^realnode-\d{8}-\d{6}(-\d+)?$/;
+const KS_EVIDENCE_FILES = new Set(["report.md", "results.json", "frames.txt"]);
+
+router.get("/:farmId/ks3267-evidence", async (req, res) => {
+  res.json(await ksCommProxy(req.params.farmId, "GET", "/ks3267/evidence"));
+});
+
+router.get("/:farmId/ks3267-evidence/:id/:file", async (req, res) => {
+  const { id, file } = req.params;
+  if (!KS_EVIDENCE_ID.test(id) || !KS_EVIDENCE_FILES.has(file)) {
+    return res.status(400).json({ ok: false, error: "잘못된 증적 id 또는 파일 이름" });
+  }
+  res.json(await ksCommProxy(req.params.farmId, "GET", `/ks3267/evidence/${id}/${file}`));
+});
+
+router.post("/:farmId/ks3267-evidence", authorize("owner"), async (req, res) => {
+  const unit = parseInt(req.body?.unit, 10);
+  if (!Number.isFinite(unit) || unit < 1 || unit > 247) return res.status(400).json({ ok: false, error: "unit 1~247" });
+  const who = req.user?.username || req.user?.id || "?";
+  logger.info(`📐 표준 노드 실노드 증적 생성: ${req.params.farmId} unit ${unit} by ${who}`);
+  res.json(await ksCommProxy(req.params.farmId, "POST", "/ks3267/evidence", { unit }));
+});
+
+router.post("/:farmId/ks3267-evidence-delete", authorize("owner"), async (req, res) => {
+  const id = String(req.body?.id || "");
+  if (!KS_EVIDENCE_ID.test(id)) return res.status(400).json({ ok: false, error: "잘못된 증적 id" });
+  res.json(await ksCommProxy(req.params.farmId, "POST", "/ks3267/evidence-delete", { id }));
+});
+
 router.get("/sync-status/:farmId", async (req, res) => {
   try {
     const rpiBase = getRpiBase(req.params.farmId);

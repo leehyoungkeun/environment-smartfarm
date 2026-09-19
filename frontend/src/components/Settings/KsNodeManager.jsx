@@ -91,6 +91,59 @@ export const KsNodeManager = ({ farmId }) => {
   const commPut = useCallback((body) => (onPanel
     ? axios.put('/api/ks3267-comm/comm', body, { timeout: 30000 })
     : axios.put(`${api}/config/${farmId}/ks3267-comm`, body, { timeout: 30000 })).then(r => r.data), [api, farmId, onPanel]);
+  // ── 실노드 증적 묶음 (2026-09-19) — 입고 시험장에서 버튼 하나로 report.md·results.json·frames.txt ──
+  // 드라이버가 지금 상태(탐색·마지막 폴링·변화 이력·로컬 1분 저장·프레임)를 §5.4/5.5 순서로 판정해 제어기에 저장한다.
+  const commPost = useCallback((path, body) => (onPanel
+    ? axios.post(`/api/ks3267-comm/${path}`, body, { timeout: 40000 })
+    : axios.post(`${api}/config/${farmId}/ks3267-${path}`, body, { timeout: 40000 })).then(r => r.data), [api, farmId, onPanel]);
+  const [evidence, setEvidence] = useState({ packages: [], error: null });
+  const [evidenceUnit, setEvidenceUnit] = useState('');
+  const [evidenceBusy, setEvidenceBusy] = useState(false);
+  const [evidenceMsg, setEvidenceMsg] = useState(null);
+  const loadEvidence = useCallback(async () => {
+    try {
+      const d = await commGet('evidence');
+      setEvidence(d?.ok ? { packages: d.packages || [], error: null, dir: d.dir } : { packages: [], error: d?.error || '목록을 읽지 못했습니다' });
+    } catch (e) {
+      setEvidence({ packages: [], error: e.response?.data?.error || e.message });
+    }
+  }, [commGet]);
+  const makeEvidence = async (unit) => {
+    setEvidenceBusy(true); setEvidenceMsg(null);
+    try {
+      const d = await commPost('evidence', { unit });
+      if (d?.ok) {
+        const p = d.package;
+        setEvidenceMsg({ type: 'ok', text: `${p.id} 생성 — ${p.passed}/${p.total} 통과 (${p.label} unit ${p.unit})` });
+        await loadEvidence();
+      } else setEvidenceMsg({ type: 'err', text: d?.error || '증적을 만들지 못했습니다' });
+    } catch (e) {
+      setEvidenceMsg({ type: 'err', text: '증적 생성 실패: ' + (e.response?.data?.error || e.message) });
+    } finally { setEvidenceBusy(false); }
+  };
+  const downloadEvidence = async (id, file) => {
+    try {
+      const d = await commGet(`evidence/${id}/${file}`);
+      if (!d?.ok) { setEvidenceMsg({ type: 'err', text: d?.error || '파일을 읽지 못했습니다' }); return; }
+      const blob = new Blob([d.content], { type: file.endsWith('.json') ? 'application/json' : 'text/plain;charset=utf-8' });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob); a.download = `${id}-${file}`; a.click();
+      setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+    } catch (e) {
+      setEvidenceMsg({ type: 'err', text: '내려받기 실패: ' + (e.response?.data?.error || e.message) });
+    }
+  };
+  const deleteEvidence = async (id) => {
+    if (!window.confirm(`증적 ${id} 를 제어기에서 지웁니다. 계속할까요?`)) return;
+    try {
+      const d = await commPost('evidence-delete', { id });
+      if (d?.ok) await loadEvidence(); else setEvidenceMsg({ type: 'err', text: d?.error || '지우지 못했습니다' });
+    } catch (e) {
+      setEvidenceMsg({ type: 'err', text: '삭제 실패: ' + (e.response?.data?.error || e.message) });
+    }
+  };
+  useEffect(() => { loadEvidence(); }, [loadEvidence]);
+
   const [comm, setComm] = useState(null);          // { ok, current, ports, standard, allowedBauds }
   const [commForm, setCommForm] = useState(null);  // { mode, port, baud, timeout, tcp }
   const [commBusy, setCommBusy] = useState(false);
@@ -593,11 +646,70 @@ export const KsNodeManager = ({ farmId }) => {
           </div>
         )}
       </Section>
+
+      {/* ⑤ 실노드 증적 — 입고 시험장에서 버튼 하나로 (2026-09-19) */}
+      <Section n="5" title="실노드 증적 만들기" desc="지금 읽히는 것을 §5.4 / §5.5 순서로 판정해 report.md · results.json · frames.txt 로 제어기에 남깁니다. 화면 캡처의 뒷받침 자료입니다"
+        right={<Pill tone={evidence.packages.length ? 'on' : 'muted'}>{evidence.packages.length}개</Pill>}>
+        <div className="flex flex-wrap items-center gap-3">
+          <label className="text-base font-semibold text-gray-700">노드</label>
+          <select value={evidenceUnit || (unitList[0] ?? '')} onChange={(e) => setEvidenceUnit(e.target.value)}
+            className="border-2 border-gray-300 rounded-lg px-3 py-2 text-base bg-white" disabled={unitList.length === 0}>
+            {unitList.length === 0 ? <option value="">찾은 노드 없음</option>
+              : unitList.map(u => <option key={u} value={u}>unit {u} · {kindLabel(nodes[u]?.kind)}</option>)}
+          </select>
+          <button onClick={() => makeEvidence(parseInt(evidenceUnit || unitList[0], 10))} disabled={evidenceBusy || unitList.length === 0}
+            className="px-5 py-2 rounded-lg bg-emerald-600 text-white text-base font-bold disabled:opacity-50">
+            {evidenceBusy ? '판정 중…' : '▶ 지금 상태로 증적 만들기'}
+          </button>
+          <span className="text-sm text-gray-500">연결 시험을 다시 돌리고 탐색 결과·읽기 표·변화 이력·로컬 10분 저장·프레임 400개를 담습니다 (약 5초)</span>
+        </div>
+        {evidenceMsg && (
+          <p className={`text-base font-semibold ${evidenceMsg.type === 'ok' ? 'text-emerald-700' : 'text-rose-700'}`}>{evidenceMsg.text}</p>
+        )}
+        <p className="text-sm text-gray-500">
+          센서 노드는 등록 뒤 <b>10분</b>이 지나야 §5.4.4 저장 판정이 통과하고, 관측치가 한 번은 바뀌어야 §5.4.3 이 통과합니다. 구동기 노드는 제어판에서 명령을 한 번 보낸 뒤 만드세요.
+          통과·실패는 그 시점의 판정이며 묶음은 지우기 전까지 남습니다{evidence.dir ? ` (${evidence.dir})` : ''}.
+        </p>
+        {evidence.error && <p className="text-sm text-rose-700">{evidence.error}</p>}
+        <SubBox title="증적 목록" desc="최신 먼저 · 파일별 내려받기" tone="green">
+          {evidence.packages.length === 0 ? (
+            <p className="text-sm text-gray-400">아직 만든 증적이 없습니다.</p>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="text-sm w-full">
+                <thead><tr className="text-gray-500 text-left border-b border-gray-200">
+                  <th className="py-1 pr-4">일시</th><th className="pr-4">노드</th><th className="pr-4">결과</th><th className="pr-4">시험</th><th className="pr-4">파일</th><th></th>
+                </tr></thead>
+                <tbody>
+                  {evidence.packages.map((p) => (
+                    <tr key={p.id} className="border-b border-gray-100 align-top">
+                      <td className="py-2 pr-4 whitespace-nowrap font-mono text-gray-700">{p.at || p.id}</td>
+                      <td className="pr-4 whitespace-nowrap">{p.error ? <span className="text-rose-700">{p.error}</span> : <>unit {p.unit} · {p.label}</>}</td>
+                      <td className="pr-4 whitespace-nowrap">{p.total ? <Pill tone={p.passed === p.total ? 'on' : 'warn'}>{p.passed}/{p.total} 통과</Pill> : null}</td>
+                      <td className="pr-4">
+                        {(p.tests || []).map(t => (
+                          <span key={t.id} className={`inline-block mr-2 mb-1 px-1.5 py-0.5 rounded text-xs font-bold ${t.ok ? 'bg-emerald-100 text-emerald-800' : 'bg-rose-100 text-rose-700'}`} title={t.title}>{t.id}</span>
+                        ))}
+                      </td>
+                      <td className="pr-4 whitespace-nowrap">
+                        {(p.files || []).map(f => (
+                          <button key={f} onClick={() => downloadEvidence(p.id, f)} className="mr-2 text-blue-700 font-semibold hover:underline">{f}</button>
+                        ))}
+                      </td>
+                      <td><button onClick={() => deleteEvidence(p.id)} className="text-gray-400 hover:text-rose-600 text-sm">지우기</button></td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </SubBox>
+      </Section>
     </div>
   );
 };
 
-const NodeCard = ({ unit, node, st, mapping, changes = [], storage, stateAt = 0, local }) => {
+const NodeCard =({ unit, node, st, mapping, changes = [], storage, stateAt = 0, local }) => {
   // §5.5.2 f)·§5.5.3 f)o) — 남은 작동시간은 10초 폴링 사이에도 흘러야 '적절히 표시' 다. 받은 시각부터 지난 초를 뺀다.
   // 1초 틱은 남은 작동시간이 흐르는 동안만 — 카드 두 장(행 54개)을 매초 다시 그리면 키오스크 렌더러 CPU 가 20% 를 먹는다 (2026-09-16 실측, 발열 원인 재발 방지)
   const hasRemain = !!st && Object.values(st.devices || {}).some(d => (Number(d?.remain) || 0) > 0);

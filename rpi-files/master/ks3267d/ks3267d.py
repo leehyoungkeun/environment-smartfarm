@@ -89,8 +89,11 @@ def main():
     p.add_argument("--state-dir", default=os.path.join(os.path.dirname(os.path.abspath(__file__)), "state"))
     p.add_argument("--nr-url", default="", help="상태 변화 POST 대상 (예: http://127.0.0.1:1880/api/ks3267/status)")
     p.add_argument("--local-days", type=int, default=60, help="로컬 1분 스냅샷 보존 일수 (state/snapshots.db)")
+    p.add_argument("--evidence-dir", default=os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "evidence")),
+                   help="실노드 증적 묶음 폴더 — 자가시험(selftest --out)과 같은 곳 (2026-09-19)")
     a = p.parse_args()
     os.makedirs(a.state_dir, exist_ok=True)
+    os.makedirs(a.evidence_dir, exist_ok=True)
     comm_path = os.path.join(a.state_dir, "comm.json")
     saved = load_comm(comm_path)
     if not a.port and not a.tcp and not saved:
@@ -125,8 +128,10 @@ def main():
     master = KsMaster(t, state_dir=a.state_dir)
     units = [int(x) for x in a.units.split(",") if x.strip()]
     store = LocalStore(os.path.join(a.state_dir, "snapshots.db"), retention_days=a.local_days)
-    srv = serve(master, port=a.api_port, comm_ctx={"path": comm_path, "build": build, "list_ports": list_ports, "store": store})
-    log.info("ks3267d 시작 — %s, units=%s, api=127.0.0.1:%d, retries=%d, 로컬 스냅샷 %s (%d일)", t.desc, units, a.api_port, a.retries, store.path, a.local_days)
+    srv = serve(master, port=a.api_port, comm_ctx={"path": comm_path, "build": build, "list_ports": list_ports, "store": store,
+                                                   "evidence_dir": a.evidence_dir})
+    log.info("ks3267d 시작 — %s, units=%s, api=127.0.0.1:%d, retries=%d, 로컬 스냅샷 %s (%d일), 증적 %s",
+             t.desc, units, a.api_port, a.retries, store.path, a.local_days, a.evidence_dir)
     stop = threading.Event()
     th = threading.Thread(target=poll_loop, args=(master, units, a.poll, a.nr_url, stop, store), daemon=True)
     th.start()

@@ -51,6 +51,7 @@ before(async () => {
 
 after(async () => {
   await pool.query("DELETE FROM sensor_data WHERE farm_id LIKE 'farm_mtest%'").catch(() => {});
+  await pool.query("DELETE FROM house_configs WHERE farm_id LIKE 'farm_mtest%'").catch(() => {});
   await pool.query("DELETE FROM relay_status WHERE farm_id LIKE 'farm_mtest%'").catch(() => {});
   await pool.query("DELETE FROM control_logs WHERE farm_id LIKE 'farm_mtest%'").catch(() => {});
   await pool.query("DELETE FROM farms WHERE farm_id LIKE 'farm_mtest%'").catch(() => {});
@@ -81,9 +82,19 @@ describe("지표 SQL 이 옳은 행만 낸다", () => {
         [id, status]
       );
     }
+    // 하우스 존재 여부는 house_configs 가 기준 — house_0003 은 지운 하우스(행 없음)로 둔다 (2026-09-19)
+    for (const [farm, house] of [["farm_mtest_a", "house_0001"], ["farm_mtest_a", "house_0002"], ["farm_mtest_m", "house_0001"]]) {
+      await pool.query(
+        `INSERT INTO house_configs (id, farm_id, house_id, house_name, created_at, updated_at)
+         VALUES ($1, $2, $3, $3, now(), now())
+         ON CONFLICT (farm_id, house_id) DO UPDATE SET enabled = true, updated_at = now()`,
+        [`${farm}:${house}`, farm, house]
+      );
+    }
     const ins = `INSERT INTO sensor_data (timestamp, farm_id, house_id, data, metadata) VALUES (now(), $1, $2, $3, $4)`;
     await pool.query(ins, ["farm_mtest_a", "house_0001", { temperature: 21 }, { quality: "good" }]);
     await pool.query(ins, ["farm_mtest_a", "house_0002", { temperature: 22 }, { quality: "simulated" }]);
+    await pool.query(ins, ["farm_mtest_a", "house_0003", { temperature: 24 }, { quality: "good" }]); // 지운 하우스의 옛 행
     await pool.query(ins, ["farm_mtest_m", "house_0001", { temperature: 23 }, { quality: "good" }]);
     await pool.query(
       `INSERT INTO relay_status (farm_id, unit_id, module_type, coils, updated_at)
@@ -104,7 +115,7 @@ describe("지표 SQL 이 옳은 행만 낸다", () => {
     const rows = await rowsOf("smartfarm_sensor_last_seen_seconds");
     const keys = rows.map((r) => `${r.farm_id}/${r.house_id}`).sort();
     assert.deepEqual(keys, ["farm_mtest_a/house_0001"],
-      "점검중 농장이나 시뮬레이션 값이 지표에 섞였다 — 거짓 경보의 원인 (B4)");
+      "점검중 농장·시뮬레이션 값·지운 하우스(house_0003)가 지표에 섞였다 — 거짓 경보의 원인 (B4, 2026-09-19)");
   });
 
   test("센서 지표: 경과 초가 숫자로 나온다", async () => {

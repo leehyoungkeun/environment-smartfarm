@@ -95,6 +95,10 @@ class KsMaster:
             if new.connect():
                 self.t = new
                 self.state = {}   # 이전 포트에서 읽은 상태는 더 이상 사실이 아니다
+                # 탐색 결과(노드 정보·디바이스 목록)도 옛 버스의 것 — 시뮬레이터→실노드로 바꿨을 때 시뮬 노드의 디바이스 24개가
+                # 실노드 카드에 그대로 남던 문제. 비우면 poll_loop 가 --units 를 새 버스에서 다시 탐색한다 (2026-09-16)
+                self.nodes = {}
+                self.changes = {}
                 self._event("comm_changed", desc=getattr(new, "desc", "?"))
                 return True, new
             try:

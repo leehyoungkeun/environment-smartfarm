@@ -12,6 +12,10 @@ GET  /events[?n=50]
 GET  /comm                   통신 설정·포트 목록 (2026-09-15)
 POST /comm   {mode, port, baud, timeout, tcp}   통신 설정 변경 — 재시작 없이 다시 연결하고 저장
 GET  /conntest?unit=N        SPS-7466 §5.4.1 연결시험 a)~d) 판정
+GET  /evidence               실노드 증적 묶음 목록 (2026-09-19)
+POST /evidence {unit}        지금 상태로 증적 묶음 생성 → <evidence_dir>/realnode-…/{report.md,results.json,frames.txt}
+GET  /evidence/<id>/<file>   묶음 파일 내용 (JSON {content}) — 화면이 내려받기로 만든다
+POST /evidence/delete {id}
 
 통신 설정 변경은 rpi-server(/local-config/ks3267/comm)가 권한을 거른 뒤 부른다 — 이 데몬은 루프백에만 뜬다.
 """
@@ -22,6 +26,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
 
 import comm as commlib
+import evidence as evlib
 from transport import ModbusExc, TransportTimeout
 
 
@@ -36,6 +41,22 @@ def transport_info(t):
     return {"mode": getattr(t, "mode", None), "port": getattr(t, "port", None), "baud": getattr(t, "baud", None),
             "tcp": getattr(t, "tcp", None), "timeout": getattr(t, "timeout", None),
             "desc": getattr(t, "desc", "?"), "connected": connected}
+
+
+def run_conntest(master, ctx, unit):
+    """§5.4.1 a)~d) 판정 + 당일 준비 점검 — /conntest 와 실노드 증적이 같은 판정을 쓴다"""
+    discovery = None
+    if unit is not None and 1 <= unit <= 247:
+        try:
+            discovery = {"ok": True, "node": master.discover(unit)}
+        except ModbusExc as e:
+            discovery = {"ok": False, "error": str(e)}
+        except TransportTimeout:
+            discovery = {"ok": False, "error": "timeout — 응답 없음"}
+    info = transport_info(master.t)
+    # 당일 준비 점검: 표준 포트 인식 + 9600 으로 열리는지 (드라이버가 쓰는 포트는 prep_rows 가 다시 열지 않는다)
+    prep = commlib.prep_rows(ctx["list_ports"]() if ctx else [], info, probe=commlib.probe_serial_open)
+    return commlib.conn_test_rows(info, unit, discovery, prep=prep)
 
 
 def make_handler(master, comm_ctx=None):
@@ -131,19 +152,22 @@ def make_handler(master, comm_ctx=None):
                         unit = int(q.get("unit", [""])[0])
                     except ValueError:
                         unit = None
-                    discovery = None
-                    if unit is not None and 1 <= unit <= 247:
-                        try:
-                            discovery = {"ok": True, "node": master.discover(unit)}
-                        except ModbusExc as e:
-                            discovery = {"ok": False, "error": str(e)}
-                        except TransportTimeout:
-                            discovery = {"ok": False, "error": "timeout — 응답 없음"}
-                    info = transport_info(master.t)
-                    # 당일 준비 점검: 표준 포트 인식 + 9600 으로 열리는지 (드라이버가 쓰는 포트는 prep_rows 가 다시 열지 않는다)
-                    prep = commlib.prep_rows(ctx["list_ports"]() if ctx else [], info, probe=commlib.probe_serial_open)
-                    result = commlib.conn_test_rows(info, unit, discovery, prep=prep)
+                    result = run_conntest(master, ctx, unit)
                     return self._json(200, {"ok": True, "at": time.time(), **result})
+                if u.path == "/evidence":
+                    # 실노드 증적 묶음 목록 (2026-09-19)
+                    if not ctx.get("evidence_dir"):
+                        return self._json(200, {"ok": False, "error": "증적 폴더가 설정되지 않았습니다"})
+                    return self._json(200, {"ok": True, "dir": ctx["evidence_dir"], "packages": evlib.list_packages(ctx["evidence_dir"])})
+                if u.path.startswith("/evidence/"):
+                    parts = u.path.split("/")[2:]
+                    if len(parts) != 2 or not ctx.get("evidence_dir"):
+                        return self._json(404, {"ok": False, "error": "not found"})
+                    try:
+                        content = evlib.read_file(ctx["evidence_dir"], parts[0], parts[1])
+                    except (ValueError, FileNotFoundError) as e:
+                        return self._json(404, {"ok": False, "error": str(e)})
+                    return self._json(200, {"ok": True, "id": parts[0], "name": parts[1], "content": content})
                 return self._json(404, {"ok": False, "error": "not found"})
             except Exception as e:  # 진단 API 가 죽으면 안 된다
                 return self._json(500, {"ok": False, "error": str(e)})
@@ -180,6 +204,30 @@ def make_handler(master, comm_ctx=None):
                 try:
                     return self._json(200, {"ok": True, "node": master.discover(int(body["unit"]))})
                 except (ModbusExc, TransportTimeout) as e:
+                    return self._json(200, {"ok": False, "error": str(e)})
+            if u.path == "/evidence":
+                # 실노드 증적 묶음 생성 — 지금 상태(탐색 결과·마지막 폴링·변화 이력·로컬 저장·프레임)를 §5.4/5.5 순서로 판정 (2026-09-19)
+                if not ctx.get("evidence_dir"):
+                    return self._json(200, {"ok": False, "error": "증적 폴더가 설정되지 않았습니다"})
+                try:
+                    unit = int(body["unit"])
+                except (KeyError, ValueError, TypeError):
+                    return self._json(400, {"ok": False, "error": "unit 필요"})
+                try:
+                    ct = run_conntest(master, ctx, unit)
+                    ev = evlib.build(master, ctx.get("store"), transport_info(master.t), ct, unit)
+                    return self._json(200, {"ok": True, "package": evlib.write(ctx["evidence_dir"], ev)})
+                except ValueError as e:
+                    return self._json(200, {"ok": False, "error": str(e)})
+                except Exception as e:
+                    return self._json(200, {"ok": False, "error": f"증적 생성 실패: {e}"})
+            if u.path == "/evidence/delete":
+                if not ctx.get("evidence_dir"):
+                    return self._json(200, {"ok": False, "error": "증적 폴더가 설정되지 않았습니다"})
+                try:
+                    evlib.delete(ctx["evidence_dir"], str(body.get("id") or ""))
+                    return self._json(200, {"ok": True})
+                except (ValueError, FileNotFoundError) as e:
                     return self._json(200, {"ok": False, "error": str(e)})
             if u.path == "/comm":
                 if not ctx:

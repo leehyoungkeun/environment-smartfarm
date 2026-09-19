@@ -224,5 +224,41 @@ router.get('/ks3267/changes', async (req, res) => {
   res.json(await ksDaemon('GET', `/changes?n=${n}` + (Number.isFinite(unit) ? `&unit=${unit}` : '')));
 });
 
+// ── 실노드 증적 묶음 (2026-09-19) ──
+// 입고 시험장(인터넷·SSH 없음)에서 버튼 하나로 드라이버가 지금 상태를 §5.4/5.5 순서로 판정해 report.md·results.json·frames.txt 로 남긴다.
+// 목록·파일은 읽기(LAN·Tailscale), 생성·삭제는 패널/관리자 원격 경로만. 파일은 JSON {content} 로 넘기고 화면이 내려받기를 만든다.
+const EVIDENCE_ID = /^realnode-\d{8}-\d{6}(-\d+)?$/;
+const EVIDENCE_FILES = new Set(['report.md', 'results.json', 'frames.txt']);
+
+router.get('/ks3267/evidence', async (req, res) => {
+  res.json(await ksDaemon('GET', '/evidence'));
+});
+
+router.get('/ks3267/evidence/:id/:file', async (req, res) => {
+  const { id, file } = req.params;
+  if (!EVIDENCE_ID.test(id) || !EVIDENCE_FILES.has(file)) {
+    return res.status(400).json({ ok: false, error: '잘못된 증적 id 또는 파일 이름' });
+  }
+  res.json(await ksDaemon('GET', `/evidence/${id}/${file}`, null, 20000));
+});
+
+router.post('/ks3267/evidence', async (req, res) => {
+  if (!isLoopbackOrTailscale(req)) {
+    return res.status(403).json({ ok: false, error: '증적 생성은 제어기 패널 또는 관리자 원격 경로에서만 가능합니다' });
+  }
+  const unit = parseInt(req.body && req.body.unit, 10);
+  if (!Number.isFinite(unit) || unit < 1 || unit > 247) return res.status(400).json({ ok: false, error: 'unit 1~247' });
+  res.json(await ksDaemon('POST', '/evidence', { unit }, 30000));   // 연결 시험(탐색)까지 하므로 넉넉히
+});
+
+router.post('/ks3267/evidence-delete', async (req, res) => {
+  if (!isLoopbackOrTailscale(req)) {
+    return res.status(403).json({ ok: false, error: '증적 삭제는 제어기 패널 또는 관리자 원격 경로에서만 가능합니다' });
+  }
+  const id = String((req.body && req.body.id) || '');
+  if (!EVIDENCE_ID.test(id)) return res.status(400).json({ ok: false, error: '잘못된 증적 id' });
+  res.json(await ksDaemon('POST', '/evidence/delete', { id }));
+});
+
 module.exports = router;
 module.exports.reconcileDisplayNetwork = reconcileDisplayNetwork;

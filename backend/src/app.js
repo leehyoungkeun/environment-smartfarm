@@ -637,6 +637,8 @@ new promClient.Gauge({
                 EXTRACT(EPOCH FROM (now() - max(sd.timestamp))) AS age
            FROM sensor_data sd
            JOIN farms f ON f.farm_id = sd.farm_id AND f.status = 'active'  -- 점검중·중지 농장 제외 → SensorDataStalled 안 울림 (2026-08-29)
+           JOIN house_configs hc ON hc.farm_id = sd.farm_id AND hc.house_id = sd.house_id AND hc.enabled = true
+             -- 지금 있는 하우스만 — 삭제된 하우스는 sensor_data 7일 창이 지날 때까지 "수집 중단" 으로 울렸다 (2026-09-19 house_0002)
            WHERE sd.timestamp > now() - interval '7 days'
            AND (sd.metadata->>'quality') IS DISTINCT FROM 'simulated'  -- 시뮬레이션 제외 (B4)
            GROUP BY sd.farm_id, sd.house_id`

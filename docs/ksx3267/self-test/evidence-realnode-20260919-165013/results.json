@@ -1,0 +1,358 @@
+{
+ "id": "realnode-20260919-165013",
+ "meta": {
+  "at": "2026-09-19 16:50:13",
+  "t": 1789804213.3818493,
+  "unit": 1,
+  "kind": "sensor",
+  "label": "센서 노드",
+  "transport": "rtu /dev/smartfarm-485-std 9600 8N1",
+  "comm": {
+   "mode": "serial",
+   "port": "/dev/smartfarm-485-std",
+   "baud": 9600,
+   "tcp": null,
+   "timeout": 1.0,
+   "desc": "rtu /dev/smartfarm-485-std 9600 8N1",
+   "connected": true
+  },
+  "source": "realnode-ui"
+ },
+ "node": {
+  "unit": 1,
+  "cert_authority": 0,
+  "company_code": 0,
+  "product_type": 1,
+  "product_code": 0,
+  "protocol_version": 10,
+  "channels": 30,
+  "serial": 1,
+  "default_map": true,
+  "supported": true,
+  "notes": [],
+  "devices": [
+   {
+    "index": 1,
+    "code": 1,
+    "name": "온도1",
+    "value_reg": 203,
+    "status_reg": 205
+   },
+   {
+    "index": 4,
+    "code": 2,
+    "name": "습도1",
+    "value_reg": 212,
+    "status_reg": 214
+   }
+  ],
+  "kind": "sensor"
+ },
+ "state": {
+  "kind": "sensor",
+  "node_status": 0,
+  "node_status_name": "READY",
+  "sensors": {
+   "1": {
+    "name": "온도1",
+    "code": 1,
+    "value": 22.719,
+    "status": 0,
+    "status_name": "READY"
+   },
+   "4": {
+    "name": "습도1",
+    "code": 2,
+    "value": 51.372,
+    "status": 0,
+    "status_name": "READY"
+   }
+  },
+  "t": 1789804212.001745,
+  "unit": 1
+ },
+ "results": [
+  {
+   "id": "5.4.1",
+   "title": "연결시험",
+   "ref": "SPS-7466 §5.4.1 a)~d) + 당일 준비 점검",
+   "ok": true,
+   "steps": [
+    {
+     "step": "a) RS485 케이블로 노드와 연결 (표준 포트 열림)",
+     "ok": true,
+     "detail": "rtu /dev/smartfarm-485-std 9600 8N1 · 열림"
+    },
+    {
+     "step": "b) 통신 설정 9600 bps · 8N1 · RTU",
+     "ok": true,
+     "detail": "9600 bps · 8N1 · RTU"
+    },
+    {
+     "step": "c) 노드 슬레이브 아이디 1",
+     "ok": true,
+     "detail": "1"
+    },
+    {
+     "step": "d) 통신 연결 수행 (노드 정보 수신)",
+     "ok": true,
+     "detail": "센서 노드 · 프로토콜 10 · 채널 30"
+    },
+    {
+     "step": "준비) 표준 노드 포트(FTDI, 고정 이름 /dev/smartfarm-485-std) 인식",
+     "ok": true,
+     "detail": "표준 노드 포트 · FTDI · ttyUSB0"
+    },
+    {
+     "step": "준비) 표준 포트 열림 시험 (9600 8N1)",
+     "ok": true,
+     "detail": "드라이버가 이 포트를 사용 중 · 열림"
+    },
+    {
+     "step": "준비) 연결 방식",
+     "ok": true,
+     "detail": "RS485 · rtu /dev/smartfarm-485-std 9600 8N1"
+    }
+   ]
+  },
+  {
+   "id": "5.4.2",
+   "title": "디폴트 레지스터맵 센서 노드 검색 시험",
+   "ref": "SPS-7466 §5.4.2 a)~d) (KS X 3267 노드정보 1~8 · 디바이스 코드 101~)",
+   "ok": true,
+   "steps": [
+    {
+     "step": "a) 노드 응답·등록",
+     "ok": true,
+     "detail": "unit 1 · 센서 노드"
+    },
+    {
+     "step": "b) 기관코드 0 · 회사코드 0 (디폴트맵)",
+     "ok": true,
+     "detail": "기관 0 · 회사 0"
+    },
+    {
+     "step": "b) 제품타입 1 (센서 노드)",
+     "ok": true,
+     "detail": "1"
+    },
+    {
+     "step": "b) 프로토콜 버전 10",
+     "ok": true,
+     "detail": "10"
+    },
+    {
+     "step": "b) 채널수 30",
+     "ok": true,
+     "detail": "30"
+    },
+    {
+     "step": "c) 디폴트 레지스터맵 판정",
+     "ok": true,
+     "detail": "디폴트맵"
+    },
+    {
+     "step": "d) 연결된 디바이스 2개 — 온도 1 · 습도 1",
+     "ok": true,
+     "detail": "#1 코드 1, #4 코드 2"
+    }
+   ]
+  },
+  {
+   "id": "5.4.3",
+   "title": "데이터 확인 시험 (실노드: 지금 읽히는 관측치·상태와 변화 이력)",
+   "ref": "SPS-7466 §5.4.3 a)~d) / §5.1.3 b·c (관측치 CDAB float · 상태코드 정의값)",
+   "ok": true,
+   "steps": [
+    {
+     "step": "a) 노드 상태 202",
+     "ok": true,
+     "detail": "0 READY · 폴링 16:50:12"
+    },
+    {
+     "step": "b) #1 온도1 관측치·상태",
+     "ok": true,
+     "detail": "22.719 · 상태 0 READY"
+    },
+    {
+     "step": "b) #4 습도1 관측치·상태",
+     "ok": true,
+     "detail": "51.372 · 상태 0 READY"
+    },
+    {
+     "step": "c) 관측치·상태 변화 이력 20건 (16:49:42~16:50:12, 29초)",
+     "ok": true,
+     "detail": "온도1 10건 · 습도1 10건"
+    },
+    {
+     "step": "d) 최근 변화 5건",
+     "ok": true,
+     "detail": "16:50:05 습도1 52.593→51.541 상태 0→0; 16:50:08 온도1 23.143→22.845 상태 0→0; 16:50:08 습도1 51.541→52.205 상태 0→0; 16:50:12 온도1 22.845→22.719 상태 0→0; 16:50:12 습도1 52.205→51.372 상태 0→0"
+    }
+   ]
+  },
+  {
+   "id": "5.4.4",
+   "title": "데이터 저장 시험 (10분 이상, 제어기 로컬 1분 저장)",
+   "ref": "SPS-7466 §5.4.4 a)~d) / KOAT 116 — 제어기 로컬 1분 저장(SQLite), 저장주기 60초",
+   "ok": true,
+   "steps": [
+    {
+     "step": "a) 최근 10분 저장 (저장주기 60초, 센서 관측치·상태)",
+     "ok": true,
+     "detail": "10/10분"
+    },
+    {
+     "step": "b) 저장 행 (관측치·상태 매분, 점검군 상태도 그대로)",
+     "ok": true,
+     "detail": "78행 · 2026-09-19T07:12:00Z ~ 2026-09-19T07:50:00Z"
+    },
+    {
+     "step": "c) 저장된 상태 코드",
+     "ok": true,
+     "detail": "[0]"
+    },
+    {
+     "step": "d) 서버 저장(ks_sensor_status·actuator_status)은 인터넷이 있을 때 화면 「§5.4.4 데이터 저장 확인」·보고서 › 데이터 조회로 — 수동",
+     "ok": true,
+     "detail": "수동 증적"
+    }
+   ]
+  }
+ ],
+ "manual": [
+  "③ 노드 1 카드 「노드 기본정보 시험표」 전 항목 일치 화면 캡처 (§5.4.2 d)",
+  "③ 노드 1 카드 「노드 데이터 읽기 시험표」·「§5.4.3 관측 변화 이력」 화면 캡처",
+  "보고서 › 데이터 조회·추출 › 「표준 센서 관측치·상태 (KS X 3267)」 조회·csv 추출 화면 캡처 (인터넷 필요)",
+  "④ 진단 「통신 프레임」 화면 캡처 (frames.txt 와 같은 내용)"
+ ],
+ "stats": {
+  "tx": 26,
+  "rx": 161,
+  "exceptions": 0,
+  "timeouts": 11,
+  "scan_misses": 0
+ },
+ "events": [
+  {
+   "t": 1789804179.658091,
+   "kind": "sensor",
+   "unit": 1,
+   "supported": true,
+   "devices": 2
+  },
+  {
+   "t": 1789804180.908861,
+   "kind": "discover_timeout",
+   "unit": 2,
+   "error": "Modbus Error: [Input/Output] No response received after 0 retries, continue with next request"
+  },
+  {
+   "t": 1789804184.1436462,
+   "kind": "discover_timeout",
+   "unit": 2,
+   "error": "Modbus Error: [Input/Output] No response received after 0 retries, continue with next request"
+  },
+  {
+   "t": 1789804187.3660583,
+   "kind": "discover_timeout",
+   "unit": 2,
+   "error": "Modbus Error: [Input/Output] No response received after 0 retries, continue with next request"
+  },
+  {
+   "t": 1789804190.5926425,
+   "kind": "discover_timeout",
+   "unit": 2,
+   "error": "Modbus Error: [Input/Output] No response received after 0 retries, continue with next request"
+  },
+  {
+   "t": 1789804193.8273156,
+   "kind": "discover_timeout",
+   "unit": 2,
+   "error": "Modbus Error: [Input/Output] No response received after 0 retries, continue with next request"
+  },
+  {
+   "t": 1789804197.054551,
+   "kind": "discover_timeout",
+   "unit": 2,
+   "error": "Modbus Error: [Input/Output] No response received after 0 retries, continue with next request"
+  },
+  {
+   "t": 1789804200.2783635,
+   "kind": "discover_timeout",
+   "unit": 2,
+   "error": "Modbus Error: [Input/Output] No response received after 0 retries, continue with next request"
+  },
+  {
+   "t": 1789804203.521037,
+   "kind": "discover_timeout",
+   "unit": 2,
+   "error": "Modbus Error: [Input/Output] No response received after 0 retries, continue with next request"
+  },
+  {
+   "t": 1789804206.760429,
+   "kind": "discover_timeout",
+   "unit": 2,
+   "error": "Modbus Error: [Input/Output] No response received after 0 retries, continue with next request"
+  },
+  {
+   "t": 1789804210.0014515,
+   "kind": "discover_timeout",
+   "unit": 2,
+   "error": "Modbus Error: [Input/Output] No response received after 0 retries, continue with next request"
+  },
+  {
+   "t": 1789804213.2406886,
+   "kind": "discover_timeout",
+   "unit": 2,
+   "error": "Modbus Error: [Input/Output] No response received after 0 retries, continue with next request"
+  },
+  {
+   "t": 1789804213.3812263,
+   "kind": "sensor",
+   "unit": 1,
+   "supported": true,
+   "devices": 2
+  }
+ ],
+ "passed": 4,
+ "total": 4,
+ "summary": {
+  "id": "realnode-20260919-165013",
+  "at": "2026-09-19 16:50:13",
+  "t": 1789804213.3818493,
+  "unit": 1,
+  "kind": "sensor",
+  "label": "센서 노드",
+  "transport": "rtu /dev/smartfarm-485-std 9600 8N1",
+  "passed": 4,
+  "total": 4,
+  "tests": [
+   {
+    "id": "5.4.1",
+    "title": "연결시험",
+    "ok": true
+   },
+   {
+    "id": "5.4.2",
+    "title": "디폴트 레지스터맵 센서 노드 검색 시험",
+    "ok": true
+   },
+   {
+    "id": "5.4.3",
+    "title": "데이터 확인 시험 (실노드: 지금 읽히는 관측치·상태와 변화 이력)",
+    "ok": true
+   },
+   {
+    "id": "5.4.4",
+    "title": "데이터 저장 시험 (10분 이상, 제어기 로컬 1분 저장)",
+    "ok": true
+   }
+  ],
+  "files": [
+   "report.md",
+   "results.json",
+   "frames.txt"
+  ]
+ }
+}

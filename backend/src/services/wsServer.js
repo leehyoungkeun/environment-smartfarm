@@ -275,6 +275,10 @@ function setupMqttBridge() {
   });
 
   // 릴레이 조회 응답 → 해당 농장 WebSocket 클라이언트로 전달
+  mqttService.on("ks3267:status", ({ farmId, data }) => {
+    broadcast(farmId, { type: "ks3267:status", farmId, data });
+  });
+
   mqttService.on("relay:response", ({ farmId, data }) => {
     broadcast(farmId, { type: "relay:response", farmId, data });
   });

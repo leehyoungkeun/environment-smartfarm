@@ -25,6 +25,7 @@ const TOPICS = [
   "smartfarm/+/sync/status",        // 동기화 상태 (sync:query 응답)
   "smartfarm/+/system/status",      // 시스템 상태 (system:query 응답)
   "smartfarm/+/device/position",    // 장치 위치 (자동 정지 후)
+  "smartfarm/+/ks3267/status",      // KS X 3267 표준 구동기 상태 변화 (2026-09-19, 비표준 릴레이와 같은 실시간 경로)
 ];
 
 class MqttService extends EventEmitter {
@@ -131,6 +132,16 @@ class MqttService extends EventEmitter {
           const farmId = parts[1];
           this._cacheSystemStatus(farmId, payload);
           this.emit("system:status", { farmId, data: payload, topic });
+        } else if (topic.match(/^smartfarm\/[^/]+\/ks3267\/status$/)) {
+          // KS X 3267 표준 구동기 상태 { unit, now, state } — 화면이 폴링하던 /ks3267/status 와 같은 모양
+          const farmId = parts[1];
+          // 수신 확인용 로그 — 농장마다 1시간에 한 번 (하트비트 60초라 매번 찍으면 소음)
+          this._ksSeenAt = this._ksSeenAt || {};
+          if (Date.now() - (this._ksSeenAt[farmId] || 0) > 3600000) {
+            this._ksSeenAt[farmId] = Date.now();
+            logger.info(`📐 KS3267 상태 MQTT 수신: ${farmId} unit ${payload?.unit}`);
+          }
+          this.emit("ks3267:status", { farmId, data: payload, topic });
         } else if (topic.match(/smartfarm\/[^/]+\/device\/position/)) {
           // 장치 위치 업데이트 (자동 정지 후)
           const farmId = parts[1];

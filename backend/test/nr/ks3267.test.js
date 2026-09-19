@@ -86,7 +86,7 @@ describe("fn_ks_status — 데몬 상태 → 전역 반영", () => {
 
   test("센서 값이 sensorId 로 ks3267Readings 에 들어간다 (상태≥100 은 제외)", () => {
     const e = makeEnv({ clock: makeClock(), globals: { houseConfig: CFG } });
-    const out = e.runFile(F("fn_ks_status.js"), { payload: { unit: 2, state: { kind: "sensor", sensors: {
+    const [out] = e.runFile(F("fn_ks_status.js"), { payload: { unit: 2, state: { kind: "sensor", sensors: {   // 출력 2개 — 2026-09-19
       1: { value: 28.8, status: 0 }, 4: { value: 61.5, status: 0 }, 13: { value: 812, status: 103, status_name: "NEED_CHECK" } } } } });
     assert.equal(out.statusCode, 200); assert.equal(out.payload.sensorsMapped, 2);
     const r = e.global.get("ks3267Readings");
@@ -106,7 +106,7 @@ describe("fn_ks_status — 데몬 상태 → 전역 반영", () => {
 
   test("unit/state 없으면 400", () => {
     const e = makeEnv({ clock: makeClock(), globals: { houseConfig: CFG } });
-    assert.equal(e.runFile(F("fn_ks_status.js"), { payload: {} }).statusCode, 400);
+    assert.equal(e.runFile(F("fn_ks_status.js"), { payload: {} })[0].statusCode, 400);
   });
 });
 

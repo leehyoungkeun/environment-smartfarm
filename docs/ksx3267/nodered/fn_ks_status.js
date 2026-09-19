@@ -14,13 +14,19 @@
 //   구동기: house.devices[].modbus = { protocol:'ks3267', unit, kind:'switch'|'opener', n }
 //          → deviceStates['house_0001:fan1'] 갱신 (정규키, dkey)
 // 원본 상태는 global.ks3267State[unit] 에 그대로 보관 (진단 UI·남은시간 표시용).
+//
+// 2026-09-19 출력 2 추가 — 구동기 상태를 AWS IoT 로 발행 (smartfarm/{farmId}/ks3267/status).
+//   비표준 릴레이는 MQTT 로 화면에 실시간 반영되는데 표준 장치는 백엔드→Tailscale 폴링뿐이라, Tailscale 이 끊기면
+//   표준 장치 배지만 멈췄다. 이제 같은 AWS IoT → 백엔드 → WebSocket 경로. 폴링은 폴백으로 남는다.
+//   발행은 구동기만, 장치 상태코드·OPID 가 바뀔 때 + 60초 하트비트 (남은시간 감소만으로는 안 보낸다 — 화면이 셈).
+//   센서는 보내지 않는다(센서는 기존 수집 파이프라인). 출력 2 → mqtt out (AWS IoT Core, 토픽 비움).
 // ============================================================
 const body = msg.payload || {};
 const st = body.state || {};
 const unit = Number(body.unit);
 if (!unit || !st.kind) {
     msg.statusCode = 400; msg.payload = { success: false, error: 'unit/state 필요' };
-    return msg;
+    return [msg, null];
 }
 
 const config = global.get('houseConfig') || {};
@@ -79,6 +85,24 @@ if (st.kind === 'sensor') {
 }
 
 node.status({ fill: 'green', shape: 'dot', text: 'unit ' + unit + ' ' + st.kind + ' (센서 ' + sensorsMapped + ' / 장치 ' + devicesMapped + ')' });
+// ── 출력 2: AWS IoT 실시간 보고 (구동기, 상태·OPID 변화 또는 60초) ──
+let mqttMsg = null;
+if (st.kind === 'actuator') {
+    const sig = JSON.stringify(Object.keys(st.devices || {}).sort().map(function (k) { const d = st.devices[k]; return [k, d.status, d.opid]; }));
+    const sigs = context.get('ksPubSig') || {};
+    const ats = context.get('ksPubAt') || {};
+    const nowMs = Date.now();
+    if (sig !== sigs[unit] || nowMs - (ats[unit] || 0) >= 60000) {
+        sigs[unit] = sig; ats[unit] = nowMs;
+        context.set('ksPubSig', sigs); context.set('ksPubAt', ats);
+        const farmId = global.get('farmId') || env.get('FARM_ID') || config.farmId;
+        if (farmId) {
+            mqttMsg = { topic: 'smartfarm/' + farmId + '/ks3267/status', qos: 1,
+                        payload: JSON.stringify({ unit: unit, now: nowMs / 1000, state: st }) };
+        }
+    }
+}
+
 msg.statusCode = 200;
-msg.payload = { success: true, unit: unit, kind: st.kind, sensorsMapped: sensorsMapped, devicesMapped: devicesMapped };
-return msg;
+msg.payload = { success: true, unit: unit, kind: st.kind, sensorsMapped: sensorsMapped, devicesMapped: devicesMapped, published: !!mqttMsg };
+return [msg, mqttMsg];

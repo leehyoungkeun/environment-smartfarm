@@ -32,6 +32,23 @@ beforeEach(() => {
 });
 
 describe("토픽 분배", () => {
+  test("ks3267/status → ks3267:status emit (표준 구동기 상태, 2026-09-19 비표준과 같은 실시간 경로)", () => {
+    const c = capture("ks3267:status");
+    const data = { unit: 1, now: 1789812000.5, state: { kind: "actuator", t: 1789812000.1, devices: { 1: { kind: "switch", n: 1, status: 201, opid: 9, remain: 20 } } } };
+    mqttService._handleMessage("smartfarm/farm_0001/ks3267/status", buf(data));
+    c.off();
+    assert.equal(c.got.length, 1);
+    assert.equal(c.got[0].farmId, "farm_0001");
+    assert.deepEqual(c.got[0].data, data);
+  });
+
+  test("ks3267/status 는 제어 응답(4단 response)이나 다른 분기로 새지 않는다", () => {
+    const a = capture("control:response"); const r = capture("relay:status");
+    mqttService._handleMessage("smartfarm/farm_0001/ks3267/status", buf({ unit: 1, state: {} }));
+    a.off(); r.off();
+    assert.equal(a.got.length + r.got.length, 0);
+  });
+
   test("relay/status → 캐시 + relay:status emit", () => {
     const c = capture("relay:status");
     mqttService._handleMessage("smartfarm/farm_0001/relay/status", buf({ unitId: 2, coils: [true, false] }));

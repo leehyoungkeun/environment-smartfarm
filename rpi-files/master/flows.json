@@ -9211,8 +9211,8 @@
         "type": "function",
         "z": "ks3267_tab",
         "name": "표준 상태 반영",
-        "func": "// ============================================================\n// \"표준 상태 반영\" (fn_ks_status) — ks3267d 데몬이 POST /api/ks3267/status 로 밀어주는 상태를\n// NR 전역에 반영한다. (KS X 3267 표준노드 탭, 2026-08-30 P3)\n//\n// 입력 msg.payload = { source:'ks3267d', unit, state }   (데몬 poll 결과)\n//   state.kind === 'sensor'   → state.sensors[index] = { value, status, status_name }\n//   state.kind === 'actuator' → state.devices[index] = { kind, n, opid, status, status_name, remain }\n//\n// 매핑 근거는 houseConfig:\n//   센서:  house.sensors[].ks3267 = { unit, index }            → 값을 global.ks3267Readings.values 에\n//          **정규 복합키 'houseId:sensorId'** 로 (sensorId 만 쓰면 다른 하우스의 같은 id 와 충돌 —\n//          2026-09-04 house_0002 표준 temp_0001 이 house_0001 벤더 temp_0001 값으로 덮인 사고).\n//          레거시 sensorId 키도 같이 남긴다(호환) — ③ 은 복합키를 먼저 본다.\n//   구동기: house.devices[].modbus = { protocol:'ks3267', unit, kind:'switch'|'opener', n }\n//          → deviceStates['house_0001:fan1'] 갱신 (정규키, dkey)\n// 원본 상태는 global.ks3267State[unit] 에 그대로 보관 (진단 UI·남은시간 표시용).\n// ============================================================\nconst body = msg.payload || {};\nconst st = body.state || {};\nconst unit = Number(body.unit);\nif (!unit || !st.kind) {\n    msg.statusCode = 400; msg.payload = { success: false, error: 'unit/state 필요' };\n    return msg;\n}\n\nconst config = global.get('houseConfig') || {};\nconst houses = config.houses || [];\nconst dkey = global.get('dkey') || function (h, dv) { return (h || 'house_0001') + ':' + dv; };\n\n// 원본 보관 (진단·UI)\nconst all = global.get('ks3267State') || {};\nall[unit] = Object.assign({ receivedAt: new Date().toISOString() }, st);\nglobal.set('ks3267State', all);\n\nlet sensorsMapped = 0, devicesMapped = 0;\n\nif (st.kind === 'sensor') {\n    // 센서 → 수집 파이프라인(③)이 읽는 전역. TTL 은 ③ 쪽에서 t 로 판단한다.\n    const cur = global.get('ks3267Readings') || { values: {}, t: 0 };\n    const values = Object.assign({}, cur.values || {});\n    for (const house of houses) {\n        for (const s of (house.sensors || [])) {\n            const k = s.ks3267;\n            if (!k || Number(k.unit) !== unit) continue;\n            const r = (st.sensors || {})[String(k.index)] || (st.sensors || {})[k.index];\n            if (!r || typeof r.value !== 'number') continue;\n            if (r.status >= 100) {\n                // NEED_REPLACE(101)/CALIBRATION(102)/CHECK(103): 값은 있으나 신뢰 낮음 — 기록은 남기고 값은 넣지 않는다\n                node.warn('⚠️ 표준 센서 ' + s.sensorId + ' 상태 ' + (r.status_name || r.status) + ' — 값 생략');\n                continue;\n            }\n            values[dkey(house.houseId, s.sensorId)] = r.value;   // 정규 복합키 (하우스 구분)\n            values[s.sensorId] = r.value;                         // 레거시 키 (호환 — ③ 은 복합키 우선)\n            sensorsMapped++;\n        }\n    }\n    global.set('ks3267Readings', { values: values, t: Date.now(), unit: unit });\n} else if (st.kind === 'actuator') {\n    const states = global.get('deviceStates') || {};\n    for (const house of houses) {\n        for (const d of (house.devices || [])) {\n            const m = d.modbus;\n            if (!m || m.protocol !== 'ks3267' || Number(m.unit) !== unit) continue;\n            const dev = Object.values(st.devices || {}).find(x => x.kind === m.kind && Number(x.n) === Number(m.n));\n            if (!dev) continue;\n            const DK = dkey(house.houseId, d.deviceId);\n            const code = Number(dev.status);\n            if (m.kind === 'switch') {\n                states[DK] = (code === 201) ? 'on' : (code === 0 ? 'off' : states[DK]);\n            } else {\n                // 개폐형: 301 여는 중 → open, 302 닫는 중 → closed, 0 READY 는 명령 경로가 정한 상태 유지\n                if (code === 301) states[DK] = 'open';\n                else if (code === 302) states[DK] = 'closed';\n            }\n            devicesMapped++;\n        }\n    }\n    global.set('deviceStates', states);\n}\n\nnode.status({ fill: 'green', shape: 'dot', text: 'unit ' + unit + ' ' + st.kind + ' (센서 ' + sensorsMapped + ' / 장치 ' + devicesMapped + ')' });\nmsg.statusCode = 200;\nmsg.payload = { success: true, unit: unit, kind: st.kind, sensorsMapped: sensorsMapped, devicesMapped: devicesMapped };\nreturn msg;\n",
-        "outputs": 1,
+        "func": "// ============================================================\n// \"표준 상태 반영\" (fn_ks_status) — ks3267d 데몬이 POST /api/ks3267/status 로 밀어주는 상태를\n// NR 전역에 반영한다. (KS X 3267 표준노드 탭, 2026-08-30 P3)\n//\n// 입력 msg.payload = { source:'ks3267d', unit, state }   (데몬 poll 결과)\n//   state.kind === 'sensor'   → state.sensors[index] = { value, status, status_name }\n//   state.kind === 'actuator' → state.devices[index] = { kind, n, opid, status, status_name, remain }\n//\n// 매핑 근거는 houseConfig:\n//   센서:  house.sensors[].ks3267 = { unit, index }            → 값을 global.ks3267Readings.values 에\n//          **정규 복합키 'houseId:sensorId'** 로 (sensorId 만 쓰면 다른 하우스의 같은 id 와 충돌 —\n//          2026-09-04 house_0002 표준 temp_0001 이 house_0001 벤더 temp_0001 값으로 덮인 사고).\n//          레거시 sensorId 키도 같이 남긴다(호환) — ③ 은 복합키를 먼저 본다.\n//   구동기: house.devices[].modbus = { protocol:'ks3267', unit, kind:'switch'|'opener', n }\n//          → deviceStates['house_0001:fan1'] 갱신 (정규키, dkey)\n// 원본 상태는 global.ks3267State[unit] 에 그대로 보관 (진단 UI·남은시간 표시용).\n//\n// 2026-09-19 출력 2 추가 — 구동기 상태를 AWS IoT 로 발행 (smartfarm/{farmId}/ks3267/status).\n//   비표준 릴레이는 MQTT 로 화면에 실시간 반영되는데 표준 장치는 백엔드→Tailscale 폴링뿐이라, Tailscale 이 끊기면\n//   표준 장치 배지만 멈췄다. 이제 같은 AWS IoT → 백엔드 → WebSocket 경로. 폴링은 폴백으로 남는다.\n//   발행은 구동기만, 장치 상태코드·OPID 가 바뀔 때 + 60초 하트비트 (남은시간 감소만으로는 안 보낸다 — 화면이 셈).\n//   센서는 보내지 않는다(센서는 기존 수집 파이프라인). 출력 2 → mqtt out (AWS IoT Core, 토픽 비움).\n// ============================================================\nconst body = msg.payload || {};\nconst st = body.state || {};\nconst unit = Number(body.unit);\nif (!unit || !st.kind) {\n    msg.statusCode = 400; msg.payload = { success: false, error: 'unit/state 필요' };\n    return [msg, null];\n}\n\nconst config = global.get('houseConfig') || {};\nconst houses = config.houses || [];\nconst dkey = global.get('dkey') || function (h, dv) { return (h || 'house_0001') + ':' + dv; };\n\n// 원본 보관 (진단·UI)\nconst all = global.get('ks3267State') || {};\nall[unit] = Object.assign({ receivedAt: new Date().toISOString() }, st);\nglobal.set('ks3267State', all);\n\nlet sensorsMapped = 0, devicesMapped = 0;\n\nif (st.kind === 'sensor') {\n    // 센서 → 수집 파이프라인(③)이 읽는 전역. TTL 은 ③ 쪽에서 t 로 판단한다.\n    const cur = global.get('ks3267Readings') || { values: {}, t: 0 };\n    const values = Object.assign({}, cur.values || {});\n    for (const house of houses) {\n        for (const s of (house.sensors || [])) {\n            const k = s.ks3267;\n            if (!k || Number(k.unit) !== unit) continue;\n            const r = (st.sensors || {})[String(k.index)] || (st.sensors || {})[k.index];\n            if (!r || typeof r.value !== 'number') continue;\n            if (r.status >= 100) {\n                // NEED_REPLACE(101)/CALIBRATION(102)/CHECK(103): 값은 있으나 신뢰 낮음 — 기록은 남기고 값은 넣지 않는다\n                node.warn('⚠️ 표준 센서 ' + s.sensorId + ' 상태 ' + (r.status_name || r.status) + ' — 값 생략');\n                continue;\n            }\n            values[dkey(house.houseId, s.sensorId)] = r.value;   // 정규 복합키 (하우스 구분)\n            values[s.sensorId] = r.value;                         // 레거시 키 (호환 — ③ 은 복합키 우선)\n            sensorsMapped++;\n        }\n    }\n    global.set('ks3267Readings', { values: values, t: Date.now(), unit: unit });\n} else if (st.kind === 'actuator') {\n    const states = global.get('deviceStates') || {};\n    for (const house of houses) {\n        for (const d of (house.devices || [])) {\n            const m = d.modbus;\n            if (!m || m.protocol !== 'ks3267' || Number(m.unit) !== unit) continue;\n            const dev = Object.values(st.devices || {}).find(x => x.kind === m.kind && Number(x.n) === Number(m.n));\n            if (!dev) continue;\n            const DK = dkey(house.houseId, d.deviceId);\n            const code = Number(dev.status);\n            if (m.kind === 'switch') {\n                states[DK] = (code === 201) ? 'on' : (code === 0 ? 'off' : states[DK]);\n            } else {\n                // 개폐형: 301 여는 중 → open, 302 닫는 중 → closed, 0 READY 는 명령 경로가 정한 상태 유지\n                if (code === 301) states[DK] = 'open';\n                else if (code === 302) states[DK] = 'closed';\n            }\n            devicesMapped++;\n        }\n    }\n    global.set('deviceStates', states);\n}\n\nnode.status({ fill: 'green', shape: 'dot', text: 'unit ' + unit + ' ' + st.kind + ' (센서 ' + sensorsMapped + ' / 장치 ' + devicesMapped + ')' });\n// ── 출력 2: AWS IoT 실시간 보고 (구동기, 상태·OPID 변화 또는 60초) ──\nlet mqttMsg = null;\nif (st.kind === 'actuator') {\n    const sig = JSON.stringify(Object.keys(st.devices || {}).sort().map(function (k) { const d = st.devices[k]; return [k, d.status, d.opid]; }));\n    const sigs = context.get('ksPubSig') || {};\n    const ats = context.get('ksPubAt') || {};\n    const nowMs = Date.now();\n    if (sig !== sigs[unit] || nowMs - (ats[unit] || 0) >= 60000) {\n        sigs[unit] = sig; ats[unit] = nowMs;\n        context.set('ksPubSig', sigs); context.set('ksPubAt', ats);\n        const farmId = global.get('farmId') || env.get('FARM_ID') || config.farmId;\n        if (farmId) {\n            mqttMsg = { topic: 'smartfarm/' + farmId + '/ks3267/status', qos: 1,\n                        payload: JSON.stringify({ unit: unit, now: nowMs / 1000, state: st }) };\n        }\n    }\n}\n\nmsg.statusCode = 200;\nmsg.payload = { success: true, unit: unit, kind: st.kind, sensorsMapped: sensorsMapped, devicesMapped: devicesMapped, published: !!mqttMsg };\nreturn [msg, mqttMsg];\n",
+        "outputs": 2,
         "timeout": 0,
         "noerr": 0,
         "initialize": "",
@@ -9223,6 +9223,9 @@
         "wires": [
             [
                 "ks_http_status_res"
+            ],
+            [
+                "2e12816c44eddfb3"
             ]
         ]
     },
@@ -9233,8 +9236,8 @@
         "name": "",
         "statusCode": "",
         "headers": {},
-        "x": 610,
-        "y": 100,
+        "x": 590,
+        "y": 60,
         "wires": []
     },
     {
@@ -9578,5 +9581,23 @@
         "wires": [
             []
         ]
+    },
+    {
+        "id": "2e12816c44eddfb3",
+        "type": "mqtt out",
+        "z": "ks3267_tab",
+        "name": "",
+        "topic": "",
+        "qos": "",
+        "retain": "",
+        "respTopic": "",
+        "contentType": "",
+        "userProps": "",
+        "correl": "",
+        "expiry": "",
+        "broker": "mqtt_broker_aws",
+        "x": 590,
+        "y": 140,
+        "wires": []
     }
 ]

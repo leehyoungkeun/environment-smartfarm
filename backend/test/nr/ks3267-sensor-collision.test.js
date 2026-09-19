@@ -90,7 +90,7 @@ describe("③ fn_collect_sensors (pending) — 표준 센서는 표준 값만", 
 describe("fn_ks_status (pending) — 복합키 + 레거시 키 동시 기록", () => {
   test("house_0002:temp_0001 과 temp_0001 둘 다", () => {
     const e = makeEnv({ clock: makeClock(), globals: { houseConfig: CFG } });
-    const out = e.runFile(P("fn_ks_status.js"), { payload: { source: "ks3267d", unit: 2,
+    const [out] = e.runFile(P("fn_ks_status.js"), { payload: { source: "ks3267d", unit: 2,   // 출력 2개(HTTP 응답, AWS IoT) — 2026-09-19
       state: { kind: "sensor", sensors: { 1: { value: 28.8, status: 0, status_name: "READY" } } } } });
     assert.equal(out.statusCode, 200); assert.equal(out.payload.sensorsMapped, 1);
     const v = e.global.get("ks3267Readings").values;

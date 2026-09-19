@@ -38,9 +38,12 @@ nodes = [
     # ── 상태 수신 ─────────────────────────────────────────────
     node("ks_http_status", "http in", "POST /api/ks3267/status", 140, 100, [["ks_fn_status"]],
          url="/api/ks3267/status", method="post", upload=False, swaggerDoc=""),
-    node("ks_fn_status", "function", "표준 상태 반영", 380, 100, [["ks_http_status_res"]],
-         func=fn("fn_ks_status.js"), outputs=1, timeout=0, noerr=0, initialize="", finalize="", libs=[]),
+    node("ks_fn_status", "function", "표준 상태 반영", 380, 100, [["ks_http_status_res"], ["2e12816c44eddfb3"]],
+         func=fn("fn_ks_status.js"), outputs=2, timeout=0, noerr=0, initialize="", finalize="", libs=[]),
     node("ks_http_status_res", "http response", "", 600, 100, [], statusCode="", headers={}),
+    # 2026-09-19 출력 2 → AWS IoT (smartfarm/{farmId}/ks3267/status, 토픽은 함수가 정한다). id 는 에디터가 만든 것 그대로
+    node("2e12816c44eddfb3", "mqtt out", "", 590, 140, [], topic="", qos="", retain="", respTopic="", contentType="",
+         userProps="", correl="", expiry="", broker="mqtt_broker_aws"),
 
     # ── 명령 (execute_control 3번 출력 → link) ────────────────
     node("ks_link_in_cmd", "link in", "← execute_control 제어 (ks3267)", 120, 220, [["ks_fn_command"]], links=[]),

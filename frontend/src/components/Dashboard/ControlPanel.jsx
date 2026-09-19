@@ -1216,6 +1216,14 @@ const ControlPanel = ({ farmId, houseId, houseConfig }) => {
       }
     });
 
+    // KS X 3267 표준 구동기 상태 — 비표준 릴레이와 같은 AWS IoT → 백엔드 → WebSocket 경로 (2026-09-19).
+    //   전엔 10~30초 폴링(백엔드 → Tailscale → 제어기)만 있어 Tailscale 이 끊기면 표준 장치 배지만 멈췄다. 폴링은 폴백으로 남긴다.
+    const unsubKs = wsService.subscribe('ks3267:status', (msg) => {
+      const d = msg?.data;
+      if (!d || !d.unit || !d.state || (msg.farmId && msg.farmId !== farmId)) return;
+      setKsState(prev => ({ ...((prev && !prev._error) ? prev : {}), [d.unit]: d.state, _now: d.now }));
+    });
+
     const unsubControl = wsService.subscribe('control:response', (msg) => {
       if (msg.data) {
         console.log('📡 제어 실행 확인 (WS):', msg.data);
@@ -1297,6 +1305,7 @@ const ControlPanel = ({ farmId, houseId, houseConfig }) => {
       unsubRelayRes();
       unsubControl();
       unsubDevicePos();
+      unsubKs();
       window.removeEventListener('smartfarm:relay-reset', handleRelayResetEvent);
     };
   }, [fetchRelayStatus, startRelayPolling, stopRelayPolling, farmId]);

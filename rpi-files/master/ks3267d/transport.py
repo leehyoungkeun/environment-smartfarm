@@ -28,9 +28,16 @@ class TransportTimeout(Exception):
     """응답 없음 (4.2 패킷 에러 → timeout)"""
 
 
+WRITE_FCS = (0x06, 0x10)
+
+
 class FrameLog:
-    def __init__(self, size=200):
+    def __init__(self, size=400, write_size=200):
         self.buf = collections.deque(maxlen=size)
+        # 명령 프레임(FC06/16 쓰기)과 그 응답은 따로 오래 보관한다 — 폴링 프레임이 3초마다 쌓여 링버퍼(400 ≈ 10분)에서
+        # 명령이 금방 밀려나 실노드 증적 frames.txt 에서 빠졌다 (2026-09-19). 같은 dict 를 두 버퍼에 넣어 RX 병합도 함께 반영.
+        self.writes = collections.deque(maxlen=write_size)
+        self._await_write_rx = False
         self.lock = threading.Lock()
         # exceptions/timeouts = 폴링·명령 중 실제 장애. scan_misses = 자동스캔이 두드린 빈 주소의 무응답/예외(장애 아님)
         self.stats = {"tx": 0, "rx": 0, "exceptions": 0, "timeouts": 0, "scan_misses": 0}
@@ -53,9 +60,21 @@ class FrameLog:
                     if len(hx) > len(last["hex"]):
                         last["hex"] = hx
                     return data
-            self.buf.append({"t": now, "dir": "TX" if sending else "RX", "hex": hx})
+            item = {"t": now, "dir": "TX" if sending else "RX", "hex": hx}
+            self.buf.append(item)
             self.stats["tx" if sending else "rx"] += 1
+            if sending:
+                self._await_write_rx = len(data) > 1 and data[1] in WRITE_FCS
+                if self._await_write_rx:
+                    self.writes.append(item)
+            elif self._await_write_rx:
+                self.writes.append(item)          # 쓰기 요청의 응답(정상 에코 또는 예외 0x86/0x90)
+                self._await_write_rx = False
         return data
+
+    def recent_writes(self, n=200):
+        with self.lock:
+            return list(self.writes)[-n:]
 
     def recent(self, n=50):
         with self.lock:

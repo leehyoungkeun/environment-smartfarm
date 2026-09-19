@@ -32,11 +32,24 @@ CREATE TABLE IF NOT EXISTS actuator_minute (
 );
 CREATE INDEX IF NOT EXISTS idx_sensor_minute_unit ON sensor_minute (unit, idx, ts);
 CREATE INDEX IF NOT EXISTS idx_actuator_minute_unit ON actuator_minute (unit, idx, ts);
+CREATE TABLE IF NOT EXISTS command_log (
+  ts REAL NOT NULL, unit INTEGER NOT NULL, dev TEXT, op INTEGER, opid INTEGER,
+  status INTEGER, remain INTEGER, accepted INTEGER, kind TEXT, code INTEGER,
+  src TEXT, house TEXT, device TEXT, actor TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_command_log_unit ON command_log (unit, ts);
 """
 
 
 def _iso(ts):
     return time.strftime("%Y-%m-%dT%H:%M:%S", time.gmtime(ts)) + "Z"
+
+
+def _int(v):
+    try:
+        return None if v is None else int(v)
+    except (TypeError, ValueError):
+        return None
 
 
 class LocalStore:
@@ -51,6 +64,11 @@ class LocalStore:
             os.makedirs(d, exist_ok=True)
         with self._conn() as c:
             c.executescript(_SCHEMA)
+            # 9/19 첫 판 command_log 에는 출처 열이 없다 — 있는 파일은 열만 더한다
+            have = {r[1] for r in c.execute("PRAGMA table_info(command_log)")}
+            for col in ("src", "house", "device", "actor"):
+                if col not in have:
+                    c.execute(f"ALTER TABLE command_log ADD COLUMN {col} TEXT")
 
     def _conn(self):
         c = sqlite3.connect(self.path, timeout=5, check_same_thread=False)
@@ -91,12 +109,39 @@ class LocalStore:
             self.prune(now)
         return {"minute": minute, "sensors": len(srows), "actuators": len(arows)}
 
+    def log_command(self, ev, now=None):
+        """명령 이벤트(master._event 의 command/write_opid/command_exception/command_timeout)를 남긴다 — 드라이버를 재시작하거나
+        제어기를 껐다 켜도 실노드 증적(§5.5.2/5.5.3 명령 이력)이 살아남게 (2026-09-19). 반환: 저장한 행 수"""
+        t = float(ev.get("t") or (self.clock() if now is None else now))
+        row = (t, int(ev.get("unit") or 0), str(ev.get("dev") or ""), _int(ev.get("op")), _int(ev.get("opid")),
+               _int(ev.get("status")), _int(ev.get("remain")), 1 if ev.get("accepted") else 0, str(ev.get("kind") or "command"), _int(ev.get("code")),
+               str(ev.get("src") or "direct"), ev.get("house"), ev.get("device"), ev.get("by"))
+        with self._conn() as c:
+            c.execute("INSERT INTO command_log (ts, unit, dev, op, opid, status, remain, accepted, kind, code, src, house, device, actor) "
+                      "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)", row)
+        return 1
+
+    def query_commands(self, unit=None, start=None, end=None, limit=500):
+        """명령 이력 (시간순). 반환 행은 master.events 의 명령 이벤트와 같은 키 — evidence 가 둘을 같은 코드로 읽는다."""
+        start, end = self._range(start, end, self.clock())
+        sql = "SELECT ts, unit, dev, op, opid, status, remain, accepted, kind, code, src, house, device, actor FROM command_log WHERE ts >= ? AND ts <= ?"
+        p = [float(start), float(end)]
+        if unit is not None:
+            sql += " AND unit = ?"; p.append(int(unit))
+        sql += " ORDER BY ts LIMIT ?"; p.append(min(int(limit or 500), 20000))
+        with self._conn() as c:
+            rows = c.execute(sql, p).fetchall()
+        return [{"t": r[0], "unit": r[1], "dev": r[2], "op": r[3], "opid": r[4], "status": r[5], "remain": r[6],
+                 "accepted": bool(r[7]), "kind": r[8], "code": r[9], "src": r[10] or "direct",
+                 "house": r[11], "device": r[12], "by": r[13]} for r in rows]
+
     def prune(self, now=None):
         now = self.clock() if now is None else now
         cut = int(now) - self.retention
         with self._conn() as c:
             a = c.execute("DELETE FROM sensor_minute WHERE ts < ?", (cut,)).rowcount
             b = c.execute("DELETE FROM actuator_minute WHERE ts < ?", (cut,)).rowcount
+            c.execute("DELETE FROM command_log WHERE ts < ?", (cut,))
         self._last_prune = now
         return a + b
 

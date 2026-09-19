@@ -87,5 +87,64 @@ class Record(unittest.TestCase):
         self.assertTrue(csv.startswith("﻿"))
 
 
+
+
+class CommandLog(unittest.TestCase):
+    """명령 이력 로컬 저장 — 드라이버 재시작·정전 뒤에도 실노드 증적의 §5.5.2/5.5.3 명령 이력이 남는다 (2026-09-19)"""
+    def setUp(self):
+        self.dir = tempfile.mkdtemp()
+        self.clock = Clock()
+        self.s = LocalStore(os.path.join(self.dir, "s.db"), clock=self.clock)
+
+    def ev(self, t, **kw):
+        base = {"t": t, "kind": "command", "unit": 1, "dev": "switch1", "op": 202, "opid": 7, "status": 201, "remain": 20, "accepted": True}
+        base.update(kw); return base
+
+    def test_log_and_query_roundtrip(self):
+        self.s.log_command(self.ev(self.clock.t - 30))
+        self.s.log_command(self.ev(self.clock.t - 10, kind="command_exception", op=203, opid=8, code=3, accepted=False, status=None, remain=None))
+        rows = self.s.query_commands(unit=1, start=self.clock.t - 60, end=self.clock.t)
+        self.assertEqual([r["op"] for r in rows], [202, 203])
+        self.assertEqual(rows[0]["accepted"], True); self.assertEqual(rows[0]["status"], 201)
+        self.assertEqual(rows[1]["kind"], "command_exception"); self.assertEqual(rows[1]["code"], 3); self.assertIsNone(rows[1]["status"])
+
+    def test_query_filters_unit_and_window(self):
+        self.s.log_command(self.ev(self.clock.t - 5, unit=2))
+        self.s.log_command(self.ev(self.clock.t - 7200))
+        self.s.log_command(self.ev(self.clock.t - 5))
+        self.assertEqual(len(self.s.query_commands(unit=1)), 1)          # 기본 창 1시간
+        self.assertEqual(len(self.s.query_commands()), 2)
+
+    def test_survives_reopen(self):
+        self.s.log_command(self.ev(self.clock.t - 1))
+        again = LocalStore(self.s.path, clock=self.clock)
+        self.assertEqual(len(again.query_commands(unit=1)), 1)
+
+    def test_prune_removes_old(self):
+        self.s.log_command(self.ev(self.clock.t - 61 * 86400))
+        self.s.log_command(self.ev(self.clock.t - 1))
+        self.s.prune()
+        self.assertEqual(len(self.s.query_commands(unit=1, start=self.clock.t - 100 * 86400)), 1)
+
+
+class CommandLogOriginMigration(unittest.TestCase):
+    """9/19 첫 판 command_log(출처 열 없음)가 있는 파일도 열면 열이 더해지고, 출처가 저장·조회된다"""
+    def test_old_table_gets_columns_and_origin_roundtrips(self):
+        import sqlite3
+        d = tempfile.mkdtemp(); path = os.path.join(d, "s.db")
+        c = sqlite3.connect(path)
+        c.execute("CREATE TABLE command_log (ts REAL NOT NULL, unit INTEGER NOT NULL, dev TEXT, op INTEGER, opid INTEGER, "
+                  "status INTEGER, remain INTEGER, accepted INTEGER, kind TEXT, code INTEGER)")
+        c.execute("INSERT INTO command_log VALUES (1799999990, 1, 'switch1', 202, 7, 201, 20, 1, 'command', NULL)")
+        c.commit(); c.close()
+        clk = Clock()
+        s = LocalStore(path, clock=clk)
+        s.log_command({"t": clk.t - 5, "kind": "command", "unit": 1, "dev": "switch1", "op": 0, "opid": 8, "status": 0, "remain": 0,
+                       "accepted": True, "src": "screen", "house": "house_0003", "device": "heater1", "by": "web_dashboard"})
+        rows = s.query_commands(unit=1, start=clk.t - 100, end=clk.t)
+        self.assertEqual([r["src"] for r in rows], ["direct", "screen"])      # 옛 행은 출처 미상 → direct
+        self.assertEqual((rows[1]["house"], rows[1]["device"], rows[1]["by"]), ("house_0003", "heater1", "web_dashboard"))
+
+
 if __name__ == "__main__":
     unittest.main()

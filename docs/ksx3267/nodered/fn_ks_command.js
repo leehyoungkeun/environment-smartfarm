@@ -37,7 +37,13 @@ const api = env.get('KS3267_API') || 'http://127.0.0.1:3002';
 msg.url = api + '/command';
 msg.method = 'POST';
 msg.headers = { 'Content-Type': 'application/json' };
-msg.payload = { unit: Number(m.unit), kind: m.kind, n: Number(m.n), op: op, seconds: dur > 0 ? Math.round(dur) : 0 };
+
+// 명령 출처 — 드라이버가 명령 이력(로컬 SQLite)에 남겨 실노드 증적이 화면 경로 명령만 §5.5.2/5.5.3 판정에 쓴다 (2026-09-19).
+// 자동화(operator automation·automation_duration·schedule_off_timer)는 'auto', 사람이 누른 것은 'screen'.
+const by = String(ctrl.operator || ctrl.source || '');
+const source = { via: /^(automation|schedule)/.test(by) ? 'auto' : 'screen', house: String(ctrl.houseId || ''), device: String(ctrl.deviceId || ''), by: by };
+msg.payload = { unit: Number(m.unit), kind: m.kind, n: Number(m.n), op: op, seconds: dur > 0 ? Math.round(dur) : 0, source: source };
+
 msg.requestTimeout = 5000;
 msg._ksControl = ctrl;   // 결과 처리에서 사용
 

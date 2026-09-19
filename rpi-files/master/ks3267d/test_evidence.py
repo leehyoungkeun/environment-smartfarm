@@ -118,21 +118,107 @@ class Build(unittest.TestCase):
         bad = [s for s in by["5.4.2"]["steps"] if not s["ok"]]
         self.assertEqual(len(bad), 1); self.assertIn("프로토콜 버전 10", bad[0]["step"])
 
-    def test_actuator_kind(self):
+    def _screen(self, t, dev, op, status, remain, opid, **kw):
+        e = {"t": t, "kind": "command", "unit": 1, "dev": dev, "op": op, "opid": opid, "status": status, "remain": remain,
+             "accepted": True, "src": "screen", "house": "house_0003", "device": "heater1" if dev.startswith("switch") else "window1", "by": "web_dashboard"}
+        e.update(kw)
+        self.store.log_command(e)
+
+    def _full_screen_run(self):
+        self._screen(NOW - 40, "switch1", 202, 201, 20, 11)
+        self._screen(NOW - 35, "switch1", 0, 0, 0, 12)          # 5초 뒤 작동 중 중지
+        self._screen(NOW - 30, "opener1", 303, 301, 20, 13)
+        self._screen(NOW - 25, "opener1", 0, 0, 0, 14)
+        self._screen(NOW - 20, "opener1", 304, 302, 20, 15)
+        self._screen(NOW - 15, "opener1", 0, 0, 0, 16)
+
+    def _act(self, m=None):
         fill_store(self.store, 1, 11, kind="actuator")
         self.store.clock.t = NOW
-        e = ev.build(FakeMaster("actuator"), self.store, {"desc": "rtu x"}, conntest(), 1, now=NOW)
-        ids = [r["id"] for r in e["results"]]
-        self.assertEqual(ids, ["5.4.1", "5.5.1", "5.5.2/5.5.3", "116-저장"])
-        self.assertEqual(e["passed"], 4, json.dumps(e["results"], ensure_ascii=False)[:800])
+        return ev.build(m or FakeMaster("actuator"), self.store, {"desc": "rtu x"}, conntest(), 1, now=NOW)
+
+    def test_actuator_full_screen_sequences_pass(self):
+        self._full_screen_run()
+        e = self._act()
+        self.assertEqual([r["id"] for r in e["results"]], ["5.4.1", "5.5.1", "5.5.2", "5.5.3", "116-저장"])
+        self.assertEqual(e["passed"], 5, json.dumps(e["results"], ensure_ascii=False)[:1200])
         steps = {s["step"]: s for s in e["results"][1]["steps"]}
         self.assertIn("d) 연결된 디바이스 2개 — 스위치 1 · 개폐기 1", steps)
+        b = [s for s in e["results"][2]["steps"] if s["step"].startswith("b)")][0]
+        self.assertIn("5초 뒤", b["detail"]); self.assertIn("READY", b["detail"])
+        lines = [s["step"] for s in e["results"][3]["steps"] if s["step"].startswith("   ")]
+        self.assertTrue(all("[화면 house_0003 window1 by web_dashboard]" in x for x in lines), lines)
 
-    def test_actuator_without_commands_fails_552(self):
+    def test_commands_survive_restart_via_store(self):
+        """드라이버 재시작으로 메모리 이벤트가 비어도 로컬 SQLite 의 명령 이력으로 판정한다 (2026-09-19 18:26 사고)"""
+        self._full_screen_run()
         m = FakeMaster("actuator"); m.events = []
+        self.assertEqual(self._act(m)["passed"], 5)
+
+    def test_direct_commands_do_not_count(self):
+        """출처가 없는 명령(드라이버 API 직접)은 이력에 [직접] 으로만 보이고 판정엔 안 쓴다 (18:30 시험 명령이 섞였던 문제)"""
+        for i, (dev, op, st) in enumerate([("switch1", 202, 201), ("switch1", 0, 0)]):
+            self.store.log_command({"t": NOW - 30 + i * 3, "kind": "command", "unit": 1, "dev": dev, "op": op, "opid": 20 + i,
+                                    "status": st, "remain": 20 if op else 0, "accepted": True})
+        e = self._act()
+        r = {x["id"]: x for x in e["results"]}["5.5.2"]
+        self.assertFalse(r["ok"])
+        self.assertIn("화면 경로 명령이 없습니다", " ".join(s["detail"] for s in r["steps"]))
+        self.assertTrue(any("[직접(드라이버 API)]" in s["step"] for s in r["steps"]))
+
+    def test_automation_commands_do_not_count(self):
+        self._screen(NOW - 40, "switch1", 202, 201, 20, 11, src="auto", by="automation")
+        self._screen(NOW - 35, "switch1", 0, 0, 0, 12, src="auto", by="automation")
+        r = {x["id"]: x for x in self._act()["results"]}["5.5.2"]
+        self.assertFalse(r["ok"])
+        self.assertTrue(any("[자동제어 house_0003 heater1 by automation]" in s["step"] for s in r["steps"]))
+
+    def test_timed_then_natural_expiry_is_not_a_stop(self):
+        self._screen(NOW - 40, "switch1", 202, 201, 5, 11)
+        self._screen(NOW - 20, "switch1", 0, 0, 0, 12)          # 만료(5초) 뒤의 OFF — 작동 중 중지가 아님
+        r = {x["id"]: x for x in self._act()["results"]}["5.5.2"]
+        self.assertFalse(r["ok"])
+        self.assertIn("작동 중에 중지한 기록이 없습니다", " ".join(s["detail"] for s in r["steps"]))
+
+    def test_opener_needs_both_open_and_close_stops(self):
+        self._screen(NOW - 30, "opener1", 303, 301, 20, 13)
+        self._screen(NOW - 25, "opener1", 0, 0, 0, 14)
+        r = {x["id"]: x for x in self._act()["results"]}["5.5.3"]
+        self.assertFalse(r["ok"])
+        bad = [s["step"] for s in r["steps"] if not s["ok"]]
+        self.assertEqual(len(bad), 1); self.assertIn("304", bad[0])
+
+    def test_rejected_screen_command_fails(self):
+        self._full_screen_run()
+        self._screen(NOW - 5, "switch1", 202, None, None, 30, kind="command_exception", accepted=False, code=3)
+        r = {x["id"]: x for x in self._act()["results"]}["5.5.2"]
+        self.assertFalse(r["ok"])
+        self.assertIn("command_exception", [s for s in r["steps"] if s["step"].startswith("c)")][0]["detail"])
+
+    def test_no_store_falls_back_to_memory_events(self):
+        m = FakeMaster("actuator")
+        m.events = [dict(e, src="screen") for e in [
+            {"t": NOW - 20, "kind": "command", "unit": 1, "dev": "switch1", "op": 202, "opid": 7, "status": 201, "remain": 20, "accepted": True},
+            {"t": NOW - 18, "kind": "command", "unit": 1, "dev": "switch1", "op": 0, "opid": 8, "status": 0, "remain": 0, "accepted": True}]]
         e = ev.build(m, None, {"desc": "x"}, conntest(), 1, now=NOW)
-        by = {r["id"]: r for r in e["results"]}
-        self.assertFalse(by["5.5.2/5.5.3"]["ok"])
+        self.assertTrue({x["id"]: x for x in e["results"]}["5.5.2"]["ok"])
+
+    def test_store_without_commands_fails_552(self):
+        r = {x["id"]: x for x in self._act()["results"]}
+        self.assertFalse(r["5.5.2"]["ok"]); self.assertFalse(r["5.5.3"]["ok"])
+
+    def test_write_frames_are_kept_in_frames_txt(self):
+        class F(Frames):
+            def recent(self, n): return [{"t": NOW - 1, "dir": "TX", "hex": "01 03 00 C9 00 62 14 1D"}]
+            def recent_writes(self, n): return [{"t": NOW - 600, "dir": "TX", "hex": "01 10 01 F7 00 04 08 00 CA 00 FF 00 14 00 00 3C 2D"},
+                                                {"t": NOW - 599.9, "dir": "RX", "hex": "01 10 01 F7 00 04 F0 3A"}]
+        m = FakeMaster("actuator"); m.t.frames = F()
+        e = ev.build(m, None, {"desc": "x"}, conntest(), 1, now=NOW)
+        txt = ev.render_frames(e["frames"])
+        self.assertTrue(txt.startswith("# "))
+        body = [l for l in txt.splitlines() if not l.startswith("#")]
+        self.assertEqual(len(body), 3)
+        self.assertIn("TX 01 10 01 F7", body[0]); self.assertIn("RX 01 10 01 F7", body[1])
 
     def test_unknown_unit_raises(self):
         with self.assertRaises(ValueError):

@@ -1,0 +1,833 @@
+{
+ "id": "realnode-20260919-185148",
+ "meta": {
+  "at": "2026-09-19 18:51:48",
+  "t": 1789811508.5260816,
+  "unit": 1,
+  "kind": "actuator",
+  "label": "구동기 노드",
+  "transport": "rtu /dev/smartfarm-485-std 9600 8N1",
+  "comm": {
+   "mode": "serial",
+   "port": "/dev/smartfarm-485-std",
+   "baud": 9600,
+   "tcp": null,
+   "timeout": 1.0,
+   "desc": "rtu /dev/smartfarm-485-std 9600 8N1",
+   "connected": true
+  },
+  "source": "realnode-ui"
+ },
+ "node": {
+  "unit": 1,
+  "cert_authority": 0,
+  "company_code": 0,
+  "product_type": 2,
+  "product_code": 0,
+  "protocol_version": 10,
+  "channels": 24,
+  "serial": 2,
+  "default_map": true,
+  "supported": true,
+  "notes": [],
+  "devices": [
+   {
+    "index": 1,
+    "code": 102,
+    "kind": "switch",
+    "n": 1,
+    "name": "스위치1",
+    "level": 1,
+    "supported": true,
+    "status": {
+     "opid": 203,
+     "status": 204,
+     "remain": [
+      205,
+      206
+     ]
+    },
+    "cmd": {
+     "cmd": 503,
+     "opid": 504,
+     "time": [
+      505,
+      506
+     ]
+    }
+   },
+   {
+    "index": 2,
+    "code": 102,
+    "kind": "switch",
+    "n": 2,
+    "name": "스위치2",
+    "level": 1,
+    "supported": true,
+    "status": {
+     "opid": 207,
+     "status": 208,
+     "remain": [
+      209,
+      210
+     ]
+    },
+    "cmd": {
+     "cmd": 507,
+     "opid": 508,
+     "time": [
+      509,
+      510
+     ]
+    }
+   },
+   {
+    "index": 3,
+    "code": 102,
+    "kind": "switch",
+    "n": 3,
+    "name": "스위치3",
+    "level": 1,
+    "supported": true,
+    "status": {
+     "opid": 211,
+     "status": 212,
+     "remain": [
+      213,
+      214
+     ]
+    },
+    "cmd": {
+     "cmd": 511,
+     "opid": 512,
+     "time": [
+      513,
+      514
+     ]
+    }
+   },
+   {
+    "index": 4,
+    "code": 102,
+    "kind": "switch",
+    "n": 4,
+    "name": "스위치4",
+    "level": 1,
+    "supported": true,
+    "status": {
+     "opid": 215,
+     "status": 216,
+     "remain": [
+      217,
+      218
+     ]
+    },
+    "cmd": {
+     "cmd": 515,
+     "opid": 516,
+     "time": [
+      517,
+      518
+     ]
+    }
+   },
+   {
+    "index": 17,
+    "code": 112,
+    "kind": "opener",
+    "n": 1,
+    "name": "개폐기1",
+    "level": 1,
+    "supported": true,
+    "status": {
+     "opid": 267,
+     "status": 268,
+     "remain": [
+      269,
+      270
+     ]
+    },
+    "cmd": {
+     "cmd": 567,
+     "opid": 568,
+     "time": [
+      569,
+      570
+     ]
+    }
+   },
+   {
+    "index": 18,
+    "code": 112,
+    "kind": "opener",
+    "n": 2,
+    "name": "개폐기2",
+    "level": 1,
+    "supported": true,
+    "status": {
+     "opid": 271,
+     "status": 272,
+     "remain": [
+      273,
+      274
+     ]
+    },
+    "cmd": {
+     "cmd": 571,
+     "opid": 572,
+     "time": [
+      573,
+      574
+     ]
+    }
+   }
+  ],
+  "kind": "actuator"
+ },
+ "state": {
+  "kind": "actuator",
+  "node_opid": 0,
+  "node_status": 0,
+  "node_status_name": "READY",
+  "devices": {
+   "1": {
+    "name": "스위치1",
+    "kind": "switch",
+    "n": 1,
+    "opid": 0,
+    "status": 0,
+    "status_name": "READY",
+    "remain": 0
+   },
+   "2": {
+    "name": "스위치2",
+    "kind": "switch",
+    "n": 2,
+    "opid": 0,
+    "status": 0,
+    "status_name": "READY",
+    "remain": 0
+   },
+   "3": {
+    "name": "스위치3",
+    "kind": "switch",
+    "n": 3,
+    "opid": 0,
+    "status": 0,
+    "status_name": "READY",
+    "remain": 0
+   },
+   "4": {
+    "name": "스위치4",
+    "kind": "switch",
+    "n": 4,
+    "opid": 0,
+    "status": 0,
+    "status_name": "READY",
+    "remain": 0
+   },
+   "17": {
+    "name": "개폐기1",
+    "kind": "opener",
+    "n": 1,
+    "opid": 0,
+    "status": 0,
+    "status_name": "READY",
+    "remain": 0
+   },
+   "18": {
+    "name": "개폐기2",
+    "kind": "opener",
+    "n": 2,
+    "opid": 0,
+    "status": 0,
+    "status_name": "READY",
+    "remain": 0
+   }
+  },
+  "t": 1789811507.8783486,
+  "unit": 1
+ },
+ "results": [
+  {
+   "id": "5.4.1",
+   "title": "연결시험",
+   "ref": "SPS-7466 §5.4.1 a)~d) + 당일 준비 점검",
+   "ok": true,
+   "steps": [
+    {
+     "step": "a) RS485 케이블로 노드와 연결 (표준 포트 열림)",
+     "ok": true,
+     "detail": "rtu /dev/smartfarm-485-std 9600 8N1 · 열림"
+    },
+    {
+     "step": "b) 통신 설정 9600 bps · 8N1 · RTU",
+     "ok": true,
+     "detail": "9600 bps · 8N1 · RTU"
+    },
+    {
+     "step": "c) 노드 슬레이브 아이디 1",
+     "ok": true,
+     "detail": "1"
+    },
+    {
+     "step": "d) 통신 연결 수행 (노드 정보 수신)",
+     "ok": true,
+     "detail": "구동기 노드 · 프로토콜 10 · 채널 24"
+    },
+    {
+     "step": "준비) 표준 노드 포트(FTDI, 고정 이름 /dev/smartfarm-485-std) 인식",
+     "ok": true,
+     "detail": "표준 노드 포트 · FTDI · ttyUSB0"
+    },
+    {
+     "step": "준비) 표준 포트 열림 시험 (9600 8N1)",
+     "ok": true,
+     "detail": "드라이버가 이 포트를 사용 중 · 열림"
+    },
+    {
+     "step": "준비) 연결 방식",
+     "ok": true,
+     "detail": "RS485 · rtu /dev/smartfarm-485-std 9600 8N1"
+    }
+   ]
+  },
+  {
+   "id": "5.5.1",
+   "title": "디폴트 레지스터맵 구동기 노드 검색 시험",
+   "ref": "SPS-7466 §5.5.1 a)~d) (KS X 3267 노드정보 1~8 · 디바이스 코드 101~)",
+   "ok": true,
+   "steps": [
+    {
+     "step": "a) 노드 응답·등록",
+     "ok": true,
+     "detail": "unit 1 · 구동기 노드"
+    },
+    {
+     "step": "b) 기관코드 0 · 회사코드 0 (디폴트맵)",
+     "ok": true,
+     "detail": "기관 0 · 회사 0"
+    },
+    {
+     "step": "b) 제품타입 2 (구동기 노드)",
+     "ok": true,
+     "detail": "2"
+    },
+    {
+     "step": "b) 프로토콜 버전 10",
+     "ok": true,
+     "detail": "10"
+    },
+    {
+     "step": "b) 채널수 24",
+     "ok": true,
+     "detail": "24"
+    },
+    {
+     "step": "c) 디폴트 레지스터맵 판정",
+     "ok": true,
+     "detail": "디폴트맵"
+    },
+    {
+     "step": "d) 연결된 디바이스 6개 — 스위치 4 · 개폐기 2",
+     "ok": true,
+     "detail": "#1 코드 102, #2 코드 102, #3 코드 102, #4 코드 102, #17 코드 112, #18 코드 112"
+    }
+   ]
+  },
+  {
+   "id": "5.5.2",
+   "title": "레벨 1 스위치 제어 시험 (실노드, 화면 경로)",
+   "ref": "SPS-7466 §5.5.2 a)~j) — 화면 202 작동시간 → 201·남은시간 → 화면 중지 0 → READY",
+   "ok": true,
+   "steps": [
+    {
+     "step": "a) #1 스위치1 지금 상태",
+     "ok": true,
+     "detail": "상태 0 READY · OPID 0 · 남은 0s"
+    },
+    {
+     "step": "a) #2 스위치2 지금 상태",
+     "ok": true,
+     "detail": "상태 0 READY · OPID 0 · 남은 0s"
+    },
+    {
+     "step": "a) #3 스위치3 지금 상태",
+     "ok": true,
+     "detail": "상태 0 READY · OPID 0 · 남은 0s"
+    },
+    {
+     "step": "a) #4 스위치4 지금 상태",
+     "ok": true,
+     "detail": "상태 0 READY · OPID 0 · 남은 0s"
+    },
+    {
+     "step": "b) 202 작동시간 ON → 작동 중 화면 중지 → READY",
+     "ok": true,
+     "detail": "switch1 18:50:56 명령 202 OPID 265 → 201 ON 남은 20s · 18:51:06(9초 뒤) 명령 0 OPID 266 → 0 READY"
+    },
+    {
+     "step": "c) 화면 경로 명령 거부·무응답 없음",
+     "ok": true,
+     "detail": "화면 명령 4건 모두 수락"
+    },
+    {
+     "step": "d) 명령 이력 (최근 1시간 11건 중 최근 11건, 출처 표기 — 판정은 화면 명령만)",
+     "ok": true,
+     "detail": "18:30:32 ~ 18:51:06"
+    },
+    {
+     "step": "   18:30:32 switch2 명령 202 OPID 250 [직접(드라이버 API)]",
+     "ok": true,
+     "detail": "→ 상태 201 ON · 남은 3s"
+    },
+    {
+     "step": "   18:33:40 switch1 명령 201 OPID 253 [직접(드라이버 API)]",
+     "ok": true,
+     "detail": "→ 상태 201 ON · 남은 0s"
+    },
+    {
+     "step": "   18:33:57 switch1 명령 0 OPID 254 [직접(드라이버 API)]",
+     "ok": true,
+     "detail": "→ 상태 0 READY · 남은 0s"
+    },
+    {
+     "step": "   18:33:59 switch1 명령 202 OPID 255 [직접(드라이버 API)]",
+     "ok": true,
+     "detail": "→ 상태 201 ON · 남은 20s"
+    },
+    {
+     "step": "   18:34:30 switch1 명령 202 OPID 256 [직접(드라이버 API)]",
+     "ok": true,
+     "detail": "→ 상태 201 ON · 남은 20s"
+    },
+    {
+     "step": "   18:43:21 switch1 명령 202 OPID 257 [직접(드라이버 API)]",
+     "ok": true,
+     "detail": "→ 상태 201 ON · 남은 20s"
+    },
+    {
+     "step": "   18:43:31 switch1 명령 0 OPID 258 [직접(드라이버 API)]",
+     "ok": true,
+     "detail": "→ 상태 0 READY · 남은 0s"
+    },
+    {
+     "step": "   18:50:52 switch1 명령 201 OPID 263 [화면 house_0003 heater1 by web_dashboard]",
+     "ok": true,
+     "detail": "→ 상태 201 ON · 남은 0s"
+    },
+    {
+     "step": "   18:50:53 switch1 명령 0 OPID 264 [화면 house_0003 heater1 by web_dashboard]",
+     "ok": true,
+     "detail": "→ 상태 0 READY · 남은 0s"
+    },
+    {
+     "step": "   18:50:56 switch1 명령 202 OPID 265 [화면 house_0003 heater1 by web_dashboard]",
+     "ok": true,
+     "detail": "→ 상태 201 ON · 남은 20s"
+    },
+    {
+     "step": "   18:51:06 switch1 명령 0 OPID 266 [화면 house_0003 heater1 by web_dashboard]",
+     "ok": true,
+     "detail": "→ 상태 0 READY · 남은 0s"
+    }
+   ]
+  },
+  {
+   "id": "5.5.3",
+   "title": "레벨 1 개폐기 제어 시험 (실노드, 화면 경로)",
+   "ref": "SPS-7466 §5.5.3 a)~s) — 화면 303 열기 → 301 → 중지 → READY, 304 닫기 → 302 → 중지 → READY",
+   "ok": true,
+   "steps": [
+    {
+     "step": "a) #17 개폐기1 지금 상태",
+     "ok": true,
+     "detail": "상태 0 READY · OPID 0 · 남은 0s"
+    },
+    {
+     "step": "a) #18 개폐기2 지금 상태",
+     "ok": true,
+     "detail": "상태 0 READY · OPID 0 · 남은 0s"
+    },
+    {
+     "step": "b) 303 작동시간 열기 → 작동 중 화면 중지 → READY",
+     "ok": true,
+     "detail": "opener1 18:51:14 명령 303 OPID 267 → 301 OPENING 남은 20s · 18:51:22(8초 뒤) 명령 0 OPID 268 → 0 READY"
+    },
+    {
+     "step": "b) 304 작동시간 닫기 → 작동 중 화면 중지 → READY",
+     "ok": true,
+     "detail": "opener1 18:51:31 명령 304 OPID 269 → 302 CLOSING 남은 20s · 18:51:38(7초 뒤) 명령 0 OPID 270 → 0 READY"
+    },
+    {
+     "step": "c) 화면 경로 명령 거부·무응답 없음",
+     "ok": true,
+     "detail": "화면 명령 4건 모두 수락"
+    },
+    {
+     "step": "d) 명령 이력 (최근 1시간 10건 중 최근 10건, 출처 표기 — 판정은 화면 명령만)",
+     "ok": true,
+     "detail": "18:32:07 ~ 18:51:38"
+    },
+    {
+     "step": "   18:32:07 opener1 명령 303 OPID 251 [직접(드라이버 API)]",
+     "ok": true,
+     "detail": "→ 상태 301 OPENING · 남은 30s"
+    },
+    {
+     "step": "   18:32:44 opener1 명령 304 OPID 252 [직접(드라이버 API)]",
+     "ok": true,
+     "detail": "→ 상태 302 CLOSING · 남은 30s"
+    },
+    {
+     "step": "   18:43:45 opener1 명령 303 OPID 259 [직접(드라이버 API)]",
+     "ok": true,
+     "detail": "→ 상태 301 OPENING · 남은 20s"
+    },
+    {
+     "step": "   18:43:49 opener1 명령 0 OPID 260 [직접(드라이버 API)]",
+     "ok": true,
+     "detail": "→ 상태 0 READY · 남은 0s"
+    },
+    {
+     "step": "   18:43:57 opener1 명령 304 OPID 261 [직접(드라이버 API)]",
+     "ok": true,
+     "detail": "→ 상태 302 CLOSING · 남은 20s"
+    },
+    {
+     "step": "   18:43:58 opener1 명령 0 OPID 262 [직접(드라이버 API)]",
+     "ok": true,
+     "detail": "→ 상태 0 READY · 남은 0s"
+    },
+    {
+     "step": "   18:51:14 opener1 명령 303 OPID 267 [화면 house_0003 window1 by web_dashboard]",
+     "ok": true,
+     "detail": "→ 상태 301 OPENING · 남은 20s"
+    },
+    {
+     "step": "   18:51:22 opener1 명령 0 OPID 268 [화면 house_0003 window1 by web_dashboard]",
+     "ok": true,
+     "detail": "→ 상태 0 READY · 남은 0s"
+    },
+    {
+     "step": "   18:51:31 opener1 명령 304 OPID 269 [화면 house_0003 window1 by web_dashboard]",
+     "ok": true,
+     "detail": "→ 상태 302 CLOSING · 남은 20s"
+    },
+    {
+     "step": "   18:51:38 opener1 명령 0 OPID 270 [화면 house_0003 window1 by web_dashboard]",
+     "ok": true,
+     "detail": "→ 상태 0 READY · 남은 0s"
+    }
+   ]
+  },
+  {
+   "id": "116-저장",
+   "title": "구동기 상태 1분 저장 (제어기 로컬)",
+   "ref": "SPS-7466 §5.4.4 a)~d) / KOAT 116 — 제어기 로컬 1분 저장(SQLite), 저장주기 60초",
+   "ok": true,
+   "steps": [
+    {
+     "step": "a) 최근 10분 저장 (저장주기 60초, 구동기 상태)",
+     "ok": true,
+     "detail": "10/10분"
+    },
+    {
+     "step": "b) 저장 행 (관측치·상태 매분, 점검군 상태도 그대로)",
+     "ok": true,
+     "detail": "300행 · 2026-09-19 18:02 ~ 2026-09-19 18:51 (최근 1시간)"
+    },
+    {
+     "step": "c) 저장된 상태 코드",
+     "ok": true,
+     "detail": "[0, 201, 302]"
+    },
+    {
+     "step": "d) 서버 저장(ks_sensor_status·actuator_status)은 인터넷이 있을 때 화면 「§5.4.4 데이터 저장 확인」·보고서 › 데이터 조회로 — 수동",
+     "ok": true,
+     "detail": "수동 증적"
+    }
+   ]
+  }
+ ],
+ "manual": [
+  "③ 노드 1 카드 「노드 기본정보 시험표」 전 항목 일치 화면 캡처 (§5.5.1 d)",
+  "제어판 카드 배지(켜짐/열리는 중 NN s → READY)와 표준노드 탭 §5.1.3 표(201/301/302·남은시간) 화면 캡처 (§5.5.2 e·f·j, §5.5.3 e·l·s)",
+  "보고서 › 데이터 조회·추출 › 「표준 구동기 상태」 조회 화면 캡처 (인터넷 필요)",
+  "④ 진단 「통신 프레임」 화면 캡처 (frames.txt 와 같은 내용)"
+ ],
+ "stats": {
+  "tx": 516,
+  "rx": 516,
+  "exceptions": 0,
+  "timeouts": 0,
+  "scan_misses": 0
+ },
+ "events": [
+  {
+   "t": 1789810916.1974232,
+   "kind": "actuator",
+   "unit": 1,
+   "supported": true,
+   "devices": 6
+  },
+  {
+   "t": 1789810916.5971186,
+   "kind": "sensor",
+   "unit": 2,
+   "supported": true,
+   "devices": 2
+  },
+  {
+   "t": 1789811001.0305052,
+   "kind": "command",
+   "unit": 1,
+   "dev": "switch1",
+   "op": 202,
+   "opid": 257,
+   "status": 201,
+   "remain": 20,
+   "accepted": true,
+   "src": "direct"
+  },
+  {
+   "t": 1789811011.2914624,
+   "kind": "command",
+   "unit": 1,
+   "dev": "switch1",
+   "op": 0,
+   "opid": 258,
+   "status": 0,
+   "remain": 0,
+   "accepted": true,
+   "src": "direct"
+  },
+  {
+   "t": 1789811025.9748023,
+   "kind": "command",
+   "unit": 1,
+   "dev": "opener1",
+   "op": 303,
+   "opid": 259,
+   "status": 301,
+   "remain": 20,
+   "accepted": true,
+   "src": "direct"
+  },
+  {
+   "t": 1789811029.7756364,
+   "kind": "command",
+   "unit": 1,
+   "dev": "opener1",
+   "op": 0,
+   "opid": 260,
+   "status": 0,
+   "remain": 0,
+   "accepted": true,
+   "src": "direct"
+  },
+  {
+   "t": 1789811037.6260452,
+   "kind": "command",
+   "unit": 1,
+   "dev": "opener1",
+   "op": 304,
+   "opid": 261,
+   "status": 302,
+   "remain": 20,
+   "accepted": true,
+   "src": "direct"
+  },
+  {
+   "t": 1789811038.5686038,
+   "kind": "command",
+   "unit": 1,
+   "dev": "opener1",
+   "op": 0,
+   "opid": 262,
+   "status": 0,
+   "remain": 0,
+   "accepted": true,
+   "src": "direct"
+  },
+  {
+   "t": 1789811052.5021205,
+   "kind": "actuator",
+   "unit": 1,
+   "supported": true,
+   "devices": 6
+  },
+  {
+   "t": 1789811452.4538302,
+   "kind": "command",
+   "unit": 1,
+   "dev": "switch1",
+   "op": 201,
+   "opid": 263,
+   "status": 201,
+   "remain": 0,
+   "accepted": true,
+   "src": "screen",
+   "house": "house_0003",
+   "device": "heater1",
+   "by": "web_dashboard"
+  },
+  {
+   "t": 1789811453.604778,
+   "kind": "command",
+   "unit": 1,
+   "dev": "switch1",
+   "op": 0,
+   "opid": 264,
+   "status": 0,
+   "remain": 0,
+   "accepted": true,
+   "src": "screen",
+   "house": "house_0003",
+   "device": "heater1",
+   "by": "web_dashboard"
+  },
+  {
+   "t": 1789811456.9386835,
+   "kind": "command",
+   "unit": 1,
+   "dev": "switch1",
+   "op": 202,
+   "opid": 265,
+   "status": 201,
+   "remain": 20,
+   "accepted": true,
+   "src": "screen",
+   "house": "house_0003",
+   "device": "heater1",
+   "by": "web_dashboard"
+  },
+  {
+   "t": 1789811466.0705814,
+   "kind": "command",
+   "unit": 1,
+   "dev": "switch1",
+   "op": 0,
+   "opid": 266,
+   "status": 0,
+   "remain": 0,
+   "accepted": true,
+   "src": "screen",
+   "house": "house_0003",
+   "device": "heater1",
+   "by": "web_dashboard"
+  },
+  {
+   "t": 1789811474.6078656,
+   "kind": "command",
+   "unit": 1,
+   "dev": "opener1",
+   "op": 303,
+   "opid": 267,
+   "status": 301,
+   "remain": 20,
+   "accepted": true,
+   "src": "screen",
+   "house": "house_0003",
+   "device": "window1",
+   "by": "web_dashboard"
+  },
+  {
+   "t": 1789811482.2524984,
+   "kind": "command",
+   "unit": 1,
+   "dev": "opener1",
+   "op": 0,
+   "opid": 268,
+   "status": 0,
+   "remain": 0,
+   "accepted": true,
+   "src": "screen",
+   "house": "house_0003",
+   "device": "window1",
+   "by": "web_dashboard"
+  },
+  {
+   "t": 1789811491.7631261,
+   "kind": "command",
+   "unit": 1,
+   "dev": "opener1",
+   "op": 304,
+   "opid": 269,
+   "status": 302,
+   "remain": 20,
+   "accepted": true,
+   "src": "screen",
+   "house": "house_0003",
+   "device": "window1",
+   "by": "web_dashboard"
+  },
+  {
+   "t": 1789811498.5805535,
+   "kind": "command",
+   "unit": 1,
+   "dev": "opener1",
+   "op": 0,
+   "opid": 270,
+   "status": 0,
+   "remain": 0,
+   "accepted": true,
+   "src": "screen",
+   "house": "house_0003",
+   "device": "window1",
+   "by": "web_dashboard"
+  },
+  {
+   "t": 1789811508.5254867,
+   "kind": "actuator",
+   "unit": 1,
+   "supported": true,
+   "devices": 6
+  }
+ ],
+ "passed": 5,
+ "total": 5,
+ "summary": {
+  "id": "realnode-20260919-185148",
+  "at": "2026-09-19 18:51:48",
+  "t": 1789811508.5260816,
+  "unit": 1,
+  "kind": "actuator",
+  "label": "구동기 노드",
+  "transport": "rtu /dev/smartfarm-485-std 9600 8N1",
+  "passed": 5,
+  "total": 5,
+  "tests": [
+   {
+    "id": "5.4.1",
+    "title": "연결시험",
+    "ok": true
+   },
+   {
+    "id": "5.5.1",
+    "title": "디폴트 레지스터맵 구동기 노드 검색 시험",
+    "ok": true
+   },
+   {
+    "id": "5.5.2",
+    "title": "레벨 1 스위치 제어 시험 (실노드, 화면 경로)",
+    "ok": true
+   },
+   {
+    "id": "5.5.3",
+    "title": "레벨 1 개폐기 제어 시험 (실노드, 화면 경로)",
+    "ok": true
+   },
+   {
+    "id": "116-저장",
+    "title": "구동기 상태 1분 저장 (제어기 로컬)",
+    "ok": true
+   }
+  ],
+  "files": [
+   "report.md",
+   "results.json",
+   "frames.txt"
+  ]
+ }
+}

@@ -34,6 +34,24 @@ STATUS_NAMES = {
 }
 
 
+ORIGIN_SRC = ("screen", "auto", "direct", "test")   # 화면(사람) · 자동제어 · 드라이버 API 직접 · 시험장비 역할
+
+
+def _origin(o):
+    """명령 출처를 이벤트 필드로 정규화. 출처를 안 밝힌 명령은 'direct'(드라이버 API 를 바로 부른 것) — 화면 경로는
+    NR 「표준 명령 조립」이 source {via:'screen', house, device, by} 를 실어 보낸다 (2026-09-19)."""
+    o = o or {}
+    src = str(o.get("src") or o.get("via") or "direct")
+    if src not in ORIGIN_SRC:
+        src = "direct"
+    out = {"src": src}
+    for k in ("house", "device", "by"):
+        v = o.get(k)
+        if v not in (None, ""):
+            out[k] = str(v)[:64]
+    return out
+
+
 def status_name(code):
     if 900 <= code <= 999:
         return f"VENDOR_ERROR_{code}"
@@ -262,10 +280,13 @@ class KsMaster:
             return None, {"ok": False, "error": f"{kind}{n}: 탐색된 지원 디바이스가 아님"}
         return dev, None
 
-    def command(self, unit, kind, n, op, seconds=0, allow_unsupported=False, opid=None):
+    def command(self, unit, kind, n, op, seconds=0, allow_unsupported=False, opid=None, origin=None):
         """op: 'on'|'off'|'timed_on' (스위치) / 'open'|'close'|'stop'|'timed_open'|'timed_close' (개폐기)
         또는 정수 코드. 반환: {ok, opid, status, remain, exception?}
-        opid 지정은 §5.3.4 동일 OPID 시험에서 드라이버가 시험장비 역할을 할 때만 쓴다 (평소엔 매 명령 새 OPID)."""
+        opid 지정은 §5.3.4 동일 OPID 시험에서 드라이버가 시험장비 역할을 할 때만 쓴다 (평소엔 매 명령 새 OPID).
+        origin: 명령 출처 {src:'screen'|'direct'|'test', house, device, by} — 이벤트에 그대로 남아 실노드 증적이
+        화면 경로 명령과 시험·직접 명령을 나눈다 (2026-09-19)."""
+        org = _origin(origin)
         dev, err = self._actuator_dev(unit, kind, n)
         if err:
             return err
@@ -284,15 +305,15 @@ class KsMaster:
                 s = dev["status"]
                 rb = self.t.read(unit, s["opid"], 4)  # readback: opid, status, remain
             except ModbusExc as e:
-                self._event("command_exception", unit=unit, dev=f"{kind}{n}", op=code, opid=opid, code=e.code)
+                self._event("command_exception", unit=unit, dev=f"{kind}{n}", op=code, opid=opid, code=e.code, **org)
                 return {"ok": False, "opid": opid, "exception": e.code, "error": str(e)}
             except TransportTimeout as e:
-                self._event("command_timeout", unit=unit, dev=f"{kind}{n}", op=code, opid=opid)
+                self._event("command_timeout", unit=unit, dev=f"{kind}{n}", op=code, opid=opid, **org)
                 return {"ok": False, "opid": opid, "error": "timeout"}
         st = rb[1]; remain = regs_to_uint32(rb[2], rb[3])
         accepted = (rb[0] == opid) or (code in (M.OP_SWITCH_OFF,) and st == M.ST_READY)
         self._event("command", unit=unit, dev=f"{kind}{n}", op=code, opid=opid, status=st, remain=remain,
-                    accepted=accepted)
+                    accepted=accepted, **org)
         return {"ok": True, "accepted": accepted, "opid": opid, "op": code, "status": st,
                 "status_name": status_name(st), "remain": remain}
 
@@ -303,6 +324,7 @@ class KsMaster:
         dev, err = self._actuator_dev(unit, kind, n)
         if err:
             return err
+        org = _origin({"src": "test"})
         opid = int(opid) if opid else self.opid.next()
         with self.lock:
             try:
@@ -310,13 +332,13 @@ class KsMaster:
                 s = dev["status"]
                 rb = self.t.read(unit, s["opid"], 4)
             except ModbusExc as e:
-                self._event("command_exception", unit=unit, dev=f"{kind}{n}", op="opid", opid=opid, code=e.code)
+                self._event("command_exception", unit=unit, dev=f"{kind}{n}", op="opid", opid=opid, code=e.code, **org)
                 return {"ok": False, "opid": opid, "exception": e.code, "error": str(e)}
             except TransportTimeout:
-                self._event("command_timeout", unit=unit, dev=f"{kind}{n}", op="opid", opid=opid)
+                self._event("command_timeout", unit=unit, dev=f"{kind}{n}", op="opid", opid=opid, **org)
                 return {"ok": False, "opid": opid, "error": "timeout"}
         st = rb[1]; remain = regs_to_uint32(rb[2], rb[3])
-        self._event("write_opid", unit=unit, dev=f"{kind}{n}", opid=opid, status=st, remain=remain)
+        self._event("write_opid", unit=unit, dev=f"{kind}{n}", opid=opid, status=st, remain=remain, **org)
         return {"ok": True, "opid": opid, "status": st, "status_name": status_name(st), "remain": remain}
 
     def snapshot(self):

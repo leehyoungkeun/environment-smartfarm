@@ -43,6 +43,32 @@ def transport_info(t):
             "desc": getattr(t, "desc", "?"), "connected": connected}
 
 
+COMMAND_EVENTS = ("command", "write_opid", "command_exception", "command_timeout")
+
+
+def _origin_of(body):
+    """요청 본문의 source → master 의 origin. NR 「표준 명령 조립」은 {via:'screen', house, device, by} 를 보낸다.
+    test_unsupported/test_opid 가 있으면 시험장비 역할 명령이라 'test'. 없으면 master 가 'direct' 로 둔다."""
+    src = body.get("source") if isinstance(body.get("source"), dict) else ({"via": body["source"]} if body.get("source") else {})
+    if body.get("test_unsupported") or body.get("test_opid"):
+        src = dict(src, via="test")
+    return src
+
+
+def _persist_command(master, ctx):
+    """방금 master 가 남긴 명령 이벤트를 로컬 SQLite 에도 적는다 — 재시작·정전 뒤에도 실노드 증적의 명령 이력이 남게 (2026-09-19).
+    저장 실패는 명령 결과에 영향을 주지 않는다."""
+    store = (ctx or {}).get("store")
+    if store is None or not master.events:
+        return
+    ev = master.events[-1]
+    if ev.get("kind") in COMMAND_EVENTS:
+        try:
+            store.log_command(ev)
+        except Exception:
+            pass
+
+
 def run_conntest(master, ctx, unit):
     """§5.4.1 a)~d) 판정 + 당일 준비 점검 — /conntest 와 실노드 증적이 같은 판정을 쓴다"""
     discovery = None
@@ -187,7 +213,8 @@ def make_handler(master, comm_ctx=None):
                     r = master.command(int(body["unit"]), body["kind"], int(body["n"]), body["op"],
                                        seconds=int(body.get("seconds", 0) or 0),
                                        allow_unsupported=bool(body.get("test_unsupported", False)),
-                                       opid=body.get("test_opid"))
+                                       opid=body.get("test_opid"), origin=_origin_of(body))
+                    _persist_command(master, ctx)
                     return self._json(200, r)
                 except (KeyError, ValueError, TypeError) as e:
                     return self._json(400, {"ok": False, "error": f"bad request: {e}"})
@@ -197,7 +224,9 @@ def make_handler(master, comm_ctx=None):
             if u.path == "/test/opid":
                 # §5.3.4 f)·l)·q)·w) 전용: 쓰기영역의 OPID 워드만 새 값으로 (시험장비 역할). 화면·NR 은 쓰지 않는다. 2026-09-15
                 try:
-                    return self._json(200, master.write_opid(int(body["unit"]), body["kind"], int(body["n"]), body.get("opid")))
+                    r = master.write_opid(int(body["unit"]), body["kind"], int(body["n"]), body.get("opid"))
+                    _persist_command(master, ctx)
+                    return self._json(200, r)
                 except (KeyError, ValueError, TypeError) as e:
                     return self._json(400, {"ok": False, "error": f"bad request: {e}"})
             if u.path == "/discover":

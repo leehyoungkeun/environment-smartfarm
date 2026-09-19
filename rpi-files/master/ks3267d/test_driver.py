@@ -316,5 +316,68 @@ class FrameLogRxMerge(unittest.TestCase):
         self.assertEqual(self.f.stats["rx"], 2)
 
 
+class CommandOrigin(unittest.TestCase):
+    """명령 출처 — 화면(NR)·직접(드라이버 API)·시험장비 역할을 이벤트에 남겨 실노드 증적이 화면 명령만 판정하게 (2026-09-19)"""
+    def setUp(self):
+        self.clk = FakeClock(); self.bus, self.act, self.sen = make_bus(self.clk)
+        self.m = KsMaster(self.bus, clock=self.clk); self.m.discover(1)
+
+    def test_screen_origin_recorded(self):
+        self.m.command(1, "switch", 1, "timed_on", seconds=5,
+                       origin={"via": "screen", "house": "house_0003", "device": "heater1", "by": "web_dashboard"})
+        e = self.m.events[-1]
+        self.assertEqual((e["kind"], e["src"], e["house"], e["device"], e["by"]), ("command", "screen", "house_0003", "heater1", "web_dashboard"))
+
+    def test_no_origin_is_direct_and_unknown_via_is_direct(self):
+        self.m.command(1, "switch", 1, "on")
+        self.assertEqual(self.m.events[-1]["src"], "direct")
+        self.m.command(1, "switch", 1, "off", origin={"via": "hacker"})
+        self.assertEqual(self.m.events[-1]["src"], "direct")
+        self.m.command(1, "switch", 1, "on", origin={"via": "auto", "by": "automation"})
+        self.assertEqual(self.m.events[-1]["src"], "auto")
+
+    def test_exception_keeps_origin_and_write_opid_is_test(self):
+        self.m.command(1, "switch", 1, 203, allow_unsupported=True, origin={"via": "test"})
+        e = self.m.events[-1]
+        self.assertEqual((e["kind"], e["src"]), ("command_exception", "test"))
+        self.m.write_opid(1, "opener", 1, 777)
+        self.assertEqual(self.m.events[-1]["src"], "test")
+
+    def test_api_origin_of(self):
+        import api
+        self.assertEqual(api._origin_of({"source": {"via": "screen", "house": "h"}}), {"via": "screen", "house": "h"})
+        self.assertEqual(api._origin_of({"source": "screen"}), {"via": "screen"})
+        self.assertEqual(api._origin_of({}), {})
+        self.assertEqual(api._origin_of({"source": {"via": "screen"}, "test_unsupported": True})["via"], "test")
+
+
+class FrameLogWrites(unittest.TestCase):
+    """명령(FC06/16) 프레임과 그 응답은 폴링에 밀리지 않게 따로 보관 (2026-09-19)"""
+    def test_write_and_its_response_kept_after_polling_floods(self):
+        f = FrameLog(size=10, write_size=5)
+        f.trace_packet(True, bytes([1, 0x10, 1, 0xF7, 0, 4, 8, 0, 0xCA, 0, 0xFF, 0, 0x14, 0, 0]))
+        f.trace_packet(False, bytes([1, 0x10, 1, 0xF7, 0, 4]))
+        f.trace_packet(False, bytes([1, 0x10, 1, 0xF7, 0, 4, 0xF0, 0x3A]))   # 조각 병합 → 같은 항목
+        for i in range(30):
+            f.trace_packet(True, bytes([1, 3, 0, 0xC9, 0, 0x62]))
+            f.trace_packet(False, bytes([1, 3, 2, 0, i]))
+        w = f.recent_writes()
+        self.assertEqual([x["dir"] for x in w], ["TX", "RX"])
+        self.assertEqual(w[1]["hex"], "01 10 01 F7 00 04 F0 3A")
+        self.assertFalse(any(x["hex"].startswith("01 10") for x in f.recent(10)), "폴링에 밀려 링버퍼에선 사라졌다")
+
+    def test_read_response_not_captured_as_write(self):
+        f = FrameLog()
+        f.trace_packet(True, bytes([1, 3, 0, 1, 0, 8]))
+        f.trace_packet(False, bytes([1, 3, 2, 0, 1]))
+        self.assertEqual(f.recent_writes(), [])
+
+    def test_write_exception_response_captured(self):
+        f = FrameLog()
+        f.trace_packet(True, bytes([1, 0x10, 1, 0xF7, 0, 4, 8] + [0] * 8))
+        f.trace_packet(False, bytes([1, 0x90, 3, 0x0C, 0x01]))
+        self.assertEqual(f.recent_writes()[-1]["hex"], "01 90 03 0C 01")
+
+
 if __name__ == "__main__":
     unittest.main()

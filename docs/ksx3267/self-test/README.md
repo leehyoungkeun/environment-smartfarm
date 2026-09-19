@@ -81,7 +81,11 @@ pm2 start ks3267d/ks3267d.py   --name ks3267d   --interpreter ./venv/bin/python 
 - 경로: 패널 같은 출처 `/api/ks3267-comm/evidence` → rpi-server → 드라이버 `POST /evidence {unit}`(루프백). 웹은 `/config/:farmId/ks3267-evidence`(생성·삭제는 농장 소유자). 파일은 JSON `{content}` 로 받아 브라우저가 내려받기를 만든다.
 - 판정이 통과하려면: 센서 노드는 등록 뒤 10분(§5.4.4) + 관측치 변화 1회 이상(§5.4.3), 구동기 노드는 제어판 명령 1회 이상(§5.5.2/5.5.3). 화면 캡처 항목은 report 의 「수동 증적 항목」에 체크리스트로.
 - 첫 실노드 묶음: **`evidence-realnode-20260919-165013/` — 우노(ATmega328P+MAX485) 센서 노드 unit 1, 4/4 통과**. 노드 펌웨어는 `docs/stand_node/ksx3267_sensor_node_uno/`.
-- 단위시험 `test_evidence.py`(가짜 master·store, 12개).
+- 명령 이력은 드라이버 메모리가 아니라 **로컬 SQLite `command_log`**(api `/command`·`/test/opid` 마다 기록, 60일)에서 읽는다 — 재시작·정전 뒤에도 §5.5.2/5.5.3 명령 이력이 남는다(18:26 재시작으로 3/4 가 났던 사고). 시각은 KST 로 적는다.
+- **명령 출처**: NR 「표준 명령 조립」이 `source {via, house, device, by}` 를 실어 보내고(사람 = `screen`, 자동화 operator `automation*`·`schedule_off_timer` = `auto`), 출처 없는 호출은 `direct`, `test_unsupported`·`test_opid`·`/test/opid` 는 `test`. 보고서 명령 이력 줄마다 `[화면 house_0003 heater1 by web_dashboard]` 처럼 표기.
+- **§5.5.2·§5.5.3 은 따로 판정**하고 **화면 명령만** 쓴다: 스위치 = 202 수락(201·남은시간) → 남은시간 안에 화면 0 수락 → READY. 개폐기 = 303→301→중지→READY **와** 304→302→중지→READY 둘 다. 자연 만료 뒤의 OFF 는 "작동 중 중지" 가 아니다. 화면 명령 중 거부·무응답이 있으면 실패. 구동기 묶음은 5.4.1·5.5.1·5.5.2·5.5.3·116-저장 5개.
+- **frames.txt**: 폴링 링버퍼(400) + 명령 프레임(FC06/16 요청과 그 응답, 따로 200개 보관)을 합쳐 시간순 — 폴링에 밀려 명령 프레임이 빠지던 문제(9/19 18:35 묶음은 최근 2분뿐).
+- 단위시험 `test_evidence.py`(22개)·`test_localstore.py CommandLog`·`CommandLogOriginMigration`·`test_driver.py CommandOrigin`·`FrameLogWrites`.
 
 ## 4. 시험기관 사전 확인 (PLAN §4 그대로 + 문서 읽고 추가)
 - SPS-7466 §5.4.1 b) "슬레이브 아이디" — 시험장비 노드 주소를 시험 당일 알려주는지, 우리는 표준노드 탭에서 입력 탐색

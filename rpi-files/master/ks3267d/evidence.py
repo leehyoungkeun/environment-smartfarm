@@ -44,15 +44,26 @@ def _fmt_t(t):
     return dt.datetime.fromtimestamp(float(t)).strftime("%H:%M:%S")
 
 
+def _ts(iso):
+    """로컬 저장 행의 timestamp(ISO, UTC 'Z') → epoch. 못 읽으면 None"""
+    try:
+        return dt.datetime.fromisoformat(str(iso).replace("Z", "+00:00")).timestamp()
+    except Exception:
+        return None
+
+
+def _local(iso):
+    """보고서용 로컬 시각 — 저장소는 UTC 'Z' 로 쓰는데 심사관은 KST 로 읽는다"""
+    t = _ts(iso)
+    return dt.datetime.fromtimestamp(t).strftime("%Y-%m-%d %H:%M") if t is not None else str(iso)
+
+
 def _minutes(rows, start, end):
-    """로컬 저장 행들의 '분' 집합 (start~end 안) — 행의 timestamp 는 ISO 로컬 문자열"""
+    """로컬 저장 행들의 '분' 집합 (start~end 안)"""
     out = set()
     for r in rows:
-        try:
-            ts = dt.datetime.fromisoformat(str(r["timestamp"])).timestamp()
-        except Exception:
-            continue
-        if start <= ts <= end:
+        ts = _ts(r["timestamp"])
+        if ts is not None and start <= ts <= end:
             out.add(int(ts // 60))
     return out
 
@@ -72,14 +83,93 @@ def _store_test(tid, title, rows, unit, now, label):
     t.step(f"a) 최근 {STORE_MINUTES}분 저장 (저장주기 60초, {label})", ok,
            f"{got}/{expect}분" + ("" if ok else f" — 노드 등록 뒤 {STORE_MINUTES}분이 지난 다음 다시 만드세요"))
     if rows:
-        first, last = rows[0]["timestamp"], rows[-1]["timestamp"]
-        t.step("b) 저장 행 (관측치·상태 매분, 점검군 상태도 그대로)", True, f"{len(rows)}행 · {first} ~ {last}")
+        first, last = _local(rows[0]["timestamp"]), _local(rows[-1]["timestamp"])
+        t.step("b) 저장 행 (관측치·상태 매분, 점검군 상태도 그대로)", True, f"{len(rows)}행 · {first} ~ {last} (최근 1시간)")
         st_codes = sorted({int(r.get("status") or 0) for r in rows})
         t.step("c) 저장된 상태 코드", all(c in STATUS_NAMES for c in st_codes), f"{st_codes}")
     else:
         t.step("b) 저장 행", False, "최근 1시간 저장 행 없음")
     t.step("d) 서버 저장(ks_sensor_status·actuator_status)은 인터넷이 있을 때 화면 「§5.4.4 데이터 저장 확인」·보고서 › 데이터 조회로 — 수동", True, "수동 증적")
     return t.result()
+
+
+COMMAND_KINDS = ("command", "write_opid", "command_exception", "command_timeout")
+M_OFF_STOP, M_TIMED_ON, M_TIMED_OPEN, M_TIMED_CLOSE = 0, 202, 303, 304
+M_SWITCH_ON, M_OPENING, M_CLOSING, M_READY = 201, 301, 302, 0
+SRC_LABEL = {"screen": "화면", "auto": "자동제어", "direct": "직접(드라이버 API)", "test": "시험장비 역할"}
+
+
+def _src(e):
+    s = SRC_LABEL.get(e.get("src") or "direct", e.get("src"))
+    where = " ".join(x for x in (e.get("house"), e.get("device")) if x)
+    return s + (f" {where}" if where else "") + (f" by {e['by']}" if e.get("by") else "")
+
+
+def _stop_sequences(evs, dev, timed_op, running_status):
+    """dev 의 화면 명령 중 '시간 명령(timed_op) 수락 → 남은시간 안에 화면 중지(0) 수락 → READY' 쌍 목록"""
+    out = []
+    mine = [e for e in evs if e.get("dev") == dev and e.get("src") == "screen" and e.get("kind") == "command" and e.get("accepted")]
+    for i, e in enumerate(mine):
+        if e.get("op") != timed_op or e.get("status") != running_status or not (e.get("remain") or 0) > 0:
+            continue
+        end = e["t"] + float(e["remain"])
+        nxt = mine[i + 1] if i + 1 < len(mine) else None
+        if nxt and nxt.get("op") == M_OFF_STOP and nxt["t"] < end and nxt.get("status") == M_READY:
+            out.append((e, nxt))
+    return out
+
+
+def _control_test(tid, title, ref, kind, devs, evs, st, now, seqs):
+    """§5.5.2(스위치)/§5.5.3(개폐기) — 지금 상태 + 화면 경로 명령 순서 판정 + 출처별 명령 이력"""
+    t = _T(tid, title, ref)
+    mine = {k: d for k, d in devs.items() if d.get("kind") == kind}
+    if not mine:
+        t.step("a) 노드의 " + ("스위치" if kind == "switch" else "개폐기") + " 디바이스", False,
+               st.get("error") or "폴링 상태에 해당 디바이스 없음")
+        return t.result()
+    for idx, d in sorted(mine.items(), key=lambda kv: int(kv[0])):
+        t.step(f"a) #{idx} {d.get('name')} 지금 상태", int(d.get("status", -1)) in STATUS_NAMES,
+               f"상태 {d.get('status')} {d.get('status_name')} · OPID {d.get('opid')} · 남은 {d.get('remain')}s")
+    cmds = [e for e in evs if str(e.get("dev") or "").startswith(kind)]
+    screen = [e for e in cmds if e.get("src") == "screen"]
+    for label, timed_op, running in seqs:
+        found = []
+        for dev in sorted({e.get("dev") for e in screen}):
+            found += _stop_sequences(cmds, dev, timed_op, running)
+        if found:
+            a, b = found[-1]
+            t.step(f"b) {label}", True,
+                   f"{a.get('dev')} {_fmt_t(a['t'])} 명령 {a['op']} OPID {a['opid']} → {a['status']} {STATUS_NAMES.get(a['status'], '')} 남은 {a['remain']}s"
+                   f" · {_fmt_t(b['t'])}({b['t'] - a['t']:.0f}초 뒤) 명령 0 OPID {b['opid']} → {b['status']} READY"
+                   + (f" · 같은 순서 {len(found)}회" if len(found) > 1 else ""))
+        else:
+            why = ("화면 경로 명령이 없습니다 — NR 「표준 명령 조립」이 출처(source)를 보내는지 확인" if not screen else
+                   "작동 중에 중지한 기록이 없습니다 — 제어판에서 시간 명령을 보내고 남은시간 안에 정지를 누른 뒤 다시 만드세요")
+            t.step(f"b) {label}", False, why)
+    rejected = [e for e in screen if not (e.get("kind") == "command" and e.get("accepted"))]
+    t.step("c) 화면 경로 명령 거부·무응답 없음", not rejected,
+           f"화면 명령 {len(screen)}건 모두 수락" if not rejected else
+           "; ".join(f"{_fmt_t(e['t'])} {e.get('dev')} {e.get('kind')} {e.get('code') or ''}" for e in rejected[-5:]))
+    tail = cmds[-12:]
+    if tail:
+        t.step(f"d) 명령 이력 (최근 1시간 {len(cmds)}건 중 최근 {len(tail)}건, 출처 표기 — 판정은 화면 명령만)", True,
+               f"{_fmt_t(tail[0]['t'])} ~ {_fmt_t(tail[-1]['t'])}")
+        for e in tail:
+            res = (f"→ 상태 {e.get('status')} {STATUS_NAMES.get(e.get('status'), '')} · 남은 {e.get('remain')}s"
+                   if e.get("kind") == "command" else f"{e.get('kind')} {e.get('code') or ''}")
+            t.step(f"   {_fmt_t(e['t'])} {e.get('dev')} 명령 {e.get('op')} OPID {e.get('opid')} [{_src(e)}]", True, res)
+    return t.result()
+
+
+def _merge_frames(recent, writes):
+    """최근 프레임 + 따로 보관한 명령(FC06/16) 프레임 — 같은 항목은 한 번, 시간순"""
+    seen, out = set(), []
+    for fr in list(writes) + list(recent):
+        k = (fr.get("t"), fr.get("dir"), fr.get("hex"))
+        if k not in seen:
+            seen.add(k)
+            out.append(fr)
+    return sorted(out, key=lambda f: f.get("t", 0))
 
 
 def build(master, store, info, conntest, unit, now=None):
@@ -156,29 +246,32 @@ def build(master, store, info, conntest, unit, now=None):
         results.append(_store_test("5.4.4", "데이터 저장 시험 (10분 이상, 제어기 로컬 1분 저장)", rows, unit, now, "센서 관측치·상태"))
         manual.append("보고서 › 데이터 조회·추출 › 「표준 센서 관측치·상태 (KS X 3267)」 조회·csv 추출 화면 캡처 (인터넷 필요)")
     else:
-        # ── 5.5.2 / 5.5.3 구동기 상태 (실노드: 지금 상태 + 최근 명령 이력) ──
-        t = _T("5.5.2/5.5.3", "레벨 1 스위치·개폐기 상태 (실노드: 지금 상태와 최근 명령 이력)", "SPS-7466 §5.5.2 a)~j) · §5.5.3 a)~s) (202/303/304 → 201/301/302·남은시간 → 0 → READY)")
-        if st.get("error") or not st.get("devices"):
-            t.step("a) 마지막 폴링", False, st.get("error") or "폴링 상태 없음")
+        # ── 5.5.2 스위치 / 5.5.3 개폐기 (실노드: 지금 상태 + 화면 경로 명령 순서) ──
+        # 명령 이력은 로컬 SQLite(command_log)가 1차 — 재시작·정전 뒤에도 남는다. 저장소가 없을 때만 메모리 이벤트.
+        if store is not None and hasattr(store, "query_commands"):
+            evs = store.query_commands(unit=unit, start=now - 3600, end=now, limit=500)
         else:
-            t.step("a) 노드 상태 202 · 노드 OPID 201", int(st.get("node_status", -1)) in STATUS_NAMES, f"상태 {st.get('node_status')} {st.get('node_status_name')} · OPID {st.get('node_opid')} · 폴링 {_fmt_t(st.get('t', now))}")
-            for idx, d in sorted(st["devices"].items(), key=lambda kv: int(kv[0])):
-                ok = int(d.get("status", -1)) in STATUS_NAMES
-                t.step(f"b) #{idx} {d.get('name')} 상태·OPID·남은시간", ok, f"상태 {d.get('status')} {d.get('status_name')} · OPID {d.get('opid')} · 남은 {d.get('remain')}s")
-        evs = [e for e in (master.events or []) if e.get("unit") == unit and e.get("kind") in ("command", "write_opid", "command_exception", "command_timeout")][-30:]
-        if evs:
-            t.step(f"c) 최근 명령 이력 {len(evs)}건", all(e.get("kind") == "command" and e.get("accepted") for e in evs),
-                   "; ".join(f"{_fmt_t(e['t'])} {e.get('dev')} op {e.get('op')} opid {e.get('opid')} → 상태 {e.get('status')} 남은 {e.get('remain')}" + ("" if e.get("kind") == "command" else f" [{e.get('kind')}]") for e in evs[-8:]))
-        else:
-            t.step("c) 최근 명령 이력", False, "명령 없음 — 제어판에서 「시간 지정 ON」·「시간 열기/닫기」·정지를 보낸 뒤 다시 만드세요")
-        results.append(t.result())
+            evs = [e for e in (master.events or []) if e.get("unit") == unit and e.get("kind") in COMMAND_KINDS]
+        devs = {} if (st.get("error") or not st.get("devices")) else st["devices"]
+        results.append(_control_test(
+            "5.5.2", "레벨 1 스위치 제어 시험 (실노드, 화면 경로)",
+            "SPS-7466 §5.5.2 a)~j) — 화면 202 작동시간 → 201·남은시간 → 화면 중지 0 → READY",
+            "switch", devs, evs, st, now,
+            [("202 작동시간 ON → 작동 중 화면 중지 → READY", M_TIMED_ON, M_SWITCH_ON)]))
+        results.append(_control_test(
+            "5.5.3", "레벨 1 개폐기 제어 시험 (실노드, 화면 경로)",
+            "SPS-7466 §5.5.3 a)~s) — 화면 303 열기 → 301 → 중지 → READY, 304 닫기 → 302 → 중지 → READY",
+            "opener", devs, evs, st, now,
+            [("303 작동시간 열기 → 작동 중 화면 중지 → READY", M_TIMED_OPEN, M_OPENING),
+             ("304 작동시간 닫기 → 작동 중 화면 중지 → READY", M_TIMED_CLOSE, M_CLOSING)]))
         manual.append("제어판 카드 배지(켜짐/열리는 중 NN s → READY)와 표준노드 탭 §5.1.3 표(201/301/302·남은시간) 화면 캡처 (§5.5.2 e·f·j, §5.5.3 e·l·s)")
         rows = store.query_actuator(unit=unit, start=now - 3600, end=now, limit=20000) if store is not None else None
         results.append(_store_test("116-저장", "구동기 상태 1분 저장 (제어기 로컬)", rows, unit, now, "구동기 상태"))
         manual.append("보고서 › 데이터 조회·추출 › 「표준 구동기 상태」 조회 화면 캡처 (인터넷 필요)")
 
     manual.append("④ 진단 「통신 프레임」 화면 캡처 (frames.txt 와 같은 내용)")
-    frames = master.t.frames.recent(400) if hasattr(master.t, "frames") else []
+    fl = getattr(master.t, "frames", None)
+    frames = _merge_frames(fl.recent(400) if fl else [], fl.recent_writes(200) if fl is not None and hasattr(fl, "recent_writes") else [])
     stats = dict(getattr(getattr(master.t, "frames", None), "stats", {}) or {})
     events = list(master.events or [])[-200:]
     at = dt.datetime.fromtimestamp(now)
@@ -214,7 +307,7 @@ def render_report(ev):
 
 
 def render_frames(frames):
-    out = []
+    out = ["# 시각 방향 프레임(hex, CRC 포함). 최근 폴링 프레임 + 명령(FC06/16 쓰기)과 그 응답은 따로 보관해 항상 포함한다."]
     for fr in frames or []:
         ts = dt.datetime.fromtimestamp(fr.get("t", 0)).strftime("%H:%M:%S.%f")[:-3]
         out.append(f"{ts} {fr.get('dir'):2} {fr.get('hex')}")

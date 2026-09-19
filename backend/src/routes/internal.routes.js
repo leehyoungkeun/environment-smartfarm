@@ -169,8 +169,15 @@ router.post("/alert-webhook", async (req, res) => {
       );
       saved++;
 
+      // 해소면 같은 경보(같은 labels)의 이전 발화 알림을 닫는다 — 끝난 문제가 미확인으로 남지 않게 (2026-09-19)
+      let closed = 0;
+      if (status === "resolved") {
+        const { resolvePriorFiring } = await import("../services/alertResolve.js");
+        closed = await resolvePriorFiring(pool, { farmId, houseId, alertName, labels });
+      }
+
       const icon = status === "resolved" ? "✅" : severity === "CRITICAL" ? "🔴" : "🟡";
-      logger.warn(`${icon} [알림] ${alertName} (${farmId}/${houseId}) — ${ann.summary || ""}`);
+      logger.warn(`${icon} [알림] ${alertName} (${farmId}/${houseId}) — ${ann.summary || ""}${closed ? ` · 이전 발화 ${closed}건 해소 처리` : ""}`);
 
       // CRITICAL(발화)이고 실제 농장이면 L1 자동 진단 (읽기 전용, 비동기 — 2026-08-30).
       // farm_id 라벨이 없는 인프라 알림("system")은 농장 증거가 없어 제외.

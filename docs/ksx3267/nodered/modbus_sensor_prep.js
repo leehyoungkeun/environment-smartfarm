@@ -33,6 +33,12 @@ function inferType(sensorId) {
 
 let autoMapped = 0;
 let stalefixed = 0;
+let autoSkipped = 0;
+// 2026-09-19: 새 자동매핑(매핑 없는 센서에 모듈 붙이기)은 **하우스가 하나인 농장**에서만.
+//   모듈엔 어느 하우스 것인지 정보가 없다 — 다중 하우스에서 붙이면 house_0003 humidity_0001 이 house_0001 의 XY-MD02 를
+//   읽어 남의 하우스 값을 실측으로 저장했다. 다중 하우스는 설정 화면에서 명시적으로 매핑한다. 기존 매핑의 stale 보정은 그대로.
+const enabledHouseCount = (config.houses || []).filter(h => h.enabled !== false).length;
+const allowNewAutoMap = enabledHouseCount <= 1;
 for (const house of (config.houses || [])) {
     for (const sensor of (house.sensors || [])) {
         // KS X 3267 표준 센서(sensor.ks3267)는 별도 드라이버(ks3267d)가 읽는다 — 벤더 자동매핑 금지.
@@ -51,6 +57,7 @@ for (const house of (config.houses || [])) {
         if (matches) continue;
         // 비어있거나 stale 매핑 → 자동매핑으로 덮어쓰기
         const wasStale = m && m.unitId != null;
+        if (!wasStale && !allowNewAutoMap) { autoSkipped++; continue; }
         sensor.modbus = {
             unitId: mod.unitId,
             fc: mod.fc || 3,
@@ -131,5 +138,6 @@ node.status({
     text: 'Modbus 1/' + uniqueReads.length
         + (autoMapped ? ' (auto+' + autoMapped + ')' : '')
         + (stalefixed ? ' (stale fix ' + stalefixed + ')' : '')
+        + (autoSkipped ? ' (미매핑 ' + autoSkipped + ')' : '')
 });
 return [msg, null];

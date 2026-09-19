@@ -107,14 +107,15 @@ describe("fn_ks_status (pending) — 복합키 + 레거시 키 동시 기록", (
 
 describe("Modbus 센서 읽기 준비 (pending) — 표준 센서엔 벤더 자동매핑·읽기 금지", () => {
   const MODS = [{ sensorType: "temperature_humidity", unitId: 1, fc: 4, address: 0, quantity: 2, divider: 10, signed: true }];
-  test("ks3267 센서는 modbus 블록이 붙지 않고 읽기 목록에도 없다; 벤더 센서는 그대로 자동매핑", () => {
+  test("ks3267 센서는 modbus 블록이 붙지 않고 읽기 목록에도 없다; 벤더 센서는 그대로 읽는다", () => {
     const cfg = JSON.parse(JSON.stringify(CFG));
     delete cfg.houses[1].sensors[0].modbus;          // DB 원본처럼 표준 센서엔 modbus 없음
-    delete cfg.houses[0].sensors[0].modbus;          // 벤더 센서 하나는 비워 자동매핑 대상
+    // 2026-09-19: 다중 하우스에서는 매핑 없는 벤더 센서에 새 자동매핑을 하지 않는다(하우스 격리) — 벤더 센서는 매핑을 가진 채로 둔다.
+    //   단일 하우스 자동매핑·다중 하우스 비매핑은 ks3267-house-isolation.test.js 가 따로 검증한다.
     const e = makeEnv({ clock: makeClock(), globals: { houseConfig: cfg, sensorModules: MODS } });
     const out = e.runFile(P("modbus_sensor_prep.js"), { config: cfg });
     assert.equal(cfg.houses[1].sensors[0].modbus, undefined, "표준 센서에 벤더 자동매핑이 붙었다");
-    assert.ok(cfg.houses[0].sensors[0].modbus && cfg.houses[0].sensors[0].modbus.unitId === 1, "벤더 센서 자동매핑은 유지돼야 한다");
+    assert.ok(cfg.houses[0].sensors[0].modbus && cfg.houses[0].sensors[0].modbus.unitId === 1, "벤더 센서 매핑이 사라졌다");
     const map = e.flow.get("modbusSensorMap");
     const listed = Object.values(map).flat().map((s) => s.houseId + ":" + s.sensorId);
     assert.ok(!listed.includes("house_0002:temp_0001"), "표준 센서가 RS-485 읽기 목록에 들어갔다");

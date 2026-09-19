@@ -143,7 +143,9 @@ describe("fn_ks_proxy — 읽기 전용 프록시", () => {
 
 describe("③ 센서 수집 교체본 — 표준 센서 합류 (TTL 3분)", () => {
   const CFG = { farmId: "farm_0001", houses: [{ houseId: HOUSE, enabled: true, sensors: [
-    { sensorId: "temp_0001", enabled: true, type: "number" }, { sensorId: "temp_std", enabled: true, type: "number", ks3267: { unit: 2, index: 1 } }] }] };
+    // 벤더 센서는 벤더 모듈 매핑이 있어야 벤더 값을 받는다 (2026-09-19 하우스 격리 — 운영에선 prep 이 단일 하우스 농장에 자동으로 붙인다)
+    { sensorId: "temp_0001", enabled: true, type: "number", modbus: { unitId: 1, fc: 4, address: 0, quantity: 2, registerIndex: 1, divider: 10, signed: true } },
+    { sensorId: "temp_std", enabled: true, type: "number", ks3267: { unit: 2, index: 1 } }] }] };
   test("신선한 표준 값은 실측처럼 수집된다", () => {
     const e = makeEnv({ clock: makeClock(), globals: { houseConfig: CFG, ks3267Readings: { values: { temp_std: 28.8 }, t: Date.parse("2026-08-29T09:59:00Z") } } });
     const out = e.runFile(F("fn_collect_sensors.js"), { config: CFG, payload: [615, 231] }); // XY-MD02: 습도 61.5, 온도 23.1
@@ -168,6 +170,7 @@ describe("마스터 flows.json — 적용된 노드가 문서 교체본과 일�
   same("execute_control", "execute_control.js");
   same("fn_collect_sensors", "fn_collect_sensors.js");
   same("modbus_sensor_prep", "modbus_sensor_prep.js");   // 2026-09-04 표준 센서 자동매핑 차단 (센서 충돌 사고)
+  same("dd4fbcb2fc58f036", "fn_modbus_parse.js");        // 2026-09-19 문서화 (Modbus 센서 결과 파싱, 교체본은 pending/)
   same("ks_fn_command", "fn_ks_command.js");
   same("ks_fn_status", "fn_ks_status.js");
   same("ks_fn_result", "fn_ks_result.js");

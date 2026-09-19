@@ -42,6 +42,20 @@ if (Array.isArray(modbusRaw) && modbusRaw.length >= 2) {
 
 // msg.modbusReadings가 있으면 사용 (sensor-modbus-read-flow 경유) — **벤더(Waveshare/XY-MD02) 값만**.
 var modbusReadings = msg.modbusReadings || realData || {};
+// 2026-09-19: 벤더 값은 **그 하우스의 그 센서가 벤더 모듈에 매핑돼 있을 때만** 쓴다.
+//   예전엔 sensorId 만으로 찾아서, 매핑 없는 house_0003 humidity_0001 이 house_0001 XY-MD02 습도를 실측으로 받아 저장했다.
+//   키는 'houseId:sensorId' 우선, 레거시 sensorId 는 매핑된 센서에만. 원시 레지스터(realData) 폴백은 prep 흐름이 아닐 때(msg.modbusReadings 없음)만.
+const viaPrep = !!msg.modbusReadings;
+function vendorValue(houseId, sensor) {
+    if (!sensor.modbus || sensor.modbus.unitId == null) return undefined;      // 벤더 모듈에 매핑 안 된 센서는 벤더 값 없음
+    var v = modbusReadings[houseId + ':' + sensor.sensorId];
+    if (v === undefined) v = modbusReadings[sensor.sensorId];
+    if (v === undefined && !viaPrep) {
+        if (sensor.sensorId === 'temp_0001' && realData.temperature !== undefined) v = realData.temperature;
+        else if (sensor.sensorId === 'humidity_0001' && realData.humidity !== undefined) v = realData.humidity;
+    }
+    return v;
+}
 
 // KS X 3267 표준 센서 노드 값 (P3, 2026-08-30) — ks3267d 데몬 → fn_ks_status 가 3분 이내에 넣은 값만.
 // 낡은 값(데몬 중단)은 버린다 — 값을 지어내지 않는 원칙과 같은 맥락.
@@ -105,12 +119,8 @@ for (const house of housesToCollect) {
                 // 0) KS X 3267 표준 센서 — 표준 노드 값만. 없으면(데몬 중단·TTL 초과) 생략, 벤더 값으로 대체 금지
                 value = ksValue(houseId, sensor.sensorId);
                 if (value === undefined) { skippedCount++; continue; }
-            } else if (modbusReadings[sensor.sensorId] !== undefined) {
-                value = modbusReadings[sensor.sensorId];                       // 1) 모듈별 읽기
-            } else if (sensor.sensorId === 'temp_0001' && realData.temperature !== undefined) {
-                value = realData.temperature;                                  // 2) 기본 온습도 모듈
-            } else if (sensor.sensorId === 'humidity_0001' && realData.humidity !== undefined) {
-                value = realData.humidity;
+            } else if (vendorValue(houseId, sensor) !== undefined) {
+                value = vendorValue(houseId, sensor);                           // 1) 이 센서에 매핑된 벤더 모듈 읽기
             } else if (SIM_MODE) {
                 value = simulate(sensor);                                      // 3) 시뮬레이션 (명시적으로 켰을 때만)
                 houseSimulated = true;
@@ -163,7 +173,7 @@ for (const house of housesToCollect) {
         if (sensor.ks3267) continue;   // 표준 센서는 별도 포트(ks3267d) — RS-485 자체 버스 장애 판정에서 제외
         if (sensor.modbus && sensor.modbus.unitId != null) {
             totalModbusSensors++;
-            if (modbusReadings[sensor.sensorId] === undefined) totalModbusFailed++;
+            if (vendorValue(house.houseId, sensor) === undefined) totalModbusFailed++;
         }
     }
 }

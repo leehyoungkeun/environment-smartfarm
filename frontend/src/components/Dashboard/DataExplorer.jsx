@@ -18,7 +18,7 @@ axios.interceptors.request.use((config) => {
 const KINDS = [
   { id: 'sensor', label: '센서 관측치', icon: '🌡️' },
   { id: 'control', label: '구동기 제어 이력', icon: '🎛️' },
-  { id: 'actuator', label: '표준 구동기 상태 (KS X 3267)', icon: '📐' },
+  { id: 'actuator', label: '구동기 상태 1분 (표준·비표준)', icon: '📐' },   // 2026-09-19 비표준 릴레이도 같은 1분 행
   { id: 'sensorstatus', label: '표준 센서 관측치·상태 (KS X 3267)', icon: '📐' },  // §5.4.4 — 상태가 무엇이든 매분 저장된 원본
 ];
 const NO_HOUSE_KINDS = ['actuator', 'sensorstatus'];  // 하우스 없이도 조회되는 종류

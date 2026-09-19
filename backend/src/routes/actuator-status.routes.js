@@ -9,7 +9,7 @@ const MAX_ROWS = 200000; // 31일 × 1440분 × 4장치
 
 async function queryRows(farmId, { houseId, deviceId, start, end, limit }) {
   const params = [farmId, start, end];
-  let sql = `SELECT "timestamp", house_id, device_id, unit, kind, n, status, status_name, remain, opid
+  let sql = `SELECT "timestamp", house_id, device_id, unit, kind, n, status, status_name, remain, opid, source
              FROM actuator_status WHERE farm_id = $1 AND "timestamp" >= $2 AND "timestamp" <= $3`;
   if (houseId) { params.push(houseId); sql += ` AND house_id = $${params.length}`; }
   if (deviceId) {

@@ -86,8 +86,12 @@ nodes = [
     # ── 표준 구동기 1분 스냅샷 → 서버 actuator_status (116 검정: 1분 저장·조회·추출·손실률) ──
     node("ks_inject_snapshot", "inject", "매 60초", 140, 580, [["ks_fn_snapshot"]],
          props=[{"p": "payload"}], repeat="60", crontab="", once=True, onceDelay=15, topic="", payload="", payloadType="date"),
-    node("ks_fn_snapshot", "function", "표준 구동기 1분 스냅샷", 380, 580, [["ks_http_snapshot"]],
-         func=fn("fn_ks_snapshot.js"), outputs=1, timeout=0, noerr=0, initialize="", finalize="", libs=[]),
+    node("ks_fn_snapshot", "function", "표준 구동기 1분 스냅샷", 380, 580, [["ks_http_snapshot"], ["8f421ef5d6ef4028"]],
+         func=fn("fn_ks_snapshot.js"), outputs=2, timeout=0, noerr=0, initialize="", finalize="", libs=[]),
+    # 2026-09-19 출력 2 → 드라이버 로컬 저장(비표준 구동기 행) + 보관 일수 동기화. id 는 에디터가 만든 것 그대로
+    node("8f421ef5d6ef4028", "http request", "", 570, 660, [], method="POST", ret="obj", paytoqs="ignore",
+         url="http://127.0.0.1:3002/local/vendor-actuator", tls="", persist=False, proxy="", insecureHTTPParser=False,
+         authType="", senderr=False, headers=[]),
     node("ks_http_snapshot", "http request", "서버 actuator-status", 620, 580, [["ks_fn_snapshot_result"]],
          method="use", ret="obj", paytoqs="ignore", url="", tls="", persist=False, proxy="", insecureHTTPParser=False,
          authType="", senderr=False, headers=[]),

@@ -519,6 +519,10 @@ router.post("/farm-event", async (req, res) => {
  * 멱등: PK(timestamp, farm, house, device) 충돌은 무시 → NR 이 실패분을 큐에 모아 재전송해도 중복이 없다.
  */
 const ACTUATOR_STATUS_MAX_BATCH = 5000;
+// 1분 구동기 스냅샷의 출처 — 표준 드라이버(ks3267d) 또는 비표준 릴레이(vendor, 2026-09-19 표준·비표준 저장 정책 통일).
+// 출처를 안 밝힌 옛 NR 은 표준으로 둔다(그때는 표준 장치만 보냈다).
+const ACTUATOR_SOURCES = new Set(["ks3267d", "vendor"]);
+
 router.post("/actuator-status", async (req, res) => {
   try {
     const { farmId, houseId } = resolveFarmHouse(req);
@@ -537,9 +541,10 @@ router.post("/actuator-status", async (req, res) => {
       if (!r || !r.deviceId || r.status === undefined || r.status === null) continue;
       const ts = new Date(r.timestamp || Date.now());
       if (Number.isNaN(ts.getTime())) continue;
-      values.push(`($${i++}, $${i++}, $${i++}, $${i++}, $${i++}, $${i++}, $${i++}, $${i++}, $${i++}, $${i++}, $${i++})`);
+      values.push(`($${i++}, $${i++}, $${i++}, $${i++}, $${i++}, $${i++}, $${i++}, $${i++}, $${i++}, $${i++}, $${i++}, $${i++})`);
       params.push(ts, farmId, r.houseId || houseId, String(r.deviceId), r.unit ?? null, r.kind ?? null, r.n ?? null,
-        Number(r.status), r.statusName ?? r.status_name ?? null, Number(r.remain) || 0, Number(r.opid) || 0);
+        Number(r.status), r.statusName ?? r.status_name ?? null, Number(r.remain) || 0, Number(r.opid) || 0,
+        ACTUATOR_SOURCES.has(r.source) ? r.source : "ks3267d");
     }
     // 표준 센서 1분 스냅샷 (§5.4.4, 2026-09-15) — 같은 요청에 sensorRows 로 함께 온다. 상태가 무엇이든 관측치·상태를 그대로 남긴다.
     const sensorRows = Array.isArray(req.body?.sensorRows) ? req.body.sensorRows.slice(0, ACTUATOR_STATUS_MAX_BATCH) : [];
@@ -568,7 +573,7 @@ router.post("/actuator-status", async (req, res) => {
     let inserted = 0;
     if (values.length > 0) {
       const result = await pool.query(
-        `INSERT INTO actuator_status ("timestamp", farm_id, house_id, device_id, unit, kind, n, status, status_name, remain, opid)
+        `INSERT INTO actuator_status ("timestamp", farm_id, house_id, device_id, unit, kind, n, status, status_name, remain, opid, source)
          VALUES ${values.join(",")} ON CONFLICT DO NOTHING`, params);
       inserted = result.rowCount;
     }

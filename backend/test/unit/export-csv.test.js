@@ -62,6 +62,7 @@ describe("controlLogTable / actuatorStatusTable", () => {
   test("구동기 상태 열", () => {
     const { columns, rows } = actuatorStatusTable([{ timestamp: new Date(2026, 7, 30, 9, 0), house_id: "house_0001", device_id: "fan1", unit: 1, kind: "switch", n: 3, status: 201, status_name: "ON", remain: 25, opid: 7 }]);
     assert.ok(columns.some((c) => c.label === "remain_sec")); assert.equal(rows[0].status, 201); assert.equal(rows[0].timestamp, "2026-08-30 09:00:00");
+    assert.ok(columns.some((c) => c.key === "source"), "표준·비표준 출처 열이 없다 (2026-09-19)");
   });
 });
 

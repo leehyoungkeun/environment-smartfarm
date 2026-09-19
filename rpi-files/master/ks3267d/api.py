@@ -149,7 +149,21 @@ def make_handler(master, comm_ctx=None):
                     g = lambda k, d=None: (q.get(k, [d])[0] if k in q else d)
                     f = lambda k: (float(g(k)) if g(k) not in (None, "") else None)
                     if u.path == "/local/summary":
-                        return self._json(200, {"ok": True, "days": store.summary(int(g("days", "31"))), "path": store.path})
+                        return self._json(200, {"ok": True, "days": store.summary(int(g("days", "31"))), "path": store.path,
+                                                "retentionDays": store.retention // 86400})
+                    if u.path == "/local/vendor-actuator-status":
+                        # 비표준(벤더) 구동기 1분 행 — 표준과 같은 로컬 저장 (2026-09-19)
+                        rows = store.query_vendor_actuator(house_id=g("house"), device_id=g("device"), start=f("start"), end=f("end"),
+                                                           limit=int(g("limit", "5000")))
+                        if g("format") == "csv":
+                            body = store.to_csv(rows, ["timestamp", "house_id", "device_id", "unit", "kind", "n", "name", "opid", "status", "status_name", "remain", "source"]).encode("utf-8")
+                            self.send_response(200)
+                            self.send_header("Content-Type", "text/csv; charset=utf-8")
+                            self.send_header("Content-Length", str(len(body)))
+                            self.end_headers()
+                            self.wfile.write(body)
+                            return None
+                        return self._json(200, {"ok": True, "now": time.time(), "intervalSec": 60, "count": len(rows), "data": rows})
                     kind = u.path[len("/local/"):]
                     if kind not in ("sensor-status", "actuator-status"):
                         return self._json(404, {"ok": False, "error": "not found"})
@@ -250,6 +264,15 @@ def make_handler(master, comm_ctx=None):
                     return self._json(200, {"ok": False, "error": str(e)})
                 except Exception as e:
                     return self._json(200, {"ok": False, "error": f"증적 생성 실패: {e}"})
+            if u.path == "/local/vendor-actuator":
+                # NR 「1분 스냅샷」이 비표준 구동기 행 + 서버 보관 설정(retentionDays)을 매분 넘긴다 (2026-09-19 저장 정책 통일)
+                store = ctx.get("store")
+                if store is None:
+                    return self._json(200, {"ok": False, "error": "로컬 저장소가 없습니다"})
+                rows = body.get("rows") if isinstance(body.get("rows"), list) else []
+                inserted = store.record_vendor(rows[:5000])
+                days = store.set_retention(body["retentionDays"]) if body.get("retentionDays") is not None else store.retention // 86400
+                return self._json(200, {"ok": True, "received": len(rows), "inserted": inserted, "retentionDays": days})
             if u.path == "/evidence/delete":
                 if not ctx.get("evidence_dir"):
                     return self._json(200, {"ok": False, "error": "증적 폴더가 설정되지 않았습니다"})

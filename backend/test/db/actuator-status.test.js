@@ -42,6 +42,19 @@ describe("POST /internal/actuator-status", () => {
     const { rows } = await pool.query("SELECT count(*)::int AS c FROM actuator_status WHERE farm_id = $1", [FARM]);
     assert.equal(rows[0].c, 4);
   });
+  test("출처 기록 — 비표준(vendor)·표준(ks3267d), 안 밝히거나 모르는 값은 ks3267d (2026-09-19 표준·비표준 저장 통일)", async () => {
+    const at = (m) => new Date(t0.getTime() + (100 + m) * 60000).toISOString();
+    const rows = [
+      { timestamp: at(0), houseId: HOUSE, deviceId: "cooler1", unit: 2, kind: "switch", n: 4, status: 201, statusName: "ON", source: "vendor" },
+      { timestamp: at(0), houseId: HOUSE, deviceId: "heater1", unit: 1, kind: "switch", n: 1, status: 0, statusName: "READY", source: "ks3267d" },
+      { timestamp: at(0), houseId: HOUSE, deviceId: "old1", unit: 1, kind: "switch", n: 2, status: 0 },
+      { timestamp: at(0), houseId: HOUSE, deviceId: "odd1", unit: 1, kind: "switch", n: 3, status: 0, source: "hacker" } ];
+    const r = await request(app).post("/internal/actuator-status").set("x-api-key", KEY()).send({ farmId: FARM, rows });
+    assert.equal(r.body.inserted, 4, JSON.stringify(r.body));
+    const { rows: got } = await pool.query("SELECT device_id, source FROM actuator_status WHERE farm_id = $1 AND timestamp = $2 ORDER BY device_id", [FARM, at(0)]);
+    assert.deepEqual(got.map((x) => x.device_id + ":" + x.source), ["cooler1:vendor", "heater1:ks3267d", "odd1:ks3267d", "old1:ks3267d"]);
+    await pool.query("DELETE FROM actuator_status WHERE farm_id = $1 AND timestamp = $2", [FARM, at(0)]);
+  });
   test("deviceId/status 없는 행은 거른다, 빈 배열은 0", async () => {
     const r = await request(app).post("/internal/actuator-status").set("x-api-key", KEY()).send({ farmId: FARM, rows: [{ deviceId: "x" }] });
     assert.equal(r.status, 400);

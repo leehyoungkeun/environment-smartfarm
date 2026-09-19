@@ -88,7 +88,7 @@ def main():
     p.add_argument("--retries", type=int, default=0, help="기본 0 — 버스 문제를 재시도로 가리지 않는다")
     p.add_argument("--state-dir", default=os.path.join(os.path.dirname(os.path.abspath(__file__)), "state"))
     p.add_argument("--nr-url", default="", help="상태 변화 POST 대상 (예: http://127.0.0.1:1880/api/ks3267/status)")
-    p.add_argument("--local-days", type=int, default=60, help="로컬 1분 스냅샷 보존 일수 (state/snapshots.db)")
+    p.add_argument("--local-days", type=int, default=60, help="로컬 1분 스냅샷 보존 일수 시작값 (state/snapshots.db). 실행 중엔 NR 이 넘기는 서버 보관 설정(retentionDays)을 따른다")
     p.add_argument("--evidence-dir", default=os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "evidence")),
                    help="실노드 증적 묶음 폴더 — 자가시험(selftest --out)과 같은 곳 (2026-09-19)")
     a = p.parse_args()

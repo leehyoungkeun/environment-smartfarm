@@ -38,11 +38,22 @@ CREATE TABLE IF NOT EXISTS command_log (
   src TEXT, house TEXT, device TEXT, actor TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_command_log_unit ON command_log (unit, ts);
+CREATE TABLE IF NOT EXISTS vendor_actuator_minute (
+  ts INTEGER NOT NULL, house_id TEXT NOT NULL, device_id TEXT NOT NULL,
+  unit INTEGER, kind TEXT, n INTEGER, name TEXT, opid INTEGER, status INTEGER NOT NULL, status_name TEXT, remain INTEGER,
+  PRIMARY KEY (ts, house_id, device_id)
+);
 """
 
 
 def _iso(ts):
     return time.strftime("%Y-%m-%dT%H:%M:%S", time.gmtime(ts)) + "Z"
+
+
+def _parse_iso(v):
+    """'2026-09-19T12:34:00.000Z' → epoch 초 (UTC)"""
+    import datetime as _dt
+    return _dt.datetime.fromisoformat(str(v).replace("Z", "+00:00")).timestamp()
 
 
 def _int(v):
@@ -135,6 +146,54 @@ class LocalStore:
                  "accepted": bool(r[7]), "kind": r[8], "code": r[9], "src": r[10] or "direct",
                  "house": r[11], "device": r[12], "by": r[13]} for r in rows]
 
+    # ── 비표준(벤더) 구동기 1분 행 (2026-09-19 표준·비표준 저장 통일) ─────────────
+    # NR 「1분 스냅샷」이 매분 실제 릴레이 코일 상태로 만든 행을 넘긴다(POST /local/vendor-actuator).
+    # 비표준은 버스가 달라 unit·n 이 표준과 겹칠 수 있어 표준 actuator_minute 과 따로 둔다 — 키는 하우스·장치.
+    MIN_RETENTION_DAYS, MAX_RETENTION_DAYS = 7, 3650
+
+    def record_vendor(self, rows, now=None):
+        """rows: [{timestamp(ISO), houseId, deviceId, unit, kind, n, status, statusName, remain, opid}] → 저장 행 수(중복은 무시)"""
+        out = []
+        for r in rows or []:
+            try:
+                ts = int(_parse_iso(r["timestamp"]) // 60 * 60)
+                out.append((ts, str(r["houseId"]), str(r["deviceId"]), _int(r.get("unit")), r.get("kind"), _int(r.get("n")),
+                            r.get("name") or r.get("deviceId"), _int(r.get("opid")) or 0, int(r["status"]),
+                            r.get("statusName") or r.get("status_name"), _int(r.get("remain")) or 0))
+            except (KeyError, TypeError, ValueError):
+                continue
+        if not out:
+            return 0
+        with self._conn() as c:
+            before = c.total_changes
+            c.executemany("INSERT OR IGNORE INTO vendor_actuator_minute VALUES (?,?,?,?,?,?,?,?,?,?,?)", out)
+            return c.total_changes - before
+
+    def query_vendor_actuator(self, house_id=None, device_id=None, start=None, end=None, limit=5000):
+        start, end = self._range(start, end, self.clock())
+        sql = ("SELECT ts, house_id, device_id, unit, kind, n, name, opid, status, status_name, remain "
+               "FROM vendor_actuator_minute WHERE ts >= ? AND ts <= ?")
+        p = [int(start), int(end)]
+        if house_id:
+            sql += " AND house_id = ?"; p.append(str(house_id))
+        if device_id:
+            sql += " AND device_id = ?"; p.append(str(device_id))
+        sql += " ORDER BY ts, house_id, device_id LIMIT ?"; p.append(min(int(limit or 5000), 200000))
+        with self._conn() as c:
+            rows = c.execute(sql, p).fetchall()
+        return [{"timestamp": _iso(r[0]), "house_id": r[1], "device_id": r[2], "unit": r[3], "kind": r[4], "n": r[5], "name": r[6],
+                 "opid": r[7], "status": r[8], "status_name": r[9], "remain": r[10], "source": "vendor"} for r in rows]
+
+    def set_retention(self, days):
+        """보관 일수를 서버 설정(NR 전역 retentionDays)과 맞춘다. 범위 밖이면 무시. 반환: 적용된 일수"""
+        try:
+            d = int(days)
+        except (TypeError, ValueError):
+            return self.retention // 86400
+        if self.MIN_RETENTION_DAYS <= d <= self.MAX_RETENTION_DAYS:
+            self.retention = d * 86400
+        return self.retention // 86400
+
     def prune(self, now=None):
         now = self.clock() if now is None else now
         cut = int(now) - self.retention
@@ -142,8 +201,9 @@ class LocalStore:
             a = c.execute("DELETE FROM sensor_minute WHERE ts < ?", (cut,)).rowcount
             b = c.execute("DELETE FROM actuator_minute WHERE ts < ?", (cut,)).rowcount
             c.execute("DELETE FROM command_log WHERE ts < ?", (cut,))
+            v = c.execute("DELETE FROM vendor_actuator_minute WHERE ts < ?", (cut,)).rowcount
         self._last_prune = now
-        return a + b
+        return a + b + v
 
     # ── 조회 ────────────────────────────────────────────────────────
     def _range(self, start, end, now):
@@ -186,11 +246,15 @@ class LocalStore:
         with self._conn() as c:
             s = c.execute("SELECT date(ts, 'unixepoch', 'localtime') d, count(*) FROM sensor_minute WHERE ts >= ? GROUP BY d", (cut,)).fetchall()
             a = c.execute("SELECT date(ts, 'unixepoch', 'localtime') d, count(*) FROM actuator_minute WHERE ts >= ? GROUP BY d", (cut,)).fetchall()
+            v = c.execute("SELECT date(ts, 'unixepoch', 'localtime') d, count(*) FROM vendor_actuator_minute WHERE ts >= ? GROUP BY d", (cut,)).fetchall()
         out = {}
+        blank = lambda d: {"date": d, "sensors": 0, "actuators": 0, "vendorActuators": 0}
         for d, n in s:
-            out.setdefault(d, {"date": d, "sensors": 0, "actuators": 0})["sensors"] = n
+            out.setdefault(d, blank(d))["sensors"] = n
         for d, n in a:
-            out.setdefault(d, {"date": d, "sensors": 0, "actuators": 0})["actuators"] = n
+            out.setdefault(d, blank(d))["actuators"] = n
+        for d, n in v:
+            out.setdefault(d, blank(d))["vendorActuators"] = n
         return [out[k] for k in sorted(out)]
 
     @staticmethod

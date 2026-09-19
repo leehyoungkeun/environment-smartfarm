@@ -73,6 +73,20 @@ pm2 start ks3267d/ks3267d.py   --name ks3267d   --interpreter ./venv/bin/python 
 5. 사용설명서 `docs/ksx3267/manual/사용설명서.md`
 운영 반영 순서: 서버 DB 에 `migration-actuator-status.sql` 적용 → 백엔드 배포 → NR 에서 `ks3267-snapshot-nodes.json` 가져오기(탭 열고) → Deploy → 제어판 매핑 장치 있으면 1분 뒤 `actuator_status` 행 확인
 
+## 3.3.1 저장 정책 — 표준·비표준 동일 (2026-09-19)
+
+| 대상 | 서버 (1분) | 서버 보관·압축 | 제어기 로컬 (1분) | 로컬 보관 |
+|---|---|---|---|---|
+| 센서 (비표준·매핑된 표준) | `sensor_data` | 삭제 없음 · 7일 뒤 압축 | Node-RED SQLite `sensor_data` | 서버 설정 retentionDays (기본 60) |
+| 표준 센서 관측치·상태 | `ks_sensor_status` | 삭제 없음 · 7일 뒤 압축 | 드라이버 `sensor_minute` | 같은 retentionDays |
+| 구동기 (표준) | `actuator_status` source=ks3267d | 삭제 없음 · 7일 뒤 압축 | 드라이버 `actuator_minute` | 같은 retentionDays |
+| 구동기 (비표준 릴레이) | `actuator_status` source=vendor | 삭제 없음 · 7일 뒤 압축 | 드라이버 `vendor_actuator_minute` | 같은 retentionDays |
+
+- 비표준 구동기 행은 NR 「응답 포맷」(릴레이 MQTT 상태 탭)이 30초마다 FC1 로 **실제로 읽은 코일**로 만든다(`global.vendorCoils`). 상태코드는 표준과 같게 켜짐 201 / 꺼짐 0 / 열림 코일 301 / 닫힘 코일 302. 3분 넘게 못 읽으면 행을 만들지 않는다(손실로 드러남). 남은시간·OPID 는 비표준에 없어 0.
+- 압축 정책 `backend/prisma/migration-ks-compression.sql`(운영 DB 적용 2026-09-19, 재실행 안전). segmentby 가 PK 를 덮어 압축 청크에서도 재전송 멱등(`test/db/storage-policy.test.js`).
+- 드라이버 로컬 보관 일수는 NR 「1분 스냅샷」 출력 2 가 매분 넘기는 `retentionDays` 를 따른다(7~3650일 밖은 무시).
+- 남는 차이는 장치 능력뿐: 비표준 센서는 상태코드가 없어 `ks_sensor_status` 에 해당 행이 없다.
+
 ## 3.4 실노드 증적 — 화면 버튼 하나 (2026-09-19)
 
 입고 시험장에는 인터넷도 SSH 도 없다. 자가시험 스크립트는 시험장비(시뮬레이터) API 로 값을 바꿔 가며 판정하므로 실 노드엔 못 쓴다. 그래서 표준노드 탭 **⑤ 「실노드 증적 만들기」** 를 두었다.

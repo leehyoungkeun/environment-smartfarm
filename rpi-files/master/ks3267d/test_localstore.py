@@ -146,5 +146,50 @@ class CommandLogOriginMigration(unittest.TestCase):
         self.assertEqual((rows[1]["house"], rows[1]["device"], rows[1]["by"]), ("house_0003", "heater1", "web_dashboard"))
 
 
+class VendorActuator(unittest.TestCase):
+    """비표준(벤더) 구동기 1분 행 — 표준과 같은 로컬 저장·보관 (2026-09-19 저장 정책 통일)"""
+    def setUp(self):
+        self.dir = tempfile.mkdtemp()
+        self.clock = Clock()
+        self.s = LocalStore(os.path.join(self.dir, "s.db"), clock=self.clock)
+
+    def row(self, t, dev="cooler1", status=201, **kw):
+        import datetime as dt
+        r = {"timestamp": dt.datetime.fromtimestamp(t, dt.timezone.utc).isoformat().replace("+00:00", "Z"), "houseId": "house_0001",
+             "deviceId": dev, "unit": 2, "kind": "switch", "n": 4, "status": status, "statusName": "ON" if status else "READY"}
+        r.update(kw); return r
+
+    def test_record_query_and_dedupe(self):
+        t = self.clock.t - 120
+        self.assertEqual(self.s.record_vendor([self.row(t), self.row(t, dev="side_window1", kind="opener", status=301)]), 2)
+        self.assertEqual(self.s.record_vendor([self.row(t)]), 0, "같은 분·장치 재전송이 중복 저장됐다")
+        rows = self.s.query_vendor_actuator(house_id="house_0001")
+        self.assertEqual(sorted((r["device_id"], r["status"], r["source"]) for r in rows),
+                         [("cooler1", 201, "vendor"), ("side_window1", 301, "vendor")])
+
+    def test_bad_rows_skipped(self):
+        self.assertEqual(self.s.record_vendor([{"houseId": "h"}, {"timestamp": "x", "houseId": "h", "deviceId": "d", "status": 0}, None]), 0)
+
+    def test_same_unit_as_standard_does_not_collide(self):
+        """비표준 버스의 unit 2 와 표준 버스의 unit 2 는 다른 장치 — 표를 나눠 서로 덮지 않는다"""
+        t = self.clock.t - 60
+        self.s.record({2: {"kind": "actuator", "t": t, "unit": 2, "devices": {"4": {"name": "스위치4", "kind": "switch", "n": 4, "opid": 1, "status": 0, "status_name": "READY", "remain": 0}}}}, now=t)
+        self.s.record_vendor([self.row(t)])
+        self.assertEqual(len(self.s.query_actuator(unit=2)), 1)
+        self.assertEqual(len(self.s.query_vendor_actuator()), 1)
+
+    def test_retention_follows_server_setting_and_prunes_vendor(self):
+        self.assertEqual(self.s.set_retention(30), 30)
+        self.assertEqual(self.s.set_retention(3), 30, "7일 미만은 무시")
+        self.assertEqual(self.s.set_retention("x"), 30)
+        self.s.record_vendor([self.row(self.clock.t - 40 * 86400), self.row(self.clock.t - 60)])
+        self.s.prune()
+        self.assertEqual(len(self.s.query_vendor_actuator(start=self.clock.t - 100 * 86400)), 1)
+
+    def test_summary_counts_vendor(self):
+        self.s.record_vendor([self.row(self.clock.t - 60)])
+        self.assertEqual(sum(d["vendorActuators"] for d in self.s.summary()), 1)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -209,10 +209,11 @@ router.post('/ks3267/stats-reset', async (req, res) => {
 });
 
 // §5.4.4 제어기 로컬 1분 스냅샷(SQLite) — 인터넷 없이 저장을 보인다. 읽기 전용, 쿼리 그대로 전달 (unit, idx, start, end, limit, days).
-for (const kind of ['sensor-status', 'actuator-status', 'summary']) {
+// vendor-actuator-status: 비표준 구동기 1분 행 — 표준과 같은 로컬 저장 (2026-09-19 저장 정책 통일)
+for (const kind of ['sensor-status', 'actuator-status', 'vendor-actuator-status', 'summary']) {
   router.get(`/ks3267/local-${kind}`, async (req, res) => {
     const qs = new URLSearchParams();
-    for (const k of ['unit', 'idx', 'start', 'end', 'limit', 'days']) if (req.query[k] !== undefined) qs.set(k, String(req.query[k]));
+    for (const k of ['unit', 'idx', 'house', 'device', 'start', 'end', 'limit', 'days']) if (req.query[k] !== undefined) qs.set(k, String(req.query[k]));
     res.json(await ksDaemon('GET', `/local/${kind}${qs.toString() ? '?' + qs : ''}`, null, 20000));
   });
 }

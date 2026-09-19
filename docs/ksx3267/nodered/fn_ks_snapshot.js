@@ -6,6 +6,13 @@
 //      드라이버(ks3267d)는 상태 변화 + 60초 하트비트로 NR 전역 ks3267State 를 갱신한다.
 // 원칙: 값을 지어내지 않는다 — 3분 넘게 갱신 없는 노드(데몬 중단·버스 단선)는 행을 만들지 않는다 (= 손실로 드러난다).
 //       전송 실패분은 flow 큐에 남겨 다음 분에 함께 재전송 (서버는 PK 로 중복 무시 → 멱등). 큐 상한 20,000행.
+//
+// 2026-09-19 표준·비표준 저장 정책 통일:
+//   · 비표준(Waveshare 릴레이) 장치도 같은 1분 행을 만든다 — 「응답 포맷」(릴레이 MQTT 상태 탭)이 30초마다 FC1 로 읽어
+//     global.vendorCoils 에 둔 실제 코일 상태로. 상태코드는 표준과 같게: 스위치 켜짐 201 / 꺼짐 0, 개폐기 열림 코일 301 /
+//     닫힘 코일 302 / 둘 다 꺼짐 0. 3분 넘게 못 읽었으면 행을 만들지 않는다(손실로 드러남). source='vendor'.
+//   · 출력 2 → 드라이버 POST /local/vendor-actuator {rows, retentionDays}: 제어기 로컬 1분 저장도 표준과 한곳에,
+//     로컬 보관 일수는 서버 설정(global.retentionDays, 매일 03:00 갱신)을 따른다. 드라이버가 살아 있을 때만 보낸다.
 // ============================================================
 const config = global.get('houseConfig') || {};
 const all = global.get('ks3267State') || {};
@@ -30,6 +37,30 @@ for (const house of (config.houses || [])) {
             status: Number(dev.status), statusName: dev.status_name || null,
             remain: Number(dev.remain) || 0, opid: Number(dev.opid) || 0
         });
+    }
+}
+
+// 비표준(벤더) 구동기 1분 행 — 실제로 읽은 코일 상태로 (2026-09-19)
+const vc = global.get('vendorCoils') || {};
+const vendorRows = [];
+for (const house of (config.houses || [])) {
+    for (const d of (house.devices || [])) {
+        const m = d.modbus;
+        if (!m || m.protocol === 'ks3267' || m.unitId === undefined || m.unitId === null || m.address === undefined || m.address === null) continue;
+        const cs = vc[String(m.unitId)];
+        if (!cs || !cs.coils || now - (cs.t || 0) > STALE_MS) continue;   // 못 읽은 모듈은 기록하지 않는다
+        const bidir = m.controlType === 'bidir';
+        const on = !!cs.coils[String(m.address)];
+        const close = bidir && m.address2 !== undefined && m.address2 !== null && !!cs.coils[String(m.address2)];
+        const status = bidir ? (on ? 301 : (close ? 302 : 0)) : (on ? 201 : 0);
+        const row = {
+            timestamp: minuteIso, houseId: house.houseId, deviceId: d.deviceId, name: d.name || d.deviceId,
+            unit: Number(m.unitId), kind: bidir ? 'opener' : 'switch', n: Number(m.address) + 1,
+            status: status, statusName: status === 201 ? 'ON' : status === 301 ? 'OPENING' : status === 302 ? 'CLOSING' : 'READY',
+            remain: 0, opid: 0, source: 'vendor'
+        };
+        rows.push(row);
+        vendorRows.push(row);
     }
 }
 
@@ -67,9 +98,17 @@ let squeue = (flow.get('ksSensorSnapshotQueue') || []).concat(sensorRows);
 if (squeue.length > 60000) squeue = squeue.slice(squeue.length - 60000);   // 30센서 × 2000분
 flow.set('ksSensorSnapshotQueue', squeue);
 
+// 출력 2 — 드라이버 로컬 저장(비표준 행) + 보관 일수 동기화. 드라이버가 상태를 보내오고 있을 때만(없는 농장에서 매분 오류 방지)
+let local = null;
+if (Object.keys(all).length > 0) {
+    local = { method: 'POST', url: (env.get('KS3267_API') || 'http://127.0.0.1:3002') + '/local/vendor-actuator',
+              headers: { 'Content-Type': 'application/json' }, requestTimeout: 5000,
+              payload: { rows: vendorRows, retentionDays: global.get('retentionDays') || 60 } };
+}
+
 if (queue.length === 0 && squeue.length === 0) {
-    node.status({ fill: 'grey', shape: 'ring', text: '표준 장치·센서 없음/상태 낡음 — 기록 없음' });
-    return null;
+    node.status({ fill: 'grey', shape: 'ring', text: '장치·센서 없음/상태 낡음 — 기록 없음' });
+    return [null, local];
 }
 
 const BATCH = 5000;
@@ -81,5 +120,5 @@ msg.payload = { farmId: global.get('farmId') || env.get('FARM_ID') || 'farm_0001
 msg.requestTimeout = 10000;
 msg._sent = Math.min(queue.length, BATCH);
 msg._sentSensors = Math.min(squeue.length, BATCH);
-node.status({ fill: 'blue', shape: 'dot', text: '전송 장치 ' + msg._sent + '·센서 ' + msg._sentSensors + '행 (이번 분 ' + rows.length + '/' + sensorRows.length + ')' });
-return msg;
+node.status({ fill: 'blue', shape: 'dot', text: '전송 장치 ' + msg._sent + '·센서 ' + msg._sentSensors + '행 (이번 분 ' + rows.length + '(비표준 ' + vendorRows.length + ')/' + sensorRows.length + ')' });
+return [msg, local];

@@ -81,12 +81,13 @@ export function controlLogTable(logs) {
   return { columns, rows };
 }
 
-/** actuator_status(표준 구동기 1분 스냅샷) → 표 */
+/** actuator_status(구동기 1분 스냅샷 — 표준 ks3267d·비표준 vendor, 2026-09-19 통일) → 표 */
 export function actuatorStatusTable(rows) {
   const columns = [
     { key: "timestamp", label: "timestamp" }, { key: "house_id", label: "house_id" }, { key: "device_id", label: "device_id" },
     { key: "unit", label: "unit" }, { key: "kind", label: "kind" }, { key: "n", label: "n" },
     { key: "status", label: "status" }, { key: "status_name", label: "status_name" }, { key: "remain", label: "remain_sec" }, { key: "opid", label: "opid" },
+    { key: "source", label: "source" },
   ];
   return { columns, rows: rows.map((r) => ({ ...r, timestamp: formatTs(r.timestamp) })) };
 }

@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 """localstore — 제어기 로컬 1분 스냅샷 (2026-09-15). pymodbus 없이 돈다."""
 import os
+import sqlite3
 import sys
 import tempfile
 import unittest
@@ -189,6 +190,38 @@ class VendorActuator(unittest.TestCase):
     def test_summary_counts_vendor(self):
         self.s.record_vendor([self.row(self.clock.t - 60)])
         self.assertEqual(sum(d["vendorActuators"] for d in self.s.summary()), 1)
+
+
+class ConnectionLifetime(unittest.TestCase):
+    """SQLite 연결은 쓰고 나면 닫는다 — 2026-09-20 사고: 연결이 남아 fd 209개·RSS 244MB"""
+    def setUp(self):
+        self.dir = tempfile.mkdtemp()
+        self.s = LocalStore(os.path.join(self.dir, "s.db"), clock=Clock())
+
+    def test_conn_closed_after_use(self):
+        with self.s._conn() as c:
+            c.execute("SELECT 1")
+        with self.assertRaises(sqlite3.ProgrammingError):
+            c.execute("SELECT 1")
+
+    def test_repeated_calls_do_not_leak_open_connections(self):
+        import gc
+        for i in range(30):
+            self.s.record_vendor([{ "timestamp": "2026-09-20T00:%02d:00Z" % (i % 60), "houseId": "h", "deviceId": "d",
+                                    "unit": 2, "kind": "switch", "n": 1, "status": 0 }])
+            self.s.query_vendor_actuator()
+        gc.collect()
+        live = [o for o in gc.get_objects() if isinstance(o, sqlite3.Connection)]
+        self.assertLessEqual(len(live), 2, f"열린 연결 {len(live)}개가 남았다 — fd·메모리 누수")
+
+    def test_error_inside_block_still_closes(self):
+        try:
+            with self.s._conn() as c:
+                c.execute("SELECT * FROM nope")
+        except sqlite3.OperationalError:
+            pass
+        with self.assertRaises(sqlite3.ProgrammingError):
+            c.execute("SELECT 1")
 
 
 if __name__ == "__main__":

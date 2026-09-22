@@ -10,6 +10,7 @@
   - 보존 60일(로컬 SQLite 정리 정책과 같음). 파일 하나, 연결은 호출마다 새로 연다(API 서버가 다중 스레드).
   - pymodbus 를 import 하지 않는다 — 시험이 라이브러리 없이 돈다 (test_localstore.py).
 """
+import contextlib
 import csv
 import io
 import os
@@ -81,10 +82,19 @@ class LocalStore:
                 if col not in have:
                     c.execute(f"ALTER TABLE command_log ADD COLUMN {col} TEXT")
 
+    @contextlib.contextmanager
     def _conn(self):
+        """연결을 열고 — 커밋(또는 롤백) 후 **반드시 닫는다**.
+        2026-09-20: 예전엔 `with sqlite3.connect(...)` 를 그대로 돌려줬는데, sqlite3 의 with 는 트랜잭션만 끝내고
+        연결은 닫지 않는다. 호출마다 연결이 남아 파일 핸들이 분당 십여 개씩 늘고(2일 만에 209개),
+        연결별 페이지 캐시로 RSS 가 244 MB 까지 불었다. 데몬은 API 서버라 스레드마다 새로 연다."""
         c = sqlite3.connect(self.path, timeout=5, check_same_thread=False)
-        c.execute("PRAGMA journal_mode=WAL")
-        return c
+        try:
+            c.execute("PRAGMA journal_mode=WAL")
+            with c:
+                yield c
+        finally:
+            c.close()
 
     # ── 기록 ────────────────────────────────────────────────────────
     def record(self, states, now=None):

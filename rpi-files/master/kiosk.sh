@@ -25,7 +25,13 @@ unclutter -idle 3 &
 xrandr --output HDMI-1 --mode 1024x600 2>/dev/null
 
 # 자동 재시작 + 원격 디버깅 (PC 에서 chrome://inspect 접근)
+#
+# --disable-renderer-accessibility (2026-09-21):
+#   RPi OS 의 /etc/chromium.d/00-rpi-vars 가 모든 chromium 에 --force-renderer-accessibility 를 붙인다.
+#   접근성이 켜지면 화면 DOM 이 바뀔 때마다 접근성 트리를 브라우저 본체로 넘겨, 카운트다운·센서값이 초 단위로
+#   바뀌는 우리 화면에서 브라우저 본체가 제어기 CPU 의 대부분을 썼다(3.5일 누적 10.6시간, 9/20 낮 CPU 12%·SoC 72~78°C).
+#   키오스크엔 화면낭독기·화상 키보드가 없어 접근성을 쓰는 곳이 없다. OS 파일은 업데이트 때 덮이므로 여기서 끈다.
 while true; do
-  chromium     --kiosk --force-device-scale-factor=1 --disable-features=Translate --lang=ko     --noerrdialogs     --disable-infobars     --disable-session-crashed-bubble     --disable-component-update     --check-for-update-interval=31536000     --remote-debugging-port=9222     --remote-allow-origins=*     'http://localhost'
+  chromium     --kiosk --disable-renderer-accessibility --force-device-scale-factor=1 --disable-features=Translate --lang=ko     --noerrdialogs     --disable-infobars     --disable-session-crashed-bubble     --disable-component-update     --check-for-update-interval=31536000     --remote-debugging-port=9222     --remote-allow-origins=*     'http://localhost'
   sleep 5
 done

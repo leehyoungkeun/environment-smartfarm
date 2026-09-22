@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import axiosBase from 'axios';
 import { getApiBase } from '../../services/apiSwitcher';
 import { describeStatus, discoveryRows, nodeSummary, nodeInfoRows, nodeReadRows, mappingIndex, mappingKey, frameRows, commChangeWarnings, deviceCodeCheck, nodeReadView, deviceKindSummary, changeStats, storageCheck } from '../../lib/ks3267';
@@ -230,8 +230,28 @@ export const KsNodeManager = ({ farmId }) => {
   const [frames, setFrames] = useState({ frames: [], stats: null });
   const [events, setEvents] = useState([]);
   const [tick, setTick] = useState(0);
+  // 1분 저장 표(서버·로컬)는 1분에 한 번만 바뀐다 — 10초마다 한 시간치 행(수천 개)을 다시 받아 표를 다시 그리던 것이
+  // 키오스크에서 이 탭을 열어 둔 12시간 내내 CPU 12%·SoC 72~79 °C 의 원인이었다 (2026-09-22). 무거운 조회는 60초 주기로.
+  const HEAVY_EVERY_TICKS = 6;
+  const lastHeavyRef = useRef(-HEAVY_EVERY_TICKS);
+  // 패널에서 5분간 아무도 화면을 만지지 않으면 조회를 멈춘다(화면이 꺼져도 페이지는 계속 돌기 때문). 첫 터치에 바로 재개.
+  const IDLE_PAUSE_MS = 5 * 60 * 1000;
+  const [paused, setPaused] = useState(false);
+  const lastInputRef = useRef(Date.now());
+  useEffect(() => {
+    if (!onPanel) return undefined;
+    const wake = () => {
+      lastInputRef.current = Date.now();
+      setPaused((p) => { if (p) setTick((x) => x + 1); return false; });
+    };
+    const evs = ['pointerdown', 'touchstart', 'keydown', 'wheel'];
+    evs.forEach((ev) => window.addEventListener(ev, wake, { passive: true }));
+    const t = setInterval(() => { if (Date.now() - lastInputRef.current > IDLE_PAUSE_MS) setPaused(true); }, 30000);
+    return () => { evs.forEach((ev) => window.removeEventListener(ev, wake)); clearInterval(t); };
+  }, [onPanel, IDLE_PAUSE_MS]);
 
   const daemonUp = health?.ok === true;
+  const heavyTick = Math.floor(tick / HEAVY_EVERY_TICKS);
 
   // 데몬·노드·상태·하우스 설정 로드 (10초 주기 — 데몬이 살아 있을 때만 상태 갱신)
   useEffect(() => {
@@ -252,6 +272,15 @@ export const KsNodeManager = ({ farmId }) => {
           const chs = await Promise.all(sensorUnits.map((u) => commGet('changes', { unit: u, n: 80 }).catch(() => null)));
           if (!alive) return;
           setChanges(Object.fromEntries(sensorUnits.map((u, i) => [u, chs[i]?.changes || []])));
+          if (showDiag) {
+            const [f, e] = await Promise.all([ks('frames', { n: 40 }), ks('events', { n: 30 })]);
+            if (!alive) return;
+            setFrames({ frames: f.frames || [], stats: f.stats || null });
+            setEvents(e.events || []);
+          }
+          // 아래 두 조회(서버·로컬 1분 저장 표)는 무겁고 1분에 한 번만 바뀐다 → 60초마다만
+          if (tick - lastHeavyRef.current < HEAVY_EVERY_TICKS) return;
+          lastHeavyRef.current = tick;
           // §5.4.4 — 서버(ks_sensor_status)에 매분 저장된 관측치·상태. 최근 60분. 서버 미배포·미인증이면 조용히 빈 값.
           const since = new Date(Date.now() - 60 * 60000).toISOString();
           const sts = await Promise.all(sensorUnits.map((u) => axios.get(`${api}/sensor-status/${farmId}`, { params: { unit: u, startDate: since }, timeout: 15000 })
@@ -266,12 +295,6 @@ export const KsNodeManager = ({ farmId }) => {
             if (!alive) return;
             setLocal(Object.fromEntries(allUnits.map(([u], i) => [u, loc[i]])));
           }
-          if (showDiag) {
-            const [f, e] = await Promise.all([ks('frames', { n: 40 }), ks('events', { n: 30 })]);
-            if (!alive) return;
-            setFrames({ frames: f.frames || [], stats: f.stats || null });
-            setEvents(e.events || []);
-          }
         }
       } catch (e) {
         if (alive) setHealth({ ok: false, error: e.response?.data?.error || e.message });
@@ -281,9 +304,10 @@ export const KsNodeManager = ({ farmId }) => {
   }, [ks, commGet, api, farmId, onPanel, tick, showDiag]);
 
   useEffect(() => {
+    if (paused) return undefined;   // 패널 무입력 5분 — 조회 정지 (첫 터치에 재개)
     const t = setInterval(() => setTick(x => x + 1), 10000);
     return () => clearInterval(t);
-  }, []);
+  }, [paused]);
 
   useEffect(() => {
     let alive = true;
@@ -291,7 +315,7 @@ export const KsNodeManager = ({ farmId }) => {
       .then(r => { if (alive && r.data?.success) setHouses(r.data.data || []); })
       .catch(() => {});
     return () => { alive = false; };
-  }, [api, farmId, tick]);
+  }, [api, farmId, heavyTick]);   // 하우스 설정(매핑)도 60초마다면 충분
 
   const discover = async () => {
     const unit = parseInt(unitInput, 10);
@@ -351,6 +375,11 @@ export const KsNodeManager = ({ farmId }) => {
       <div className="px-1">
         <h2 className="text-2xl font-extrabold text-gray-900">📐 KS X 3267 표준 노드</h2>
         <p className="text-sm text-gray-500 mt-1">표준 규격(KS X 3267) 센서·구동기 노드를 찾고, 노드 정보가 표준과 맞는지 확인하는 화면입니다. 이 화면에서는 제어하지 않습니다.</p>
+        {paused && (
+          <p className="mt-2 inline-block px-3 py-1 rounded-md bg-amber-50 text-amber-800 text-sm font-semibold">
+            5분 동안 화면을 만지지 않아 갱신을 멈췄습니다 — 화면을 만지면 바로 다시 갱신합니다 (발열 방지)
+          </p>
+        )}
       </div>
 
       {/* ① 드라이버 연결 */}

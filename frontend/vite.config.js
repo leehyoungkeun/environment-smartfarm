@@ -23,6 +23,7 @@ function stripGoogleFonts() {
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), '')
   const isFarmLocal = env.VITE_FARM_LOCAL === 'true'
+  const isPanel = mode === 'rpi'  // 제어기 키오스크 패널 빌드
 
   return {
     plugins: [
@@ -65,18 +66,21 @@ export default defineConfig(({ mode }) => {
             },
             {
               // ★ Realtime endpoint — NetworkOnly (절대 stale 안 됨)
-              //   sensors/latest, automation schedule, alerts, device-positions, nutrient current/status
+              //   sensors/latest, automation schedule, alerts, device-positions, nutrient current/status,
+              //   표준노드(ks3267 드라이버·통신·센서상태) — 10초 폴링이라 캐시에 넣으면 매번 IndexedDB 만료 정리가 돈다
               urlPattern: ({ request, url }) =>
                 request.method === 'GET' &&
-                /\/api\/(sensors\/latest|automation\/[^/]+\/schedule|alerts|device-positions|nutrient\/(?:current|status))/.test(url.pathname),
+                /\/api\/(sensors\/latest|automation\/[^/]+\/schedule|alerts|device-positions|nutrient\/(?:current|status)|ks3267|sensor-status\/|config\/[^/]+\/ks3267)/.test(url.pathname),
               handler: 'NetworkOnly',
             },
-            {
-              // 그 외 API GET — NetworkFirst (네트워크 우선, 실패 시 캐시 fallback)
+            // 그 외 API GET — NetworkFirst (네트워크 우선, 실패 시 캐시 fallback). 모바일 음영지역 이력 조회용.
+            // 패널(키오스크, --mode rpi)은 제어기 자신이라 음영이 없고, 저장할 때마다 workbox 만료 정리가
+            // IndexedDB 를 훑어 브라우저 본체가 코어 38% 를 먹었다 (2026-09-22 실측, 설정 탭 72°C) → 패널은 캐시 안 함.
+            ...(isPanel ? [] : [{
               urlPattern: ({ request, url }) => request.method === 'GET' && url.pathname.startsWith('/api/'),
               handler: 'NetworkFirst',
               options: { cacheName: 'api-cache', expiration: { maxEntries: 100, maxAgeSeconds: 24 * 3600 }, networkTimeoutSeconds: 5 },
-            },
+            }]),
           ],
         },
       }),

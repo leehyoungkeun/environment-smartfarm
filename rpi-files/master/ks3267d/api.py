@@ -27,6 +27,7 @@ from urllib.parse import parse_qs, urlparse
 
 import comm as commlib
 import evidence as evlib
+import obs
 from transport import ModbusExc, TransportTimeout
 
 
@@ -210,6 +211,7 @@ def make_handler(master, comm_ctx=None):
                     return self._json(200, {"ok": True, "id": parts[0], "name": parts[1], "content": content})
                 return self._json(404, {"ok": False, "error": "not found"})
             except Exception as e:  # 진단 API 가 죽으면 안 된다
+                obs.capture(e, where="api_get", path=u.path)   # 백엔드와 같은 정책 — 5xx 는 보고한다
                 return self._json(500, {"ok": False, "error": str(e)})
 
         def do_POST(self):
@@ -263,6 +265,7 @@ def make_handler(master, comm_ctx=None):
                 except ValueError as e:
                     return self._json(200, {"ok": False, "error": str(e)})
                 except Exception as e:
+                    obs.capture(e, where="evidence_build", unit=unit)
                     return self._json(200, {"ok": False, "error": f"증적 생성 실패: {e}"})
             if u.path == "/local/vendor-actuator":
                 # NR 「1분 스냅샷」이 비표준 구동기 행 + 서버 보관 설정(retentionDays)을 매분 넘긴다 (2026-09-19 저장 정책 통일)
@@ -295,6 +298,7 @@ def make_handler(master, comm_ctx=None):
                     commlib.save_comm(ctx["path"], cfg)
                     return self._json(200, {"ok": True, "current": transport_info(master.t), "nonStandard": cfg["nonStandard"]})
                 except Exception as e:
+                    obs.capture(e, where="comm_apply")
                     return self._json(200, {"ok": False, "error": f"통신 설정 적용 실패: {e}", "current": transport_info(master.t)})
             return self._json(404, {"ok": False, "error": "not found"})
     return H

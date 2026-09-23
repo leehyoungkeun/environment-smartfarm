@@ -22,6 +22,7 @@ import urllib.request
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
+import obs  # noqa: E402
 from api import serve  # noqa: E402
 from comm import list_ports, load_comm  # noqa: E402
 from localstore import LocalStore  # noqa: E402
@@ -47,33 +48,42 @@ def poll_loop(master, units, interval, nr_url, stop, store=None):
     last = {}
     last_push = {}
     while not stop.is_set():
-        if store is not None:
-            try:
-                r = store.record(master.state)   # 분이 바뀌었을 때만 로컬 1분 스냅샷 (§5.4.4 오프라인 조회, 2026-09-15)
-                if r and (r["sensors"] or r["actuators"]):
-                    log.debug("로컬 스냅샷 %s: 센서 %d·구동기 %d", r["minute"], r["sensors"], r["actuators"])
-            except Exception as e:
-                log.warning("로컬 스냅샷 실패: %s", e)
-        for unit in list(units):
-            if unit not in master.nodes:
-                try:
-                    master.discover(unit)
-                except (ModbusExc, TransportTimeout) as e:
-                    log.warning("unit %d 탐색 실패: %s", unit, e)
-                    continue
-            st = master.poll(unit)
-            if st is None:
-                continue
-            key = json.dumps({k: v for k, v in st.items() if k != "t"}, sort_keys=True, default=str)
-            changed = key != last.get(unit)
-            heartbeat = (time.time() - last_push.get(unit, 0)) >= HEARTBEAT_SEC
-            if changed:
-                last[unit] = key
-                log.info("unit %d 상태 변화: %s", unit, key[:200])
-            if nr_url and (changed or heartbeat):
-                push_status(nr_url, {"source": "ks3267d", "unit": unit, "state": st})
-                last_push[unit] = time.time()
+        try:
+            _poll_once(master, units, nr_url, store, last, last_push)
+        except Exception as e:   # 루프가 죽으면 상태 보고가 통째로 멈춘다 — 보고하고 계속 돈다
+            log.exception("폴링 루프 오류: %s", e)
+            obs.capture(e, where="poll_loop")
         stop.wait(interval)
+
+
+def _poll_once(master, units, nr_url, store, last, last_push):
+    if store is not None:
+        try:
+            r = store.record(master.state)   # 분이 바뀌었을 때만 로컬 1분 스냅샷 (§5.4.4 오프라인 조회, 2026-09-15)
+            if r and (r["sensors"] or r["actuators"]):
+                log.debug("로컬 스냅샷 %s: 센서 %d·구동기 %d", r["minute"], r["sensors"], r["actuators"])
+        except Exception as e:
+            log.warning("로컬 스냅샷 실패: %s", e)
+            obs.capture(e, where="local_snapshot")   # 저장이 멈추면 30일 창이 끊긴다
+    for unit in list(units):
+        if unit not in master.nodes:
+            try:
+                master.discover(unit)
+            except (ModbusExc, TransportTimeout) as e:
+                log.warning("unit %d 탐색 실패: %s", unit, e)
+                continue
+        st = master.poll(unit)
+        if st is None:
+            continue
+        key = json.dumps({k: v for k, v in st.items() if k != "t"}, sort_keys=True, default=str)
+        changed = key != last.get(unit)
+        heartbeat = (time.time() - last_push.get(unit, 0)) >= HEARTBEAT_SEC
+        if changed:
+            last[unit] = key
+            log.info("unit %d 상태 변화: %s", unit, key[:200])
+        if nr_url and (changed or heartbeat):
+            push_status(nr_url, {"source": "ks3267d", "unit": unit, "state": st})
+            last_push[unit] = time.time()
 
 
 def main():
@@ -99,6 +109,7 @@ def main():
     if not a.port and not a.tcp and not saved:
         p.error("--port 또는 --tcp 필요 (화면에서 저장한 통신 설정도 없음)")
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+    log.info("오류 보고(GlitchTip): %s", "켜짐" if obs.init("ks3267d") else "꺼짐 — DSN 없음")
 
     frames = FrameLog()   # 전송을 바꿔도 진단 프레임·통계는 이어진다
 

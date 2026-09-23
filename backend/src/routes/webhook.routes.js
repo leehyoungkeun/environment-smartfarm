@@ -4,6 +4,7 @@
 
 import express from "express";
 import logger from "../utils/logger.js";
+import { reportServerError } from "../utils/errorReport.js";
 
 const router = express.Router();
 
@@ -89,6 +90,7 @@ router.post("/glitchtip-to-slack", verifyTokenSlack, async (req, res) => {
     res.json({ ok: true });
   } catch (err) {
     logger.error(`glitchtip-to-slack 전송 실패: ${err.message}`);
+    reportServerError(err, req, res);
     res.status(500).json({ error: err.message });
   }
 });
@@ -142,6 +144,7 @@ router.post("/glitchtip-to-telegram", verifyTokenTelegram, async (req, res) => {
     res.json({ ok: true });
   } catch (err) {
     logger.error(`glitchtip-to-telegram 전송 실패: ${err.message}`);
+    reportServerError(err, req, res);
     res.status(500).json({ error: err.message });
   }
 });
@@ -240,6 +243,7 @@ router.post("/glitchtip-to-discord", verifyTokenDiscord, async (req, res) => {
     res.json({ ok: true });
   } catch (err) {
     logger.error(`glitchtip-to-discord 전송 실패: ${err.message}`);
+    reportServerError(err, req, res);
     res.status(500).json({ error: err.message });
   }
 });

@@ -4,6 +4,7 @@
 import { Router } from "express";
 import { pool } from "../db.js";
 import { broadcastDevicePosition } from "../services/wsServer.js";
+import { reportServerError } from "../utils/errorReport.js";
 
 const router = Router();
 
@@ -57,6 +58,7 @@ router.get("/:farmId", async (req, res) => {
 
     res.json({ success: true, data: positions, byHouse });
   } catch (error) {
+    reportServerError(error, req, res);
     res.status(500).json({ success: false, error: error.message });
   }
 });
@@ -96,6 +98,7 @@ router.post("/:farmId", async (req, res) => {
       });
     } catch (e) { /* WS broadcast 실패는 무시 */ }
   } catch (error) {
+    reportServerError(error, req, res);
     res.status(500).json({ success: false, error: error.message });
   }
 });

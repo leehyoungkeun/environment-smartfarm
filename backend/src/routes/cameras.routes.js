@@ -6,6 +6,7 @@ import { prisma } from "../db.js";
 import logger from "../utils/logger.js";
 import { planCameraUpdate } from "../utils/cameraPlan.js";
 import { getRpiBase } from "./config.routes.js";
+import { reportServerError } from "../utils/errorReport.js";
 
 const router = Router();
 
@@ -101,6 +102,7 @@ router.get("/:farmId", async (req, res) => {
     });
     res.json({ success: true, data: cameras.map(maskCamera) });
   } catch (error) {
+    reportServerError(error, req, res);
     res.status(500).json({ success: false, error: error.message });
   }
 });
@@ -131,6 +133,7 @@ router.post("/:farmId", async (req, res) => {
     const syncResult = await syncGo2rtc(req.params.farmId);
     res.status(201).json({ success: true, data: camera, go2rtc: syncResult });
   } catch (error) {
+    reportServerError(error, req, res);
     res.status(500).json({ success: false, error: error.message });
   }
 });
@@ -173,6 +176,7 @@ router.put("/:farmId/:camId", async (req, res) => {
     // 응답에서도 비밀번호를 가린다 — 예전엔 PUT 응답만 원본 주소를 그대로 실어 보냈다.
     res.json({ success: true, data: maskCamera(camera), cameraPush });
   } catch (error) {
+    reportServerError(error, req, res);
     res.status(500).json({ success: false, error: error.message });
   }
 });
@@ -190,6 +194,7 @@ router.delete("/:farmId/:camId", async (req, res) => {
     const syncResult = await syncGo2rtc(req.params.farmId);
     res.json({ success: true, go2rtc: syncResult });
   } catch (error) {
+    reportServerError(error, req, res);
     res.status(500).json({ success: false, error: error.message });
   }
 });

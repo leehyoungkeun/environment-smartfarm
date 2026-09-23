@@ -6,6 +6,7 @@ import express from "express";
 import ControlLog from "../models/ControlLog.js";
 import logger from "../utils/logger.js";
 import { controlLogTable, toDelimited, formatSpec, exportFilename, resolveRange } from "../utils/exportCsv.js";
+import { reportServerError } from "../utils/errorReport.js";
 
 const router = express.Router();
 
@@ -91,6 +92,7 @@ router.post("/", async (req, res) => {
     });
   } catch (error) {
     logger.error("❌ 제어 이력 저장 실패:", error);
+    reportServerError(error, req, res);
     res.status(500).json({ success: false, error: error.message });
   }
 });
@@ -145,6 +147,7 @@ router.get("/:farmId", async (req, res) => {
     });
   } catch (error) {
     logger.error("❌ 제어 이력 조회 실패:", error);
+    reportServerError(error, req, res);
     res.status(500).json({ success: false, error: error.message });
   }
 });
@@ -191,6 +194,7 @@ router.get("/:farmId/stats", async (req, res) => {
     });
   } catch (error) {
     logger.error("❌ 제어 통계 조회 실패:", error);
+    reportServerError(error, req, res);
     res.status(500).json({ success: false, error: error.message });
   }
 });
@@ -225,6 +229,7 @@ router.delete("/:farmId", async (req, res) => {
     });
   } catch (error) {
     logger.error("❌ 제어 이력 삭제 실패:", error);
+    reportServerError(error, req, res);
     res.status(500).json({ success: false, error: error.message });
   }
 });

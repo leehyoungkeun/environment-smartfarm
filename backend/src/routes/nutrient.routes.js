@@ -7,6 +7,7 @@
 import express from "express";
 import { prisma } from "../db.js";
 import logger from "../utils/logger.js";
+import { reportServerError } from "../utils/errorReport.js";
 
 const router = express.Router();
 
@@ -93,6 +94,7 @@ router.get("/:farmId/scenarios", async (req, res) => {
     res.json({ success: true, data: rows });
   } catch (e) {
     logger.error("scenario list:", e);
+    reportServerError(e, req, res);
     res.status(500).json({ success: false, error: e.message });
   }
 });
@@ -221,6 +223,7 @@ router.get("/:farmId/config", async (req, res) => {
     res.json({ success: true, data: cfg });
   } catch (e) {
     logger.error("config get:", e);
+    reportServerError(e, req, res);
     res.status(500).json({ success: false, error: e.message });
   }
 });
@@ -260,6 +263,7 @@ router.get("/:farmId/state", async (req, res) => {
     res.json({ success: true, data: st });
   } catch (e) {
     logger.error("state get:", e);
+    reportServerError(e, req, res);
     res.status(500).json({ success: false, error: e.message });
   }
 });
@@ -346,6 +350,7 @@ router.get("/:farmId/alerts", async (req, res) => {
     res.json({ success: true, data: rows });
   } catch (e) {
     logger.error("alerts list:", e);
+    reportServerError(e, req, res);
     res.status(500).json({ success: false, error: e.message });
   }
 });
@@ -414,6 +419,7 @@ router.get("/:farmId/calibrations", async (req, res) => {
     });
     res.json({ success: true, data: rows });
   } catch (e) {
+    reportServerError(e, req, res);
     res.status(500).json({ success: false, error: e.message });
   }
 });
@@ -452,6 +458,7 @@ router.get("/:farmId/counters", async (req, res) => {
     const c = await getOrCreateCounter(req.params.farmId);
     res.json({ success: true, data: c });
   } catch (e) {
+    reportServerError(e, req, res);
     res.status(500).json({ success: false, error: e.message });
   }
 });
@@ -669,6 +676,7 @@ router.post("/:farmId/direct/relay", async (req, res) => {
       }
       mqttService.publishNutrientDirectRelay(farmId, channel, on, autoOffSec);
     } catch (e) {
+      reportServerError(e, req, res);
       return res.status(500).json({ success: false, error: e.message });
     }
 
@@ -697,6 +705,7 @@ router.get("/:farmId/cycle/manual-jobs", async (req, res) => {
     res.json({ success: true, data: rows });
   } catch (e) {
     logger.error("manual-jobs list:", e);
+    reportServerError(e, req, res);
     res.status(500).json({ success: false, error: e.message });
   }
 });

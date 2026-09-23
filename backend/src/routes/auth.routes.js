@@ -18,6 +18,7 @@ import {
   authorize,
 } from "../middleware/auth.middleware.js";
 import logger from "../utils/logger.js";
+import { reportServerError } from "../utils/errorReport.js";
 
 const router = express.Router();
 
@@ -123,6 +124,7 @@ router.post("/login", async (req, res) => {
     });
   } catch (error) {
     logger.error("로그인 실패:", error);
+    reportServerError(error, req, res);
     res
       .status(500)
       .json({ success: false, error: "로그인 처리 중 오류가 발생했습니다" });
@@ -176,6 +178,7 @@ router.post("/refresh", async (req, res) => {
     });
   } catch (error) {
     logger.error("토큰 갱신 실패:", error);
+    reportServerError(error, req, res);
     res.status(500).json({ success: false, error: error.message });
   }
 });
@@ -237,6 +240,7 @@ router.get("/check-setup", async (req, res) => {
     const userCount = await User.countDocuments();
     res.json({ success: true, data: { needsSetup: userCount === 0 } });
   } catch (error) {
+    reportServerError(error, req, res);
     res.status(500).json({ success: false, error: error.message });
   }
 });
@@ -286,6 +290,7 @@ router.post("/logout", authenticate, async (req, res) => {
     await req.user.save();
     res.json({ success: true, message: "로그아웃되었습니다" });
   } catch (error) {
+    reportServerError(error, req, res);
     res.status(500).json({ success: false, error: error.message });
   }
 });
@@ -346,6 +351,7 @@ router.get("/check-username/:username", authenticate, authorize("owner"), async 
       data: { available: !existing, reason: existing ? "이미 사용 중인 아이디입니다" : "사용 가능한 아이디입니다" },
     });
   } catch (err) {
+    reportServerError(err, req, res);
     res.status(500).json({ success: false, error: err.message });
   }
 });
@@ -376,6 +382,7 @@ router.get("/users", authenticate, authorize("owner"), async (req, res) => {
 
     res.json({ success: true, data: users.map((u) => u.toJSON()) });
   } catch (error) {
+    reportServerError(error, req, res);
     res.status(500).json({ success: false, error: error.message });
   }
 });
@@ -483,6 +490,7 @@ router.put(
       logger.info(`일괄 ${action}: ${updated}건 처리, ${skipped}건 건너뜀 by ${req.user.username}`);
       res.json({ success: true, data: { updated, skipped } });
     } catch (error) {
+      reportServerError(error, req, res);
       res.status(500).json({ success: false, error: error.message });
     }
   }
@@ -518,6 +526,7 @@ router.delete(
       logger.info(`일괄 삭제: ${deleted}건 처리, ${skipped}건 건너뜀 by ${req.user.username}`);
       res.json({ success: true, data: { deleted, skipped } });
     } catch (error) {
+      reportServerError(error, req, res);
       res.status(500).json({ success: false, error: error.message });
     }
   }
@@ -651,6 +660,7 @@ router.delete(
       );
       res.json({ success: true });
     } catch (error) {
+      reportServerError(error, req, res);
       res.status(500).json({ success: false, error: error.message });
     }
   }

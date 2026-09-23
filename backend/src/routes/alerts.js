@@ -4,6 +4,7 @@
 import express from "express";
 import Alert from "../models/Alert.js";
 import logger from "../utils/logger.js";
+import { reportServerError } from "../utils/errorReport.js";
 
 const router = express.Router();
 
@@ -43,6 +44,7 @@ router.get("/:farmId", async (req, res) => {
     });
   } catch (error) {
     logger.error("알림 조회 실패:", error);
+    reportServerError(error, req, res);
     res.status(500).json({ success: false, error: error.message });
   }
 });
@@ -66,6 +68,7 @@ router.put("/:farmId/acknowledge-all", async (req, res) => {
     });
   } catch (error) {
     logger.error("알림 전체 확인 실패:", error);
+    reportServerError(error, req, res);
     res.status(500).json({ success: false, error: error.message });
   }
 });
@@ -87,6 +90,7 @@ router.put("/:alertId/acknowledge", async (req, res) => {
     res.json({ success: true, data: alert });
   } catch (error) {
     logger.error("알림 확인 실패:", error);
+    reportServerError(error, req, res);
     res.status(500).json({ success: false, error: error.message });
   }
 });
@@ -112,6 +116,7 @@ router.put("/:alertId/resolution", async (req, res) => {
     res.json({ success: true, data: alert });
   } catch (error) {
     logger.error("조치내역 저장 실패:", error);
+    reportServerError(error, req, res);
     res.status(500).json({ success: false, error: error.message });
   }
 });
@@ -133,6 +138,7 @@ router.delete("/:alertId", async (req, res) => {
     res.json({ success: true, data: deleted });
   } catch (error) {
     logger.error("알림 삭제 실패:", error);
+    reportServerError(error, req, res);
     res.status(500).json({ success: false, error: error.message });
   }
 });
@@ -155,6 +161,7 @@ router.delete("/:farmId/all", async (req, res) => {
     });
   } catch (error) {
     logger.error("알림 전체 삭제 실패:", error);
+    reportServerError(error, req, res);
     res.status(500).json({ success: false, error: error.message });
   }
 });

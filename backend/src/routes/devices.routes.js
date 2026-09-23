@@ -6,6 +6,7 @@ import crypto from "crypto";
 import { prisma } from "../db.js";
 import logger from "../utils/logger.js";
 import { authenticate, authorize } from "../middleware/auth.middleware.js";
+import { reportServerError } from "../utils/errorReport.js";
 
 const router = Router();
 
@@ -57,6 +58,7 @@ router.post("/", authenticate, authorize("owner"), async (req, res) => {
     res.status(201).json({ success: true, data: devices });
   } catch (error) {
     logger.error("장비 코드 발급 실패:", error);
+    reportServerError(error, req, res);
     res.status(500).json({ success: false, error: error.message });
   }
 });
@@ -87,6 +89,7 @@ router.get("/", authenticate, async (req, res) => {
 
     res.json({ success: true, data: safeDevices });
   } catch (error) {
+    reportServerError(error, req, res);
     res.status(500).json({ success: false, error: error.message });
   }
 });
@@ -105,6 +108,7 @@ router.get("/:code", async (req, res) => {
     }
     res.json({ success: true, data: device });
   } catch (error) {
+    reportServerError(error, req, res);
     res.status(500).json({ success: false, error: error.message });
   }
 });
@@ -132,6 +136,7 @@ router.put("/:code", authenticate, authorize("owner"), async (req, res) => {
     logger.info(`🔧 장비 수정: ${req.params.code} → farmId=${farmId}`);
     res.json({ success: true, data: device });
   } catch (error) {
+    reportServerError(error, req, res);
     res.status(500).json({ success: false, error: error.message });
   }
 });
@@ -163,6 +168,7 @@ router.put("/:code/certificates", authenticate, authorize("owner"), async (req, 
     res.json({ success: true, data: { deviceCode: device.deviceCode, awsThingName: device.awsThingName } });
   } catch (error) {
     logger.error("인증서 등록 실패:", error);
+    reportServerError(error, req, res);
     res.status(500).json({ success: false, error: error.message });
   }
 });
@@ -237,6 +243,7 @@ router.post("/:code/setup", async (req, res) => {
     });
   } catch (error) {
     logger.error("장비 설정 요청 실패:", error);
+    reportServerError(error, req, res);
     res.status(500).json({ success: false, error: error.message });
   }
 });
@@ -275,6 +282,7 @@ router.post("/:code/heartbeat", async (req, res) => {
 
     res.json({ success: true });
   } catch (error) {
+    reportServerError(error, req, res);
     res.status(500).json({ success: false, error: error.message });
   }
 });
@@ -291,6 +299,7 @@ router.delete("/:code", authenticate, authorize("owner"), async (req, res) => {
     logger.info(`🗑️ 장비 삭제: ${req.params.code}`);
     res.json({ success: true });
   } catch (error) {
+    reportServerError(error, req, res);
     res.status(500).json({ success: false, error: error.message });
   }
 });
@@ -309,6 +318,7 @@ router.get("/stats/summary", authenticate, async (req, res) => {
     ]);
     res.json({ success: true, data: { total, online, offline, pending } });
   } catch (error) {
+    reportServerError(error, req, res);
     res.status(500).json({ success: false, error: error.message });
   }
 });

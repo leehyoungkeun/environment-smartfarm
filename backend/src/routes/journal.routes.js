@@ -93,6 +93,7 @@ router.post(
       res.json({ success: true, data: photos });
     } catch (error) {
       logger.error("사진 업로드 실패:", error);
+      reportServerError(error, req, res);
       res.status(500).json({ success: false, error: error.message });
     }
   }
@@ -161,6 +162,7 @@ router.get("/:farmId/entries", authenticate, async (req, res) => {
     });
   } catch (error) {
     logger.error("영농일지 조회 실패:", error);
+    reportServerError(error, req, res);
     res.status(500).json({ success: false, error: error.message });
   }
 });
@@ -181,6 +183,7 @@ router.get("/:farmId/entries/:id", authenticate, async (req, res) => {
     }
     res.json({ success: true, data: formatJournal(entry) });
   } catch (error) {
+    reportServerError(error, req, res);
     res.status(500).json({ success: false, error: error.message });
   }
 });
@@ -346,6 +349,7 @@ router.delete("/:farmId/entries/:id", authenticate, async (req, res) => {
         .status(404)
         .json({ success: false, error: "일지를 찾을 수 없습니다" });
     }
+    reportServerError(error, req, res);
     res.status(500).json({ success: false, error: error.message });
   }
 });
@@ -395,6 +399,7 @@ router.get("/:farmId/harvests", authenticate, async (req, res) => {
       },
     });
   } catch (error) {
+    reportServerError(error, req, res);
     res.status(500).json({ success: false, error: error.message });
   }
 });
@@ -578,6 +583,7 @@ router.delete("/:farmId/harvests/:id", authenticate, async (req, res) => {
         .status(404)
         .json({ success: false, error: "기록을 찾을 수 없습니다" });
     }
+    reportServerError(error, req, res);
     res.status(500).json({ success: false, error: error.message });
   }
 });
@@ -635,6 +641,7 @@ router.get("/:farmId/inputs", authenticate, async (req, res) => {
       },
     });
   } catch (error) {
+    reportServerError(error, req, res);
     res.status(500).json({ success: false, error: error.message });
   }
 });
@@ -814,6 +821,7 @@ router.delete("/:farmId/inputs/:id", authenticate, async (req, res) => {
         .status(404)
         .json({ success: false, error: "기록을 찾을 수 없습니다" });
     }
+    reportServerError(error, req, res);
     res.status(500).json({ success: false, error: error.message });
   }
 });
@@ -897,6 +905,7 @@ router.get("/:farmId/summary", authenticate, async (req, res) => {
       },
     });
   } catch (error) {
+    reportServerError(error, req, res);
     res.status(500).json({ success: false, error: error.message });
   }
 });
@@ -963,7 +972,8 @@ router.get("/:farmId/templates", authenticate, async (req, res) => {
       orderBy: [{ sortOrder: "asc" }, { useCount: "desc" }, { createdAt: "desc" }],
     });
     res.json({ success: true, data: list.map(formatJournal) });
-  } catch (e) { res.status(500).json({ success: false, error: e.message }); }
+  } catch (e) { reportServerError(e, req, res);
+                res.status(500).json({ success: false, error: e.message }); }
 });
 
 // 생성
@@ -1154,6 +1164,7 @@ router.get("/:farmId/auto-fill", authenticate, async (req, res) => {
     });
   } catch (err) {
     logger.error("journal/auto-fill 실패: " + err.message);
+    reportServerError(err, req, res);
     return res.status(500).json({ success: false, error: err.message });
   }
 });
@@ -1178,7 +1189,8 @@ router.get("/:farmId/cycles/active", authenticate, async (req, res) => {
       if (!map[key]) map[key] = formatRecord(r);
     }
     res.json({ success: true, data: map });
-  } catch (e) { res.status(500).json({ success: false, error: e.message }); }
+  } catch (e) { reportServerError(e, req, res);
+                res.status(500).json({ success: false, error: e.message }); }
 });
 
 // 작기 목록
@@ -1191,7 +1203,8 @@ router.get("/:farmId/cycles", authenticate, async (req, res) => {
     if (houseId) where.houseId = houseId;
     const rows = await prisma.cropCycle.findMany({ where, orderBy: { plantingDate: "desc" } });
     res.json({ success: true, data: rows.map(formatRecord) });
-  } catch (e) { res.status(500).json({ success: false, error: e.message }); }
+  } catch (e) { reportServerError(e, req, res);
+                res.status(500).json({ success: false, error: e.message }); }
 });
 
 router.post("/:farmId/cycles", authenticate, async (req, res) => {
@@ -1259,7 +1272,8 @@ router.get("/:farmId/soil", authenticate, async (req, res) => {
     }
     const rows = await prisma.soilManagement.findMany({ where, orderBy: { date: "desc" }, take: 200 });
     res.json({ success: true, data: rows.map(formatRecord) });
-  } catch (e) { res.status(500).json({ success: false, error: e.message }); }
+  } catch (e) { reportServerError(e, req, res);
+                res.status(500).json({ success: false, error: e.message }); }
 });
 
 router.post("/:farmId/soil", authenticate, async (req, res) => {
@@ -1336,7 +1350,8 @@ router.get("/:farmId/inventory", authenticate, async (req, res) => {
       prisma.inputInventory.count({ where }),
     ]);
     res.json({ success: true, data: rows.map(formatRecord), pagination: { total, page: pageNum, totalPages: Math.ceil(total / limitNum) } });
-  } catch (e) { res.status(500).json({ success: false, error: e.message }); }
+  } catch (e) { reportServerError(e, req, res);
+                res.status(500).json({ success: false, error: e.message }); }
 });
 
 // 등록
@@ -1431,13 +1446,15 @@ router.get("/:farmId/inventory/summary", authenticate, async (req, res) => {
     }
     const summary = Array.from(map.values()).sort((a, b) => a.productName.localeCompare(b.productName));
     res.json({ success: true, data: summary });
-  } catch (e) { res.status(500).json({ success: false, error: e.message }); }
+  } catch (e) { reportServerError(e, req, res);
+                res.status(500).json({ success: false, error: e.message }); }
 });
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // AI 자동 요약 (P2-4) — 주간/월간 일지를 Gemini 가 요약
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 import { callAI as _callAI } from "./ai.routes.js";
+import { reportServerError } from "../utils/errorReport.js";
 
 router.get("/:farmId/ai-summary", authenticate, async (req, res) => {
   const { farmId } = req.params;
@@ -1526,6 +1543,7 @@ router.get("/:farmId/ai-summary", authenticate, async (req, res) => {
     res.json({ success: true, data });
   } catch (err) {
     logger.error("AI 자동 요약 실패: " + err.message);
+    reportServerError(err, req, res);
     res.status(500).json({ success: false, error: err.message });
   }
 });

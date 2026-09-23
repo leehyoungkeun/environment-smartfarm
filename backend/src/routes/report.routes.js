@@ -5,6 +5,7 @@ import express from "express";
 import { prisma, pool } from "../db.js";
 import ControlLog from "../models/ControlLog.js";
 import logger from "../utils/logger.js";
+import { reportServerError } from "../utils/errorReport.js";
 
 const router = express.Router();
 
@@ -249,6 +250,7 @@ router.get("/:farmId", async (req, res) => {
     });
   } catch (error) {
     logger.error("리포트 생성 실패:", error);
+    reportServerError(error, req, res);
     res.status(500).json({ success: false, error: error.message });
   }
 });

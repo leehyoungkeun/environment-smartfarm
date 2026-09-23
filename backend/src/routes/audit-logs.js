@@ -4,6 +4,7 @@
 import express from "express";
 import { prisma } from "../db.js";
 import logger from "../utils/logger.js";
+import { reportServerError } from "../utils/errorReport.js";
 
 const router = express.Router();
 
@@ -46,6 +47,7 @@ router.get("/:farmId", async (req, res) => {
     });
   } catch (error) {
     logger.error("감사 로그 조회 실패:", error);
+    reportServerError(error, req, res);
     res.status(500).json({ success: false, error: error.message });
   }
 });
@@ -86,6 +88,7 @@ router.get("/:farmId/stats", async (req, res) => {
     });
   } catch (error) {
     logger.error("감사 로그 통계 실패:", error);
+    reportServerError(error, req, res);
     res.status(500).json({ success: false, error: error.message });
   }
 });

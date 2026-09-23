@@ -9,6 +9,7 @@ import Config from "../models/Config.js";
 import { pool, prisma } from "../db.js";
 import logger from "../utils/logger.js";
 import { setStepStatus, clearStepStatus } from "../utils/stepStatusStore.js";
+import { reportServerError } from "../utils/errorReport.js";
 
 const router = express.Router();
 
@@ -46,6 +47,7 @@ router.post("/control-sync-status", async (req, res) => {
     res.json({ success: true });
   } catch (error) {
     logger.error("제어이력 동기화 상태 저장 실패:", error.message);
+    reportServerError(error, req, res);
     res.status(500).json({ success: false, error: error.message });
   }
 });
@@ -68,6 +70,7 @@ router.post("/automation-heartbeat", async (req, res) => {
     res.json({ success: true });
   } catch (error) {
     logger.error("자동제어 심박 저장 실패:", error.message);
+    reportServerError(error, req, res);
     res.status(500).json({ success: false, error: error.message });
   }
 });
@@ -90,6 +93,7 @@ router.post("/maintenance-report", async (req, res) => {
     res.json({ success: true });
   } catch (error) {
     logger.error("유지보수 보고 저장 실패:", error.message);
+    reportServerError(error, req, res);
     res.status(500).json({ success: false, error: error.message });
   }
 });
@@ -194,6 +198,7 @@ router.post("/alert-webhook", async (req, res) => {
     res.json({ success: true, received: alerts.length, saved });
   } catch (error) {
     logger.error("Alertmanager webhook 처리 실패:", error);
+    reportServerError(error, req, res);
     res.status(500).json({ success: false, error: error.message });
   }
 });
@@ -223,6 +228,7 @@ router.post("/status-update", async (req, res) => {
     res.json({ success: true, message: "상태 업데이트 완료" });
   } catch (error) {
     logger.error("상태 업데이트 실패:", error);
+    reportServerError(error, req, res);
     res.status(500).json({ success: false, error: error.message });
   }
 });
@@ -255,6 +261,7 @@ router.get("/programs", async (req, res) => {
     res.json({ success: true, data: programs });
   } catch (error) {
     logger.error("프로그램 조회 실패:", error);
+    reportServerError(error, req, res);
     res.status(500).json({ success: false, error: error.message });
   }
 });
@@ -299,6 +306,7 @@ router.get("/config", async (req, res) => {
     });
   } catch (error) {
     logger.error("설정 조회 실패:", error);
+    reportServerError(error, req, res);
     res.status(500).json({ success: false, error: error.message });
   }
 });
@@ -376,6 +384,7 @@ router.post("/alarm", async (req, res) => {
     res.json({ success: true, data: alert });
   } catch (error) {
     logger.error("경보 생성 실패:", error);
+    reportServerError(error, req, res);
     res.status(500).json({ success: false, error: error.message });
   }
 });
@@ -426,6 +435,7 @@ router.get("/daily-summary-data", async (req, res) => {
     res.json({ success: true, data: { date: dateStr, sensor_averages: sensorAverages } });
   } catch (error) {
     logger.error("일일 집계 데이터 조회 실패:", error);
+    reportServerError(error, req, res);
     res.status(500).json({ success: false, error: error.message });
   }
 });
@@ -508,6 +518,7 @@ router.post("/farm-event", async (req, res) => {
     res.json({ success: true, data: alert });
   } catch (error) {
     logger.error("farm-event 처리 실패:", error);
+    reportServerError(error, req, res);
     res.status(500).json({ success: false, error: error.message });
   }
 });
@@ -580,6 +591,7 @@ router.post("/actuator-status", async (req, res) => {
     res.json({ success: true, inserted, received: rows.length, sensorInserted, sensorReceived: sensorRows.length });
   } catch (error) {
     logger.error("❌ actuator-status 저장 실패:", error.message);
+    reportServerError(error, req, res);
     res.status(500).json({ success: false, error: error.message });
   }
 });
@@ -608,6 +620,7 @@ router.get("/sensor-status", async (req, res) => {
     const { rows } = await pool.query(sql, params);
     res.json({ success: true, count: rows.length, data: rows });
   } catch (error) {
+    reportServerError(error, req, res);
     res.status(500).json({ success: false, error: error.message });
   }
 });
@@ -667,6 +680,7 @@ router.post("/control-log", async (req, res) => {
     res.json({ success: true, data: { id: log._id } });
   } catch (error) {
     logger.error("자동화 제어 이력 저장 실패:", error);
+    reportServerError(error, req, res);
     res.status(500).json({ success: false, error: error.message });
   }
 });
@@ -808,6 +822,7 @@ router.post("/control-log/batch", async (req, res) => {
     });
   } catch (error) {
     logger.error("제어 이력 배치 저장 실패:", error);
+    reportServerError(error, req, res);
     res.status(500).json({ success: false, error: error.message });
   }
 });
@@ -841,6 +856,7 @@ router.post("/step-status", async (req, res) => {
     res.json({ success: true });
   } catch (error) {
     logger.error("step-status 처리 실패:", error);
+    reportServerError(error, req, res);
     res.status(500).json({ success: false, error: error.message });
   }
 });
@@ -871,6 +887,7 @@ router.get("/nutrient/config", async (req, res) => {
     res.json({ success: true, data: cfg });
   } catch (e) {
     logger.error("internal nutrient config:", e);
+    reportServerError(e, req, res);
     res.status(500).json({ success: false, error: e.message });
   }
 });
@@ -885,6 +902,7 @@ router.get("/nutrient/scenarios", async (req, res) => {
     });
     res.json({ success: true, data: rows });
   } catch (e) {
+    reportServerError(e, req, res);
     res.status(500).json({ success: false, error: e.message });
   }
 });
@@ -897,6 +915,7 @@ router.get("/nutrient/state", async (req, res) => {
     if (!st) st = await prisma.nutrientState.create({ data: { farmId } });
     res.json({ success: true, data: st });
   } catch (e) {
+    reportServerError(e, req, res);
     res.status(500).json({ success: false, error: e.message });
   }
 });
@@ -996,6 +1015,7 @@ router.get("/nutrient/manual-jobs/pending", async (req, res) => {
     const enriched = rows.map(r => ({ ...r, scenario: map[r.scenarioId] || null }));
     res.json({ success: true, data: enriched });
   } catch (e) {
+    reportServerError(e, req, res);
     res.status(500).json({ success: false, error: e.message });
   }
 });
@@ -1011,6 +1031,7 @@ router.get("/nutrient/manual-jobs/:id", async (req, res) => {
     }
     res.json({ success: true, data: row });
   } catch (e) {
+    reportServerError(e, req, res);
     res.status(500).json({ success: false, error: e.message });
   }
 });

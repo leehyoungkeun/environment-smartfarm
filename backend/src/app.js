@@ -4,7 +4,7 @@
 
 import "./instrument.js"; // Sentry: 반드시 다른 import 보다 먼저
 import * as Sentry from "@sentry/node";
-import "dotenv/config";
+import "./env.js";
 import express from "express";
 import cors from "cors";
 import helmet from "helmet";
@@ -47,6 +47,7 @@ import {
 import { normalizeIds } from "./middleware/normalizeIds.js";
 import { getAlertHealth } from "./routes/sensors.js";
 import logger from "./utils/logger.js";
+import { capture5xxResponses, reportServerError } from "./utils/errorReport.js";
 import { startMaintenanceAlertScheduler } from "./schedulers/maintenanceAlert.js";
 import { startOfflineAlertScheduler } from "./schedulers/offlineAlert.js";
 import { startTrashCleanupScheduler } from "./schedulers/trashCleanup.js";
@@ -869,6 +870,9 @@ app.get("/health", async (req, res) => {
 
 // farmId/houseId 정규화 (farm_001 → farm_0001)
 app.use(normalizeIds);
+
+// 5xx 응답 그물 — 라우트가 reportServerError 로 이미 보고한 건 건너뛴다 (errorReport.js 참고)
+app.use(capture5xxResponses);
 
 // 공개 API (인증 불필요)
 app.use("/api/auth", authRoutes);

@@ -1,4 +1,4 @@
-import "dotenv/config";
+import "./env.js";  // cwd 와 무관하게 backend/.env 를 먼저 읽는다 (env.js 주석 참고)
 import * as Sentry from "@sentry/node";
 import { nodeProfilingIntegration } from "@sentry/profiling-node";
 

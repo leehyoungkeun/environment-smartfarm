@@ -9,6 +9,7 @@ import fs from "fs";
 import { prisma } from "../db.js";
 import { authenticate } from "../middleware/auth.middleware.js";
 import logger from "../utils/logger.js";
+import { reportServerError } from "../utils/errorReport.js";
 
 const router = express.Router();
 
@@ -304,6 +305,7 @@ router.post("/:farmId/pest-analysis", authenticate, upload.single("photo"), asyn
     res.json({ success: true, data: { ...parsed, photoPath } });
   } catch (error) {
     logger.error("병해충 분석 실패:", error);
+    reportServerError(error, req, res);
     res.status(500).json({ success: false, error: error.message });
   }
 });
@@ -406,6 +408,7 @@ ${journalSummary}
     res.json({ success: true, data: parsed });
   } catch (error) {
     logger.error("생육 예측 실패:", error);
+    reportServerError(error, req, res);
     res.status(500).json({ success: false, error: error.message });
   }
 });
@@ -507,6 +510,7 @@ ${recentInputs}
     res.json({ success: true, data: parsed });
   } catch (error) {
     logger.error("작업 추천 실패:", error);
+    reportServerError(error, req, res);
     res.status(500).json({ success: false, error: error.message });
   }
 });
@@ -539,6 +543,7 @@ router.post("/:farmId/chat", authenticate, async (req, res) => {
     res.json({ success: true, data: { reply: result, timestamp: new Date() } });
   } catch (error) {
     logger.error("AI 상담 실패:", error);
+    reportServerError(error, req, res);
     res.status(500).json({ success: false, error: error.message });
   }
 });
@@ -712,6 +717,7 @@ router.post("/:farmId/journal/parse-photo", authenticate, async (req, res) => {
     return res.json({ success: true, data });
   } catch (err) {
     logger.error("journal parse-photo 실패: " + err.message);
+    reportServerError(err, req, res);
     return res.status(500).json({ success: false, error: err.message });
   }
 });
@@ -779,6 +785,7 @@ router.post("/:farmId/photo-search", authenticate, async (req, res) => {
     res.json({ success: true, data: { entryIds, reasoning, totalSearched: entries.length } });
   } catch (err) {
     logger.error("photo-search 실패: " + err.message);
+    reportServerError(err, req, res);
     res.status(500).json({ success: false, error: err.message });
   }
 });
@@ -847,6 +854,7 @@ router.post("/:farmId/journal/parse-text", authenticate, async (req, res) => {
     return res.json({ success: true, data });
   } catch (err) {
     logger.error("journal parse-text 실패: " + err.message);
+    reportServerError(err, req, res);
     return res.status(500).json({ success: false, error: err.message });
   }
 });

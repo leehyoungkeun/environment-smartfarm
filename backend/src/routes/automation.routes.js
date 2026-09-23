@@ -8,6 +8,7 @@ import AutomationRule from "../models/AutomationRule.js";
 import ControlLog from "../models/ControlLog.js";
 import logger from "../utils/logger.js";
 import { getStepStatusMapByFarm } from "../utils/stepStatusStore.js";
+import { reportServerError } from "../utils/errorReport.js";
 
 const router = express.Router();
 
@@ -125,6 +126,7 @@ router.get("/:farmId/active", async (req, res) => {
     res.json({ success: true, active: anyActive, autoDevices: flatDevices, houses });
   } catch (error) {
     logger.error("자동화 상태 조회 실패:", error);
+    reportServerError(error, req, res);
     res.status(500).json({ success: false, error: error.message });
   }
 });
@@ -178,6 +180,7 @@ router.put("/:farmId/active", async (req, res) => {
     } catch (e) { logger.warn("MQTT autoDevices 발행 실패:", e.message); }
   } catch (error) {
     logger.error("자동화 상태 변경 실패:", error);
+    reportServerError(error, req, res);
     res.status(500).json({ success: false, error: error.message });
   }
 });
@@ -206,6 +209,7 @@ router.get("/:farmId", async (req, res) => {
     res.json({ success: true, data: rules });
   } catch (error) {
     logger.error("규칙 조회 실패:", error);
+    reportServerError(error, req, res);
     res.status(500).json({ success: false, error: error.message });
   }
 });
@@ -370,6 +374,7 @@ router.patch("/:farmId/reorder", async (req, res) => {
     notifyRpiSync(farmId);
   } catch (error) {
     logger.error("순서 변경 실패:", error);
+    reportServerError(error, req, res);
     res.status(500).json({ success: false, error: error.message });
   }
 });
@@ -392,6 +397,7 @@ router.delete("/:farmId/:ruleId", async (req, res) => {
     notifyRpiSync(req.params.farmId);
   } catch (error) {
     logger.error("규칙 삭제 실패:", error);
+    reportServerError(error, req, res);
     res.status(500).json({ success: false, error: error.message });
   }
 });
@@ -418,6 +424,7 @@ router.patch("/:farmId/:ruleId/toggle", async (req, res) => {
     res.json({ success: true, data: rule.toJSON ? rule.toJSON() : rule });
     notifyRpiSync(req.params.farmId);
   } catch (error) {
+    reportServerError(error, req, res);
     res.status(500).json({ success: false, error: error.message });
   }
 });
@@ -456,6 +463,7 @@ router.post("/:farmId/device-modes", async (req, res) => {
     res.json({ success: true, autoDevices });
   } catch (error) {
     logger.error("장치 모드 동기화 실패:", error);
+    reportServerError(error, req, res);
     res.status(500).json({ success: false, error: error.message });
   }
 });
@@ -527,6 +535,7 @@ router.get("/:farmId/schedule", async (req, res) => {
     res.json({ success: true, data: schedule, serverTime: now.toISOString() });
   } catch (error) {
     logger.error("스케줄 조회 실패:", error);
+    reportServerError(error, req, res);
     res.status(500).json({ success: false, error: error.message });
   }
 });
@@ -770,6 +779,7 @@ router.post("/:farmId/evaluate", async (req, res) => {
     });
   } catch (error) {
     logger.error("규칙 평가 실패:", error);
+    reportServerError(error, req, res);
     res.status(500).json({ success: false, error: error.message });
   }
 });
@@ -875,6 +885,7 @@ router.post("/:farmId/sync", async (req, res) => {
     res.json({ success: true, data: results });
   } catch (error) {
     logger.error("규칙 동기화 실패:", error);
+    reportServerError(error, req, res);
     res.status(500).json({ success: false, error: error.message });
   }
 });

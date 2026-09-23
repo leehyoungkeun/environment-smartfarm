@@ -11,6 +11,7 @@ import { authorize } from "../middleware/auth.middleware.js";
 import { SYSTEM_WIDE_ROLES } from "../models/User.js";
 import Alert from "../models/Alert.js";
 import logger from "../utils/logger.js";
+import { reportServerError } from "../utils/errorReport.js";
 
 // 문서 업로드 설정 (Feature: 문서/첨부파일)
 const DOC_UPLOAD_DIR = process.env.UPLOAD_DIR ? `${process.env.UPLOAD_DIR}/farms` : "uploads/farms";
@@ -69,6 +70,7 @@ router.get("/business-projects", async (req, res) => {
     });
     res.json({ success: true, data: projects });
   } catch (error) {
+    reportServerError(error, req, res);
     res.status(500).json({ success: false, error: error.message });
   }
 });
@@ -83,6 +85,7 @@ router.post("/business-projects", authorize("manager"), async (req, res) => {
     res.json({ success: true, data: project });
   } catch (error) {
     if (error.code === "P2002") return res.status(409).json({ success: false, error: "이미 등록된 사업명입니다" });
+    reportServerError(error, req, res);
     res.status(500).json({ success: false, error: error.message });
   }
 });
@@ -94,6 +97,7 @@ router.delete("/business-projects/:id", authorize("manager"), async (req, res) =
     await prisma.businessProject.delete({ where: { id: req.params.id } });
     res.json({ success: true });
   } catch (error) {
+    reportServerError(error, req, res);
     res.status(500).json({ success: false, error: error.message });
   }
 });
@@ -170,6 +174,7 @@ router.get("/alert-summary", async (req, res) => {
     });
   } catch (error) {
     logger.error("alert-summary 조회 실패:", error);
+    reportServerError(error, req, res);
     res.status(500).json({ success: false, error: error.message });
   }
 });
@@ -230,6 +235,7 @@ router.get("/alerts/recent", async (req, res) => {
     res.json({ success: true, data });
   } catch (error) {
     logger.error("alerts/recent 조회 실패:", error);
+    reportServerError(error, req, res);
     res.status(500).json({ success: false, error: error.message });
   }
 });
@@ -258,6 +264,7 @@ router.get("/next-id", authorize("manager"), async (req, res) => {
     const nextId = `farm_${String(maxNum + 1).padStart(4, "0")}`;
     res.json({ success: true, data: { nextId } });
   } catch (error) {
+    reportServerError(error, req, res);
     res.status(500).json({ success: false, error: error.message });
   }
 });
@@ -363,6 +370,7 @@ router.get("/", async (req, res) => {
       pagination: { total, page: pageNum, limit: limitNum, totalPages: Math.ceil(total / limitNum) },
     });
   } catch (error) {
+    reportServerError(error, req, res);
     res.status(500).json({ success: false, error: error.message });
   }
 });
@@ -398,6 +406,7 @@ router.put("/batch-status", authorize("manager"), async (req, res) => {
     logger.info(`일괄 상태 변경: ${farmIds.length}개 → ${status}`);
     res.json({ success: true, data: { count: result.count } });
   } catch (error) {
+    reportServerError(error, req, res);
     res.status(500).json({ success: false, error: error.message });
   }
 });
@@ -466,6 +475,7 @@ router.post("/", authorize("manager"), async (req, res) => {
     res.status(201).json({ success: true, data: toBigIntSafe({ ...farm, apiKey }) });
   } catch (error) {
     if (error.code === "P2002") return res.status(409).json({ success: false, error: "이미 존재하는 농장 ID입니다" });
+    reportServerError(error, req, res);
     res.status(500).json({ success: false, error: error.message });
   }
 });
@@ -478,6 +488,7 @@ router.get("/trash/count", authorize("manager"), async (req, res) => {
     const count = await prisma.farm.count({ where: { deletedAt: { not: null } } });
     res.json({ success: true, data: { count } });
   } catch (error) {
+    reportServerError(error, req, res);
     res.status(500).json({ success: false, error: error.message });
   }
 });
@@ -563,6 +574,7 @@ router.get("/schedules/summary", authorize("manager"), async (req, res) => {
     });
   } catch (error) {
     logger.error("일정 요약 조회 실패:", error);
+    reportServerError(error, req, res);
     res.status(500).json({ success: false, error: error.message });
   }
 });
@@ -576,6 +588,7 @@ router.get("/tags/all", async (req, res) => {
     const allTags = [...new Set(farms.flatMap(f => f.tags || []))].sort();
     res.json({ success: true, data: allTags });
   } catch (error) {
+    reportServerError(error, req, res);
     res.status(500).json({ success: false, error: error.message });
   }
 });
@@ -604,6 +617,7 @@ router.get("/:farmId", async (req, res) => {
     const withKey = SYSTEM_WIDE_ROLES.includes(req.user.role) ? { ...farmRest, apiKey } : farmRest;
     res.json({ success: true, data: toBigIntSafe({ ...withKey, users: uf, houses }) });
   } catch (error) {
+    reportServerError(error, req, res);
     res.status(500).json({ success: false, error: error.message });
   }
 });
@@ -670,6 +684,7 @@ router.put("/:farmId", authorize("manager"), async (req, res) => {
     res.json({ success: true, data: toBigIntSafe(farm) });
   } catch (error) {
     if (error.code === "P2025") return res.status(404).json({ success: false, error: "농장을 찾을 수 없습니다" });
+    reportServerError(error, req, res);
     res.status(500).json({ success: false, error: error.message });
   }
 });
@@ -688,6 +703,7 @@ router.delete("/:farmId", authorize("manager"), async (req, res) => {
     res.json({ success: true });
   } catch (error) {
     if (error.code === "P2025") return res.status(404).json({ success: false, error: "농장을 찾을 수 없습니다" });
+    reportServerError(error, req, res);
     res.status(500).json({ success: false, error: error.message });
   }
 });
@@ -706,6 +722,7 @@ router.post("/:farmId/restore", authorize("manager"), async (req, res) => {
     res.json({ success: true, data: farm });
   } catch (error) {
     if (error.code === "P2025") return res.status(404).json({ success: false, error: "농장을 찾을 수 없습니다" });
+    reportServerError(error, req, res);
     res.status(500).json({ success: false, error: error.message });
   }
 });
@@ -721,6 +738,7 @@ router.delete("/:farmId/permanent", authorize("manager"), async (req, res) => {
     res.json({ success: true });
   } catch (error) {
     if (error.code === "P2025") return res.status(404).json({ success: false, error: "농장을 찾을 수 없습니다" });
+    reportServerError(error, req, res);
     res.status(500).json({ success: false, error: error.message });
   }
 });
@@ -738,6 +756,7 @@ router.post("/:farmId/regenerate-key", authorize("manager"), async (req, res) =>
     logger.info(`API 키 재생성: ${req.params.farmId}`);
     res.json({ success: true, data: { farmId: farm.farmId, apiKey: newApiKey } });
   } catch (error) {
+    reportServerError(error, req, res);
     res.status(500).json({ success: false, error: error.message });
   }
 });
@@ -758,6 +777,7 @@ router.get("/:farmId/users", async (req, res) => {
     });
     res.json({ success: true, data: userFarms });
   } catch (error) {
+    reportServerError(error, req, res);
     res.status(500).json({ success: false, error: error.message });
   }
 });
@@ -785,6 +805,7 @@ router.post("/:farmId/users", async (req, res) => {
     res.status(201).json({ success: true, data: userFarm });
   } catch (error) {
     if (error.code === "P2002") return res.status(409).json({ success: false, error: "이미 할당된 사용자입니다" });
+    reportServerError(error, req, res);
     res.status(500).json({ success: false, error: error.message });
   }
 });
@@ -805,6 +826,7 @@ router.delete("/:farmId/users/:userId", async (req, res) => {
     res.json({ success: true });
   } catch (error) {
     if (error.code === "P2025") return res.status(404).json({ success: false, error: "할당 정보를 찾을 수 없습니다" });
+    reportServerError(error, req, res);
     res.status(500).json({ success: false, error: error.message });
   }
 });
@@ -846,6 +868,7 @@ router.post("/batch", authorize("manager"), async (req, res) => {
     await audit(req, "batch_create", "farm", null, { total: farmsData.length, success: results.success, failed: results.failed });
     res.json({ success: true, data: results });
   } catch (error) {
+    reportServerError(error, req, res);
     res.status(500).json({ success: false, error: error.message });
   }
 });
@@ -915,6 +938,7 @@ router.get("/:farmId/stats", async (req, res) => {
       },
     });
   } catch (error) {
+    reportServerError(error, req, res);
     res.status(500).json({ success: false, error: error.message });
   }
 });
@@ -942,6 +966,7 @@ router.get("/:farmId/audit", async (req, res) => {
 
     res.json({ success: true, data: logs, pagination: { total, page: pageNum, limit: limitNum } });
   } catch (error) {
+    reportServerError(error, req, res);
     res.status(500).json({ success: false, error: error.message });
   }
 });
@@ -964,6 +989,7 @@ router.get("/audit/all", authorize("manager"), async (req, res) => {
 
     res.json({ success: true, data: logs, pagination: { total, page: pageNum, limit: limitNum } });
   } catch (error) {
+    reportServerError(error, req, res);
     res.status(500).json({ success: false, error: error.message });
   }
 });
@@ -991,6 +1017,7 @@ router.get("/:farmId/maintenance", async (req, res) => {
 
     res.json({ success: true, data: logs, summary: { totalCost, count: logs.length } });
   } catch (error) {
+    reportServerError(error, req, res);
     res.status(500).json({ success: false, error: error.message });
   }
 });
@@ -1020,6 +1047,7 @@ router.post("/:farmId/maintenance", authorize("manager"), async (req, res) => {
     logger.info(`유지보수 이력 추가: ${req.params.farmId} - ${title}`);
     res.status(201).json({ success: true, data: log });
   } catch (error) {
+    reportServerError(error, req, res);
     res.status(500).json({ success: false, error: error.message });
   }
 });
@@ -1045,6 +1073,7 @@ router.put("/:farmId/maintenance/:logId", authorize("manager"), async (req, res)
     res.json({ success: true, data: log });
   } catch (error) {
     if (error.code === "P2025") return res.status(404).json({ success: false, error: "이력을 찾을 수 없습니다" });
+    reportServerError(error, req, res);
     res.status(500).json({ success: false, error: error.message });
   }
 });
@@ -1057,6 +1086,7 @@ router.delete("/:farmId/maintenance/:logId", authorize("manager"), async (req, r
     res.json({ success: true });
   } catch (error) {
     if (error.code === "P2025") return res.status(404).json({ success: false, error: "이력을 찾을 수 없습니다" });
+    reportServerError(error, req, res);
     res.status(500).json({ success: false, error: error.message });
   }
 });
@@ -1114,6 +1144,7 @@ router.get("/:farmId/connection-history", async (req, res) => {
       },
     });
   } catch (error) {
+    reportServerError(error, req, res);
     res.status(500).json({ success: false, error: error.message });
   }
 });
@@ -1139,6 +1170,7 @@ router.put("/:farmId/users/:userId/role", async (req, res) => {
     res.json({ success: true, data: updated });
   } catch (error) {
     if (error.code === "P2025") return res.status(404).json({ success: false, error: "할당 정보를 찾을 수 없습니다" });
+    reportServerError(error, req, res);
     res.status(500).json({ success: false, error: error.message });
   }
 });
@@ -1160,6 +1192,7 @@ router.put("/:farmId/users/:userId/permissions", async (req, res) => {
     res.json({ success: true, data: updated });
   } catch (error) {
     if (error.code === "P2025") return res.status(404).json({ success: false, error: "할당 정보를 찾을 수 없습니다" });
+    reportServerError(error, req, res);
     res.status(500).json({ success: false, error: error.message });
   }
 });
@@ -1193,6 +1226,7 @@ router.get("/:farmId/schedules", async (req, res) => {
     const overdue = schedules.filter(s => !s.completed && new Date(s.startDate) < now).length;
     res.json({ success: true, data: schedules, summary: { total, completed: completedCount, upcoming, overdue } });
   } catch (error) {
+    reportServerError(error, req, res);
     res.status(500).json({ success: false, error: error.message });
   }
 });
@@ -1216,6 +1250,7 @@ router.post("/:farmId/schedules", authorize("manager"), async (req, res) => {
     });
     res.status(201).json({ success: true, data: schedule });
   } catch (error) {
+    reportServerError(error, req, res);
     res.status(500).json({ success: false, error: error.message });
   }
 });
@@ -1239,6 +1274,7 @@ router.put("/:farmId/schedules/:scheduleId", authorize("manager"), async (req, r
     res.json({ success: true, data: schedule });
   } catch (error) {
     if (error.code === "P2025") return res.status(404).json({ success: false, error: "일정을 찾을 수 없습니다" });
+    reportServerError(error, req, res);
     res.status(500).json({ success: false, error: error.message });
   }
 });
@@ -1255,6 +1291,7 @@ router.patch("/:farmId/schedules/:scheduleId/toggle", async (req, res) => {
     });
     res.json({ success: true, data: updated });
   } catch (error) {
+    reportServerError(error, req, res);
     res.status(500).json({ success: false, error: error.message });
   }
 });
@@ -1266,6 +1303,7 @@ router.delete("/:farmId/schedules/:scheduleId", authorize("manager"), async (req
     res.json({ success: true });
   } catch (error) {
     if (error.code === "P2025") return res.status(404).json({ success: false, error: "일정을 찾을 수 없습니다" });
+    reportServerError(error, req, res);
     res.status(500).json({ success: false, error: error.message });
   }
 });
@@ -1288,6 +1326,7 @@ router.get("/:farmId/documents", async (req, res) => {
     const totalSize = documents.reduce((sum, d) => sum + (d.fileSize || 0), 0);
     res.json({ success: true, data: documents, summary: { total: documents.length, totalSize, byCategory: stats } });
   } catch (error) {
+    reportServerError(error, req, res);
     res.status(500).json({ success: false, error: error.message });
   }
 });
@@ -1311,6 +1350,7 @@ router.post("/:farmId/documents", authorize("manager"), docUpload.single("file")
     logger.info(`문서 업로드: ${req.params.farmId} - ${req.file.originalname}`);
     res.status(201).json({ success: true, data: doc });
   } catch (error) {
+    reportServerError(error, req, res);
     res.status(500).json({ success: false, error: error.message });
   }
 });
@@ -1328,6 +1368,7 @@ router.get("/:farmId/documents/:docId/download", async (req, res) => {
     if (!fs.existsSync(filePath)) return res.status(404).json({ success: false, error: "파일이 존재하지 않습니다" });
     res.download(filePath, doc.originalName);
   } catch (error) {
+    reportServerError(error, req, res);
     res.status(500).json({ success: false, error: error.message });
   }
 });
@@ -1346,6 +1387,7 @@ router.delete("/:farmId/documents/:docId", authorize("manager"), async (req, res
     logger.info(`문서 삭제: ${req.params.farmId} - ${doc.originalName}`);
     res.json({ success: true });
   } catch (error) {
+    reportServerError(error, req, res);
     res.status(500).json({ success: false, error: error.message });
   }
 });
@@ -1372,6 +1414,7 @@ router.get("/:farmId/backup", authorize("manager"), async (req, res) => {
     res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
     res.json(backup);
   } catch (error) {
+    reportServerError(error, req, res);
     res.status(500).json({ success: false, error: error.message });
   }
 });
@@ -1426,6 +1469,7 @@ router.post("/:farmId/restore-config", authorize("manager"), async (req, res) =>
     logger.info(`농장 설정 복원: ${req.params.farmId} (하우스 ${results.houses}, 규칙 ${results.automationRules})`);
     res.json({ success: true, data: results });
   } catch (error) {
+    reportServerError(error, req, res);
     res.status(500).json({ success: false, error: error.message });
   }
 });
@@ -1446,6 +1490,7 @@ router.get("/:farmId/notes", async (req, res) => {
     });
     res.json({ success: true, data: notes });
   } catch (error) {
+    reportServerError(error, req, res);
     res.status(500).json({ success: false, error: error.message });
   }
 });
@@ -1469,6 +1514,7 @@ router.post("/:farmId/notes", async (req, res) => {
     });
     res.status(201).json({ success: true, data: note });
   } catch (error) {
+    reportServerError(error, req, res);
     res.status(500).json({ success: false, error: error.message });
   }
 });
@@ -1493,6 +1539,7 @@ router.put("/:farmId/notes/:noteId", async (req, res) => {
     res.json({ success: true, data: note });
   } catch (error) {
     if (error.code === "P2025") return res.status(404).json({ success: false, error: "메모를 찾을 수 없습니다" });
+    reportServerError(error, req, res);
     res.status(500).json({ success: false, error: error.message });
   }
 });
@@ -1511,6 +1558,7 @@ router.delete("/:farmId/notes/:noteId", async (req, res) => {
     res.json({ success: true });
   } catch (error) {
     if (error.code === "P2025") return res.status(404).json({ success: false, error: "메모를 찾을 수 없습니다" });
+    reportServerError(error, req, res);
     res.status(500).json({ success: false, error: error.message });
   }
 });

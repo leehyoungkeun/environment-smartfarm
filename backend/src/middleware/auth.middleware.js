@@ -6,6 +6,7 @@ import jwt from "jsonwebtoken";
 import User, { ROLE_HIERARCHY, SYSTEM_WIDE_ROLES } from "../models/User.js";
 import { prisma } from "../db.js";
 import logger from "../utils/logger.js";
+import { reportServerError } from "../utils/errorReport.js";
 
 // 공통 키 폴백 사용 경고를 농장당 10분에 한 번만 남기기 위한 마지막 경고 시각
 const legacyKeyWarnedAt = new Map();
@@ -96,6 +97,7 @@ export const authenticate = async (req, res, next) => {
     req.user = user;
     next();
   } catch (error) {
+    reportServerError(error, req, res);
     return res.status(500).json({
       success: false,
       error: "인증 처리 중 오류가 발생했습니다",

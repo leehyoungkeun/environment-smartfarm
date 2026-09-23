@@ -8,6 +8,7 @@ import { pool } from "../db.js";
 import logger from "../utils/logger.js";
 import mqttService from "../services/mqttClient.js";
 import { authorize } from "../middleware/auth.middleware.js";
+import { reportServerError } from "../utils/errorReport.js";
 
 const router = express.Router();
 
@@ -41,6 +42,7 @@ router.get("/node-red/:farmId/:houseId", async (req, res) => {
     });
   } catch (error) {
     logger.error("❌ Node-RED 설정 조회 실패:", error);
+    reportServerError(error, req, res);
     res.status(500).json({ success: false, error: error.message });
   }
 });
@@ -59,6 +61,7 @@ router.get("/farm/:farmId", async (req, res) => {
     res.json({ success: true, data: houses });
   } catch (error) {
     logger.error("❌ 하우스 목록 조회 실패:", error);
+    reportServerError(error, req, res);
     res.status(500).json({ success: false, error: error.message });
   }
 });
@@ -88,6 +91,7 @@ router.get("/:id", async (req, res) => {
       return res.json({ success: true, data: house });
     } catch (error) {
       logger.error("❌ 하우스 조회 실패:", error);
+      reportServerError(error, req, res);
       return res.status(500).json({ success: false, error: error.message });
     }
   }
@@ -117,6 +121,7 @@ router.get("/:id", async (req, res) => {
     res.json({ success: true, data: configData });
   } catch (error) {
     logger.error("❌ 농장 Config 조회 실패:", error);
+    reportServerError(error, req, res);
     res.status(500).json({ success: false, error: error.message });
   }
 });
@@ -171,6 +176,7 @@ router.post("/", async (req, res) => {
         error: "이미 존재하는 하우스 ID입니다.",
       });
     }
+    reportServerError(error, req, res);
     res.status(500).json({ success: false, error: error.message });
   }
 });
@@ -227,6 +233,7 @@ router.put("/:houseId", async (req, res) => {
     res.json({ success: true, data: config });
   } catch (error) {
     logger.error("❌ 하우스 수정 실패:", error);
+    reportServerError(error, req, res);
     res.status(500).json({ success: false, error: error.message });
   }
 });
@@ -267,6 +274,7 @@ router.delete("/:houseId", async (req, res) => {
     res.json({ success: true, message: "House deleted" });
   } catch (error) {
     logger.error("❌ 하우스 삭제 실패:", error);
+    reportServerError(error, req, res);
     res.status(500).json({ success: false, error: error.message });
   }
 });
@@ -377,6 +385,7 @@ router.post("/:farmId/sync", async (req, res) => {
     res.json({ success: true, data: results });
   } catch (error) {
     logger.error("설정 동기화 실패:", error);
+    reportServerError(error, req, res);
     res.status(500).json({ success: false, error: error.message });
   }
 });
@@ -409,6 +418,7 @@ router.get("/system-settings/:farmId", async (req, res) => {
     res.json({ success: true, data: settings });
   } catch (error) {
     logger.error("❌ 시스템 설정 조회 실패:", error);
+    reportServerError(error, req, res);
     res.status(500).json({ success: false, error: error.message });
   }
 });
@@ -643,6 +653,7 @@ router.put("/system-settings/:farmId", async (req, res) => {
     res.json({ success: true, data: settings, displayPush });
   } catch (error) {
     logger.error("❌ 시스템 설정 저장 실패:", error);
+    reportServerError(error, req, res);
     res.status(500).json({ success: false, error: error.message });
   }
 });
@@ -681,6 +692,7 @@ router.post("/:farmId/rpi-ack", async (req, res) => {
     res.json({ success: true, data: ackData.rpiSync });
   } catch (error) {
     logger.error("❌ RPi ACK 저장 실패:", error);
+    reportServerError(error, req, res);
     res.status(500).json({ success: false, error: error.message });
   }
 });

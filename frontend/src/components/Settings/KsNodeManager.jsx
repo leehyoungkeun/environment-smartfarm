@@ -1052,6 +1052,7 @@ const NodeCard =({ unit, node, st, mapping, changes = [], storage, stateAt = 0, 
                         <td className="px-3 font-bold text-gray-900">{r.name}{r.level ? <span className="ml-1 text-xs text-gray-400 font-normal">L{r.level}</span> : null}</td>
                         <td className="px-3 font-mono text-gray-700">
                           {r.code}
+                          <span className="ml-1 text-xs text-gray-400">({r.codeReg}번지)</span>
                           {codeByIndex[r.index]?.ok === false && (
                             <span className="ml-2 inline-block px-1.5 py-0.5 rounded bg-rose-100 text-rose-700 text-xs font-bold font-sans">표준 기대 {codeByIndex[r.index].expected}</span>
                           )}

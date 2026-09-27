@@ -69,6 +69,7 @@ export function discoveryRows(node) {
     supported: isSensor ? true : d.supported !== false,
     level: d.level ?? null,
     note: d.note || '',
+    codeReg: 100 + d.index,   // 디바이스 코드를 읽어 온 번지 (101번지부터 채널수만큼) — 심사에서 표준 부속서 A 와 대조
     registers: isSensor
       ? `값 ${d.value_reg}~${d.value_reg + 1} / 상태 ${d.status_reg}`
       : d.status ? `상태 ${d.status.opid}~${d.status.remain?.[1] ?? '?'} / 명령 ${d.cmd?.cmd}~${d.cmd?.time?.[1] ?? '?'}` : '',

@@ -30,7 +30,8 @@ class FakeMaster:
         if kind == "sensor":
             self.nodes[1] = {"unit": 1, "kind": "sensor", "cert_authority": 0, "company_code": 0, "product_type": 1, "product_code": 0,
                              "protocol_version": 10, "channels": 30, "default_map": True, "supported": True, "notes": [],
-                             "devices": [{"index": 1, "code": 1, "name": "온도1"}, {"index": 4, "code": 2, "name": "습도1"}]}
+                             "devices": [{"index": 1, "code": 1, "name": "온도1", "value_reg": 203, "status_reg": 205},
+                                         {"index": 4, "code": 2, "name": "습도1", "value_reg": 212, "status_reg": 214}]}
             self.state[1] = {"kind": "sensor", "t": NOW - 1, "unit": 1, "node_status": 0, "node_status_name": "READY", "sensors": {
                 1: {"name": "온도1", "code": 1, "value": 25.69, "status": 0, "status_name": "READY"},
                 4: {"name": "습도1", "code": 2, "value": 60.97, "status": 0, "status_name": "READY"}}}
@@ -39,7 +40,12 @@ class FakeMaster:
         else:
             self.nodes[1] = {"unit": 1, "kind": "actuator", "cert_authority": 0, "company_code": 0, "product_type": 2, "product_code": 0,
                              "protocol_version": 10, "channels": 24, "default_map": True, "supported": True, "notes": [],
-                             "devices": [{"index": 1, "code": 102, "kind": "switch", "n": 1, "name": "스위치1"}, {"index": 17, "code": 112, "kind": "opener", "n": 1, "name": "개폐기1"}]}
+                             "devices": [{"index": 1, "code": 102, "kind": "switch", "n": 1, "name": "스위치1",
+                                          "status": {"opid": 203, "status": 204, "remain": [205, 206]},
+                                          "cmd": {"cmd": 503, "opid": 504, "time": [505, 506]}},
+                                         {"index": 17, "code": 112, "kind": "opener", "n": 1, "name": "개폐기1",
+                                          "status": {"opid": 267, "status": 268, "remain": [269, 270]},
+                                          "cmd": {"cmd": 567, "opid": 568, "time": [569, 570]}}]}
             self.state[1] = {"kind": "actuator", "t": NOW - 1, "unit": 1, "node_opid": 0, "node_status": 0, "node_status_name": "READY", "devices": {
                 1: {"name": "스위치1", "kind": "switch", "n": 1, "opid": 7, "status": 201, "status_name": "ON", "remain": 12},
                 17: {"name": "개폐기1", "kind": "opener", "n": 1, "opid": 0, "status": 0, "status_name": "READY", "remain": 0}}}
@@ -84,6 +90,32 @@ class Build(unittest.TestCase):
         self.assertTrue(e["id"].startswith("realnode-"))
         steps = {s["step"]: s for s in e["results"][1]["steps"]}
         self.assertIn("d) 연결된 디바이스 2개 — 온도 1 · 습도 1", steps)
+
+    def test_읽어온_레지스터를_증적에_남긴다_센서(self):
+        """심사에서 화면·증적만 보고 표준 부속서 A 와 대조할 수 있어야 한다 (2026-09-27)."""
+        fill_store(self.store, 1, 11)
+        self.store.clock.t = NOW
+        e = ev.build(FakeMaster("sensor"), self.store, {"desc": "rtu x", "mode": "serial"}, conntest(), 1, now=NOW)
+        search = {s["step"]: s["detail"] for s in e["results"][1]["steps"]}
+        self.assertIn("1번지 기관 0", search["b) 기관코드 0 · 회사코드 0 (디폴트맵)"])
+        self.assertIn("2번지 회사 0", search["b) 기관코드 0 · 회사코드 0 (디폴트맵)"])
+        self.assertIn("5번지 10", search["b) 프로토콜 버전 10"])
+        self.assertIn("6번지 30", search["b) 채널수 30"])
+        self.assertIn("#1 코드 1 (101번지)", search["d) 연결된 디바이스 2개 — 온도 1 · 습도 1"])
+        self.assertIn("#4 코드 2 (104번지)", search["d) 연결된 디바이스 2개 — 온도 1 · 습도 1"])
+        read = {s["step"]: s["detail"] for s in e["results"][2]["steps"]}
+        self.assertIn("값 203~204·상태 205번지", read["b) #1 온도1 관측치·상태"])
+        self.assertIn("값 212~213·상태 214번지", read["b) #4 습도1 관측치·상태"])
+        md = ev.render_report(e)
+        self.assertIn("101번지", md, "report.md 로도 번지가 보여야 한다")
+
+    def test_읽어온_레지스터를_증적에_남긴다_구동기(self):
+        m = FakeMaster("actuator")
+        e = ev.build(m, None, {"desc": "rtu x", "mode": "serial"}, conntest(), 1, now=NOW)
+        steps = {s["step"]: s["detail"] for r in e["results"] for s in r["steps"]}
+        self.assertIn("OPID 203·상태 204·남은 205~206번지", steps["a) #1 스위치1 지금 상태"])
+        self.assertIn("명령 503·OPID 504·시간 505~506번지", steps["a) #1 스위치1 지금 상태"])
+        self.assertIn("OPID 267·상태 268·남은 269~270번지", steps["a) #17 개폐기1 지금 상태"])
 
     def test_sensor_store_short_fails_544_only(self):
         fill_store(self.store, 1, 4)

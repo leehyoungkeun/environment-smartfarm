@@ -227,6 +227,8 @@ describe("discoveryRows / nodeSummary", () => {
   test("센서: 순번=n, 값/상태 레지스터", () => {
     const rows = lib.discoveryRows(SEN);
     assert.equal(rows[0].n, 1); assert.equal(rows[0].registers, "값 203~204 / 상태 205"); assert.equal(rows[1].kind, "sensor");
+    assert.equal(rows[0].codeReg, 101, "디바이스 코드를 읽어 온 번지 — 101번지부터 채널수만큼");
+    assert.equal(rows[1].codeReg, 100 + rows[1].index);
   });
   test("요약", () => {
     const s = lib.nodeSummary(ACT);

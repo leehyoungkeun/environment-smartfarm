@@ -119,17 +119,27 @@ def _stop_sequences(evs, dev, timed_op, running_status):
     return out
 
 
-def _control_test(tid, title, ref, kind, devs, evs, st, now, seqs):
+def _control_test(tid, title, ref, kind, devs, evs, st, now, seqs, node=None):
     """§5.5.2(스위치)/§5.5.3(개폐기) — 지금 상태 + 화면 경로 명령 순서 판정 + 출처별 명령 이력"""
     t = _T(tid, title, ref)
+    regs = {}   # 디바이스별 상태·명령 번지 — 어디를 읽고 어디에 썼는지 증적에 남긴다 (2026-09-27)
+    for x in (node or {}).get("devices") or []:
+        sr, cr = x.get("status") or {}, x.get("cmd") or {}
+        if sr:
+            regs[int(x.get("index", -1))] = (f"OPID {sr.get('opid')}·상태 {sr.get('status')}·남은 "
+                                             f"{(sr.get('remain') or ['?', '?'])[0]}~{(sr.get('remain') or ['?', '?'])[-1]}번지"
+                                             + (f" / 명령 {cr.get('cmd')}·OPID {cr.get('opid')}·시간 "
+                                                f"{(cr.get('time') or ['?', '?'])[0]}~{(cr.get('time') or ['?', '?'])[-1]}번지" if cr else ""))
     mine = {k: d for k, d in devs.items() if d.get("kind") == kind}
     if not mine:
         t.step("a) 노드의 " + ("스위치" if kind == "switch" else "개폐기") + " 디바이스", False,
                st.get("error") or "폴링 상태에 해당 디바이스 없음")
         return t.result()
     for idx, d in sorted(mine.items(), key=lambda kv: int(kv[0])):
+        r = regs.get(int(idx))
         t.step(f"a) #{idx} {d.get('name')} 지금 상태", int(d.get("status", -1)) in STATUS_NAMES,
-               f"상태 {d.get('status')} {d.get('status_name')} · OPID {d.get('opid')} · 남은 {d.get('remain')}s")
+               (f"{r} · " if r else "")
+               + f"상태 {d.get('status')} {d.get('status_name')} · OPID {d.get('opid')} · 남은 {d.get('remain')}s")
     cmds = [e for e in evs if str(e.get("dev") or "").startswith(kind)]
     screen = [e for e in cmds if e.get("src") == "screen"]
     for label, timed_op, running in seqs:
@@ -205,15 +215,17 @@ def build(master, store, info, conntest, unit, now=None):
     t = _T(exp["tid"], f"디폴트 레지스터맵 {exp['label']} 검색 시험", f"SPS-7466 §{exp['tid']} a)~d) (KS X 3267 노드정보 1~8 · 디바이스 코드 101~)")
     t.step("a) 노드 응답·등록", bool(node.get("supported")), f"unit {unit} · {exp['label']}")
     t.step("b) 기관코드 0 · 회사코드 0 (디폴트맵)", node.get("cert_authority") == 0 and node.get("company_code") == 0,
-           f"기관 {node.get('cert_authority')} · 회사 {node.get('company_code')}")
-    t.step(f"b) 제품타입 {exp['product_type']} ({exp['label']})", node.get("product_type") == exp["product_type"], f"{node.get('product_type')}")
-    t.step(f"b) 프로토콜 버전 {PROTOCOL_VERSION}", node.get("protocol_version") == PROTOCOL_VERSION, f"{node.get('protocol_version')}")
-    t.step(f"b) 채널수 {exp['channels']}", node.get("channels") == exp["channels"], f"{node.get('channels')}")
+           f"1번지 기관 {node.get('cert_authority')} · 2번지 회사 {node.get('company_code')}")
+    t.step(f"b) 제품타입 {exp['product_type']} ({exp['label']})", node.get("product_type") == exp["product_type"],
+           f"3번지 {node.get('product_type')} · 4번지 제품코드 {node.get('product_code')}")
+    t.step(f"b) 프로토콜 버전 {PROTOCOL_VERSION}", node.get("protocol_version") == PROTOCOL_VERSION, f"5번지 {node.get('protocol_version')}")
+    t.step(f"b) 채널수 {exp['channels']}", node.get("channels") == exp["channels"],
+           f"6번지 {node.get('channels')} · 7·8번지 시리얼 {node.get('serial')}")
     t.step("c) 디폴트 레지스터맵 판정", bool(node.get("default_map")), "; ".join(node.get("notes") or []) or "디폴트맵")
     codes = _codes_of(node)
     summary = _kinds(codes) if kind == "sensor" else _act_kinds(codes)
     t.step(f"d) 연결된 디바이스 {len(codes)}개 — {summary}", len(codes) > 0,
-           ", ".join(f"#{i} 코드 {c}" for i, c in sorted(codes.items())) or "디바이스 코드 전부 0")
+           ", ".join(f"#{i} 코드 {c} ({100 + int(i)}번지)" for i, c in sorted(codes.items())) or "디바이스 코드 전부 0")
     results.append(t.result())
     manual.append(f"③ 노드 {unit} 카드 「노드 기본정보 시험표」 전 항목 일치 화면 캡처 (§{exp['tid']} d)")
 
@@ -227,7 +239,9 @@ def build(master, store, info, conntest, unit, now=None):
             for idx, s in sorted(st["sensors"].items(), key=lambda kv: int(kv[0])):
                 v = s.get("value")
                 ok = isinstance(v, (int, float)) and v == v and int(s.get("status", -1)) in STATUS_NAMES
-                t.step(f"b) #{idx} {s.get('name')} 관측치·상태", ok, f"{v} · 상태 {s.get('status')} {s.get('status_name')}")
+                d = next((x for x in (node.get("devices") or []) if int(x.get("index", -1)) == int(idx)), {})
+                reg = (f"값 {d['value_reg']}~{d['value_reg'] + 1}·상태 {d['status_reg']}번지 · " if d.get("value_reg") else "")
+                t.step(f"b) #{idx} {s.get('name')} 관측치·상태", ok, f"{reg}{v} · 상태 {s.get('status')} {s.get('status_name')}")
         changes = list((master.changes or {}).get(unit, []))[-120:]
         if changes:
             span = changes[-1]["t"] - changes[0]["t"]
@@ -257,13 +271,13 @@ def build(master, store, info, conntest, unit, now=None):
             "5.5.2", "레벨 1 스위치 제어 시험 (실노드, 화면 경로)",
             "SPS-7466 §5.5.2 a)~j) — 화면 202 작동시간 → 201·남은시간 → 화면 중지 0 → READY",
             "switch", devs, evs, st, now,
-            [("202 작동시간 ON → 작동 중 화면 중지 → READY", M_TIMED_ON, M_SWITCH_ON)]))
+            [("202 작동시간 ON → 작동 중 화면 중지 → READY", M_TIMED_ON, M_SWITCH_ON)], node))
         results.append(_control_test(
             "5.5.3", "레벨 1 개폐기 제어 시험 (실노드, 화면 경로)",
             "SPS-7466 §5.5.3 a)~s) — 화면 303 열기 → 301 → 중지 → READY, 304 닫기 → 302 → 중지 → READY",
             "opener", devs, evs, st, now,
             [("303 작동시간 열기 → 작동 중 화면 중지 → READY", M_TIMED_OPEN, M_OPENING),
-             ("304 작동시간 닫기 → 작동 중 화면 중지 → READY", M_TIMED_CLOSE, M_CLOSING)]))
+             ("304 작동시간 닫기 → 작동 중 화면 중지 → READY", M_TIMED_CLOSE, M_CLOSING)], node))
         manual.append("제어판 카드 배지(켜짐/열리는 중 NN s → READY)와 표준노드 탭 §5.1.3 표(201/301/302·남은시간) 화면 캡처 (§5.5.2 e·f·j, §5.5.3 e·l·s)")
         rows = store.query_actuator(unit=unit, start=now - 3600, end=now, limit=20000) if store is not None else None
         results.append(_store_test("116-저장", "구동기 상태 1분 저장 (제어기 로컬)", rows, unit, now, "구동기 상태"))

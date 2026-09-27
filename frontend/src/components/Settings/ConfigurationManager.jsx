@@ -732,8 +732,10 @@ const useKsDiscovered = (farmId) => {
   return { nodes, err, reload };
 };
 
-/** 찾은 것 한 줄 — 이미 매핑됐으면 어디에 붙었는지, 아니면 추가 버튼 */
-const DiscoveredRow = ({ label, sub, mappedTo, onAdd, addLabel }) => (
+/** 찾은 것 한 줄 — 이미 매핑됐으면 어디에 붙었는지, 아니면 종류를 고르고 추가.
+ *  종류를 고르게 하는 이유: 장치는 추가 뒤 종류·이름을 바꿀 수 없고, 제어판은 종류로 카드를 묶는다.
+ *  기본값을 순환팬 같은 것으로 정해 두면 「스위치2」가 순환팬 칸에 들어가 버린다 (2026-09-27). */
+const DiscoveredRow = ({ label, sub, mappedTo, onAdd, addLabel, typeOptions, typeValue, onTypeChange }) => (
   <div className="flex items-center gap-3 py-2 px-3 border-b border-gray-100 last:border-0">
     <div className="flex-1 min-w-0">
       <p className="text-sm font-bold text-gray-900 truncate">{label}</p>
@@ -743,9 +745,17 @@ const DiscoveredRow = ({ label, sub, mappedTo, onAdd, addLabel }) => (
       ? <span className="text-xs text-emerald-700 bg-emerald-50 border border-emerald-200 rounded px-2 py-1 whitespace-nowrap">
           매핑됨 · {mappedTo}
         </span>
-      : <button onClick={onAdd} className="text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded px-3 py-1.5 whitespace-nowrap">
-          {addLabel}
-        </button>}
+      : <>
+          {typeOptions && (
+            <select value={typeValue} onChange={(e) => onTypeChange(e.target.value)}
+              className="input-field text-xs w-auto py-1" title="제어판에서 어떤 장치로 보일지 — 추가 뒤에는 바꿀 수 없습니다">
+              {typeOptions.map(o => <option key={o.value} value={o.value}>{o.icon} {o.label}</option>)}
+            </select>
+          )}
+          <button onClick={onAdd} className="text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded px-3 py-1.5 whitespace-nowrap">
+            {addLabel}
+          </button>
+        </>}
   </div>
 );
 
@@ -1430,6 +1440,7 @@ const getDeviceLabel = (type) => {
 };
 
 const DeviceManager = ({ house, farmId, setEditedHouse, onUpdate, isDirty, saving, onSave, ksFound }) => {
+  const [ksAddType, setKsAddType] = useState({});   // 찾은 구동기별로 고른 장치 종류 (추가 전까지만)
   const [showAddDevice, setShowAddDevice] = useState(false);
   const [expandedDevice, setExpandedDevice] = useState(null);
   const [newDevice, setNewDevice] = useState({
@@ -1460,6 +1471,13 @@ const DeviceManager = ({ house, farmId, setEditedHouse, onUpdate, isDirty, savin
   };
 
   const dtInfoFor = (type) => DEVICE_TYPES.find(dt => dt.value === type);
+
+  // 이름만 바꾼다 — deviceId 는 자동화 규칙·제어 이력·MQTT 토픽이 참조하는 키라 절대 건드리지 않는다.
+  // (종류도 못 바꾼다: 제어판 카드 모양과 제어 방식이 종류로 정해져 이미 걸린 자동화가 어긋난다.
+  //  종류를 잘못 골랐으면 지우고 다시 추가하는 편이 안전하다 — 2026-09-27)
+  const updateDeviceName = (deviceId, name) => {
+    setEditedHouse({ ...house, devices: devices.map(d => (d.deviceId === deviceId ? { ...d, name } : d)) });
+  };
 
   const updateDeviceModbus = (deviceId, modbusData) => {
     const current = devices.find(d => d.deviceId === deviceId);
@@ -1707,6 +1725,20 @@ const DeviceManager = ({ house, farmId, setEditedHouse, onUpdate, isDirty, savin
                 {/* Modbus 채널 설정 패널 */}
                 {isExpanded && (
                   <div className="px-4 pb-4 pt-1 border-t border-gray-200 bg-white animate-fade-in-up">
+                    {/* 이름 바꾸기 (2026-09-27) — 목록에서 찾은 것을 추가하면 종류를 따라 이름이 붙는데,
+                        농가는 「온풍기 1」 대신 「동쪽 온풍기」처럼 부르고 싶어 한다 */}
+                    <div className="mb-3">
+                      <label className="text-xs text-gray-500 mb-1 block">장치 이름</label>
+                      <div className="flex items-center gap-2">
+                        <input type="text" value={device.name || ''} maxLength={40}
+                          onChange={(e) => updateDeviceName(device.deviceId, e.target.value)}
+                          placeholder={getDeviceLabel(device.type)}
+                          className="input-field text-sm flex-1" />
+                        <span className="text-[11px] text-gray-400 font-mono whitespace-nowrap" title="장치 식별자 — 자동화 규칙·제어 이력이 이 값을 참조하므로 바뀌지 않습니다">
+                          {device.deviceId}
+                        </span>
+                      </div>
+                    </div>
                     <div className="flex items-center justify-between mb-2">
                       <p className="text-xs font-bold text-gray-600">⚡ {isKs ? 'KS X 3267 표준 노드 매핑' : 'Modbus 릴레이 채널 설정'}</p>
                       <select
@@ -1928,25 +1960,34 @@ const DeviceManager = ({ house, farmId, setEditedHouse, onUpdate, isDirty, savin
           const d = devices.find(x => isKsProfile(x.modbus) && Number(x.modbus.unit) === unit && x.modbus.kind === kind && Number(x.modbus.n) === Number(n));
           return d ? d.name || d.deviceId : null;
         };
+        // 제어 방식이 맞는 종류만 고르게 한다 — 스위치에 측창(열기/정지/닫기)을 붙이면 카드가 어긋난다
+        const optionsFor = (kind) => DEVICE_TYPES.filter(t => (t.defaultControlType === 'bidir') === (kind === 'opener'));
         const addFromNode = (f) => {
-          const type = f.kind === 'opener' ? 'side_window' : 'fan';   // 종류는 카드 모양만 정한다 — 추가 뒤 바꾸면 된다
+          const type = ksAddType[`${f.unit}:${f.kind}:${f.n}`] || optionsFor(f.kind)[0].value;
           const deviceId = generateDeviceId(type);
+          const label = getDeviceLabel(type);
           const updated = [...devices, {
-            deviceId, name: f.name || `${f.kind === 'opener' ? '개폐기' : '스위치'} ${f.n}`, type,
+            deviceId, name: `${label} ${devices.filter(d => d.type === type).length + 1}`, type,
             icon: getDeviceIcon(type), enabled: true, order: devices.length,
             modbus: ksDeviceModbus(f.unit, f.kind, f.n),
           }];
           setEditedHouse({ ...house, devices: updated, deviceCount: updated.length });
         };
         return (
-          <DiscoveredBox title="표준 노드에서 찾은 구동기" desc="설정 › 표준노드 탭이 읽어 온 것 — 누르면 노드 주소·종류·번호가 그대로 채워집니다"
+          <DiscoveredBox title="표준 노드에서 찾은 구동기" desc="설정 › 표준노드 탭이 읽어 온 것 — 종류를 고르고 누르면 노드 주소·번호가 그대로 채워집니다"
             err={ksFound.err} reload={ksFound.reload} empty={found.length === 0}>
-            {found.map(f => (
-              <DiscoveredRow key={`${f.unit}:${f.kind}:${f.n}`}
-                label={`${f.name} — 노드 ${f.unit} · ${f.kind === 'opener' ? '개폐기' : '스위치'} ${f.n}`}
-                sub={`코드 ${f.code} (${100 + f.index}번지)${f.status ? ` · 상태 ${f.status.status} · 명령 ${f.cmd?.cmd}` : ''}`}
-                mappedTo={mappedOf(f.unit, f.kind, f.n)} addLabel="장치로 추가" onAdd={() => addFromNode(f)} />
-            ))}
+            {found.map(f => {
+              const key = `${f.unit}:${f.kind}:${f.n}`;
+              const opts = optionsFor(f.kind);
+              return (
+                <DiscoveredRow key={key}
+                  label={`${f.name} — 노드 ${f.unit} · ${f.kind === 'opener' ? '개폐기' : '스위치'} ${f.n}`}
+                  sub={`코드 ${f.code} (${100 + f.index}번지)${f.status ? ` · 상태 ${f.status.status} · 명령 ${f.cmd?.cmd}` : ''}`}
+                  mappedTo={mappedOf(f.unit, f.kind, f.n)} addLabel="장치로 추가" onAdd={() => addFromNode(f)}
+                  typeOptions={opts} typeValue={ksAddType[key] || opts[0].value}
+                  onTypeChange={(v) => setKsAddType({ ...ksAddType, [key]: v })} />
+              );
+            })}
           </DiscoveredBox>
         );
       })()}

@@ -237,6 +237,35 @@ describe("discoveryRows / nodeSummary", () => {
   });
 });
 
+describe("registerMap — 화면에 띄우는 「읽는 레지스터 주소」 (2026-09-27)", () => {
+  const ST_SEN2 = { t: 1, node_status: 0, node_status_name: "READY", kind: "sensor", sensors: { 1: { value: 19.1, status: 0, code: 1 } } };
+  test("노드 공통: 1~8 · 디바이스 코드 범위는 채널수로 정해진다 · 202 노드 상태", () => {
+    const m = lib.registerMap(SEN, ST_SEN2);
+    const by = Object.fromEntries(m.common.map(r => [r.reg, r]));
+    assert.ok(by["1"].what.includes("기관코드"));
+    assert.ok(by["7~8"].what.includes("시리얼"));
+    assert.equal(by[`101~${100 + SEN.channels}`].what.includes("디바이스 코드"), true, "101번지부터 채널수만큼");
+    assert.ok(by["202"].value.includes("READY"), "노드 상태코드는 202");
+  });
+  test("센서 디바이스: 관측치 2워드·상태 1워드, 쓰는 번지 없음", () => {
+    const d = lib.registerMap(SEN, ST_SEN2).devices.find(x => x.index === 1);
+    assert.equal(d.read, "관측치 203~204 · 상태 205");
+    assert.equal(d.write, "—", "센서에는 명령을 쓰지 않는다");
+    assert.equal(d.codeReg, 101);
+  });
+  test("구동기 디바이스: 읽는 번지와 쓰는 번지를 함께 — §5.5.2 는 쓴 자리가 증적", () => {
+    const d = lib.registerMap(ACT, { t: 1, node_status: 0, kind: "actuator", devices: { 3: { status: 201, status_name: "ON", remain: 12 } } }).devices.find(x => x.index === 3);
+    assert.match(d.read, /^OPID \d+ · 상태 \d+ · 남은시간 \d+~\d+$/);
+    assert.match(d.write, /^명령 \d+ · OPID \d+ · 작동시간 \d+~\d+$/);
+  });
+  test("노드 없음 / 응답 없음에도 터지지 않는다", () => {
+    assert.deepEqual(lib.registerMap(null), { common: [], devices: [] });
+    const m = lib.registerMap(SEN, { error: "timeout" });
+    assert.equal(m.common.find(r => r.reg === "202").value, "응답 없음");
+    assert.equal(m.devices[0].value, "—");
+  });
+});
+
 describe("nodeReadRows — §5.1.3 b·c) 노드 데이터 읽기 시험표", () => {
   const ST_ACT = { t: 1788500000, node_status: 0, kind: "actuator", devices: { 3: { status: 201, remain: 25, opid: 9 }, 18: { status: 0, remain: 0, opid: 0 }, 5: { status: 777 } } };
   const ST_SEN = { t: 1788500000, node_status: 0, kind: "sensor", sensors: { 1: { value: 28.8, status: 0, code: 1 }, 4: { value: 60.1, status: 102, code: 2 } } };

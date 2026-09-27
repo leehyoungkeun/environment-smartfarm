@@ -94,6 +94,52 @@ export function nodeSummary(node) {
   };
 }
 
+/**
+ * 이 노드에서 실제로 읽고 쓰는 번지를 한 표로 (2026-09-27).
+ * 시험장에는 인터넷도 SSH 도 없다. 심사위원이 화면만 보고 "어느 자리를 읽어 이 값이 나왔나" 를
+ * 표준 부속서 A 와 그 자리에서 대조할 수 있어야 한다. 번지는 탐색 결과에 이미 있던 값이라
+ * 추가 통신은 하지 않는다.
+ * @returns {{ common: Array, devices: Array }} common=노드 공통(1~8·디바이스 코드), devices=디바이스별 읽기/쓰기
+ */
+export function registerMap(node, st) {
+  if (!node) return { common: [], devices: [] };
+  const v = (x) => (x === undefined || x === null ? '—' : String(x));
+  const ch = Number(node.channels) || 0;
+  const codes = (node.devices || []).map((d) => `#${d.index}=${d.code}`).join(', ');
+  const common = [
+    { reg: '1', what: '기관코드', value: v(node.cert_authority) },
+    { reg: '2', what: '회사코드', value: v(node.company_code) },
+    { reg: '3', what: '제품타입', value: `${v(node.product_type)} (${node.kind === 'sensor' ? '센서 노드' : node.kind === 'actuator' ? '구동기 노드' : '?'})` },
+    { reg: '4', what: '제품코드', value: v(node.product_code) },
+    { reg: '5', what: '프로토콜 버전', value: v(node.protocol_version) },
+    { reg: '6', what: '채널수 — 아래 디바이스 코드를 몇 개 읽을지 정한다', value: v(node.channels) },
+    { reg: '7~8', what: '시리얼번호 (2워드)', value: v(node.serial) },
+    { reg: ch ? `101~${100 + ch}` : '101~', what: '디바이스 코드 — 자리마다 무엇이 붙어 있는지 (0 은 없음)', value: codes ? `연결 ${node.devices.length}개 · ${codes}` : '전부 0' },
+    { reg: '202', what: '노드 상태코드', value: st && !st.error ? `${v(st.node_status)} ${v(st.node_status_name)}` : (st?.error === 'timeout' ? '응답 없음' : '—') },
+  ];
+  const devices = (node.devices || []).map((d) => {
+    const isSensor = node.kind === 'sensor';
+    if (isSensor) {
+      const sv = st && !st.error ? st.sensors?.[d.index] : null;
+      return {
+        index: d.index, name: d.name, codeReg: 100 + d.index, code: d.code,
+        read: `관측치 ${d.value_reg}~${d.value_reg + 1} · 상태 ${d.status_reg}`,
+        write: '—',
+        value: sv ? `${sv.value} · 상태 ${sv.status}` : '—',
+      };
+    }
+    const s = d.status || {}; const c = d.cmd || {};
+    const dv = st && !st.error ? st.devices?.[d.index] : null;
+    return {
+      index: d.index, name: d.name, codeReg: 100 + d.index, code: d.code,
+      read: s.opid ? `OPID ${s.opid} · 상태 ${s.status} · 남은시간 ${s.remain?.[0]}~${s.remain?.[1]}` : '—',
+      write: c.cmd ? `명령 ${c.cmd} · OPID ${c.opid} · 작동시간 ${c.time?.[0]}~${c.time?.[1]}` : '—',
+      value: dv ? `상태 ${dv.status} ${dv.status_name ?? ''} · 남은 ${dv.remain}s` : '—',
+    };
+  });
+  return { common, devices };
+}
+
 /** 노드정보 1~8 시험표 (SPS-X KOAT-0004-7466 §5.1.2 c) — 읽은값 / 기대값 / 일치 여부).
  *  ok: true=일치, false=불일치, null=참고(고정 기대값 없음, 시리얼). */
 export function nodeInfoRows(node) {

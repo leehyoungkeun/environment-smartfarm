@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import axiosBase from 'axios';
 import { getApiBase } from '../../services/apiSwitcher';
-import { describeStatus, discoveryRows, nodeSummary, nodeInfoRows, nodeReadRows, mappingIndex, mappingKey, frameRows, commChangeWarnings, deviceCodeCheck, nodeReadView, deviceKindSummary, changeStats, storageCheck } from '../../lib/ks3267';
+import { describeStatus, discoveryRows, nodeSummary, nodeInfoRows, registerMap, nodeReadRows, mappingIndex, mappingKey, frameRows, commChangeWarnings, deviceCodeCheck, nodeReadView, deviceKindSummary, changeStats, storageCheck } from '../../lib/ks3267';
 
 // ━━━ KS X 3267 표준노드 탭 (P4, 2026-08-30 / UI 재구성 2026-09-04) ━━━
 // 읽기 전용 진단 UI. 백엔드 /config/:farmId/ks3267/:action → RPi NR → ks3267d 데몬(127.0.0.1:3002).
@@ -1011,6 +1011,58 @@ const NodeCard =({ unit, node, st, mapping, changes = [], storage, stateAt = 0, 
                   </table>
                 </div>
               )}
+            </SubBox>
+          );
+        })()}
+
+        {/* 읽는 레지스터 주소 한눈에 (2026-09-27) — 시험장에서 화면만 보고 표준 부속서 A 와 대조 */}
+        {(() => {
+          const rm = registerMap(node, st);
+          return (
+            <SubBox title="읽는 레지스터 주소" desc="이 노드에서 어느 번지를 읽고 어디에 명령을 쓰는지 — 표준 부속서 A 와 그대로 대조하세요" tone="blue">
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm mb-4">
+                  <thead>
+                    <tr className="text-gray-600 text-left bg-gray-50 border-y border-gray-200">
+                      <th className="py-2 px-3 w-28">번지</th><th className="px-3">무엇을 읽나</th><th className="px-3">지금 읽힌 값</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {rm.common.map(r => (
+                      <tr key={r.reg} className="border-b border-gray-100">
+                        <td className="py-2 px-3 font-mono font-bold text-gray-900">{r.reg}</td>
+                        <td className="px-3 text-gray-800">{r.what}</td>
+                        <td className="px-3 font-mono text-gray-700">{r.value}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+                {rm.devices.length > 0 && (
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="text-gray-600 text-left bg-gray-50 border-y border-gray-200">
+                        <th className="py-2 px-3 w-12">#</th><th className="px-3">디바이스</th><th className="px-3">코드 번지</th><th className="px-3">읽는 번지</th><th className="px-3">쓰는 번지 (명령)</th><th className="px-3">지금 값</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {rm.devices.map(d => (
+                        <tr key={d.index} className="border-b border-gray-100">
+                          <td className="py-2 px-3 text-gray-500">{d.index}</td>
+                          <td className="px-3 font-bold text-gray-900">{d.name}</td>
+                          <td className="px-3 font-mono text-gray-600">{d.codeReg} <span className="text-xs text-gray-400">= {d.code}</span></td>
+                          <td className="px-3 font-mono text-xs text-gray-700 whitespace-nowrap">{d.read}</td>
+                          <td className="px-3 font-mono text-xs text-gray-700 whitespace-nowrap">{d.write}</td>
+                          <td className="px-3 font-mono text-xs text-gray-600 whitespace-nowrap">{d.value}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                )}
+                <p className="text-xs text-gray-500 mt-2">
+                  읽기는 FC3(보유 레지스터 읽기), 명령은 FC16(여러 레지스터 쓰기)입니다. 관측치와 남은시간·작동시간은 2워드(32비트)라 번지가 두 개씩입니다.
+                  디바이스 코드는 101번지부터 채널수({node.channels})만큼 읽고, 값이 0 인 자리는 비어 있는 것으로 봅니다.
+                </p>
+              </div>
             </SubBox>
           );
         })()}

@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback, lazy, Suspense } from 'react';
 import axiosBase from 'axios';
 import { getApiBase, getPcApiBase, getRpiApiBase, isFarmLocalMode, setFarmLocalMode } from '../../services/apiSwitcher';
 import wsService from '../../services/wsService';
-import { isKsProfile, ksDeviceLabel, validateKsProfile, validateKsSensor } from '../../lib/ks3267';
+import { isKsProfile, ksDeviceLabel, validateKsProfile, validateKsSensor, ksSensorMeta, ksSuggestSensorId, ksDeviceModbus } from '../../lib/ks3267';
 
 const AutomationManager = lazy(() => import('../Dashboard/AutomationManager'));
 const AccessoryManager = lazy(() => import('./AccessoryManager').then(m => ({ default: m.AccessoryManager })));
@@ -711,7 +711,64 @@ const ConfigurationManager = ({ farmId = import.meta.env.VITE_FARM_ID || 'farm_0
   );
 };
 
+/* 설정 › 하우스/센서 — 표준 노드에서 찾은 것을 목록으로 보여 주고 버튼으로 매핑한다 (2026-09-27).
+   지금까지는 노드 주소·자리 번호를 사람이 외워 입력해야 했다. 번호 하나만 틀려도 화면과 하드웨어가
+   어긋난 채 저장되고, 그 어긋남은 제어가 안 될 때에야 드러난다. 찾은 것을 그대로 고르게 한다. */
+
+// ── 표준 노드 조회 (패널은 같은 출처, 웹은 클라우드 프록시 — KsNodeManager 와 같은 경로)
+const useKsDiscovered = (farmId) => {
+  const [nodes, setNodes] = useState(null);   // null=아직, {}=없음
+  const [err, setErr] = useState('');
+  const reload = useCallback(() => {
+    const api = getApiBase();
+    const panelHost = typeof window !== 'undefined' && ['localhost', '127.0.0.1'].includes(window.location.hostname);
+    const req = panelHost
+      ? axios.get('/api/ks3267/nodes', { timeout: 12000 })
+      : axios.get(`${api}/config/${farmId}/ks3267/nodes`, { timeout: 12000 });
+    req.then(r => { setNodes(r.data?.nodes || {}); setErr(r.data?.ok === false ? (r.data.error || '드라이버 응답 없음') : ''); })
+       .catch(e => { setNodes({}); setErr(e.response?.data?.error || e.message); });
+  }, [farmId]);
+  useEffect(() => { reload(); }, [reload]);
+  return { nodes, err, reload };
+};
+
+/** 찾은 것 한 줄 — 이미 매핑됐으면 어디에 붙었는지, 아니면 추가 버튼 */
+const DiscoveredRow = ({ label, sub, mappedTo, onAdd, addLabel }) => (
+  <div className="flex items-center gap-3 py-2 px-3 border-b border-gray-100 last:border-0">
+    <div className="flex-1 min-w-0">
+      <p className="text-sm font-bold text-gray-900 truncate">{label}</p>
+      <p className="text-[11px] text-gray-500 font-mono truncate">{sub}</p>
+    </div>
+    {mappedTo
+      ? <span className="text-xs text-emerald-700 bg-emerald-50 border border-emerald-200 rounded px-2 py-1 whitespace-nowrap">
+          매핑됨 · {mappedTo}
+        </span>
+      : <button onClick={onAdd} className="text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded px-3 py-1.5 whitespace-nowrap">
+          {addLabel}
+        </button>}
+  </div>
+);
+
+/** 상자 틀 — 센서·구동기 공용 */
+const DiscoveredBox = ({ title, desc, err, reload, empty, children }) => (
+  <div className="mt-4 rounded-xl border-2 border-indigo-200 bg-indigo-50/40 p-3">
+    <div className="flex items-center justify-between mb-2">
+      <div>
+        <p className="text-sm font-extrabold text-indigo-800">📐 {title}</p>
+        <p className="text-[11px] text-indigo-700/80">{desc}</p>
+      </div>
+      <button onClick={reload} className="text-xs text-indigo-700 underline">다시 찾기</button>
+    </div>
+    {err
+      ? <p className="text-xs text-rose-600 px-1 py-2">표준 노드를 읽지 못했습니다 — {err}. 설정 › 표준노드 탭에서 드라이버 상태를 확인하세요.</p>
+      : empty
+        ? <p className="text-xs text-gray-500 px-1 py-2">찾은 것이 없습니다. 설정 › 표준노드 탭에서 노드를 먼저 탐색하세요.</p>
+        : <div className="bg-white rounded-lg border border-indigo-100">{children}</div>}
+  </div>
+);
+
 const HouseDetailEditor = ({ house, farmId, onUpdate }) => {
+  const ksFound = useKsDiscovered(farmId);   // 표준 노드에서 찾은 센서·구동기 (아래 매핑 목록)
   const [editedHouse, setEditedHouse] = useState(house);
   const [editingSensor, setEditingSensor] = useState(null);
   const [showAddSensor, setShowAddSensor] = useState(false);
@@ -1298,11 +1355,45 @@ const HouseDetailEditor = ({ house, farmId, onUpdate }) => {
               : 'bg-gray-100 text-gray-400 border border-gray-200 cursor-default'}`}>
           {saving ? '저장 중...' : isSensorsDirty ? '💾 센서 저장' : '변경 없음'}
         </button>
+
+        {/* 표준 노드에서 찾은 센서 — 번호를 외워 입력하지 않게 (2026-09-27) */}
+        {(() => {
+          const found = [];
+          for (const [unit, node] of Object.entries(ksFound.nodes || {})) {
+            if (node.kind !== 'sensor') continue;
+            for (const d of node.devices || []) found.push({ unit: Number(unit), ...d });
+          }
+          const mappedOf = (unit, index) => {
+            const s2 = (editedHouse.sensors || []).find(x => x.ks3267 && Number(x.ks3267.unit) === unit && Number(x.ks3267.index) === index);
+            return s2 ? s2.name || s2.sensorId : null;
+          };
+          const addFromNode = (f) => {
+            const meta = ksSensorMeta(f.code);
+            const id = ksSuggestSensorId(f.code, (editedHouse.sensors || []).map(x => x.sensorId));
+            setEditedHouse({ ...editedHouse, sensors: [...(editedHouse.sensors || []), {
+              sensorId: id, name: f.name || meta.name, unit: meta.unit, type: 'number',
+              min: 0, max: 100, enabled: true, icon: '📐', color: '#6366F1', precision: 1,
+              order: (editedHouse.sensors || []).length + 1,
+              ks3267: { unit: f.unit, index: f.index },
+            }] });
+          };
+          return (
+            <DiscoveredBox title="표준 노드에서 찾은 센서" desc="설정 › 표준노드 탭이 읽어 온 것 — 누르면 번지·자리 번호가 그대로 채워집니다"
+              err={ksFound.err} reload={ksFound.reload} empty={found.length === 0}>
+              {found.map(f => (
+                <DiscoveredRow key={`${f.unit}:${f.index}`}
+                  label={`${f.name} — 노드 ${f.unit} · ${f.index}번 자리`}
+                  sub={`코드 ${f.code} (${100 + f.index}번지) · 관측치 ${f.value_reg}~${f.value_reg + 1} · 상태 ${f.status_reg}`}
+                  mappedTo={mappedOf(f.unit, f.index)} addLabel="센서로 추가" onAdd={() => addFromNode(f)} />
+              ))}
+            </DiscoveredBox>
+          );
+        })()}
       </div>
 
       {/* 제어 장치 관리 */}
       <DeviceManager house={editedHouse} farmId={farmId} setEditedHouse={setEditedHouse} onUpdate={onUpdate}
-        isDirty={isDevicesDirty} saving={saving} onSave={updateHouse} />
+        isDirty={isDevicesDirty} saving={saving} onSave={updateHouse} ksFound={ksFound} />
     </div>
   );
 };
@@ -1338,7 +1429,7 @@ const getDeviceLabel = (type) => {
   return DEVICE_TYPES.find(d => d.value === type)?.label || type;
 };
 
-const DeviceManager = ({ house, farmId, setEditedHouse, onUpdate, isDirty, saving, onSave }) => {
+const DeviceManager = ({ house, farmId, setEditedHouse, onUpdate, isDirty, saving, onSave, ksFound }) => {
   const [showAddDevice, setShowAddDevice] = useState(false);
   const [expandedDevice, setExpandedDevice] = useState(null);
   const [newDevice, setNewDevice] = useState({
@@ -1825,6 +1916,40 @@ const DeviceManager = ({ house, farmId, setEditedHouse, onUpdate, isDirty, savin
           })}
         </div>
       )}
+
+      {/* 표준 노드에서 찾은 구동기 — 자리 번호를 외워 입력하지 않게 (2026-09-27) */}
+      {ksFound && (() => {
+        const found = [];
+        for (const [unit, node] of Object.entries(ksFound.nodes || {})) {
+          if (node.kind !== 'actuator') continue;
+          for (const d of node.devices || []) if (d.supported !== false) found.push({ unit: Number(unit), ...d });
+        }
+        const mappedOf = (unit, kind, n) => {
+          const d = devices.find(x => isKsProfile(x.modbus) && Number(x.modbus.unit) === unit && x.modbus.kind === kind && Number(x.modbus.n) === Number(n));
+          return d ? d.name || d.deviceId : null;
+        };
+        const addFromNode = (f) => {
+          const type = f.kind === 'opener' ? 'side_window' : 'fan';   // 종류는 카드 모양만 정한다 — 추가 뒤 바꾸면 된다
+          const deviceId = generateDeviceId(type);
+          const updated = [...devices, {
+            deviceId, name: f.name || `${f.kind === 'opener' ? '개폐기' : '스위치'} ${f.n}`, type,
+            icon: getDeviceIcon(type), enabled: true, order: devices.length,
+            modbus: ksDeviceModbus(f.unit, f.kind, f.n),
+          }];
+          setEditedHouse({ ...house, devices: updated, deviceCount: updated.length });
+        };
+        return (
+          <DiscoveredBox title="표준 노드에서 찾은 구동기" desc="설정 › 표준노드 탭이 읽어 온 것 — 누르면 노드 주소·종류·번호가 그대로 채워집니다"
+            err={ksFound.err} reload={ksFound.reload} empty={found.length === 0}>
+            {found.map(f => (
+              <DiscoveredRow key={`${f.unit}:${f.kind}:${f.n}`}
+                label={`${f.name} — 노드 ${f.unit} · ${f.kind === 'opener' ? '개폐기' : '스위치'} ${f.n}`}
+                sub={`코드 ${f.code} (${100 + f.index}번지)${f.status ? ` · 상태 ${f.status.status} · 명령 ${f.cmd?.cmd}` : ''}`}
+                mappedTo={mappedOf(f.unit, f.kind, f.n)} addLabel="장치로 추가" onAdd={() => addFromNode(f)} />
+            ))}
+          </DiscoveredBox>
+        );
+      })()}
 
       {/* 장치 저장 버튼 */}
       <button onClick={async () => {

@@ -237,6 +237,30 @@ describe("discoveryRows / nodeSummary", () => {
   });
 });
 
+describe("찾은 것 → 설정 초안 (설정 화면의 매핑 버튼, 2026-09-27)", () => {
+  test("센서 코드 → 이름·단위", () => {
+    assert.deepEqual(lib.ksSensorMeta(1), { name: "온도", unit: "°C" });
+    assert.deepEqual(lib.ksSensorMeta(2), { name: "습도", unit: "%" });
+    assert.equal(lib.ksSensorMeta(99).name, "코드 99", "모르는 코드도 추가는 된다 — 이름만 코드로");
+  });
+  test("sensorId 는 기존과 겹치지 않게 번호를 올린다", () => {
+    assert.equal(lib.ksSuggestSensorId(1, []), "temp_0001");
+    assert.equal(lib.ksSuggestSensorId(1, ["temp_0001"]), "temp_0002");
+    assert.equal(lib.ksSuggestSensorId(2, ["humidity_0001", "humidity_0002"]), "humidity_0003");
+    assert.equal(lib.ksSuggestSensorId(11, []), "co2_0001");
+  });
+  test("구동기 modbus 블록 — 개폐기는 bidir, 스위치는 single", () => {
+    assert.deepEqual(lib.ksDeviceModbus(1, "switch", 3), { protocol: "ks3267", unit: 1, kind: "switch", n: 3, controlType: "single" });
+    assert.deepEqual(lib.ksDeviceModbus("1", "opener", "2"), { protocol: "ks3267", unit: 1, kind: "opener", n: 2, controlType: "bidir" },
+      "문자열로 와도 숫자로 — 저장 뒤 매칭이 === 비교라 틀어지면 화면이 조용히 안 맞는다");
+  });
+  test("만든 블록은 곧바로 표준 프로필로 인정되고 검증을 통과한다", () => {
+    const m = lib.ksDeviceModbus(2, "switch", 16);
+    assert.equal(lib.isKsProfile(m), true);
+    assert.deepEqual(lib.validateKsProfile(m), []);
+  });
+});
+
 describe("registerMap — 화면에 띄우는 「읽는 레지스터 주소」 (2026-09-27)", () => {
   const ST_SEN2 = { t: 1, node_status: 0, node_status_name: "READY", kind: "sensor", sensors: { 1: { value: 19.1, status: 0, code: 1 } } };
   test("노드 공통: 1~8 · 디바이스 코드 범위는 채널수로 정해진다 · 202 노드 상태", () => {

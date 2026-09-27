@@ -140,6 +140,35 @@ export function registerMap(node, st) {
   return { common, devices };
 }
 
+/* ── 찾은 것 → 설정 초안 (2026-09-27) ───────────────────────────────────────
+   설정 화면이 "표준 노드에서 찾은 것"을 목록으로 보여 주고 버튼으로 매핑한다.
+   번호를 사람이 외워 입력하면 하나만 틀려도 화면과 하드웨어가 어긋난 채 저장되고,
+   그 어긋남은 제어가 안 될 때에야 드러난다. 초안 생성은 여기 한 곳에서. */
+
+/** 센서 코드 → {name, unit} (표기용) */
+export function ksSensorMeta(code) {
+  const k = KS_SENSOR_KIND[Number(code)];
+  return { name: k ? k[0] : `코드 ${code}`, unit: k ? k[1] : '' };
+}
+
+/** 센서 코드 → 기존 id 와 겹치지 않는 sensorId (temp_0001, humidity_0002 …) */
+export function ksSuggestSensorId(code, existingIds = []) {
+  const base = { 1: 'temp', 2: 'humidity', 3: 'dewpoint', 6: 'rain', 7: 'solar', 8: 'wind_speed',
+                 9: 'wind_dir', 11: 'co2', 12: 'ec', 13: 'ppfd', 14: 'soil_moisture', 16: 'ph', 17: 'soil_temp' }[Number(code)]
+              || `ks${Number(code) || 0}`;
+  const used = new Set(existingIds || []);
+  for (let n = 1; n < 1000; n += 1) {
+    const id = `${base}_${String(n).padStart(4, '0')}`;
+    if (!used.has(id)) return id;
+  }
+  return `${base}_${Date.now()}`;
+}
+
+/** 구동기 디바이스 → 장치의 modbus 블록. controlType 은 제어판 카드 종류(ON/OFF vs 열기·정지·닫기)를 정한다. */
+export function ksDeviceModbus(unit, kind, n) {
+  return { protocol: 'ks3267', unit: Number(unit), kind, n: Number(n), controlType: kind === 'opener' ? 'bidir' : 'single' };
+}
+
 /** 노드정보 1~8 시험표 (SPS-X KOAT-0004-7466 §5.1.2 c) — 읽은값 / 기대값 / 일치 여부).
  *  ok: true=일치, false=불일치, null=참고(고정 기대값 없음, 시리얼). */
 export function nodeInfoRows(node) {

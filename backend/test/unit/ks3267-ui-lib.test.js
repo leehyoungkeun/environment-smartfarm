@@ -237,6 +237,39 @@ describe("discoveryRows / nodeSummary", () => {
   });
 });
 
+describe("ksRegisters·ksCommandCode — 제어판 「노드에 쓰는 값」 (2026-09-27)", () => {
+  test("스위치 번지 공식 — 블록 4워드씩", () => {
+    assert.deepEqual(lib.ksRegisters({ protocol: "ks3267", unit: 1, kind: "switch", n: 1 }),
+      { statusOpid: 203, status: 204, remain: [205, 206], cmd: 503, cmdOpid: 504, time: [505, 506] });
+    assert.deepEqual(lib.ksRegisters({ protocol: "ks3267", unit: 1, kind: "switch", n: 2 }),
+      { statusOpid: 207, status: 208, remain: [209, 210], cmd: 507, cmdOpid: 508, time: [509, 510] });
+  });
+  test("개폐기 번지 공식 — 실노드(우노) 에서 읽은 값과 같아야 한다", () => {
+    assert.deepEqual(lib.ksRegisters({ protocol: "ks3267", unit: 1, kind: "opener", n: 1 }),
+      { statusOpid: 267, status: 268, remain: [269, 270], cmd: 567, cmdOpid: 568, time: [569, 570] });
+    assert.deepEqual(lib.ksRegisters({ protocol: "ks3267", unit: 1, kind: "opener", n: 2 }),
+      { statusOpid: 271, status: 272, remain: [273, 274], cmd: 571, cmdOpid: 572, time: [573, 574] });
+  });
+  test("비표준·잘못된 번호는 null", () => {
+    assert.equal(lib.ksRegisters({ unitId: 2, address: 1 }), null);
+    assert.equal(lib.ksRegisters({ protocol: "ks3267", unit: 1, kind: "switch", n: 0 }), null);
+  });
+  test("명령코드 — 작동시간이 있으면 202/303/304 (fn_ks_command 와 같은 규칙)", () => {
+    assert.equal(lib.ksCommandCode("switch", "on", 0), 201);
+    assert.equal(lib.ksCommandCode("switch", "on", 20), 202);
+    assert.equal(lib.ksCommandCode("switch", "off", 0), 0);
+    assert.equal(lib.ksCommandCode("opener", "open", 0), 301);
+    assert.equal(lib.ksCommandCode("opener", "open", 15), 303);
+    assert.equal(lib.ksCommandCode("opener", "close", 15), 304);
+    assert.equal(lib.ksCommandCode("opener", "stop", 0), 0);
+  });
+  test("명령코드 이름", () => {
+    assert.equal(lib.ksCommandName(202), "작동시간 ON");
+    assert.equal(lib.ksCommandName(0), "중지/OFF");
+    assert.equal(lib.ksCommandName(303), "작동시간 열기");
+  });
+});
+
 describe("ksNodeDeviceLabel — 제어판 카드 제목 괄호 (2026-09-27)", () => {
   test("노드 쪽 이름만 — 「모터 1 (스위치1)」 처럼 화면과 노드를 눈으로 맞춘다", () => {
     assert.equal(lib.ksNodeDeviceLabel({ protocol: "ks3267", unit: 1, kind: "switch", n: 1 }), "스위치1");

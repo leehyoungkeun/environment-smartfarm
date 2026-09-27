@@ -25,7 +25,7 @@ const isLocalControlPath = () => {
 };
 import wsService from '../../services/wsService';
 import { useLocalControl } from '../../lib/controlRoute';
-import { isKsProfile, ksNodeDeviceLabel, deviceKsStatus, ksAnchorFromSample, ksRemainFromEnd, ksSampleAgeSec, ksSampleIsStaleForCommand, ksMotionProgress, ksNeededSec, ksReachedEnd } from '../../lib/ks3267';
+import { isKsProfile, ksNodeDeviceLabel, ksRegisters, ksCommandCode, ksCommandName, deviceKsStatus, ksAnchorFromSample, ksRemainFromEnd, ksSampleAgeSec, ksSampleIsStaleForCommand, ksMotionProgress, ksNeededSec, ksReachedEnd } from '../../lib/ks3267';
 import {
   DndContext, closestCenter, PointerSensor, useSensor, useSensors
 } from '@dnd-kit/core';
@@ -234,6 +234,7 @@ const ControlPanel = ({ farmId, houseId, houseConfig }) => {
   // 일반 ON 버튼은 0(=201 ON). SPS-7466 §5.5.2 b)/h) 를 화면 조작으로 재현하기 위한 입력.
   const timedOnSecRef = useRef({});
   const [timedOnSec, setTimedOnSec] = useState({});
+  const [ksLastWrite, setKsLastWrite] = useState({});   // deviceId → { code, sec, at } 마지막으로 노드에 쓴 명령 (카드 표시용)
   // 스위치 ON → 202 TIMED_ON, 개폐기 열기/닫기 → 303 TIMED_OPEN / 304 TIMED_CLOSE (SPS-7466 §5.5.2 / §5.5.3). 0 이면 일반 명령(201 / 301·302).
   const ksTimedOnSec = (deviceId, command, mb) => {
     if (!isKsProfile(mb)) return 0;
@@ -1720,6 +1721,13 @@ const ControlPanel = ({ farmId, houseId, houseConfig }) => {
 
   // 에러 시 자동 재시도 (최대 2회)
   const handleControlWithRetry = useCallback(async (deviceId, command, maxRetries = 2) => {
+    // 표준 노드에 무엇을 썼는지 카드에 그대로 보여 주려고 기록 (2026-09-27, §5.5.2/5.5.3 화면 증적)
+    const ksDev = devices.find(d => d.deviceId === deviceId);
+    if (isKsProfile(ksDev?.modbus)) {
+      const sec = ksTimedOnSec(deviceId, command, ksDev.modbus);
+      const code = ksCommandCode(ksDev.modbus.kind, command, sec);
+      if (code !== null) setKsLastWrite(prev => ({ ...prev, [deviceId]: { code, sec, at: Date.now() } }));
+    }
     let lastResult;
     for (let attempt = 0; attempt <= maxRetries; attempt++) {
       if (attempt > 0) {
@@ -2442,6 +2450,42 @@ const ControlPanel = ({ farmId, houseId, houseConfig }) => {
                         </div>
                         </div>
                       )}
+
+                      {/* 📐 노드에 쓰는 값 — 번지·명령코드·OPID·작동시간 (2026-09-27, §5.5.2/5.5.3 화면 증적)
+                          쓰는 자리를 화면에 드러내야 심사에서 표준 부속서 A 와 그 자리에서 대조할 수 있다 */}
+                      {isKsProfile(device.modbus) && (() => {
+                        const reg = ksRegisters(device.modbus);
+                        if (!reg) return null;
+                        const last = ksLastWrite[device.deviceId];
+                        const ks = deviceKsStatus(ksState, device.modbus);
+                        const cell = (label, value) => (
+                          <span style={{display:'inline-flex',gap:4,alignItems:'baseline'}}>
+                            <span style={{color:'#6b7280'}}>{label}</span>
+                            <span style={{fontFamily:'monospace',fontWeight:700,color:'#312e81'}}>{value}</span>
+                          </span>
+                        );
+                        return (
+                          <div style={{marginTop:8,borderTop:'1px dashed #c7d2fe',paddingTop:6,fontSize:11,lineHeight:1.7}}>
+                            <div style={{display:'flex',flexWrap:'wrap',gap:'2px 12px',color:'#4338ca',fontWeight:700}}>
+                              <span>📐 노드에 쓰는 값 (FC16)</span>
+                              {cell('명령 번지', reg.cmd)}
+                              {cell('OPID 번지', reg.cmdOpid)}
+                              {cell('작동시간 번지', `${reg.time[0]}~${reg.time[1]}`)}
+                            </div>
+                            <div style={{display:'flex',flexWrap:'wrap',gap:'2px 12px',color:'#475569'}}>
+                              {last
+                                ? <>
+                                    {cell('보낸 명령', `${last.code} (${ksCommandName(last.code)})`)}
+                                    {cell('작동시간', last.sec > 0 ? `${last.sec}초` : '—')}
+                                    <span style={{color:'#94a3b8'}}>{new Date(last.at).toLocaleTimeString('ko-KR', { hour12: false })}</span>
+                                  </>
+                                : <span style={{color:'#94a3b8'}}>아직 이 화면에서 보낸 명령이 없습니다</span>}
+                              {cell('노드 OPID', ks?.opid ?? '—')}
+                              {cell('읽는 번지', `상태 ${reg.status} · 남은시간 ${reg.remain[0]}~${reg.remain[1]}`)}
+                            </div>
+                          </div>
+                        );
+                      })()}
                     </div>
                   );
                 })}

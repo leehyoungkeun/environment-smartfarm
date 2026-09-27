@@ -36,6 +36,44 @@ export function ksNodeDeviceLabel(m) {
   return `${kind}${m.n ?? '?'}`;
 }
 
+/**
+ * 이 장치가 쓰는·읽는 디폴트맵 번지 (부속서 A 공식). 화면이 "어디에 무엇을 쓰는지" 를 그대로 보여 준다.
+ * 스위치 k: 상태 OPID 203+4(k-1) / 명령 503+4(k-1),  개폐기 j: 상태 OPID 267+4(j-1) / 명령 567+4(j-1).
+ * 각 블록은 [OPID, 상태|명령, 시간 2워드] 로 4워드 — 그래서 4 씩 건너뛴다.
+ */
+export function ksRegisters(m) {
+  if (!isKsProfile(m)) return null;
+  const n = Number(m.n);
+  if (!Number.isFinite(n) || n < 1) return null;
+  const base = m.kind === 'opener' ? 267 : 203;
+  const cmdBase = m.kind === 'opener' ? 567 : 503;
+  const o = base + 4 * (n - 1);
+  const c = cmdBase + 4 * (n - 1);
+  return {
+    statusOpid: o, status: o + 1, remain: [o + 2, o + 3],   // 읽기 (FC3)
+    cmd: c, cmdOpid: c + 1, time: [c + 2, c + 3],           // 쓰기 (FC16)
+  };
+}
+
+/** 화면 명령 → 표준 명령코드 (fn_ks_command 와 같은 규칙). duration>0 이면 작동시간 명령. */
+export function ksCommandCode(kind, cmd, seconds = 0) {
+  const dur = Number(seconds) > 0;
+  if (kind === 'opener') {
+    if (cmd === 'open') return dur ? 303 : 301;
+    if (cmd === 'close') return dur ? 304 : 302;
+    if (cmd === 'stop') return 0;
+    return null;
+  }
+  if (cmd === 'on') return dur ? 202 : 201;
+  if (cmd === 'off' || cmd === 'stop') return 0;
+  return null;
+}
+
+/** 명령코드 → 사람이 읽는 이름 */
+export function ksCommandName(code) {
+  return { 0: '중지/OFF', 201: 'ON', 202: '작동시간 ON', 301: '열기', 302: '닫기', 303: '작동시간 열기', 304: '작동시간 닫기' }[Number(code)] || `코드 ${code}`;
+}
+
 /** houseConfig 의 표준 프로필 검증 — 저장 전에 UI 가 막는다 */
 export function validateKsProfile(m) {
   const errs = [];

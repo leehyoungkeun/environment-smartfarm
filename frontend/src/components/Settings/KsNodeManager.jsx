@@ -829,13 +829,14 @@ const NodeCard =({ unit, node, st, mapping, changes = [], storage, stateAt = 0, 
                 <table className="w-full text-sm">
                   <thead>
                     <tr className="text-gray-600 text-left bg-gray-50 border-y border-gray-200">
-                      <th className="py-2 px-3 w-12">#</th><th className="px-3">대상</th><th className="px-3">상태코드</th><th className="px-3">의미</th><th className="px-3">관측치 / 동작</th><th className="px-3">판정</th>
+                      <th className="py-2 px-3 w-12">#</th><th className="px-3">대상</th><th className="px-3">읽은 레지스터</th><th className="px-3">상태코드</th><th className="px-3">의미</th><th className="px-3">관측치 / 동작</th><th className="px-3">판정</th>
                     </tr>
                   </thead>
                   <tbody>
                     <tr className="border-b-2 border-gray-300 bg-blue-50/40">
                       <td className="py-2 px-3 text-gray-500">—</td>
-                      <td className="px-3 font-extrabold text-gray-900">노드 상태 <span className="text-xs text-gray-400 font-normal">(b, 레지스터 {rd.node.reg})</span></td>
+                      <td className="px-3 font-extrabold text-gray-900">노드 상태 <span className="text-xs text-gray-400 font-normal">(b)</span></td>
+                      <td className="px-3 font-mono text-gray-600">상태 {rd.node.reg}</td>
                       <td className="px-3 font-mono font-bold text-gray-900 text-base">{rd.node.code === null ? '—' : rd.node.code}</td>
                       <td className="px-3"><Pill tone={rd.node.tone}>{rd.node.meaning}</Pill></td>
                       <td className="px-3 text-gray-400">—</td>
@@ -845,6 +846,7 @@ const NodeCard =({ unit, node, st, mapping, changes = [], storage, stateAt = 0, 
                       <tr key={r.index} className={`border-b border-gray-100 ${r.supported ? '' : 'opacity-60'}`}>
                         <td className="py-2 px-3 text-gray-500">{r.index}</td>
                         <td className="px-3 font-bold text-gray-900">{r.name} <span className="text-xs text-gray-400 font-normal">(c)</span></td>
+                        <td className="px-3 font-mono text-xs text-gray-600 whitespace-nowrap">{r.regs || <span className="text-gray-300">—</span>}</td>
                         <td className="px-3 font-mono font-bold text-gray-900 text-base">{r.code === null ? '—' : r.code}</td>
                         <td className="px-3">{r.code === null ? <span className="text-gray-400">—</span> : <Pill tone={r.tone}>{r.meaning}</Pill>}</td>
                         <td className="px-3">
@@ -857,7 +859,7 @@ const NodeCard =({ unit, node, st, mapping, changes = [], storage, stateAt = 0, 
                     ))}
                   </tbody>
                 </table>
-                <p className="text-xs text-gray-500 mt-2">판정 "정의된 값" = 표준 표 B.x 의 상태코드(0~6·101~103·201/299·301/302/399·900~999) 이고, 센서는 관측치가 숫자로 읽힘. 값이 시험장비 설정값과 맞는지는 이 표의 관측치를 대조하세요. 「범위 밖 의심」 은 일반적인 센서 측정 범위를 벗어났다는 참고 경고이며 판정을 바꾸지 않습니다. §5.1.2 가 불일치인 노드는 판정을 보류합니다. 10초마다 갱신, 남은 작동시간은 읽은 시각부터 초 단위로 흐르고 다음 읽기에 재동기됩니다.</p>
+                <p className="text-xs text-gray-500 mt-2">「읽은 레지스터」는 그 줄의 값을 실제로 읽어 온 번지입니다 — 디폴트맵 공식대로 센서는 값 2워드(uint32)·상태 1워드, 구동기는 OPID·상태·남은시간 2워드. 표준 부속서 A 와 그 자리에서 대조하세요. 판정 "정의된 값" = 표준 표 B.x 의 상태코드(0~6·101~103·201/299·301/302/399·900~999) 이고, 센서는 관측치가 숫자로 읽힘. 값이 시험장비 설정값과 맞는지는 이 표의 관측치를 대조하세요. 「범위 밖 의심」 은 일반적인 센서 측정 범위를 벗어났다는 참고 경고이며 판정을 바꾸지 않습니다. §5.1.2 가 불일치인 노드는 판정을 보류합니다. 10초마다 갱신, 남은 작동시간은 읽은 시각부터 초 단위로 흐르고 다음 읽기에 재동기됩니다.</p>
               </div>
             </SubBox>
           );

@@ -137,7 +137,13 @@ export function nodeReadRows(node, st) {
     reg: 202, // 노드 상태코드 레지스터 — 센서 노드(A.1.3)·구동기 노드(A.2.3) 모두 202 (201 은 구동기 노드 OPID)
   };
   const rows = discoveryRows(node).map((r) => {
-    const out = { index: r.index, name: r.name, kind: r.kind, supported: r.supported, code: null, meaning: '—', tone: 'muted', ok: null, value: null, unit: '', remain: null, opid: null };
+    // 어느 번지를 읽어 이 값이 나왔는지 — 시험장비·표준 부속서와 그 자리에서 대조하라고 화면에 드러낸다 (2026-09-27)
+    const d = node.devices?.find((x) => x.index === r.index);
+    const regs = !d ? ''
+      : r.kind === 'sensor'
+        ? `값 ${d.value_reg}~${d.value_reg + 1} · 상태 ${d.status_reg}`
+        : d.status ? `OPID ${d.status.opid} · 상태 ${d.status.status} · 남은 ${d.status.remain?.[0]}~${d.status.remain?.[1]}` : '';
+    const out = { index: r.index, name: r.name, kind: r.kind, supported: r.supported, regs, code: null, meaning: '—', tone: 'muted', ok: null, value: null, unit: '', remain: null, opid: null };
     if (!st || st.error) return out;
     if (r.kind === 'sensor') {
       const sv = st.sensors?.[r.index];

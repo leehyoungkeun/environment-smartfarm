@@ -255,6 +255,15 @@ describe("nodeReadRows — §5.1.3 b·c) 노드 데이터 읽기 시험표", () 
     const r = lib.nodeReadRows(SEN, { t: 1, node_status: 0, kind: "sensor", sensors: { 1: { value: "NaN?", status: 0, code: 1 } } });
     assert.equal(r.rows.find(x => x.index === 1).ok, false);
   });
+  test("읽은 레지스터를 표에 드러낸다 — 시험장 대조용 (2026-09-27)", () => {
+    const sen = lib.nodeReadRows(SEN, ST_SEN);
+    assert.equal(sen.rows.find(x => x.index === 1).regs, "값 203~204 · 상태 205", "센서는 값 2워드(uint32)+상태 1워드");
+    assert.equal(sen.node.reg, 202, "노드 상태코드는 센서·구동기 모두 202");
+    const act = lib.nodeReadRows(ACT, ST_ACT);
+    const sw3 = act.rows.find(x => x.index === 3);
+    assert.match(sw3.regs, /^OPID \d+ · 상태 \d+ · 남은 \d+~\d+$/, "구동기는 OPID·상태·남은시간 2워드");
+  });
+
   test("노드 응답 없음(timeout) → 노드 판정 null·의미 '응답 없음', 행은 전부 미읽음; node 없으면 null", () => {
     const r = lib.nodeReadRows(ACT, { error: "timeout" });
     assert.equal(r.node.ok, null); assert.equal(r.node.meaning, "응답 없음"); assert.ok(r.rows.every(x => x.ok === null)); assert.equal(r.unread, r.rows.length);

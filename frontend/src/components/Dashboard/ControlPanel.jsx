@@ -25,7 +25,7 @@ const isLocalControlPath = () => {
 };
 import wsService from '../../services/wsService';
 import { useLocalControl } from '../../lib/controlRoute';
-import { isKsProfile, deviceKsStatus, ksAnchorFromSample, ksRemainFromEnd, ksSampleAgeSec, ksSampleIsStaleForCommand, ksMotionProgress, ksNeededSec, ksReachedEnd } from '../../lib/ks3267';
+import { isKsProfile, ksNodeDeviceLabel, deviceKsStatus, ksAnchorFromSample, ksRemainFromEnd, ksSampleAgeSec, ksSampleIsStaleForCommand, ksMotionProgress, ksNeededSec, ksReachedEnd } from '../../lib/ks3267';
 import {
   DndContext, closestCenter, PointerSensor, useSensor, useSensors
 } from '@dnd-kit/core';
@@ -2089,7 +2089,16 @@ const ControlPanel = ({ farmId, houseId, houseConfig }) => {
                     <div key={device.deviceId}
                       style={{background: isAuto ? '#f0fdf4' : '#f8fafc',border:`2px solid ${isAuto ? '#bbf7d0' : '#e2e8f0'}`,borderRadius:12,padding:'10px 12px',transition:'all 0.2s'}}>
                       <div className="flex items-center justify-between mb-2 flex-wrap gap-1">
-                        <span style={{fontSize:15,fontWeight:800,color:'#0f172a'}}>{device.name}</span>
+                        <span style={{fontSize:15,fontWeight:800,color:'#0f172a'}}>
+                          {device.name}
+                          {/* 표준 노드 장치는 노드 쪽 이름을 괄호로 — 검정 중 화면과 노드를 눈으로 바로 맞추려고 (2026-09-27) */}
+                          {isKsProfile(device.modbus) && (
+                            <span style={{fontSize:13,fontWeight:700,color:'#6366f1',marginLeft:5}}
+                                  title={`KS X 3267 표준 노드 ${device.modbus.unit} 번지 매핑`}>
+                              ({ksNodeDeviceLabel(device.modbus)})
+                            </span>
+                          )}
+                        </span>
                         <div className="flex items-center gap-1.5" style={{flexWrap:'wrap'}}>
                           {/* 수동/자동 모드 토글 */}
                           <button

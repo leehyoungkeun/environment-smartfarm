@@ -237,6 +237,17 @@ describe("discoveryRows / nodeSummary", () => {
   });
 });
 
+describe("ksNodeDeviceLabel — 제어판 카드 제목 괄호 (2026-09-27)", () => {
+  test("노드 쪽 이름만 — 「모터 1 (스위치1)」 처럼 화면과 노드를 눈으로 맞춘다", () => {
+    assert.equal(lib.ksNodeDeviceLabel({ protocol: "ks3267", unit: 1, kind: "switch", n: 1 }), "스위치1");
+    assert.equal(lib.ksNodeDeviceLabel({ protocol: "ks3267", unit: 1, kind: "opener", n: 2 }), "개폐기2");
+  });
+  test("비표준 장치에는 괄호를 붙이지 않는다", () => {
+    assert.equal(lib.ksNodeDeviceLabel({ unitId: 2, address: 3 }), "");
+    assert.equal(lib.ksNodeDeviceLabel(null), "");
+  });
+});
+
 describe("찾은 것 → 설정 초안 (설정 화면의 매핑 버튼, 2026-09-27)", () => {
   test("센서 코드 → 이름·단위", () => {
     assert.deepEqual(lib.ksSensorMeta(1), { name: "온도", unit: "°C" });

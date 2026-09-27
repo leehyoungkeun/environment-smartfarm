@@ -778,6 +778,7 @@ const DiscoveredBox = ({ title, desc, err, reload, empty, children }) => (
 );
 
 const HouseDetailEditor = ({ house, farmId, onUpdate }) => {
+  const [confirmDeleteSensor, setConfirmDeleteSensor] = useState(null);   // 삭제 확인 중인 sensorId
   const ksFound = useKsDiscovered(farmId);   // 표준 노드에서 찾은 센서·구동기 (아래 매핑 목록)
   const [editedHouse, setEditedHouse] = useState(house);
   const [editingSensor, setEditingSensor] = useState(null);
@@ -878,11 +879,11 @@ const HouseDetailEditor = ({ house, farmId, onUpdate }) => {
   };
 
   const removeSensor = (sensorId) => {
-    if (!confirm('이 센서를 삭제하시겠습니까?')) return;
     setEditedHouse({
       ...editedHouse,
       sensors: editedHouse.sensors.filter(s => s.sensorId !== sensorId)
     });
+    setConfirmDeleteSensor(null);
   };
 
   const updateSensorModbus = (sensorId, modbusData) => {
@@ -1199,11 +1200,21 @@ const HouseDetailEditor = ({ house, farmId, onUpdate }) => {
                         className="p-2 rounded-lg text-gray-400 hover:text-blue-600 hover:bg-blue-50
                                  transition-all text-base border border-transparent hover:border-blue-200"
                       >✏️</button>
-                      <button
-                        onClick={() => removeSensor(sensor.sensorId)}
-                        className="p-2 rounded-lg text-gray-400 hover:text-rose-500 hover:bg-rose-50
-                                 transition-all text-base border border-transparent hover:border-rose-200"
-                      >🗑️</button>
+                      {confirmDeleteSensor === sensor.sensorId ? (
+                        <span className="flex items-center gap-1">
+                          <button onClick={() => removeSensor(sensor.sensorId)}
+                            className="text-xs font-bold text-white bg-rose-600 hover:bg-rose-700 rounded px-2.5 py-1.5 whitespace-nowrap">삭제</button>
+                          <button onClick={() => setConfirmDeleteSensor(null)}
+                            className="text-xs text-gray-600 border border-gray-300 rounded px-2.5 py-1.5 whitespace-nowrap">취소</button>
+                        </span>
+                      ) : (
+                        <button
+                          onClick={() => setConfirmDeleteSensor(sensor.sensorId)}
+                          className="p-2 rounded-lg text-gray-400 hover:text-rose-500 hover:bg-rose-50
+                                   transition-all text-base border border-transparent hover:border-rose-200"
+                          title="이 센서 삭제"
+                        >🗑️</button>
+                      )}
                     </div>
                   </div>
 
@@ -1440,6 +1451,7 @@ const getDeviceLabel = (type) => {
 };
 
 const DeviceManager = ({ house, farmId, setEditedHouse, onUpdate, isDirty, saving, onSave, ksFound }) => {
+  const [confirmDelete, setConfirmDelete] = useState(null);   // 삭제 확인 중인 deviceId
   const [ksAddType, setKsAddType] = useState({});   // 찾은 구동기별로 고른 장치 종류 (추가 전까지만)
   const [showAddDevice, setShowAddDevice] = useState(false);
   const [expandedDevice, setExpandedDevice] = useState(null);
@@ -1596,10 +1608,13 @@ const DeviceManager = ({ house, farmId, setEditedHouse, onUpdate, isDirty, savin
     setShowAddDevice(false);
   };
 
+  // 삭제 확인은 화면 안에서. window.confirm 은 브라우저가 "이 페이지가 대화상자를 만들지 못하게"를
+  // 켜면 **아무 말 없이 false** 를 돌려준다 — 사용자는 휴지통을 눌러도 아무 일도 안 일어난 것으로 본다
+  // (2026-09-27 실제 증상). 키오스크에서도 같은 이유로 화면 안 확인이 맞다.
   const removeDevice = (deviceId) => {
-    if (!confirm('이 장치를 삭제하시겠습니까?')) return;
     const updatedDevices = devices.filter(d => d.deviceId !== deviceId);
     setEditedHouse({ ...house, devices: updatedDevices, deviceCount: updatedDevices.length });
+    setConfirmDelete(null);
   };
 
   return (
@@ -1713,13 +1728,27 @@ const DeviceManager = ({ house, farmId, setEditedHouse, onUpdate, isDirty, savin
                     </p>
                   </div>
                   <span className={`text-gray-400 text-xs transition-transform ${isExpanded ? 'rotate-180' : ''}`}>▼</span>
-                  <button
-                    onClick={(e) => { e.stopPropagation(); removeDevice(device.deviceId); }}
-                    className="p-2 rounded-lg text-gray-400 hover:text-rose-500 hover:bg-rose-50
-                             transition-all text-base border border-transparent hover:border-rose-200"
-                  >
-                    🗑️
-                  </button>
+                  {confirmDelete === device.deviceId ? (
+                    <span className="flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
+                      <button onClick={(e) => { e.stopPropagation(); removeDevice(device.deviceId); }}
+                        className="text-xs font-bold text-white bg-rose-600 hover:bg-rose-700 rounded px-2.5 py-1.5 whitespace-nowrap">
+                        삭제
+                      </button>
+                      <button onClick={(e) => { e.stopPropagation(); setConfirmDelete(null); }}
+                        className="text-xs text-gray-600 border border-gray-300 rounded px-2.5 py-1.5 whitespace-nowrap">
+                        취소
+                      </button>
+                    </span>
+                  ) : (
+                    <button
+                      onClick={(e) => { e.stopPropagation(); setConfirmDelete(device.deviceId); }}
+                      className="p-2 rounded-lg text-gray-400 hover:text-rose-500 hover:bg-rose-50
+                               transition-all text-base border border-transparent hover:border-rose-200"
+                      title="이 장치 삭제"
+                    >
+                      🗑️
+                    </button>
+                  )}
                 </div>
 
                 {/* Modbus 채널 설정 패널 */}

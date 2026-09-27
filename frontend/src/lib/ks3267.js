@@ -29,6 +29,13 @@ export function ksDeviceLabel(m) {
   return `표준 U${m.unit ?? '?'} ${kind}${m.n ?? '?'}`;
 }
 
+/** 노드 쪽 이름만 (제어판 카드 제목 괄호용) — 「스위치1」·「개폐기2」 */
+export function ksNodeDeviceLabel(m) {
+  if (!isKsProfile(m)) return '';
+  const kind = m.kind === 'opener' ? '개폐기' : m.kind === 'switch' ? '스위치' : m.kind || '?';
+  return `${kind}${m.n ?? '?'}`;
+}
+
 /** houseConfig 의 표준 프로필 검증 — 저장 전에 UI 가 막는다 */
 export function validateKsProfile(m) {
   const errs = [];

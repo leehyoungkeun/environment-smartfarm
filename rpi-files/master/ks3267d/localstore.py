@@ -24,11 +24,13 @@ _SCHEMA = """
 CREATE TABLE IF NOT EXISTS sensor_minute (
   ts INTEGER NOT NULL, unit INTEGER NOT NULL, idx INTEGER NOT NULL,
   code INTEGER, name TEXT, value REAL, status INTEGER NOT NULL, status_name TEXT,
+  source TEXT,                      -- NULL=드라이버가 노드에서 읽은 실측, 'simulated'=기능시험용 채움 (2026-09-28)
   PRIMARY KEY (ts, unit, idx)
 );
 CREATE TABLE IF NOT EXISTS actuator_minute (
   ts INTEGER NOT NULL, unit INTEGER NOT NULL, idx INTEGER NOT NULL,
   kind TEXT, n INTEGER, name TEXT, opid INTEGER, status INTEGER NOT NULL, status_name TEXT, remain INTEGER,
+  source TEXT,                      -- NULL=실측, 'simulated'=기능시험용 채움 (2026-09-28)
   PRIMARY KEY (ts, unit, idx)
 );
 CREATE INDEX IF NOT EXISTS idx_sensor_minute_unit ON sensor_minute (unit, idx, ts);
@@ -81,6 +83,11 @@ class LocalStore:
             for col in ("src", "house", "device", "actor"):
                 if col not in have:
                     c.execute(f"ALTER TABLE command_log ADD COLUMN {col} TEXT")
+            # 2026-09-28: 실측과 기능시험용 채움을 구분하는 source 열 — 있는 파일은 열만 더한다
+            for tbl in ("sensor_minute", "actuator_minute"):
+                cols = {r[1] for r in c.execute(f"PRAGMA table_info({tbl})")}
+                if "source" not in cols:
+                    c.execute(f"ALTER TABLE {tbl} ADD COLUMN source TEXT")
 
     @contextlib.contextmanager
     def _conn(self):
@@ -123,9 +130,9 @@ class LocalStore:
                                   int(d.get("status", 0)), d.get("status_name"), int(d.get("remain") or 0)))
         with self._conn() as c:
             if srows:
-                c.executemany("INSERT OR IGNORE INTO sensor_minute VALUES (?,?,?,?,?,?,?,?)", srows)
+                c.executemany("INSERT OR IGNORE INTO sensor_minute (ts, unit, idx, code, name, value, status, status_name) VALUES (?,?,?,?,?,?,?,?)", srows)
             if arows:
-                c.executemany("INSERT OR IGNORE INTO actuator_minute VALUES (?,?,?,?,?,?,?,?,?,?)", arows)
+                c.executemany("INSERT OR IGNORE INTO actuator_minute (ts, unit, idx, kind, n, name, opid, status, status_name, remain) VALUES (?,?,?,?,?,?,?,?,?,?)", arows)
         if now - self._last_prune > 3600:
             self.prune(now)
         return {"minute": minute, "sensors": len(srows), "actuators": len(arows)}
@@ -176,7 +183,7 @@ class LocalStore:
             return 0
         with self._conn() as c:
             before = c.total_changes
-            c.executemany("INSERT OR IGNORE INTO vendor_actuator_minute VALUES (?,?,?,?,?,?,?,?,?,?,?)", out)
+            c.executemany("INSERT OR IGNORE INTO vendor_actuator_minute (ts, house_id, device_id, unit, kind, n, name, opid, status, status_name, remain) VALUES (?,?,?,?,?,?,?,?,?,?,?)", out)
             return c.total_changes - before
 
     def query_vendor_actuator(self, house_id=None, device_id=None, start=None, end=None, limit=5000):
@@ -223,7 +230,7 @@ class LocalStore:
 
     def query_sensor(self, unit=None, idx=None, start=None, end=None, limit=5000):
         start, end = self._range(start, end, self.clock())
-        sql = "SELECT ts, unit, idx, code, name, value, status, status_name FROM sensor_minute WHERE ts >= ? AND ts <= ?"
+        sql = "SELECT ts, unit, idx, code, name, value, status, status_name, source FROM sensor_minute WHERE ts >= ? AND ts <= ?"
         p = [int(start), int(end)]
         if unit is not None:
             sql += " AND unit = ?"; p.append(int(unit))
@@ -233,11 +240,12 @@ class LocalStore:
         sql += " ORDER BY ts, unit, idx LIMIT ?"; p.append(min(int(limit or 5000), 200000))
         with self._conn() as c:
             rows = c.execute(sql, p).fetchall()
-        return [{"timestamp": _iso(r[0]), "unit": r[1], "idx": r[2], "code": r[3], "name": r[4], "value": r[5], "status": r[6], "status_name": r[7]} for r in rows]
+        return [{"timestamp": _iso(r[0]), "unit": r[1], "idx": r[2], "code": r[3], "name": r[4], "value": r[5],
+                 "status": r[6], "status_name": r[7], "source": r[8] or "ks3267d"} for r in rows]
 
     def query_actuator(self, unit=None, idx=None, start=None, end=None, limit=5000):
         start, end = self._range(start, end, self.clock())
-        sql = "SELECT ts, unit, idx, kind, n, name, opid, status, status_name, remain FROM actuator_minute WHERE ts >= ? AND ts <= ?"
+        sql = "SELECT ts, unit, idx, kind, n, name, opid, status, status_name, remain, source FROM actuator_minute WHERE ts >= ? AND ts <= ?"
         p = [int(start), int(end)]
         if unit is not None:
             sql += " AND unit = ?"; p.append(int(unit))
@@ -248,7 +256,7 @@ class LocalStore:
         with self._conn() as c:
             rows = c.execute(sql, p).fetchall()
         return [{"timestamp": _iso(r[0]), "unit": r[1], "idx": r[2], "kind": r[3], "n": r[4], "name": r[5], "opid": r[6],
-                 "status": r[7], "status_name": r[8], "remain": r[9]} for r in rows]
+                 "status": r[7], "status_name": r[8], "remain": r[9], "source": r[10] or "ks3267d"} for r in rows]
 
     def summary(self, days=31):
         """날짜별(UTC 기준 아님 — 로컬 시각) 행 수: [{date, sensors, actuators}] — 30일 데이터 창을 현장에서 보는 용도"""

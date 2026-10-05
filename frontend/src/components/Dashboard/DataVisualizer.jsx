@@ -141,7 +141,7 @@ export default function DataVisualizer({ farmId }) {
   const active = series.find(s => s.key === activeKey) || series[0] || null;
   useEffect(() => { setActiveKey(series[0]?.key ?? null); }, [series]);
 
-  const unitLabel = UNITS.find(u => u.m === unitMin)?.label || `${unitMin}분`;
+  const unitLabel = UNITS.find(u => u.m === unitMin)?.label || `${unitMin}분`;   // 임의값이면 "7분" 처럼 그대로
   const fmtTick = (t) => {
     const d = new Date(t); const p = (n) => String(n).padStart(2, '0');
     return period === 1 ? `${p(d.getHours())}:${p(d.getMinutes())}` : `${d.getMonth() + 1}/${d.getDate()} ${p(d.getHours())}시`;
@@ -170,15 +170,30 @@ export default function DataVisualizer({ farmId }) {
           </div>
           <div>
             <label className="text-sm font-bold text-gray-700 mb-1 block">
-              집계 단위 <span className="text-xs font-normal text-gray-400">· 검정기준 1시간 이하</span>
+              집계 단위 <span className="text-xs font-normal text-gray-400">· 1~60분 (검정기준 1시간 이하)</span>
             </label>
-            <div className="flex gap-1">
+            <div className="flex gap-1 mb-1">
               {UNITS.map(u => (
                 <button key={u.m} onClick={() => setUnitMin(u.m)}
                   className={`flex-1 py-2 rounded-lg text-xs font-bold border transition-colors ${unitMin === u.m ? 'bg-indigo-600 border-indigo-600' : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-50'}`}>
                   <span style={unitMin === u.m ? { color: '#fff' } : undefined}>{u.label}</span>
                 </button>
               ))}
+            </div>
+            {/* 고정값 말고 1분 단위로 아무 값이나 — 116 은 "1시간 이하" 라 상한만 60분 (2026-10-06) */}
+            <div className="flex items-center gap-2">
+              <input type="number" min={1} max={60} step={1} value={unitMin}
+                onChange={e => {
+                  const v = parseInt(e.target.value, 10);
+                  if (Number.isFinite(v)) setUnitMin(Math.max(1, Math.min(60, v)));
+                }}
+                className="input-field text-sm w-24 text-center" />
+              <span className="text-xs text-gray-500">분 (1~60)</span>
+              {!UNITS.some(u => u.m === unitMin) && (
+                <span className="text-[11px] font-bold text-indigo-700 bg-indigo-50 border border-indigo-200 rounded px-2 py-0.5">
+                  {unitMin}분 단위
+                </span>
+              )}
             </div>
           </div>
           {period === 0 && (

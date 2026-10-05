@@ -70,6 +70,7 @@ class ErrorBoundary extends React.Component {
  */
 const ControlPage = ({ farmId, isTouchPanel = false }) => {
   const [config, setConfig] = useState(null);
+  const [confirmFarmLocal, setConfirmFarmLocal] = useState(false);   // 팜로컬 전환 확인 (화면 안)
   const [selectedHouse, setSelectedHouse] = useState(null);
   const [loading, setLoading] = useState(true);
 
@@ -658,17 +659,38 @@ function AppContent() {
             <span className="font-semibold">클라우드 서버 연결 끊김</span>
             <span className="hidden sm:inline opacity-90">— 인터넷·서버 상태를 확인하세요</span>
           </div>
+          {/* 확인은 화면 안에서 — window.confirm 은 브라우저가 막으면 말없이 false 라
+              버튼이 고장난 것처럼 보인다 (2026-10-05, 로그인 화면과 같은 이유) */}
           <button
-            onClick={() => {
-              if (window.confirm('팜로컬 모드로 전환하시겠습니까?\n\n· 농장 RPi 가 직접 응답합니다 (제한 기능)\n· 영농일지·이력 등 클라우드 의존 기능은 사용 불가\n· 인터넷 복구 후 클라우드 모드로 다시 전환할 수 있습니다')) {
-                setFarmLocalMode(true);
-                window.location.reload();
-              }
-            }}
+            onClick={() => setConfirmFarmLocal(true)}
             className="bg-white text-red-700 px-3 py-1 rounded-md text-sm font-bold hover:bg-red-50 whitespace-nowrap"
           >
             팜로컬 모드 전환
           </button>
+        </div>
+      )}
+
+      {confirmFarmLocal && (
+        <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/50 p-4"
+             onClick={() => setConfirmFarmLocal(false)}>
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-5" onClick={(e) => e.stopPropagation()}>
+            <h3 className="text-lg font-bold text-gray-900 mb-3">팜로컬 모드로 전환할까요?</h3>
+            <ul className="text-sm text-gray-700 space-y-1.5 mb-5 list-disc pl-5">
+              <li>농장 제어기가 직접 응답합니다 (제한 기능)</li>
+              <li>영농일지·이력 등 클라우드 전용 기능은 쓸 수 없습니다</li>
+              <li>인터넷이 돌아오면 다시 클라우드 모드로 바꿀 수 있습니다</li>
+            </ul>
+            <div className="flex gap-2">
+              <button onClick={() => { setFarmLocalMode(true); window.location.reload(); }}
+                className="flex-1 py-3 rounded-xl bg-amber-500 hover:bg-amber-600 text-white font-bold text-base active:scale-[0.97]">
+                <span style={{color:'#fff'}}>전환</span>
+              </button>
+              <button onClick={() => setConfirmFarmLocal(false)}
+                className="flex-1 py-3 rounded-xl border-2 border-gray-300 text-gray-700 font-bold text-base hover:bg-gray-50 active:scale-[0.97]">
+                취소
+              </button>
+            </div>
+          </div>
         </div>
       )}
 

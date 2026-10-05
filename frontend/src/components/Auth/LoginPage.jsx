@@ -50,15 +50,18 @@ const LoginPage = () => {
   const [capsOn, setCapsOn] = useState(false);     // 고정 대문자
   const [showPw, setShowPw] = useState(false);     // 입력 확인용 — 패널은 눌린 글자가 안 보인다
   const [cloudUnreachable, setCloudUnreachable] = useState(false);
+  const [confirmLocal, setConfirmLocal] = useState(false);   // 팜로컬 전환 확인 (화면 안)
   const keyboardRef = useRef(null);
 
   // 팜로컬 전환 — 농장주가 직접 누른다 (자동 전환은 하지 않는다).
   // 팜로컬은 RPi 가 직접 응답하는 무인증 모드라 인터넷 없이도 들어갈 수 있다.
-  const switchToFarmLocal = () => {
-    if (window.confirm('팜로컬 모드로 전환하시겠습니까?\n\n· 농장 RPi 가 직접 응답합니다 (로그인 없이 사용)\n· 인터넷 없이도 센서 조회·제어·자동화가 됩니다\n· 영농일지·AI 등 클라우드 전용 기능은 사용 불가\n· 인터넷 복구 후 클라우드 모드로 다시 전환할 수 있습니다')) {
-      setFarmLocalMode(true);
-      window.location.reload();
-    }
+  // 확인은 **화면 안에서** 한다. window.confirm 은 브라우저가 "이 페이지가 대화상자를 표시하지
+  // 못하게" 를 켜면 아무 말 없이 false 를 돌려주고, 사용자는 버튼이 고장난 것으로 본다
+  // (2026-09-27 장치 삭제에서 실제로 겪음). 여기서 막히면 인터넷·SSH 없는 현장에서
+  // 제어기 화면에 아예 들어가지 못한다 — 유일한 출구라 더더욱 대화상자에 기댈 수 없다.
+  const doSwitchToFarmLocal = () => {
+    setFarmLocalMode(true);
+    window.location.reload();
   };
 
   const handleSubmit = async (e) => {
@@ -238,7 +241,7 @@ const LoginPage = () => {
                 </p>
                 <button
                   type="button"
-                  onClick={switchToFarmLocal}
+                  onClick={() => setConfirmLocal(true)}
                   className="w-full py-2.5 bg-amber-500 hover:bg-amber-600 text-white rounded-xl
                              font-medium text-sm transition-all active:scale-[0.97] shadow-md shadow-amber-500/20"
                 >
@@ -248,7 +251,7 @@ const LoginPage = () => {
             ) : isTouchPanel && (
               <button
                 type="button"
-                onClick={switchToFarmLocal}
+                onClick={() => setConfirmLocal(true)}
                 className="w-full mt-3 py-2 text-xs text-gray-500 hover:text-gray-700 underline"
               >
                 인터넷 없이 사용 (팜로컬 모드)
@@ -257,6 +260,32 @@ const LoginPage = () => {
           </form>
         </div>
       </div>
+
+      {/* 팜로컬 전환 확인 — 화면 안에서. 인터넷 없는 현장의 유일한 출구라 대화상자에 기대지 않는다 */}
+      {confirmLocal && (
+        <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/50 p-4"
+             onClick={() => setConfirmLocal(false)}>
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-5" onClick={(e) => e.stopPropagation()}>
+            <h3 className="text-lg font-bold text-gray-900 mb-3">팜로컬 모드로 전환할까요?</h3>
+            <ul className="text-sm text-gray-700 space-y-1.5 mb-5 list-disc pl-5">
+              <li>농장 제어기가 직접 응답합니다 — <b>로그인 없이</b> 사용</li>
+              <li>인터넷 없이도 센서 조회·제어·자동화가 됩니다</li>
+              <li>영농일지·AI 등 클라우드 전용 기능은 쓸 수 없습니다</li>
+              <li>인터넷이 돌아오면 다시 클라우드 모드로 바꿀 수 있습니다</li>
+            </ul>
+            <div className="flex gap-2">
+              <button type="button" onClick={doSwitchToFarmLocal}
+                className="flex-1 py-3 rounded-xl bg-amber-500 hover:bg-amber-600 text-white font-bold text-base active:scale-[0.97]">
+                <span style={{color:'#fff'}}>전환</span>
+              </button>
+              <button type="button" onClick={() => setConfirmLocal(false)}
+                className="flex-1 py-3 rounded-xl border-2 border-gray-300 text-gray-700 font-bold text-base hover:bg-gray-50 active:scale-[0.97]">
+                취소
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* 가상 키보드 - 터치패널에서만 표시 */}
       {isTouchPanel && activeField && (

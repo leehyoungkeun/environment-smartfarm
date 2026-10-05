@@ -54,9 +54,14 @@ export default function DataVisualizer({ farmId }) {
   }, [period, customStart, customEnd]);
 
   useEffect(() => {
+    // 응답은 { success, data: [하우스...] } — data.houses 가 아니다 (조회·추출 탭과 같은 처리, 2026-10-06)
     axios.get(`${api}/config/farm/${farmId}`, { timeout: 8000 })
-      .then(r => { const hs = r.data?.data?.houses || []; setHouses(hs); setHouseId(prev => prev || hs[0]?.houseId || ''); })
-      .catch(() => {});
+      .then(r => {
+        const hs = r.data?.success ? (r.data.data || []) : [];
+        setHouses(hs);
+        setHouseId(prev => prev || hs[0]?.houseId || '');
+      })
+      .catch(e => setError('하우스 목록 조회 실패: ' + (e.response?.data?.error || e.message)));
   }, [api, farmId]);
 
   // 기간 안에 기록된 표준 센서 — 조회·추출 탭의 「조회 항목」과 같은 카드

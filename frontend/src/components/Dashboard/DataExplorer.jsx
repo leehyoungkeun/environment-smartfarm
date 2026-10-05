@@ -199,6 +199,7 @@ export default function DataExplorer({ farmId }) {
 
   // 결과를 센서·장치별로 묶는다 — 한 표에 다 쏟으면 어느 줄이 어느 센서인지 안 보인다 (2026-10-06).
   // 묶을 기준이 없으면(센서 관측치·제어 이력) 한 묶음으로 둔다.
+  const [activeKey, setActiveKey] = useState(null);
   const groups = useMemo(() => {
     if (rows.length === 0) return [];
     const keyOf = (r) => {
@@ -224,6 +225,10 @@ export default function DataExplorer({ farmId }) {
     }
     return [...map.values()];
   }, [rows, kind, items]);
+
+  // 조회 결과가 바뀌면 첫 탭으로 — 없어진 탭이 선택된 채 빈 화면이 되지 않게
+  const active = groups.find(g => g.key === activeKey) || groups[0] || null;
+  useEffect(() => { setActiveKey(groups[0]?.key ?? null); }, [groups]);
 
 
   return (
@@ -341,12 +346,27 @@ export default function DataExplorer({ farmId }) {
         {error && <p className="text-xs text-rose-600 font-semibold">{error}</p>}
       </div>
 
-      {/* 결과 — 센서(또는 장치)마다 카드 하나. 한 표에 다 쏟으면 어느 줄이 어느 센서인지 안 보인다 (2026-10-06) */}
+      {/* 결과 — 센서(또는 장치)마다 탭. 카드를 세로로 쌓으면 17종일 때 끝없이 스크롤해야 한다 (2026-10-06) */}
       {groups.length > 0 && (
-        <div className="space-y-3">
-          {groups.map(g => (
-            <ResultCard key={g.key} group={g} columns={columns} />
-          ))}
+        <div className="card p-0 overflow-hidden">
+          <div className="flex gap-1 overflow-x-auto px-3 pt-3 pb-0 border-b border-gray-200">
+            {groups.map(g => {
+              const on = g.key === activeKey;
+              return (
+                <button key={g.key} onClick={() => setActiveKey(g.key)}
+                  className={`shrink-0 flex items-center gap-1.5 px-3 py-2 rounded-t-lg text-sm font-bold border-b-2 transition-colors ${on
+                    ? 'border-blue-600 text-blue-700 bg-blue-50/60'
+                    : 'border-transparent text-gray-500 hover:text-gray-700 hover:bg-gray-50'}`}>
+                  <span className="text-base">{g.icon}</span>
+                  <span className="whitespace-nowrap">{g.title}</span>
+                  <span className={`text-[11px] font-normal ${on ? 'text-blue-500' : 'text-gray-400'}`}>
+                    {g.rows.length.toLocaleString()}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+          {active && <ResultCard key={active.key} group={active} columns={columns} />}
         </div>
       )}
     </div>
@@ -358,7 +378,7 @@ const CARD_PAGE = 50;
 const CHART_MAX_POINTS = 600;   // 30일 4만 행을 그대로 그리면 브라우저가 멈춘다 — 균등 간격으로 솎는다
 
 const ResultCard = ({ group, columns }) => {
-  const [view, setView] = useState('table');   // 'table' | 'chart'
+  const [showChart, setShowChart] = useState(false);   // 표는 항상, 그래프는 접었다 폈다 (표가 사라지면 안 된다)
   const [page, setPage] = useState(1);
 
   const total = group.rows.length;
@@ -382,7 +402,7 @@ const ResultCard = ({ group, columns }) => {
   };
 
   return (
-    <div className="card p-4">
+    <div className="p-4">
       <div className="flex items-center justify-between gap-3 mb-3 flex-wrap">
         <div className="flex items-center gap-2 min-w-0">
           <span className="text-xl">{group.icon}</span>
@@ -391,38 +411,14 @@ const ResultCard = ({ group, columns }) => {
             <p className="text-xs text-gray-500 truncate">{group.sub} · {total.toLocaleString()}행</p>
           </div>
         </div>
-        <div className="flex gap-1">
-          <button onClick={() => setView('table')}
-            className={`px-3 py-1.5 rounded-lg text-xs font-bold border ${view === 'table' ? 'bg-blue-600 border-blue-600' : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-50'}`}>
-            <span style={view === 'table' ? { color: '#fff' } : undefined}>표</span>
-          </button>
-          <button onClick={() => setView('chart')} disabled={!canChart} title={canChart ? '' : '그릴 숫자 값이 없습니다'}
-            className={`px-3 py-1.5 rounded-lg text-xs font-bold border disabled:opacity-40 ${view === 'chart' ? 'bg-blue-600 border-blue-600' : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-50'}`}>
-            <span style={view === 'chart' ? { color: '#fff' } : undefined}>📈 그래프</span>
-          </button>
-        </div>
+        <button onClick={() => setShowChart(v => !v)} disabled={!canChart}
+          title={canChart ? '' : '그릴 숫자 값이 없습니다'}
+          className={`px-3 py-1.5 rounded-lg text-xs font-bold border disabled:opacity-40 ${showChart ? 'bg-blue-600 border-blue-600' : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-50'}`}>
+          <span style={showChart ? { color: '#fff' } : undefined}>📈 그래프 {showChart ? '숨기기' : '보기'}</span>
+        </button>
       </div>
 
-      {view === 'chart' ? (
-        <div style={{ width: '100%', height: 260 }}>
-          <ResponsiveContainer>
-            <LineChart data={chartData} margin={{ top: 5, right: 12, bottom: 5, left: 0 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#eef2f7" />
-              <XAxis dataKey="t" tickFormatter={fmtTime} tick={{ fontSize: 11, fill: '#94a3b8' }} minTickGap={40} />
-              <YAxis tick={{ fontSize: 11, fill: '#94a3b8' }} width={52} domain={['auto', 'auto']} />
-              <Tooltip labelFormatter={fmtTime} formatter={(v) => [v, group.title]}
-                contentStyle={{ fontSize: 12, borderRadius: 8, border: '1px solid #e2e8f0' }} />
-              {/* isAnimationActive=false — 키오스크 CPU·발열 (SensorChart 와 같은 규칙) */}
-              <Line type="monotone" dataKey="v" name={group.title} stroke="#4f46e5" strokeWidth={2}
-                    dot={false} isAnimationActive={false} connectNulls />
-            </LineChart>
-          </ResponsiveContainer>
-          <p className="text-[11px] text-gray-400 mt-1">
-            {chartData.length.toLocaleString()}점 표시 (전체 {total.toLocaleString()}행을 균등 간격으로 솎음)
-          </p>
-        </div>
-      ) : (
-        <>
+      {/* 표는 항상 보이고, 그래프는 그 아래에 — 그래프를 켜면 자료가 사라지던 것을 고침 (2026-10-06) */}
           <div className="overflow-x-auto">
             <table className="w-full text-xs font-mono">
               <thead>
@@ -449,7 +445,27 @@ const ResultCard = ({ group, columns }) => {
               <button onClick={() => setPage(totalPages)} disabled={page >= totalPages} className="px-2 py-1 rounded border border-gray-200 disabled:opacity-40">끝</button>
             </div>
           </div>
-        </>
+
+      {showChart && (
+        <div className="mt-4 pt-4 border-t border-gray-200">
+          <div style={{ width: '100%', height: 260 }}>
+            <ResponsiveContainer>
+              <LineChart data={chartData} margin={{ top: 5, right: 12, bottom: 5, left: 0 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#eef2f7" />
+                <XAxis dataKey="t" tickFormatter={fmtTime} tick={{ fontSize: 11, fill: '#94a3b8' }} minTickGap={40} />
+                <YAxis tick={{ fontSize: 11, fill: '#94a3b8' }} width={52} domain={['auto', 'auto']} />
+                <Tooltip labelFormatter={fmtTime} formatter={(v) => [v, group.title]}
+                  contentStyle={{ fontSize: 12, borderRadius: 8, border: '1px solid #e2e8f0' }} />
+                {/* isAnimationActive=false — 키오스크 CPU·발열 (SensorChart 와 같은 규칙) */}
+                <Line type="monotone" dataKey="v" name={group.title} stroke="#4f46e5" strokeWidth={2}
+                      dot={false} isAnimationActive={false} connectNulls />
+              </LineChart>
+            </ResponsiveContainer>
+            <p className="text-[11px] text-gray-400 mt-1">
+              {chartData.length.toLocaleString()}점 표시 (전체 {total.toLocaleString()}행을 균등 간격으로 솎음)
+            </p>
+          </div>
+        </div>
       )}
     </div>
   );

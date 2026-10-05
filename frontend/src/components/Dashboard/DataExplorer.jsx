@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import axiosBase from 'axios';
 import * as XLSX from 'xlsx';
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import { getApiBase } from '../../services/apiSwitcher';
 
 // ━━━ 데이터 조회·추출 (KOAT 검정기준 116 「통합제어기」 4.가.1)라)마), 2)마)바)) ━━━
@@ -28,7 +29,6 @@ const KS_ICON = {
 };
 const NO_HOUSE_KINDS = ['actuator', 'sensorstatus'];  // 하우스 없이도 조회되는 종류
 const PERIODS = [{ d: 1, label: '1일' }, { d: 7, label: '7일' }, { d: 30, label: '30일' }, { d: 0, label: '직접 입력' }];
-const PAGE = 200;
 
 const toLocalInput = (d) => {
   const p = (n) => String(n).padStart(2, '0');
@@ -47,7 +47,6 @@ export default function DataExplorer({ farmId }) {
   const [selected, setSelected] = useState([]);   // 선택된 항목 id
   const [rows, setRows] = useState([]);
   const [columns, setColumns] = useState([]);
-  const [page, setPage] = useState(1);
   const [loading, setLoading] = useState(false);
   const [elapsed, setElapsed] = useState(null);
   const [error, setError] = useState('');
@@ -113,7 +112,7 @@ export default function DataExplorer({ farmId }) {
   const toggle = (id) => setSelected(s => s.includes(id) ? s.filter(x => x !== id) : [...s, id]);
 
   const query = useCallback(async () => {
-    setLoading(true); setError(''); setRows([]); setPage(1);
+    setLoading(true); setError(''); setRows([]);
     const t0 = performance.now();
     const params = { startDate: range.start.toISOString(), endDate: range.end.toISOString() };
     try {
@@ -198,8 +197,34 @@ export default function DataExplorer({ farmId }) {
     XLSX.writeFile(wb, `${baseName()}.xlsx`);
   };
 
-  const pageRows = rows.slice((page - 1) * PAGE, page * PAGE);
-  const totalPages = Math.max(1, Math.ceil(rows.length / PAGE));
+  // 결과를 센서·장치별로 묶는다 — 한 표에 다 쏟으면 어느 줄이 어느 센서인지 안 보인다 (2026-10-06).
+  // 묶을 기준이 없으면(센서 관측치·제어 이력) 한 묶음으로 둔다.
+  const groups = useMemo(() => {
+    if (rows.length === 0) return [];
+    const keyOf = (r) => {
+      if (kind === 'sensorstatus') return `${r.unit}:${r.idx}`;
+      if (kind === 'actuator') return r.device_id || r.deviceId || '전체';
+      if (kind === 'control') return r.deviceId || '전체';
+      return '전체';
+    };
+    const map = new Map();
+    for (const r of rows) {
+      const k = keyOf(r);
+      if (!map.has(k)) {
+        const meta = items.find(i => i.id === k) || {};
+        map.set(k, {
+          key: k,
+          icon: meta.icon || (kind === 'sensorstatus' ? (KS_ICON[r.code] || '📈') : '🎛️'),
+          title: meta.title || r.name || r.deviceName || k,
+          sub: meta.sub || (kind === 'sensorstatus' ? `노드 ${r.unit} · ${r.idx}번 자리` : k),
+          rows: [],
+        });
+      }
+      map.get(k).rows.push(r);
+    }
+    return [...map.values()];
+  }, [rows, kind, items]);
+
 
   return (
     <div className="space-y-4 animate-fade-in-up">
@@ -225,7 +250,10 @@ export default function DataExplorer({ farmId }) {
             <div className="flex gap-1">
               {PERIODS.map(p => (
                 <button key={p.d} onClick={() => setPeriod(p.d)}
-                  className={`flex-1 py-2 rounded-lg text-sm font-bold border transition-colors ${period === p.d ? 'bg-gray-800 text-white border-gray-800' : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-50'}`}>{p.label}</button>
+                  className={`flex-1 py-2 rounded-lg text-sm font-bold border transition-colors ${period === p.d ? 'bg-blue-600 border-blue-600 shadow-sm' : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-50'}`}>
+                  {/* 선택 상태는 위쪽 종류 탭과 같은 파랑. 검은 바탕은 글씨가 묻혔다 (2026-10-06) */}
+                  <span style={period === p.d ? { color: '#fff' } : undefined}>{p.label}</span>
+                </button>
               ))}
             </div>
           </div>
@@ -287,7 +315,7 @@ export default function DataExplorer({ farmId }) {
         <div className="flex flex-wrap items-center gap-3 pt-2 border-t border-gray-100">
           <button onClick={query} disabled={loading || (!NO_HOUSE_KINDS.includes(kind) && !houseId)}
             className="px-5 py-2.5 rounded-xl text-sm font-bold bg-blue-600 text-white shadow-sm hover:bg-blue-700 disabled:opacity-40 disabled:shadow-none">
-            {loading ? '조회 중…' : '🔍 1분 단위로 조회'}
+            {loading ? '조회 중…' : '🔍 조회'}
           </button>
 
           <div className="flex items-center gap-1.5 rounded-xl border border-emerald-200 bg-emerald-50/60 px-2.5 py-1.5">
@@ -313,30 +341,116 @@ export default function DataExplorer({ farmId }) {
         {error && <p className="text-xs text-rose-600 font-semibold">{error}</p>}
       </div>
 
-      {rows.length > 0 && (
-        <div className="card p-3">
+      {/* 결과 — 센서(또는 장치)마다 카드 하나. 한 표에 다 쏟으면 어느 줄이 어느 센서인지 안 보인다 (2026-10-06) */}
+      {groups.length > 0 && (
+        <div className="space-y-3">
+          {groups.map(g => (
+            <ResultCard key={g.key} group={g} columns={columns} />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** 센서·장치 한 종류의 결과 — 표(50행 페이지) 또는 그래프 */
+const CARD_PAGE = 50;
+const CHART_MAX_POINTS = 600;   // 30일 4만 행을 그대로 그리면 브라우저가 멈춘다 — 균등 간격으로 솎는다
+
+const ResultCard = ({ group, columns }) => {
+  const [view, setView] = useState('table');   // 'table' | 'chart'
+  const [page, setPage] = useState(1);
+
+  const total = group.rows.length;
+  const totalPages = Math.max(1, Math.ceil(total / CARD_PAGE));
+  const pageRows = group.rows.slice((page - 1) * CARD_PAGE, page * CARD_PAGE);
+
+  // 그래프용 — 값이 숫자인 행만, 균등 간격으로 솎아서
+  const chartData = useMemo(() => {
+    const pts = group.rows
+      .map(r => ({ t: r.timestamp, v: Number(r.value) }))
+      .filter(p => Number.isFinite(p.v));
+    if (pts.length <= CHART_MAX_POINTS) return pts;
+    const step = Math.ceil(pts.length / CHART_MAX_POINTS);
+    return pts.filter((_, i) => i % step === 0);
+  }, [group.rows]);
+
+  const canChart = chartData.length > 1;
+  const fmtTime = (t) => {
+    const d = new Date(t);
+    return Number.isNaN(d.getTime()) ? String(t) : `${d.getMonth() + 1}/${d.getDate()} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+  };
+
+  return (
+    <div className="card p-4">
+      <div className="flex items-center justify-between gap-3 mb-3 flex-wrap">
+        <div className="flex items-center gap-2 min-w-0">
+          <span className="text-xl">{group.icon}</span>
+          <div className="min-w-0">
+            <p className="text-base font-bold text-gray-900 truncate">{group.title}</p>
+            <p className="text-xs text-gray-500 truncate">{group.sub} · {total.toLocaleString()}행</p>
+          </div>
+        </div>
+        <div className="flex gap-1">
+          <button onClick={() => setView('table')}
+            className={`px-3 py-1.5 rounded-lg text-xs font-bold border ${view === 'table' ? 'bg-blue-600 border-blue-600' : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-50'}`}>
+            <span style={view === 'table' ? { color: '#fff' } : undefined}>표</span>
+          </button>
+          <button onClick={() => setView('chart')} disabled={!canChart} title={canChart ? '' : '그릴 숫자 값이 없습니다'}
+            className={`px-3 py-1.5 rounded-lg text-xs font-bold border disabled:opacity-40 ${view === 'chart' ? 'bg-blue-600 border-blue-600' : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-50'}`}>
+            <span style={view === 'chart' ? { color: '#fff' } : undefined}>📈 그래프</span>
+          </button>
+        </div>
+      </div>
+
+      {view === 'chart' ? (
+        <div style={{ width: '100%', height: 260 }}>
+          <ResponsiveContainer>
+            <LineChart data={chartData} margin={{ top: 5, right: 12, bottom: 5, left: 0 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#eef2f7" />
+              <XAxis dataKey="t" tickFormatter={fmtTime} tick={{ fontSize: 11, fill: '#94a3b8' }} minTickGap={40} />
+              <YAxis tick={{ fontSize: 11, fill: '#94a3b8' }} width={52} domain={['auto', 'auto']} />
+              <Tooltip labelFormatter={fmtTime} formatter={(v) => [v, group.title]}
+                contentStyle={{ fontSize: 12, borderRadius: 8, border: '1px solid #e2e8f0' }} />
+              {/* isAnimationActive=false — 키오스크 CPU·발열 (SensorChart 와 같은 규칙) */}
+              <Line type="monotone" dataKey="v" name={group.title} stroke="#4f46e5" strokeWidth={2}
+                    dot={false} isAnimationActive={false} connectNulls />
+            </LineChart>
+          </ResponsiveContainer>
+          <p className="text-[11px] text-gray-400 mt-1">
+            {chartData.length.toLocaleString()}점 표시 (전체 {total.toLocaleString()}행을 균등 간격으로 솎음)
+          </p>
+        </div>
+      ) : (
+        <>
           <div className="overflow-x-auto">
             <table className="w-full text-xs font-mono">
-              <thead><tr className="text-gray-500 text-left border-b border-gray-200">{columns.map(c => <th key={c} className="py-1 pr-3 whitespace-nowrap">{c}</th>)}</tr></thead>
+              <thead>
+                <tr className="text-gray-500 text-left border-b border-gray-200">
+                  {columns.map(c => <th key={c} className="py-1 pr-3 whitespace-nowrap font-sans font-semibold">{c}</th>)}
+                </tr>
+              </thead>
               <tbody>
                 {pageRows.map((r, i) => (
-                  <tr key={i} className="border-b border-gray-100">
-                    {columns.map(c => <td key={c} className="py-0.5 pr-3 whitespace-nowrap">{r[c] === null || r[c] === undefined ? '' : String(r[c])}</td>)}
+                  <tr key={i} className="border-b border-gray-100 hover:bg-gray-50">
+                    {columns.map(c => <td key={c} className="py-1 pr-3 whitespace-nowrap">{r[c] === null || r[c] === undefined ? '' : String(r[c])}</td>)}
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
           <div className="flex items-center justify-between mt-2 text-xs text-gray-500">
-            <span>{(page - 1) * PAGE + 1}–{Math.min(page * PAGE, rows.length)} / {rows.length.toLocaleString()}</span>
-            <div className="flex gap-1">
+            <span>{((page - 1) * CARD_PAGE + 1).toLocaleString()}–{Math.min(page * CARD_PAGE, total).toLocaleString()} / {total.toLocaleString()}행</span>
+            <div className="flex items-center gap-1">
+              <button onClick={() => setPage(1)} disabled={page <= 1} className="px-2 py-1 rounded border border-gray-200 disabled:opacity-40">처음</button>
               <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page <= 1} className="px-2 py-1 rounded border border-gray-200 disabled:opacity-40">◀</button>
-              <span className="px-2 py-1">{page} / {totalPages}</span>
+              <span className="px-2 py-1 font-semibold text-gray-700">{page} / {totalPages}</span>
               <button onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={page >= totalPages} className="px-2 py-1 rounded border border-gray-200 disabled:opacity-40">▶</button>
+              <button onClick={() => setPage(totalPages)} disabled={page >= totalPages} className="px-2 py-1 rounded border border-gray-200 disabled:opacity-40">끝</button>
             </div>
           </div>
-        </div>
+        </>
       )}
     </div>
   );
-}
+};

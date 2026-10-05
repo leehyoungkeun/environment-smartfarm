@@ -48,6 +48,11 @@ KINDS = [
     (19, 17, "지온",         "ks_soil_temp",     (17.0, 24.0),   9, 2),
     (29, 18, "무게1",        "ks_weight",        (1.6, 3.1),     6, 2),
 ]
+# 실물 센서(온도1·습도1) — 노드를 떼어 둔 구간을 이어 그릴 때만 --with-real 로 포함한다.
+REAL_KINDS = [
+    (1, 1, "온도1", "temp_0001",     (18.0, 28.0), 6,  2),
+    (4, 2, "습도1", "humidity_0001", (45.0, 75.0), 18, 2),
+]
 
 
 def value_for(lo, hi, phase_h, ts, idx, digits):
@@ -63,16 +68,19 @@ def value_for(lo, hi, phase_h, ts, idx, digits):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--days", type=int, default=31)
+    ap.add_argument("--end-now", action="store_true", help="어제 자정이 아니라 **지금**까지 만든다 (노드를 떼어 둔 구간 메우기)")
+    ap.add_argument("--with-real", action="store_true", help="온도1·습도1 도 포함 (실물 센서가 떨어져 있을 때)")
     a = ap.parse_args()
+    kinds = KINDS + (REAL_KINDS if a.with_real else [])
 
     now = time.time()
-    end = int((now + KST) // 86400) * 86400 - KST      # 오늘 00:00 KST
+    end = int(now // 60) * 60 if a.end_now else int((now + KST) // 86400) * 86400 - KST
     start = end - a.days * 86400
 
     out = sys.stdout
     for ts in range(int(start), int(end), 60):
         iso = time.strftime("%Y-%m-%d %H:%M:%S+00", time.gmtime(ts))
-        for idx, code, name, sid, (lo, hi), ph, dg in KINDS:
+        for idx, code, name, sid, (lo, hi), ph, dg in kinds:
             if idx == 6:   # 감우 — 새벽 3~5시에만 1
                 h = int((ts + KST) % 86400 // 3600)
                 v = 1.0 if h in (3, 4) else 0.0

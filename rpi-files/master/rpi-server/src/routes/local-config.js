@@ -195,6 +195,18 @@ router.put('/ks3267/comm', async (req, res) => {
   res.json(await ksDaemon('POST', '/comm', req.body || {}, 20000));
 });
 
+// 저장 주기 (2026-10-06) — 표준 노드 1분 스냅샷의 주기. 읽기는 누구나, 변경은 패널/관리자 경로만(통신 설정과 같은 규칙).
+router.get('/ks3267/collect', async (req, res) => {
+  res.json(await ksDaemon('GET', '/collect'));
+});
+
+router.put('/ks3267/collect', async (req, res) => {
+  if (!isLoopbackOrTailscale(req)) {
+    return res.status(403).json({ ok: false, error: '저장 주기 변경은 제어기 패널 또는 관리자 원격 경로에서만 가능합니다' });
+  }
+  res.json(await ksDaemon('POST', '/collect', req.body || {}));
+});
+
 router.get('/ks3267/conntest', async (req, res) => {
   const unit = parseInt(req.query.unit, 10);
   res.json(await ksDaemon('GET', '/conntest?unit=' + (Number.isFinite(unit) ? unit : ''), null, 20000));

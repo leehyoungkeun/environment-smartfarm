@@ -25,7 +25,8 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import obs  # noqa: E402
 from api import serve  # noqa: E402
 from comm import list_ports, load_comm  # noqa: E402
-from localstore import LocalStore  # noqa: E402
+import localstore  # noqa: E402
+from localstore import LocalStore, load_interval  # noqa: E402
 from master import KsMaster  # noqa: E402
 from transport import FrameLog, ModbusExc, PymodbusTransport, TransportTimeout  # noqa: E402
 
@@ -149,11 +150,15 @@ def main():
 
     master = KsMaster(t, state_dir=a.state_dir)
     units = [int(x) for x in a.units.split(",") if x.strip()]
-    store = LocalStore(os.path.join(a.state_dir, "snapshots.db"), retention_days=a.local_days)
+    # 저장 주기 — 화면에서 바꾼 값이 실행 인자보다 우선한다 (comm.json 과 같은 방식, 2026-10-06)
+    collect_path = os.path.join(a.state_dir, "collect.json")
+    interval = load_interval(collect_path) or localstore.STANDARD_INTERVAL_SEC
+    store = LocalStore(os.path.join(a.state_dir, "snapshots.db"), retention_days=a.local_days, interval_sec=interval)
     srv = serve(master, port=a.api_port, comm_ctx={"path": comm_path, "build": build, "list_ports": list_ports, "store": store,
-                                                   "evidence_dir": a.evidence_dir})
-    log.info("ks3267d 시작 — %s, units=%s, api=127.0.0.1:%d, retries=%d, 로컬 스냅샷 %s (%d일), 증적 %s",
-             t.desc, units, a.api_port, a.retries, store.path, a.local_days, a.evidence_dir)
+                                                   "evidence_dir": a.evidence_dir, "collect_path": collect_path})
+    log.info("ks3267d 시작 — %s, units=%s, api=127.0.0.1:%d, retries=%d, 로컬 스냅샷 %s (%d일, 저장 주기 %d초%s), 증적 %s",
+             t.desc, units, a.api_port, a.retries, store.path, a.local_days, store.interval,
+             "" if store.interval == localstore.STANDARD_INTERVAL_SEC else " — 검정 기준 60초와 다름", a.evidence_dir)
     stop = threading.Event()
     th = threading.Thread(target=poll_loop, args=(master, units, a.poll, a.nr_url, stop, store), daemon=True)
     th.start()

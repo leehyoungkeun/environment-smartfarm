@@ -27,6 +27,7 @@ from urllib.parse import parse_qs, urlparse
 
 import comm as commlib
 import evidence as evlib
+import localstore
 import obs
 from transport import ModbusExc, TransportTimeout
 
@@ -151,7 +152,7 @@ def make_handler(master, comm_ctx=None):
                     f = lambda k: (float(g(k)) if g(k) not in (None, "") else None)
                     if u.path == "/local/summary":
                         return self._json(200, {"ok": True, "days": store.summary(int(g("days", "31"))), "path": store.path,
-                                                "retentionDays": store.retention // 86400})
+                                                "retentionDays": store.retention // 86400, "intervalSec": store.interval})
                     if u.path == "/local/vendor-actuator-status":
                         # 비표준(벤더) 구동기 1분 행 — 표준과 같은 로컬 저장 (2026-09-19)
                         rows = store.query_vendor_actuator(house_id=g("house"), device_id=g("device"), start=f("start"), end=f("end"),
@@ -164,7 +165,7 @@ def make_handler(master, comm_ctx=None):
                             self.end_headers()
                             self.wfile.write(body)
                             return None
-                        return self._json(200, {"ok": True, "now": time.time(), "intervalSec": 60, "count": len(rows), "data": rows})
+                        return self._json(200, {"ok": True, "now": time.time(), "intervalSec": store.interval, "count": len(rows), "data": rows})
                     kind = u.path[len("/local/"):]
                     if kind not in ("sensor-status", "actuator-status"):
                         return self._json(404, {"ok": False, "error": "not found"})
@@ -181,7 +182,15 @@ def make_handler(master, comm_ctx=None):
                         self.end_headers()
                         self.wfile.write(body)
                         return None
-                    return self._json(200, {"ok": True, "now": time.time(), "intervalSec": 60, "count": len(rows), "data": rows})
+                    return self._json(200, {"ok": True, "now": time.time(), "intervalSec": store.interval, "count": len(rows), "data": rows})
+                if u.path == "/collect":
+                    # 저장 주기 (2026-10-06). 표준은 60초 — 검정(KOAT 116 「1분 단위 30일」) 중엔 벗어나면 안 된다.
+                    store = ctx.get("store") if ctx else None
+                    if store is None:
+                        return self._json(200, {"ok": False, "error": "로컬 스냅샷 저장소가 없습니다"})
+                    return self._json(200, {"ok": True, "intervalSec": store.interval, "standardSec": localstore.STANDARD_INTERVAL_SEC,
+                                            "minSec": localstore.MIN_INTERVAL_SEC, "maxSec": localstore.MAX_INTERVAL_SEC,
+                                            "isStandard": store.interval == localstore.STANDARD_INTERVAL_SEC})
                 if u.path == "/comm":
                     if not ctx:
                         return self._json(200, {"ok": False, "error": "이 실행 방식은 통신 설정 변경을 지원하지 않습니다"})
@@ -284,6 +293,19 @@ def make_handler(master, comm_ctx=None):
                     return self._json(200, {"ok": True})
                 except (ValueError, FileNotFoundError) as e:
                     return self._json(200, {"ok": False, "error": str(e)})
+            if u.path == "/collect":
+                store = ctx.get("store") if ctx else None
+                if store is None:
+                    return self._json(200, {"ok": False, "error": "로컬 스냅샷 저장소가 없습니다"})
+                v = localstore.clamp_interval(body.get("intervalSec"))
+                if v is None:
+                    return self._json(200, {"ok": False, "error": f"저장 주기는 {localstore.MIN_INTERVAL_SEC}~{localstore.MAX_INTERVAL_SEC}초 사이의 정수여야 합니다",
+                                            "intervalSec": store.interval})
+                store.set_interval(v)
+                if ctx.get("collect_path"):
+                    localstore.save_interval(ctx["collect_path"], v)   # 재시작해도 유지 (comm.json 과 같은 방식)
+                return self._json(200, {"ok": True, "intervalSec": store.interval,
+                                        "isStandard": store.interval == localstore.STANDARD_INTERVAL_SEC})
             if u.path == "/comm":
                 if not ctx:
                     return self._json(200, {"ok": False, "error": "이 실행 방식은 통신 설정 변경을 지원하지 않습니다"})

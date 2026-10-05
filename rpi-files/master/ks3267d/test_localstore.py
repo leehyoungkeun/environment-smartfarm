@@ -7,7 +7,8 @@ import tempfile
 import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from localstore import LocalStore  # noqa: E402
+from localstore import (MAX_INTERVAL_SEC, MIN_INTERVAL_SEC, STANDARD_INTERVAL_SEC,  # noqa: E402
+                        LocalStore, clamp_interval, load_interval, save_interval)
 
 
 class Clock:
@@ -222,6 +223,72 @@ class ConnectionLifetime(unittest.TestCase):
             pass
         with self.assertRaises(sqlite3.ProgrammingError):
             c.execute("SELECT 1")
+
+
+class Interval(unittest.TestCase):
+    """저장 주기 (2026-10-06) — 기본은 검정 기준 60초, 화면에서 10~3600 으로 바꿀 수 있다."""
+
+    def setUp(self):
+        self.dir = tempfile.mkdtemp()
+        self.clk = Clock()
+        self.s = LocalStore(os.path.join(self.dir, "snap.db"), retention_days=60, clock=self.clk)
+
+    def test_default_is_standard_one_minute(self):
+        self.assertEqual(self.s.interval, STANDARD_INTERVAL_SEC)
+        self.assertEqual(STANDARD_INTERVAL_SEC, 60, "KOAT 116 「1분 단위 30일」")
+
+    def test_clamp_rejects_out_of_range_and_garbage(self):
+        self.assertEqual(clamp_interval(10), MIN_INTERVAL_SEC)
+        self.assertEqual(clamp_interval(3600), MAX_INTERVAL_SEC)
+        for bad in (9, 3601, 0, -60, None, "", "빠르게"):
+            self.assertIsNone(clamp_interval(bad), bad)
+
+    def test_set_interval_ignores_bad_keeps_current(self):
+        self.assertEqual(self.s.set_interval(300), 300)
+        self.assertEqual(self.s.set_interval(5), 300, "범위 밖은 무시하고 현재 값을 지킨다")
+
+    def test_rows_land_on_wall_clock_grid(self):
+        """격자는 벽시계 — 「마지막 저장 + 주기」로 잡으면 폴링 흔들림에 한 칸씩 빠진다 (NR 게이트와 같은 함정)."""
+        self.s.set_interval(300)
+        self.clk.t = 1_800_000_123.0            # 격자 밖 시각
+        self.s.record(states(self.clk.t))
+        with sqlite3.connect(os.path.join(self.dir, "snap.db")) as c:
+            ts = c.execute("SELECT DISTINCT ts FROM sensor_minute").fetchall()
+        self.assertEqual(ts, [(1_800_000_000,)], "300초 격자에 맞춰 내림")
+
+    def test_longer_interval_skips_until_next_bucket(self):
+        self.s.set_interval(600)
+        self.assertIsNotNone(self.s.record(states(self.clk.t)))
+        self.clk.t += 60
+        self.assertIsNone(self.s.record(states(self.clk.t)), "1분 뒤엔 아직 같은 칸")
+        self.clk.t += 540
+        self.assertIsNotNone(self.s.record(states(self.clk.t)), "10분이 되면 다음 칸")
+
+    def test_changing_interval_does_not_skip_first_bucket(self):
+        self.assertIsNotNone(self.s.record(states(self.clk.t)))
+        self.s.set_interval(10)
+        self.clk.t += 10
+        self.assertIsNotNone(self.s.record(states(self.clk.t)), "주기를 바꾼 직후 첫 칸을 건너뛰지 않는다")
+
+    def test_persisted_across_restart(self):
+        path = os.path.join(self.dir, "collect.json")
+        self.assertIsNone(load_interval(path), "파일이 없으면 None — 표준 60초를 쓴다")
+        save_interval(path, 120)
+        self.assertEqual(load_interval(path), 120)
+        s2 = LocalStore(os.path.join(self.dir, "snap.db"), interval_sec=load_interval(path), clock=self.clk)
+        self.assertEqual(s2.interval, 120)
+
+    def test_broken_or_out_of_range_file_falls_back(self):
+        path = os.path.join(self.dir, "collect.json")
+        with open(path, "w", encoding="utf-8") as f:
+            f.write("{깨진")
+        self.assertIsNone(load_interval(path))
+        save_interval(path, 60)
+        with open(path, "w", encoding="utf-8") as f:
+            f.write('{"intervalSec": 99999}')
+        self.assertIsNone(load_interval(path), "범위 밖이면 무시")
+        self.assertEqual(LocalStore(os.path.join(self.dir, "x.db"), interval_sec=None, clock=self.clk).interval,
+                         STANDARD_INTERVAL_SEC)
 
 
 if __name__ == "__main__":

@@ -776,6 +776,18 @@ router.put("/:farmId/ks3267-comm", authorize("owner"), async (req, res) => {
   res.json(await ksCommProxy(req.params.farmId, "PUT", "/ks3267/comm", req.body || {}));
 });
 
+// 표준 노드 저장 주기 (2026-10-06). 비표준 센서의 「수집 주기」와 같은 범위(10~3600초)를 쓰되,
+// 검정(KOAT 116 「1분 단위 30일」) 중에는 60초여야 한다 — 화면이 60 이 아니면 경고를 띄운다.
+router.get("/:farmId/ks3267-collect", async (req, res) => {
+  res.json(await ksCommProxy(req.params.farmId, "GET", "/ks3267/collect"));
+});
+
+router.put("/:farmId/ks3267-collect", authorize("owner"), async (req, res) => {
+  const who = req.user?.username || req.user?.id || "?";
+  logger.info(`📐 표준 노드 저장 주기 변경: ${req.params.farmId} by ${who} ${JSON.stringify(req.body || {})}`);
+  res.json(await ksCommProxy(req.params.farmId, "PUT", "/ks3267/collect", req.body || {}));
+});
+
 router.get("/:farmId/ks3267-conntest", async (req, res) => {
   const unit = parseInt(req.query.unit, 10);
   res.json(await ksCommProxy(req.params.farmId, "GET", `/ks3267/conntest?unit=${Number.isFinite(unit) ? unit : ""}`));

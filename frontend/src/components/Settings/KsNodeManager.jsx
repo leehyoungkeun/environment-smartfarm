@@ -93,6 +93,10 @@ export const KsNodeManager = ({ farmId }) => {
     : axios.put(`${api}/config/${farmId}/ks3267-comm`, body, { timeout: 30000 })).then(r => r.data), [api, farmId, onPanel]);
   // ── 실노드 증적 묶음 (2026-09-19) — 입고 시험장에서 버튼 하나로 report.md·results.json·frames.txt ──
   // 드라이버가 지금 상태(탐색·마지막 폴링·변화 이력·로컬 1분 저장·프레임)를 §5.4/5.5 순서로 판정해 제어기에 저장한다.
+  // 저장 주기 변경 (2026-10-06) — 통신 설정과 같은 권한 규칙(패널 또는 농장 소유자 이상)
+  const collectPut = useCallback((body) => (onPanel
+    ? axios.put('/api/ks3267-comm/collect', body, { timeout: 20000 })
+    : axios.put(`${api}/config/${farmId}/ks3267-collect`, body, { timeout: 20000 })).then(r => r.data), [api, farmId, onPanel]);
   const commPost = useCallback((path, body) => (onPanel
     ? axios.post(`/api/ks3267-comm/${path}`, body, { timeout: 40000 })
     : axios.post(`${api}/config/${farmId}/ks3267-${path}`, body, { timeout: 40000 })).then(r => r.data), [api, farmId, onPanel]);
@@ -148,6 +152,10 @@ export const KsNodeManager = ({ farmId }) => {
   const [commForm, setCommForm] = useState(null);  // { mode, port, baud, timeout, tcp }
   const [commBusy, setCommBusy] = useState(false);
   const [commMsg, setCommMsg] = useState(null);
+  const [collect, setCollect] = useState(null);       // { ok, intervalSec, standardSec, minSec, maxSec }
+  const [collectSec, setCollectSec] = useState('');   // 입력 중인 값
+  const [collectBusy, setCollectBusy] = useState(false);
+  const [collectMsg, setCollectMsg] = useState(null);
   const [testUnit, setTestUnit] = useState('1');
   const [connTest, setConnTest] = useState(null);  // { rows, passed, at } | { rows: [], error }
   const [testing, setTesting] = useState(false);
@@ -175,6 +183,43 @@ export const KsNodeManager = ({ farmId }) => {
   }, [commGet]);
 
   useEffect(() => { loadComm(); }, [loadComm]);
+
+  const loadCollect = useCallback(async () => {
+    try {
+      const d = await commGet('collect');
+      setCollect(d);
+      if (d?.ok) setCollectSec((v) => v || String(d.intervalSec));
+    } catch (e) {
+      setCollect({ ok: false, error: e.response?.data?.error || e.message });
+    }
+  }, [commGet]);
+
+  useEffect(() => { loadCollect(); }, [loadCollect]);
+
+  const applyCollect = async () => {
+    const v = Number(collectSec);
+    setCollectBusy(true);
+    setCollectMsg(null);
+    try {
+      const d = await collectPut({ intervalSec: v });
+      if (d?.ok) {
+        setCollect((c) => ({ ...c, intervalSec: d.intervalSec, isStandard: d.isStandard }));
+        setCollectSec(String(d.intervalSec));
+        setCollectMsg({ type: d.isStandard ? 'ok' : 'warn', text: d.isStandard
+          ? `저장 주기를 ${d.intervalSec}초로 바꿨습니다.`
+          : `저장 주기를 ${d.intervalSec}초로 바꿨습니다 — 검정 기준(1분)과 다릅니다.` });
+      } else {
+        setCollectMsg({ type: 'err', text: d?.error || '바꾸지 못했습니다' });
+      }
+    } catch (e) {
+      const st = e.response?.status;
+      setCollectMsg({ type: 'err', text: st === 403 || st === 401
+        ? '저장 주기를 바꿀 권한이 없습니다. 농장 소유자 이상으로 로그인하거나 제어기 패널에서 바꾸세요.'
+        : (e.response?.data?.error || e.message) });
+    } finally {
+      setCollectBusy(false);
+    }
+  };
 
   const applyComm = async () => {
     if (!commForm || !comm?.current) return;
@@ -487,6 +532,57 @@ export const KsNodeManager = ({ farmId }) => {
                 <p className={`text-sm font-semibold rounded-md p-2 border ${commMsg.type === 'ok' ? 'bg-emerald-50 border-emerald-200 text-emerald-800' : 'bg-rose-50 border-rose-200 text-rose-700'}`}>
                   {commMsg.text}
                 </p>
+              )}
+            </div>
+          )}
+        </SubBox>
+
+        {/* 저장 주기 (2026-10-06) — 비표준 센서의 「수집 주기」와 같은 범위를 표준에도 준다 (표준·비표준 동일 정책).
+            검정 중에는 60초여야 한다: KOAT 116 「1분 단위 30일·손실 3% 이내」. */}
+        <SubBox title="저장 주기" desc="제어기 로컬 저장(SQLite)을 몇 초마다 한 줄로 남길지" tone="blue"
+          right={collect?.ok && <Pill tone={collect.intervalSec === (collect.standardSec || 60) ? 'on' : 'bad'}>
+            {collect.intervalSec}초{collect.intervalSec === (collect.standardSec || 60) ? ' · 검정 기준' : ' · 기준 밖'}</Pill>}>
+          {!collect ? (
+            <p className="text-sm text-gray-500">불러오는 중…</p>
+          ) : !collect.ok ? (
+            <p className="text-sm text-rose-700">{collect.error || '드라이버에서 저장 주기를 읽지 못했습니다'}</p>
+          ) : (
+            <div className="space-y-3">
+              <div className="flex flex-wrap gap-2">
+                {[10, 30, 60, 300, 600].map(v => (
+                  <button key={v} onClick={() => setCollectSec(String(v))}
+                    className={`px-3 py-1.5 rounded-lg text-sm font-semibold border transition-all
+                      ${Number(collectSec) === v ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-600 border-gray-200 hover:border-blue-300 hover:bg-blue-50'}`}>
+                    {v < 60 ? `${v}초` : `${v / 60}분`}{v === 60 ? ' (표준)' : ''}
+                  </button>
+                ))}
+              </div>
+              <div className="flex flex-wrap items-center gap-3 text-sm text-gray-600">
+                <label className="inline-flex items-center gap-2 font-semibold text-gray-700">직접 입력
+                  <input type="number" min={collect.minSec || 10} max={collect.maxSec || 3600} value={collectSec}
+                    onChange={e => setCollectSec(e.target.value)} className="input-field w-24 py-1" />초
+                </label>
+                <span className="text-gray-400">({collect.minSec || 10}~{collect.maxSec || 3600})</span>
+                <span>하루 약 <b className="text-gray-800">{Math.floor(86400 / (Number(collectSec) || 60)).toLocaleString()}</b>회 저장</span>
+                <button onClick={applyCollect} disabled={collectBusy || Number(collectSec) === collect.intervalSec}
+                  className="ml-auto btn-primary text-sm px-4 py-2">{collectBusy ? '적용 중…' : '적용'}</button>
+              </div>
+              {Number(collectSec) !== (collect.standardSec || 60) && (
+                <p className="text-sm text-amber-700 font-semibold bg-amber-50 border border-amber-200 rounded-md p-2">
+                  ⚠ 검정 기준은 <b>60초(1분)</b>입니다 — KOAT 116 은 「1분 단위 30일 데이터·하루 손실 3% 이내」를 요구합니다.
+                  주기를 바꾸면 쌓고 있는 30일 창이 그 자리에서 끊깁니다. 검정이 끝난 뒤 농가 운영에서 조정하세요.
+                </p>
+              )}
+              <p className="text-xs text-gray-500">
+                드라이버는 이 주기와 무관하게 <b>2초마다</b> 노드를 읽습니다 — 저장만 이 주기로 한 줄 남깁니다.
+                칸은 벽시계 격자라(60초면 항상 :00) 폴링이 흔들려도 한 칸씩 빠지지 않습니다. 재시작해도 유지됩니다.
+                <b>서버 저장(ks_sensor_status)은 Node-RED 가 따로 1분마다</b> 보냅니다 — 이 설정은 제어기 로컬 저장에만 적용됩니다.
+              </p>
+              {collectMsg && (
+                <p className={`text-sm font-semibold rounded-md p-2 border ${
+                  collectMsg.type === 'ok' ? 'bg-emerald-50 border-emerald-200 text-emerald-800'
+                  : collectMsg.type === 'warn' ? 'bg-amber-50 border-amber-200 text-amber-800'
+                  : 'bg-rose-50 border-rose-200 text-rose-700'}`}>{collectMsg.text}</p>
               )}
             </div>
           )}

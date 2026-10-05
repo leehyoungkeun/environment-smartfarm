@@ -13,6 +13,7 @@
 import contextlib
 import csv
 import io
+import json
 import os
 import sqlite3
 import time
@@ -66,10 +67,43 @@ def _int(v):
         return None
 
 
+# 저장 주기 (2026-10-06) — 표준은 1분. KOAT 116 이 「1분 단위 30일」을 요구하므로 검정 중엔 60 을 벗어나면 안 된다.
+# 비표준(벤더) 센서는 설정 → 수집 주기에서 10~3600초를 고르니, 표준도 같은 범위를 준다 (표준·비표준 동일 정책).
+STANDARD_INTERVAL_SEC = 60
+MIN_INTERVAL_SEC, MAX_INTERVAL_SEC = 10, 3600
+
+
+def clamp_interval(sec):
+    """범위 밖이거나 숫자가 아니면 None — 부르는 쪽이 거절한다."""
+    try:
+        v = int(sec)
+    except (TypeError, ValueError):
+        return None
+    return v if MIN_INTERVAL_SEC <= v <= MAX_INTERVAL_SEC else None
+
+
+def load_interval(path):
+    """state/collect.json — 없거나 깨졌으면 None(표준 60초를 쓴다). comm.json 과 같은 방식."""
+    try:
+        with open(path, encoding="utf-8") as f:
+            d = json.load(f)
+    except (OSError, ValueError):
+        return None
+    return clamp_interval(d.get("intervalSec")) if isinstance(d, dict) else None
+
+
+def save_interval(path, sec):
+    tmp = path + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump({"intervalSec": int(sec)}, f, ensure_ascii=False, indent=1)
+    os.replace(tmp, path)
+
+
 class LocalStore:
-    def __init__(self, path, retention_days=60, clock=None):
+    def __init__(self, path, retention_days=60, clock=None, interval_sec=STANDARD_INTERVAL_SEC):
         self.path = path
         self.retention = int(retention_days) * 86400
+        self.interval = clamp_interval(interval_sec) or STANDARD_INTERVAL_SEC
         self.clock = clock or time.time
         self._last_minute = None
         self._last_prune = 0
@@ -105,9 +139,13 @@ class LocalStore:
 
     # ── 기록 ────────────────────────────────────────────────────────
     def record(self, states, now=None):
-        """states: master.state (unit → poll 결과). 분이 바뀌었을 때만 그 분의 행을 만든다. 반환 {minute, sensors, actuators} 또는 None(같은 분)."""
+        """states: master.state (unit → poll 결과). 저장 주기가 바뀌었을 때만 그 칸의 행을 만든다. 반환 {minute, sensors, actuators} 또는 None(같은 칸).
+
+        칸은 **벽시계 격자**다 — `마지막 저장 + 주기` 로 잡으면 2초 폴링의 흔들림에 한 칸씩 조용히 빠진다
+        (NR 주기 게이트가 같은 함정으로 30일 창을 끊었다, 2026-09-27).
+        """
         now = self.clock() if now is None else now
-        minute = int(now // 60) * 60
+        minute = int(now // self.interval) * self.interval
         if minute == self._last_minute:
             return None
         self._last_minute = minute
@@ -200,6 +238,14 @@ class LocalStore:
             rows = c.execute(sql, p).fetchall()
         return [{"timestamp": _iso(r[0]), "house_id": r[1], "device_id": r[2], "unit": r[3], "kind": r[4], "n": r[5], "name": r[6],
                  "opid": r[7], "status": r[8], "status_name": r[9], "remain": r[10], "source": "vendor"} for r in rows]
+
+    def set_interval(self, sec):
+        """저장 주기를 바꾼다. 범위 밖이면 무시. 반환: 적용된 초"""
+        v = clamp_interval(sec)
+        if v is not None and v != self.interval:
+            self.interval = v
+            self._last_minute = None   # 새 격자의 첫 칸을 건너뛰지 않게
+        return self.interval
 
     def set_retention(self, days):
         """보관 일수를 서버 설정(NR 전역 retentionDays)과 맞춘다. 범위 밖이면 무시. 반환: 적용된 일수"""

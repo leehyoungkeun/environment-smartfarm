@@ -5,6 +5,7 @@ import ControlHistory from './ControlHistory';
 import AlertHistory from './AlertHistory';
 import AuditHistory from './AuditHistory';
 import DataExplorer from './DataExplorer';
+import DataVisualizer from './DataVisualizer';
 import {
   BarChart, Bar, LineChart, Line, PieChart, Pie, Cell,
   XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
@@ -239,6 +240,7 @@ export default function ReportPage({ farmId }) {
     { id: 'alert-history', label: '알림 이력', icon: '🔔' },
     { id: 'audit-log', label: '감사 로그', icon: '🔍' },
     { id: 'data', label: '데이터 조회·추출', icon: '📥' },
+    { id: 'visual', label: '데이터 시각화', icon: '📊' },   // 116: 2항목 이상·1시간 이하 단위·1/7/30일
   ];
 
   return (
@@ -264,6 +266,7 @@ export default function ReportPage({ farmId }) {
       {activeTab === 'alert-history' && <AlertHistory farmId={farmId} />}
       {activeTab === 'audit-log' && <AuditHistory farmId={farmId} />}
       {activeTab === 'data' && <DataExplorer farmId={farmId} />}
+      {activeTab === 'visual' && <DataVisualizer farmId={farmId} />}
 
       {activeTab === 'report' && <>
       {/* 컨트롤 바 */}

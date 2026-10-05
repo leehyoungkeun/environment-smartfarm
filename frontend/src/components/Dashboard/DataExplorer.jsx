@@ -398,25 +398,41 @@ const fmtCell = (c, v) => {
   }
   return String(v);
 };
-const CHART_MAX_POINTS = 600;   // 30일 4만 행을 그대로 그리면 브라우저가 멈춘다 — 균등 간격으로 솎는다
+const CHART_MAX_POINTS = 600;
+// 그릴 수 있는 숫자 열 — 센서는 값, 구동기는 값이 없고 상태코드·남은시간·OPID 가 있다 (2026-10-06).
+// 구동기는 연속량이 아니라 상태가 계단처럼 바뀌므로 stepAfter 로 그린다.
+const CHART_FIELDS = [
+  { key: 'value', label: '값', step: false },
+  { key: 'status', label: '상태코드', step: true },
+  { key: 'remain', label: '남은시간', step: true },
+  { key: 'opid', label: 'OPID', step: true },
+];   // 30일 4만 행을 그대로 그리면 브라우저가 멈춘다 — 균등 간격으로 솎는다
 
 const ResultCard = ({ group, columns, fileBase }) => {
   const [showChart, setShowChart] = useState(false);   // 표는 항상, 그래프는 접었다 폈다 (표가 사라지면 안 된다)
   const [page, setPage] = useState(1);
+  const [chartField, setChartField] = useState(null);   // 구동기는 상태코드·남은시간·OPID 중 고른다
 
   const total = group.rows.length;
   const totalPages = Math.max(1, Math.ceil(total / CARD_PAGE));
   const pageRows = group.rows.slice((page - 1) * CARD_PAGE, page * CARD_PAGE);
 
-  // 그래프용 — 값이 숫자인 행만, 균등 간격으로 솎아서
+  // 그릴 수 있는 열 — 두 점 이상 숫자가 있는 것만 (센서=값, 구동기=상태코드·남은시간·OPID)
+  const fields = useMemo(() => CHART_FIELDS.filter(f =>
+    group.rows.reduce((n, r) => n + (Number.isFinite(Number(r[f.key])) && r[f.key] !== null && r[f.key] !== '' ? 1 : 0), 0) > 1
+  ), [group.rows]);
+  const field = fields.find(f => f.key === chartField) || fields[0] || null;
+
+  // 그래프용 — 고른 열이 숫자인 행만, 균등 간격으로 솎아서
   const chartData = useMemo(() => {
+    if (!field) return [];
     const pts = group.rows
-      .map(r => ({ t: r.timestamp, v: Number(r.value) }))
+      .map(r => ({ t: r.timestamp, v: Number(r[field.key]) }))
       .filter(p => Number.isFinite(p.v));
     if (pts.length <= CHART_MAX_POINTS) return pts;
     const step = Math.ceil(pts.length / CHART_MAX_POINTS);
     return pts.filter((_, i) => i % step === 0);
-  }, [group.rows]);
+  }, [group.rows, field]);
 
   const canChart = chartData.length > 1;
 
@@ -459,7 +475,7 @@ const ResultCard = ({ group, columns, fileBase }) => {
         </div>
         <div className="flex items-center gap-1.5 flex-wrap">
           <button onClick={() => setShowChart(v => !v)} disabled={!canChart}
-            title={canChart ? '' : '그릴 숫자 값이 없습니다'}
+            title={canChart ? '' : '숫자로 그릴 열이 없습니다'}
             className={`px-3 py-1.5 rounded-lg text-xs font-bold border disabled:opacity-40 ${showChart ? 'bg-blue-600 border-blue-600' : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-50'}`}>
             <span style={showChart ? { color: '#fff' } : undefined}>📈 그래프 {showChart ? '숨기기' : '보기'}</span>
           </button>
@@ -512,23 +528,36 @@ const ResultCard = ({ group, columns, fileBase }) => {
             </div>
           </div>
 
-      {showChart && (
+      {showChart && field && (
         <div className="mt-4 pt-4 border-t border-gray-200">
+          {fields.length > 1 && (
+            <div className="flex flex-wrap items-center gap-1.5 mb-2">
+              <span className="text-xs font-semibold text-gray-500 mr-1">그릴 항목</span>
+              {fields.map(f => (
+                <button key={f.key} onClick={() => setChartField(f.key)}
+                  className={`px-2.5 py-1 rounded-lg text-xs font-bold border transition-all
+                    ${field.key === f.key ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-600 border-gray-200 hover:border-blue-300 hover:bg-blue-50'}`}>
+                  {f.label}
+                </button>
+              ))}
+            </div>
+          )}
           <div style={{ width: '100%', height: 260 }}>
             <ResponsiveContainer>
               <LineChart data={chartData} margin={{ top: 5, right: 12, bottom: 5, left: 0 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#eef2f7" />
                 <XAxis dataKey="t" tickFormatter={fmtTime} tick={{ fontSize: 11, fill: '#94a3b8' }} minTickGap={40} />
                 <YAxis tick={{ fontSize: 11, fill: '#94a3b8' }} width={52} domain={['auto', 'auto']} />
-                <Tooltip labelFormatter={fmtTime} formatter={(v) => [v, group.title]}
+                <Tooltip labelFormatter={fmtTime} formatter={(v) => [v, field.label]}
                   contentStyle={{ fontSize: 12, borderRadius: 8, border: '1px solid #e2e8f0' }} />
                 {/* isAnimationActive=false — 키오스크 CPU·발열 (SensorChart 와 같은 규칙) */}
-                <Line type="monotone" dataKey="v" name={group.title} stroke="#4f46e5" strokeWidth={2}
+                <Line type={field.step ? 'stepAfter' : 'monotone'} dataKey="v" name={field.label} stroke="#4f46e5" strokeWidth={2}
                       dot={false} isAnimationActive={false} connectNulls />
               </LineChart>
             </ResponsiveContainer>
             <p className="text-[11px] text-gray-400 mt-1">
-              {chartData.length.toLocaleString()}점 표시 (전체 {total.toLocaleString()}행을 균등 간격으로 솎음)
+              {field.label} · {chartData.length.toLocaleString()}점 표시 (전체 {total.toLocaleString()}행을 균등 간격으로 솎음)
+              {field.step && ' · 상태는 바뀐 시점까지 유지되므로 계단으로 그립니다'}
             </p>
           </div>
         </div>

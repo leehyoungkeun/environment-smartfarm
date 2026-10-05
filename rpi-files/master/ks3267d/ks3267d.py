@@ -44,6 +44,9 @@ def push_status(url, payload):
 HEARTBEAT_SEC = 60  # 변화가 없어도 이 주기로 NR 에 상태를 밀어준다 — NR 1분 스냅샷(116 검정)이 "낡은 상태"로 버리지 않게
 
 
+REDISCOVER_SEC = 60   # 디바이스 구성(101번지 코드) 재확인 주기 — 떼고 꽂는 것을 1분 안에 따라간다
+
+
 def poll_loop(master, units, interval, nr_url, stop, store=None):
     last = {}
     last_push = {}
@@ -72,6 +75,14 @@ def _poll_once(master, units, nr_url, store, last, last_push):
             except (ModbusExc, TransportTimeout) as e:
                 log.warning("unit %d 탐색 실패: %s", unit, e)
                 continue
+        else:
+            # 센서를 떼거나 다시 꽂으면 구성이 바뀐다 — 1분마다 디바이스 코드만 다시 읽어 확인한다.
+            # 안 하면 뗀 자리를 0·정상으로 계속 저장하고, 다시 꽂아도 영영 안 읽는다 (2026-10-06).
+            try:
+                if master.refresh_devices(unit, interval=REDISCOVER_SEC):
+                    log.info("unit %d 구성 변경 → 재탐색: %d개", unit, len(master.nodes[unit]["devices"]))
+            except (ModbusExc, TransportTimeout) as e:
+                log.warning("unit %d 구성 확인 실패: %s", unit, e)
         st = master.poll(unit)
         if st is None:
             continue

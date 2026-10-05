@@ -381,3 +381,41 @@ class FrameLogWrites(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class RefreshDevices(unittest.TestCase):
+    """센서를 떼고 꽂으면 1분 안에 따라가야 한다 (2026-10-06).
+
+    떼었을 때: 그 자리는 노드가 0·상태 0 을 돌려주므로, 재탐색하지 않으면 **0이 실측처럼 저장된다**.
+    다시 꽂았을 때: 옛 목록에 없으면 영영 읽지 않는다. 둘 다 같은 원인 — 구성을 다시 안 읽어서.
+    """
+
+    def setUp(self):
+        self.clk = FakeClock(); self.bus, self.act, self.sen = make_bus(self.clk)
+        self.m = KsMaster(self.bus, clock=self.clk); self.m.discover(2)
+
+    def test_뗀_센서를_재탐색으로_뺀다(self):
+        self.assertEqual([d["index"] for d in self.m.nodes[2]["devices"]], [1, 4, 13])
+        self.sen.set_attached({1, 4})                      # 13번을 뗀다
+        self.assertFalse(self.m.refresh_devices(2, interval=60), "주기 안에는 다시 읽지 않는다")
+        self.clk.t += 61
+        self.assertTrue(self.m.refresh_devices(2, interval=60))
+        self.assertEqual([d["index"] for d in self.m.nodes[2]["devices"]], [1, 4])
+
+    def test_다시_꽂으면_되읽는다(self):
+        self.sen.set_attached({1, 4})
+        self.clk.t += 61; self.m.refresh_devices(2, interval=60)
+        self.sen.set_attached({1, 4, 13})                  # 다시 꽂는다
+        self.clk.t += 61
+        self.assertTrue(self.m.refresh_devices(2, interval=60))
+        self.assertEqual([d["index"] for d in self.m.nodes[2]["devices"]], [1, 4, 13])
+
+    def test_구성이_같으면_재탐색하지_않는다(self):
+        self.clk.t += 61
+        self.assertFalse(self.m.refresh_devices(2, interval=60))
+
+    def test_변경은_이벤트로_남는다(self):
+        self.sen.set_attached({1})
+        self.clk.t += 61
+        self.m.refresh_devices(2, interval=60)
+        self.assertIn("devices_changed", [e["kind"] for e in self.m.events])

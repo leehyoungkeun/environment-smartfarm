@@ -15,7 +15,7 @@ import time
 
 from ks3267core import ksmap as M
 from ks3267core.codec import regs_to_float, regs_to_uint32, uint32_to_regs
-from discovery import discover
+from discovery import discover, _read_codes
 from transport import ModbusExc, TransportTimeout
 
 SWITCH_OPS = {"off": M.OP_SWITCH_OFF, "on": M.OP_SWITCH_ON, "timed_on": M.OP_SWITCH_TIMED_ON}
@@ -95,6 +95,7 @@ class KsMaster:
         self.max_events = 200
         self.changes = {}   # unit → 센서 관측치·상태 변화 이력 (§5.4.3 b·d — 제어기가 변화를 매번 읽었다는 증적, 2026-09-15)
         self.max_changes = 300
+        self._last_code_check = {}   # unit → 마지막으로 디바이스 코드를 다시 읽은 시각 (2026-10-06)
 
     # ── 통신 설정 변경 (2026-09-15) ────────────────────────────────────
     def reconnect(self, build):
@@ -145,9 +146,39 @@ class KsMaster:
                 self._event("discover_timeout", unit=unit, error=str(e))
                 raise
         self.nodes[unit] = d
+        self._last_code_check[unit] = self.clock()   # 방금 읽었으니 재확인 주기를 여기서 시작한다
         self._event("discovered", unit=unit, kind=d.get("kind"), supported=d["supported"],
                     devices=len(d["devices"]))
         return d
+
+    def refresh_devices(self, unit, interval=60.0):
+        """101번지 디바이스 코드를 다시 읽어 **구성이 바뀌었으면** 노드를 재탐색한다 (2026-10-06).
+
+        왜: 드라이버는 처음 탐색한 자리만 폴링한다. 센서를 떼면 그 자리는 노드가 0·상태 0 을
+        돌려주는데, 그것을 정상 관측치로 저장해 버렸다(실측처럼 보이는 0). 반대로 다시 꽂아도
+        옛 목록에 없으면 영영 안 읽었다. 그래서 주기적으로 코드만 다시 읽어 바뀌면 재탐색한다.
+        코드 블록은 최대 30워드라 1분에 한 번이면 버스 부담이 거의 없다.
+        """
+        d = self.nodes.get(unit)
+        if not d or not d.get("supported"):
+            return False
+        now = self.clock()
+        if now - self._last_code_check.get(unit, 0) < interval:
+            return False
+        self._last_code_check[unit] = now
+        n = min(int(d.get("channels") or 0), M.SENSOR_CHANNELS if d.get("kind") == "sensor" else M.ACTUATOR_CHANNELS)
+        if n <= 0:
+            return False
+        with self.lock:
+            codes = _read_codes(self.t, unit, n)
+        before = {int(x["index"]) for x in d.get("devices", [])}
+        after = {i for i, c in enumerate(codes, start=1) if c}
+        if before == after:
+            return False
+        self._event("devices_changed", unit=unit, before=sorted(before), after=sorted(after))
+        self.discover(unit)          # 구성이 바뀌었다 — 이름·코드·번지까지 다시 읽는다
+        self.state.pop(unit, None)   # 옛 구성의 마지막 상태는 버린다
+        return True
 
     def forget(self, unit):
         self.nodes.pop(unit, None); self.state.pop(unit, None)

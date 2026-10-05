@@ -55,10 +55,16 @@ router.get("/:farmId/export", async (req, res) => {
 router.get("/:farmId/sensors", async (req, res) => {
   try {
     const [start, end] = resolveRange(req.query.startDate, req.query.endDate);
+    // 하우스를 고르면 그 하우스 센서만 — 안 거르면 옛 시험 기간의 하우스 미지정 행까지 섞여
+    // 선언한 것보다 많은 종류가 목록에 떠서 심사에서 혼란을 준다 (2026-10-05).
+    const { houseId } = req.query;
+    const params = [req.params.farmId, start, end];
+    if (houseId) params.push(houseId);
     const { rows } = await pool.query(
       `SELECT unit, idx, max(code) AS code, max(name) AS name, max(house_id) AS house_id, max(sensor_id) AS sensor_id, count(*)::int AS rows
-       FROM ks_sensor_status WHERE farm_id = $1 AND "timestamp" >= $2 AND "timestamp" <= $3 GROUP BY 1,2 ORDER BY 1,2`,
-      [req.params.farmId, start, end]);
+       FROM ks_sensor_status WHERE farm_id = $1 AND "timestamp" >= $2 AND "timestamp" <= $3
+       ${houseId ? "AND house_id = $4" : ""} GROUP BY 1,2 ORDER BY 1,2`,
+      params);
     res.json({ success: true, data: rows });
   } catch (e) {
     res.status(400).json({ success: false, error: e.message });

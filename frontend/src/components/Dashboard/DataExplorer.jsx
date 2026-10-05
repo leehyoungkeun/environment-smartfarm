@@ -21,6 +21,11 @@ const KINDS = [
   { id: 'actuator', label: '구동기 상태 1분 (표준·비표준)', icon: '📐' },   // 2026-09-19 비표준 릴레이도 같은 1분 행
   { id: 'sensorstatus', label: '표준 센서 관측치·상태 (KS X 3267)', icon: '📐' },  // §5.4.4 — 상태가 무엇이든 매분 저장된 원본
 ];
+// KS X 3267 센서 코드 → 아이콘. 심사에서 한눈에 종류를 알아보라고 (2026-10-05)
+const KS_ICON = {
+  1: '🌡️', 2: '💧', 3: '🌫️', 4: '🌦️', 5: '🚰', 6: '☔', 7: '☀️', 8: '🌬️', 9: '🧭',
+  10: '🔌', 11: '💨', 12: '⚡', 13: '🔆', 14: '🪴', 15: '📉', 16: '⚗️', 17: '🌱', 18: '⚖️',
+};
 const NO_HOUSE_KINDS = ['actuator', 'sensorstatus'];  // 하우스 없이도 조회되는 종류
 const PERIODS = [{ d: 1, label: '1일' }, { d: 7, label: '7일' }, { d: 30, label: '30일' }, { d: 0, label: '직접 입력' }];
 const PAGE = 200;
@@ -67,21 +72,39 @@ export default function DataExplorer({ farmId }) {
   useEffect(() => {
     setSelected([]); setRows([]); setColumns([]); setElapsed(null); setError('');
     if (kind === 'sensor') {
-      setItems((house?.sensors || []).map(s => ({ id: s.sensorId, label: `${s.name || s.sensorId} (${s.unit || ''})` })));
+      setItems((house?.sensors || []).map(s => ({
+        id: s.sensorId, icon: s.icon || '📈', title: s.name || s.sensorId,
+        sub: `${s.sensorId}${s.unit ? ' · ' + s.unit : ''}`,
+      })));
     } else if (kind === 'control') {
-      setItems((house?.devices || []).map(d => ({ id: d.deviceId, label: d.name || d.deviceId })));
+      setItems((house?.devices || []).map(d => ({
+        id: d.deviceId, icon: d.icon || '🎛️', title: d.name || d.deviceId, sub: d.deviceId,
+      })));
     } else if (kind === 'sensorstatus') {
       let alive = true;
-      axios.get(`${api}/sensor-status/${farmId}/sensors`, { params: { startDate: range.start.toISOString(), endDate: range.end.toISOString() }, timeout: 10000 })
-        .then(r => { if (!alive) return; setItems((r.data?.data || []).filter(s => !houseId || !s.house_id || s.house_id === houseId)
-          .map(s => ({ id: `${s.unit}:${s.idx}`, label: `U${s.unit} #${s.idx} ${s.name || ''}${s.sensor_id ? ' → ' + s.sensor_id : ''} (${s.rows}행)` }))); })
+      axios.get(`${api}/sensor-status/${farmId}/sensors`, { params: { startDate: range.start.toISOString(), endDate: range.end.toISOString(), houseId: houseId || undefined }, timeout: 10000 })
+        .then(r => { if (!alive) return; setItems((r.data?.data || [])
+          // 하우스를 고르면 그 하우스 것만. 예전엔 `!s.house_id` 도 통과시켜, 하우스 미지정 행(옛 시험 기간)이
+          // 같이 떠서 신고한 17종보다 많은 종류가 보였다 (2026-10-05)
+          .filter(s => !houseId || s.house_id === houseId)
+          .map(s => ({
+            id: `${s.unit}:${s.idx}`, icon: KS_ICON[s.code] || '📈',
+            title: s.name || `센서 ${s.idx}`,
+            sub: `노드 ${s.unit} · ${s.idx}번 자리${s.sensor_id ? ' · ' + s.sensor_id : ''}`,
+            rows: s.rows,
+          }))); })
         .catch(e => { if (alive) setError('표준 센서 목록 조회 실패: ' + (e.response?.data?.error || e.message)); });
       return () => { alive = false; };
     } else {
       let alive = true;
       axios.get(`${api}/actuator-status/${farmId}/devices`, { params: { startDate: range.start.toISOString(), endDate: range.end.toISOString() }, timeout: 10000 })
         .then(r => { if (!alive) return; setItems((r.data?.data || []).filter(d => !houseId || d.house_id === houseId)
-          .map(d => ({ id: d.device_id, label: `${d.device_id} · U${d.unit} ${d.kind}${d.n} (${d.rows}행)` }))); })
+          .map(d => ({
+            id: d.device_id, icon: d.kind === 'opener' ? '🪟' : '🔌',
+            title: d.name || d.device_id,
+            sub: `${d.source === 'vendor' ? '비표준' : '표준'} · 노드 ${d.unit} · ${d.kind === 'opener' ? '개폐기' : '스위치'} ${d.n}`,
+            rows: d.rows,
+          }))); })
         .catch(e => { if (alive) setError('표준 구동기 목록 조회 실패: ' + (e.response?.data?.error || e.message)); });
       return () => { alive = false; };
     }
@@ -191,18 +214,18 @@ export default function DataExplorer({ farmId }) {
         </div>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
           <div>
-            <label className="text-xs text-gray-500 mb-1 block">하우스</label>
+            <label className="text-sm font-bold text-gray-700 mb-1 block">하우스</label>
             <select value={houseId} onChange={e => setHouseId(e.target.value)} className="input-field text-sm">
               {NO_HOUSE_KINDS.includes(kind) && <option value="">전체</option>}
               {houses.map(h => <option key={h.houseId} value={h.houseId}>{h.name || h.houseId}</option>)}
             </select>
           </div>
           <div>
-            <label className="text-xs text-gray-500 mb-1 block">조회기간</label>
+            <label className="text-sm font-bold text-gray-700 mb-1 block">조회기간</label>
             <div className="flex gap-1">
               {PERIODS.map(p => (
                 <button key={p.d} onClick={() => setPeriod(p.d)}
-                  className={`flex-1 py-1.5 rounded-lg text-xs font-bold border ${period === p.d ? 'bg-gray-800 text-white border-gray-800' : 'bg-white text-gray-600 border-gray-200'}`}>{p.label}</button>
+                  className={`flex-1 py-2 rounded-lg text-sm font-bold border transition-colors ${period === p.d ? 'bg-gray-800 text-white border-gray-800' : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-50'}`}>{p.label}</button>
               ))}
             </div>
           </div>
@@ -216,27 +239,76 @@ export default function DataExplorer({ farmId }) {
           )}
         </div>
         <div>
-          <label className="text-xs text-gray-500 mb-1 block">항목 (선택 없음 = 전체)</label>
-          <div className="flex flex-wrap gap-1.5">
-            {items.length === 0 && <span className="text-xs text-gray-400">항목 없음</span>}
-            {items.map(it => (
-              <button key={it.id} onClick={() => toggle(it.id)}
-                className={`px-2 py-1 rounded-md text-xs font-semibold border ${selected.includes(it.id) ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-white text-gray-600 border-gray-200'}`}>{it.label}</button>
-            ))}
+          <div className="flex items-center justify-between mb-2">
+            <label className="text-sm font-bold text-gray-700">
+              조회 항목
+              <span className="ml-2 text-xs font-normal text-gray-400">
+                {selected.length > 0 ? `${selected.length}개 선택` : `전체 ${items.length}개`}
+              </span>
+            </label>
+            {items.length > 0 && (
+              <div className="flex gap-1">
+                <button onClick={() => setSelected(items.map(i => i.id))}
+                  className="text-xs font-semibold text-gray-600 border border-gray-200 rounded-md px-2.5 py-1 hover:bg-gray-50">전체 선택</button>
+                <button onClick={() => setSelected([])}
+                  className="text-xs font-semibold text-gray-600 border border-gray-200 rounded-md px-2.5 py-1 hover:bg-gray-50">선택 해제</button>
+              </div>
+            )}
           </div>
+          {items.length === 0 ? (
+            <p className="text-sm text-gray-400 py-3">이 기간에 기록된 항목이 없습니다.</p>
+          ) : (
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-2">
+              {items.map(it => {
+                const on = selected.includes(it.id);
+                return (
+                  <button key={it.id} onClick={() => toggle(it.id)}
+                    className={`text-left rounded-xl border-2 px-3 py-2 transition-all ${on
+                      ? 'border-indigo-500 bg-indigo-50 shadow-sm'
+                      : 'border-gray-200 bg-white hover:border-gray-300 hover:bg-gray-50'}`}>
+                    <div className="flex items-start gap-2">
+                      <span className="text-lg leading-none mt-0.5">{it.icon}</span>
+                      <div className="min-w-0 flex-1">
+                        <div className={`text-sm font-bold truncate ${on ? 'text-indigo-900' : 'text-gray-800'}`}>{it.title}</div>
+                        <div className="text-[11px] text-gray-500 truncate">{it.sub}</div>
+                        {it.rows !== undefined && (
+                          <div className="text-[11px] text-gray-400 mt-0.5">{Number(it.rows).toLocaleString()}행</div>
+                        )}
+                      </div>
+                      {on && <span className="text-indigo-600 text-sm font-bold">✓</span>}
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          )}
+          <p className="text-[11px] text-gray-400 mt-2">아무것도 고르지 않으면 전체가 조회됩니다.</p>
         </div>
-        <div className="flex flex-wrap items-center gap-2 pt-1">
-          <button onClick={query} disabled={loading || (!NO_HOUSE_KINDS.includes(kind) && !houseId)} className="btn-primary text-sm">{loading ? '조회 중…' : '🔍 조회 (1분 단위)'}</button>
-          <span className="text-xs text-gray-400">추출:</span>
-          {['csv', 'txt'].map(f => (
-            <button key={f} onClick={() => exportServer(f)} disabled={!!exporting || (!NO_HOUSE_KINDS.includes(kind) && !houseId)}
-              className="px-3 py-1.5 rounded-lg text-xs font-bold bg-emerald-50 text-emerald-700 border border-emerald-200 hover:bg-emerald-100 disabled:opacity-50">
-              {exporting === f ? '생성 중…' : `.${f}`}
+        <div className="flex flex-wrap items-center gap-3 pt-2 border-t border-gray-100">
+          <button onClick={query} disabled={loading || (!NO_HOUSE_KINDS.includes(kind) && !houseId)}
+            className="px-5 py-2.5 rounded-xl text-sm font-bold bg-blue-600 text-white shadow-sm hover:bg-blue-700 disabled:opacity-40 disabled:shadow-none">
+            {loading ? '조회 중…' : '🔍 1분 단위로 조회'}
+          </button>
+
+          <div className="flex items-center gap-1.5 rounded-xl border border-emerald-200 bg-emerald-50/60 px-2.5 py-1.5">
+            <span className="text-xs font-bold text-emerald-800">파일로 저장</span>
+            {['csv', 'txt'].map(f => (
+              <button key={f} onClick={() => exportServer(f)} disabled={!!exporting || (!NO_HOUSE_KINDS.includes(kind) && !houseId)}
+                className="px-2.5 py-1 rounded-lg text-xs font-bold bg-white text-emerald-700 border border-emerald-200 hover:bg-emerald-100 disabled:opacity-50">
+                {exporting === f ? '생성 중…' : f.toUpperCase()}
+              </button>
+            ))}
+            <button onClick={exportXlsx} disabled={rows.length === 0} title="조회한 표를 그대로 엑셀로 — 먼저 조회하세요"
+              className="px-2.5 py-1 rounded-lg text-xs font-bold bg-white text-emerald-700 border border-emerald-200 hover:bg-emerald-100 disabled:opacity-50">
+              XLSX
             </button>
-          ))}
-          <button onClick={exportXlsx} disabled={rows.length === 0}
-            className="px-3 py-1.5 rounded-lg text-xs font-bold bg-emerald-50 text-emerald-700 border border-emerald-200 hover:bg-emerald-100 disabled:opacity-50">.xlsx (조회 결과)</button>
-          {elapsed !== null && <span className="text-xs text-gray-500 ml-auto">{rows.length.toLocaleString()}행 · {(elapsed / 1000).toFixed(1)}초 {elapsed < 180000 ? '✅ 3분 이내' : '⚠ 3분 초과'}</span>}
+          </div>
+
+          {elapsed !== null && (
+            <span className={`ml-auto text-xs font-bold px-3 py-1.5 rounded-lg ${elapsed < 180000 ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 'bg-rose-50 text-rose-700 border border-rose-200'}`}>
+              {rows.length.toLocaleString()}행 · {(elapsed / 1000).toFixed(1)}초 {elapsed < 180000 ? '· 3분 이내 ✓' : '· 3분 초과'}
+            </span>
+          )}
         </div>
         {error && <p className="text-xs text-rose-600 font-semibold">{error}</p>}
       </div>

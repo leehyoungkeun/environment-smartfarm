@@ -223,8 +223,11 @@ export default function DataExplorer({ farmId }) {
       }
       map.get(k).rows.push(r);
     }
-    return [...map.values()];
-  }, [rows, kind, items]);
+    const all = [...map.values()];
+    // 위에서 고른 항목만 보여 준다 — 선택을 해제했는데 아래 탭에 남아 있으면 안 된다 (2026-10-06).
+    // 아무것도 안 고르면 전체(= 조회 결과 그대로).
+    return selected.length > 0 ? all.filter(g => selected.includes(g.key)) : all;
+  }, [rows, kind, items, selected]);
 
   // 조회 결과가 바뀌면 첫 탭으로 — 없어진 탭이 선택된 채 빈 화면이 되지 않게
   const active = groups.find(g => g.key === activeKey) || groups[0] || null;
@@ -375,6 +378,26 @@ export default function DataExplorer({ farmId }) {
 
 /** 센서·장치 한 종류의 결과 — 표(50행 페이지) 또는 그래프 */
 const CARD_PAGE = 50;
+// 열 이름 한글 표기 (추출 파일은 원래 이름 그대로 — 화면만 바꾼다)
+const COL_LABEL = {
+  timestamp: '시각', unit: '노드', idx: '자리', code: '코드', name: '이름', value: '값',
+  status: '상태코드', status_name: '상태', house_id: '하우스', sensor_id: '센서 ID', source: '출처',
+  device_id: '장치', deviceId: '장치', deviceName: '장치명', kind: '종류', n: '번호',
+  opid: 'OPID', remain: '남은시간', command: '명령', success: '성공', operator: '조작자',
+  operatorName: '조작자명', isAutomatic: '자동', automationReason: '자동화 사유',
+};
+const NUM_COLS = new Set(['value', 'unit', 'idx', 'code', 'status', 'n', 'opid', 'remain']);
+const fmtCell = (c, v) => {
+  if (v === null || v === undefined || v === '') return '';
+  if (c === 'timestamp') {
+    const d = new Date(v);
+    if (!Number.isNaN(d.getTime())) {
+      const p = (n) => String(n).padStart(2, '0');
+      return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
+    }
+  }
+  return String(v);
+};
 const CHART_MAX_POINTS = 600;   // 30일 4만 행을 그대로 그리면 브라우저가 멈춘다 — 균등 간격으로 솎는다
 
 const ResultCard = ({ group, columns }) => {
@@ -419,23 +442,33 @@ const ResultCard = ({ group, columns }) => {
       </div>
 
       {/* 표는 항상 보이고, 그래프는 그 아래에 — 그래프를 켜면 자료가 사라지던 것을 고침 (2026-10-06) */}
-          <div className="overflow-x-auto">
-            <table className="w-full text-xs font-mono">
-              <thead>
-                <tr className="text-gray-500 text-left border-b border-gray-200">
-                  {columns.map(c => <th key={c} className="py-1 pr-3 whitespace-nowrap font-sans font-semibold">{c}</th>)}
+          <div className="overflow-x-auto rounded-xl border border-gray-200">
+            <table className="w-full text-sm border-collapse">
+              <thead className="sticky top-0">
+                <tr className="bg-gray-50">
+                  {columns.map(c => (
+                    <th key={c}
+                      className={`px-3 py-2 whitespace-nowrap font-bold text-gray-600 text-xs border-b-2 border-gray-200 ${NUM_COLS.has(c) ? 'text-right' : 'text-left'}`}>
+                      {COL_LABEL[c] || c}
+                    </th>
+                  ))}
                 </tr>
               </thead>
               <tbody>
                 {pageRows.map((r, i) => (
-                  <tr key={i} className="border-b border-gray-100 hover:bg-gray-50">
-                    {columns.map(c => <td key={c} className="py-1 pr-3 whitespace-nowrap">{r[c] === null || r[c] === undefined ? '' : String(r[c])}</td>)}
+                  <tr key={i} className={`border-b border-gray-100 last:border-0 hover:bg-indigo-50/40 ${i % 2 ? 'bg-gray-50/50' : 'bg-white'}`}>
+                    {columns.map(c => (
+                      <td key={c}
+                        className={`px-3 py-1.5 whitespace-nowrap ${NUM_COLS.has(c) ? 'text-right font-mono' : 'text-left'} ${c === 'value' ? 'font-bold text-gray-900' : 'text-gray-600'}`}>
+                        {fmtCell(c, r[c])}
+                      </td>
+                    ))}
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
-          <div className="flex items-center justify-between mt-2 text-xs text-gray-500">
+          <div className="flex items-center justify-between mt-3 text-xs text-gray-500">
             <span>{((page - 1) * CARD_PAGE + 1).toLocaleString()}–{Math.min(page * CARD_PAGE, total).toLocaleString()} / {total.toLocaleString()}행</span>
             <div className="flex items-center gap-1">
               <button onClick={() => setPage(1)} disabled={page <= 1} className="px-2 py-1 rounded border border-gray-200 disabled:opacity-40">처음</button>

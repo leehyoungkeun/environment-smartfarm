@@ -70,7 +70,6 @@ class ErrorBoundary extends React.Component {
  */
 const ControlPage = ({ farmId, isTouchPanel = false }) => {
   const [config, setConfig] = useState(null);
-  const [confirmFarmLocal, setConfirmFarmLocal] = useState(false);   // 팜로컬 전환 확인 (화면 안)
   const [selectedHouse, setSelectedHouse] = useState(null);
   const [loading, setLoading] = useState(true);
 
@@ -203,6 +202,7 @@ function AppContent() {
     return hash || 'dashboard';
   };
   const [currentPage, setCurrentPageState] = useState(getPageFromHash);
+  const [confirmFarmLocal, setConfirmFarmLocal] = useState(false);   // 팜로컬 전환 확인 (화면 안)
 
   // 트랩 21 fix (2026-05-09): cloud 끊김 알림 배너 — 농장주가 명시적 팜로컬 전환
   const [sysMode, setSysMode] = useState(getSystemMode());

@@ -22,18 +22,40 @@ import sqlite3
 import time
 
 SENSOR_UNIT = 2
-SENSORS = [(1, 1, "온도1"), (4, 2, "습도1")]           # idx, code, name
+# 디폴트맵 자리 17종 (신청서 연동장비표 ○ 와 같은 구성, 누적유량 제외) — 서버 fill-17sensors 와 같은 곡선
+# idx, code, name, (최저, 최고), 일주기 위상(시간), 소수자리
+SENSORS17 = [
+    (1,  1,  "온도1",        (18.0, 28.0),   6,  2),
+    (4,  2,  "습도1",        (45.0, 75.0),   18, 2),
+    (5,  3,  "이슬점",       (8.0, 18.0),    6,  2),
+    (6,  4,  "감우",         (0.0, 1.0),     0,  0),
+    (8,  6,  "강우",         (0.0, 3.0),     0,  1),
+    (9,  7,  "일사",         (0.0, 850.0),   6,  1),
+    (10, 8,  "풍속",         (0.2, 4.5),     9,  2),
+    (11, 9,  "풍향",         (0.0, 359.0),   3,  0),
+    (12, 10, "전압",         (219.0, 228.0), 12, 1),
+    (13, 11, "CO2",         (420.0, 900.0), 18, 0),
+    (14, 12, "EC",          (1.1, 2.4),     6,  2),
+    (15, 13, "광양자",       (0.0, 1450.0),  6,  0),
+    (16, 14, "토양함수율",    (26.0, 38.0),   21, 1),
+    (17, 15, "토양수분장력",  (6.0, 28.0),    9,  1),
+    (18, 16, "pH",          (5.8, 6.6),     12, 2),
+    (19, 17, "지온",         (17.0, 24.0),   9,  2),
+    (29, 18, "무게1",        (1.6, 3.1),     6,  2),
+]
+SENSORS = [(i, c, n) for i, c, n, *_ in SENSORS17]     # 옛 인자 호환
 ACT_UNIT = 1
 ACTUATORS = [(1, "switch", 1, "스위치1"), (17, "opener", 1, "개폐기1")]  # idx, kind, n, name
 KST = 9 * 3600
 
 
-def sim_temp(ts):
-    return round(21 + 6 * math.sin(2 * math.pi * (ts - 6 * 3600) / 86400) + ((ts * 7919) % 100) / 100.0 - 0.5, 2)
-
-
-def sim_humi(ts):
-    return round(62 - 8 * math.sin(2 * math.pi * (ts - 6 * 3600) / 86400) + ((ts * 6271) % 200) / 100.0 - 1, 2)
+def value_for(lo, hi, phase_h, ts, idx, digits):
+    """서버 fill-17sensors-30days.py 와 같은 공식 — 두 경로를 나란히 놓아도 어색하지 않게."""
+    mid, amp = (lo + hi) / 2.0, (hi - lo) / 2.0
+    daily = math.sin(2 * math.pi * (ts - phase_h * 3600) / 86400)
+    noise = (((ts * (7919 + idx)) % 1000) / 1000.0 - 0.5) * amp * 0.12
+    v = max(lo, min(hi, mid + amp * 0.85 * daily + noise))
+    return round(v, digits) if digits else float(int(round(v)))
 
 
 def hour_kst(ts):
@@ -53,6 +75,7 @@ def main():
     ap.add_argument("--db", required=True)
     ap.add_argument("--days", type=int, default=31)
     ap.add_argument("--rollback", action="store_true")
+    ap.add_argument("--end-now", action="store_true", help="어제 자정이 아니라 지금까지")
     a = ap.parse_args()
 
     if not os.path.exists(a.db):
@@ -75,14 +98,19 @@ def main():
 
     # 어제 자정(KST)까지 days 일
     now = time.time()
-    end = (int((now + KST) // 86400)) * 86400 - KST          # 오늘 00:00 KST
+    end = int(now // 60) * 60 if a.end_now else (int((now + KST) // 86400)) * 86400 - KST
     start = end - a.days * 86400
     minutes = range(int(start), int(end), 60)
 
     srows, arows = [], []
     for ts in minutes:
-        for idx, code, name in SENSORS:
-            v = sim_temp(ts) if code == 1 else sim_humi(ts)
+        for idx, code, name, (lo, hi), ph, dg in SENSORS17:
+            if idx == 6:    # 감우 — 새벽 3~5시만 1
+                v = 1.0 if hour_kst(ts) in (3, 4) else 0.0
+            elif idx == 8:  # 강우 — 같은 시간대만
+                v = value_for(lo, hi, ph, ts, idx, dg) if hour_kst(ts) in (3, 4) else 0.0
+            else:
+                v = value_for(lo, hi, ph, ts, idx, dg)
             srows.append((ts, SENSOR_UNIT, idx, code, name, v, 0, "READY", "simulated"))
         for idx, kind, n, name in ACTUATORS:
             st, sn = sim_switch(ts) if kind == "switch" else sim_opener(ts)

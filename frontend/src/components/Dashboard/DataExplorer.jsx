@@ -369,7 +369,7 @@ export default function DataExplorer({ farmId }) {
               );
             })}
           </div>
-          {active && <ResultCard key={active.key} group={active} columns={columns} />}
+          {active && <ResultCard key={active.key} group={active} columns={columns} fileBase={baseName()} />}
         </div>
       )}
     </div>
@@ -400,7 +400,7 @@ const fmtCell = (c, v) => {
 };
 const CHART_MAX_POINTS = 600;   // 30일 4만 행을 그대로 그리면 브라우저가 멈춘다 — 균등 간격으로 솎는다
 
-const ResultCard = ({ group, columns }) => {
+const ResultCard = ({ group, columns, fileBase }) => {
   const [showChart, setShowChart] = useState(false);   // 표는 항상, 그래프는 접었다 폈다 (표가 사라지면 안 된다)
   const [page, setPage] = useState(1);
 
@@ -419,6 +419,29 @@ const ResultCard = ({ group, columns }) => {
   }, [group.rows]);
 
   const canChart = chartData.length > 1;
+
+  // 이 센서만 저장 — 화면에 이미 받아 둔 행을 그대로 쓴다(서버에 다시 묻지 않는다).
+  // 열 이름은 추출 파일 규약대로 원래(영문) 이름 (2026-10-06).
+  const safeName = String(group.title).replace(/[\/:*?"<>|]/g, '_');
+  const download = (blob, name) => {
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a'); a.href = url; a.download = name;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 5000);
+  };
+  const saveCsv = () => {
+    const esc = (v) => {
+      const t = v === null || v === undefined ? '' : String(v);
+      return /[",\n]/.test(t) ? `"${t.replace(/"/g, '""')}"` : t;
+    };
+    const body = [columns.join(','), ...group.rows.map(r => columns.map(c => esc(r[c])).join(','))].join('\r\n');
+    download(new Blob(['﻿' + body], { type: 'text/csv;charset=utf-8' }), `${fileBase}_${safeName}.csv`);  // BOM — 엑셀 한글 깨짐 방지
+  };
+  const saveXlsx = () => {
+    const ws = XLSX.utils.json_to_sheet(group.rows.map(r => Object.fromEntries(columns.map(c => [c, r[c] ?? '']))), { header: columns });
+    const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, ws, safeName.slice(0, 31));
+    XLSX.writeFile(wb, `${fileBase}_${safeName}.xlsx`);
+  };
   const fmtTime = (t) => {
     const d = new Date(t);
     return Number.isNaN(d.getTime()) ? String(t) : `${d.getMonth() + 1}/${d.getDate()} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
@@ -434,11 +457,21 @@ const ResultCard = ({ group, columns }) => {
             <p className="text-xs text-gray-500 truncate">{group.sub} · {total.toLocaleString()}행</p>
           </div>
         </div>
-        <button onClick={() => setShowChart(v => !v)} disabled={!canChart}
-          title={canChart ? '' : '그릴 숫자 값이 없습니다'}
-          className={`px-3 py-1.5 rounded-lg text-xs font-bold border disabled:opacity-40 ${showChart ? 'bg-blue-600 border-blue-600' : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-50'}`}>
-          <span style={showChart ? { color: '#fff' } : undefined}>📈 그래프 {showChart ? '숨기기' : '보기'}</span>
-        </button>
+        <div className="flex items-center gap-1.5 flex-wrap">
+          <button onClick={() => setShowChart(v => !v)} disabled={!canChart}
+            title={canChart ? '' : '그릴 숫자 값이 없습니다'}
+            className={`px-3 py-1.5 rounded-lg text-xs font-bold border disabled:opacity-40 ${showChart ? 'bg-blue-600 border-blue-600' : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-50'}`}>
+            <span style={showChart ? { color: '#fff' } : undefined}>📈 그래프 {showChart ? '숨기기' : '보기'}</span>
+          </button>
+          {/* 이 센서만 저장 — 전체 저장은 위쪽 「파일로 저장」 (2026-10-06) */}
+          <div className="flex items-center gap-1 rounded-lg border border-emerald-200 bg-emerald-50/60 px-2 py-1">
+            <span className="text-[11px] font-bold text-emerald-800 whitespace-nowrap">이 센서만</span>
+            <button onClick={saveCsv}
+              className="px-2 py-0.5 rounded-md text-[11px] font-bold bg-white text-emerald-700 border border-emerald-200 hover:bg-emerald-100">CSV</button>
+            <button onClick={saveXlsx}
+              className="px-2 py-0.5 rounded-md text-[11px] font-bold bg-white text-emerald-700 border border-emerald-200 hover:bg-emerald-100">XLSX</button>
+          </div>
+        </div>
       </div>
 
       {/* 표는 항상 보이고, 그래프는 그 아래에 — 그래프를 켜면 자료가 사라지던 것을 고침 (2026-10-06) */}

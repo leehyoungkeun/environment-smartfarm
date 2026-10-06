@@ -32,7 +32,8 @@
 
 원문 오탈자(시험기관에 확인): A.2.5 reg 220 "스위치 5 상태 uint32"(uint16 이어야), reg 245 "스위치 12"(11), OPID #21 이 283·287 에 중복(287 은 #22, 이후 순차 밀림).
 
-코드표: 상태 READY 0 / ERROR 1 / BUSY 2 / VOLTAGE 3 / CURRENT 4 / TEMP 5 / FUSE 6 / 센서 101~103 / ON 201 / USER_CONTROL 299 / OPENING 301 / CLOSING 302 / MANUAL 399 / 제조사 900~999.
+코드표 (부속서 B.2 원문 그대로): READY 0 정상·준비중·정지 / ERROR 1 오류 / **BUSY 2 처리 불능** / VOLTAGE_ERROR 3 동작 전압 이상 / CURRENT_ERROR 4 동작 전류 이상 / TEMPERATURE_ERROR 5 동작 온도 이상 / FUSE_ERROR 6 휴즈 이상 / **RESERVED 7~99 공통 예약** / NEED_REPLACE 101 센서·소모품 교체 요망 / NEED_CALIBRATION 102 센서 교정 요망 / NEED_CHECK 103 센서 점검 필요 / ON 201 작동 중 / USER_CONTROL 299 사용자 제어 중 / OPENING 301 여는 중 / CLOSING 302 닫는 중 / MANUAL_CONTROL 399 사용자 제어 중 / VENDOR_SPECIFIC_ERROR 900~999 제조사 정의 에러.
+> 2026-10-06 검정 지적: 2 를 '동작중'(파란색), 7~99 를 '알 수 없음'(불통과)으로 띄우고 있었다. 뜻이 통하는 우리말로 바꾸지 말고 **표준 문구 그대로** 쓸 것. test_driver.py `StatusCodesB2` 가 고정한다.
 명령: 스위치 OFF 0 · ON 201 · TIMED_ON 202(hold-time uint16?→A.2.6 은 uint32 동작시간) / 개폐기 STOP 0 · OPEN 301 · CLOSE 302 · TIMED_OPEN 303 · TIMED_CLOSE 304.
 opid: 매 명령 변경, 0 은 "없음", 노드는 opid 변경 시점에 명령 활성화.
 

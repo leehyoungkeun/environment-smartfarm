@@ -53,6 +53,10 @@ def _origin(o):
 
 
 def status_name(code):
+    # 표준 B.2 는 7~99 를 '공통 예약(reserved)' 으로 **정의**한다. 예전엔 UNKNOWN_n 으로 돌려줘
+    # 화면 §5.1.3 판정이 불통과가 됐다 — 표준이 정의한 값을 미정의로 다룬 셈이다 (2026-10-06).
+    if 7 <= code <= 99:
+        return f"RESERVED_{code}"
     if 900 <= code <= 999:
         return f"VENDOR_ERROR_{code}"
     return STATUS_NAMES.get(code, f"UNKNOWN_{code}")

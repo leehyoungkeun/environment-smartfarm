@@ -4,17 +4,33 @@
 /** 상태 코드 → 사람이 읽는 표기 + 톤 (표 B.x 상태코드) */
 export function describeStatus(code) {
   const c = Number(code);
-  if (code === null || code === undefined || Number.isNaN(c)) return { text: '—', tone: 'muted' };
+  if (code === null || code === undefined || Number.isNaN(c)) return { text: '—', tone: 'muted', defined: false };
+  // ── KS X 3267:2022 부속서 B.2 (규격) 상태 코드 — 표준 문구 그대로 ───────────────
+  // 2026-10-06 정정: 코드 2 를 '동작중'(파란색)으로 적어 두어 **처리 불능인 노드가 정상 동작처럼**
+  // 보였다. 시험관은 이 표를 표준과 1:1 로 대조한다 — 뜻이 통하는 우리말로 바꾸지 말 것.
   const T = {
-    0: ['정상', 'ok'], 1: ['오류', 'bad'], 2: ['동작중', 'busy'], 3: ['전압 이상', 'bad'], 4: ['전류 이상', 'bad'],
-    5: ['온도 이상', 'bad'], 6: ['퓨즈 이상', 'bad'],
-    101: ['교체 필요', 'warn'], 102: ['보정 필요', 'warn'], 103: ['점검 필요', 'warn'],
-    201: ['켜짐', 'on'], 299: ['수동 조작중', 'warn'],
-    301: ['열리는 중', 'busy'], 302: ['닫히는 중', 'busy'], 399: ['수동 조작중', 'warn'],
+    0: ['정상·준비중·정지', 'ok'],
+    1: ['오류', 'bad'],
+    2: ['처리 불능', 'bad'],
+    3: ['동작 전압 이상', 'bad'],
+    4: ['동작 전류 이상', 'bad'],
+    5: ['동작 온도 이상', 'bad'],
+    6: ['휴즈 이상', 'bad'],
+    101: ['센서 및 소모품 교체 요망', 'warn'],
+    102: ['센서 교정 요망', 'warn'],
+    103: ['센서 점검 필요', 'warn'],
+    201: ['작동 중', 'on'],
+    299: ['사용자 제어 중', 'warn'],
+    301: ['여는 중', 'busy'],
+    302: ['닫는 중', 'busy'],
+    399: ['사용자 제어 중', 'warn'],
   };
-  if (T[c]) return { text: T[c][0], tone: T[c][1], code: c };
-  if (c >= 900 && c <= 999) return { text: `제조사 오류 ${c}`, tone: 'bad', code: c };
-  return { text: `알 수 없음 ${c}`, tone: 'muted', code: c };
+  if (T[c]) return { text: T[c][0], tone: T[c][1], code: c, defined: true };
+  // 7~99 는 표준이 '공통 예약(reserved)' 으로 **정의한 범위**다. 예전에는 '알 수 없음' 으로 찍어
+  // §5.1.3 판정을 불통과로 만들었다 — 표준이 정의한 값을 미정의로 처리한 셈이다.
+  if (c >= 7 && c <= 99) return { text: `공통 예약 ${c}`, tone: 'muted', code: c, defined: true };
+  if (c >= 900 && c <= 999) return { text: `제조사 정의 에러 ${c}`, tone: 'bad', code: c, defined: true };
+  return { text: `알 수 없음 ${c}`, tone: 'muted', code: c, defined: false };
 }
 
 /** 표준 프로필인가 */
@@ -248,7 +264,9 @@ export const KS_SENSOR_KIND = {
 export function nodeReadRows(node, st) {
   if (!node) return null;
   const readAt = st && st.t ? new Date(st.t * 1000) : null;
-  const known = (s) => !/^알 수 없음/.test(s.text) && s.text !== '—';
+  // 판정은 '정의된 값인가'(defined) 로 본다. 예전엔 라벨 문구를 정규식으로 봐서,
+  // 라벨을 고치면 판정이 같이 흔들렸다 (2026-10-06).
+  const known = (s) => !!s && s.defined === true;
   const nodeSt = st && !st.error ? describeStatus(st.node_status) : null;
   const nodeRow = {
     code: st && !st.error ? Number(st.node_status) : null,

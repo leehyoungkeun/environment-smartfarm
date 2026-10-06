@@ -16,7 +16,7 @@ for _c in (os.path.join(HERE, "..", "..", "..", "tools", "ks3267-sim"), os.path.
         sys.path.insert(0, os.path.normpath(_c)); break
 
 from ks3267core import ksmap as M  # noqa: E402
-from master import KsMaster, OpidGenerator, status_name  # noqa: E402
+from master import STATUS_NAMES, KsMaster, OpidGenerator, status_name  # noqa: E402
 from transport import FrameLog, ModbusExc, TransportTimeout  # noqa: E402
 from node import DefaultMapNode, IllegalDataValue  # noqa: E402  (시뮬레이터 모델)
 
@@ -234,7 +234,10 @@ class Opid(unittest.TestCase):
 class Names(unittest.TestCase):
     def test_status_names(self):
         self.assertEqual(status_name(301), "OPENING"); self.assertEqual(status_name(950), "VENDOR_ERROR_950")
-        self.assertEqual(status_name(7), "UNKNOWN_7")
+        # 7 은 표준 B.2 가 '공통 예약' 으로 정의한 값이다. 2026-10-06 까지 UNKNOWN_7 이었고
+        # 이 시험이 그 틀린 동작을 고정하고 있었다 — 검정 지적 사항.
+        self.assertEqual(status_name(7), "RESERVED_7")
+        self.assertEqual(status_name(100), "UNKNOWN_100", "예약 범위 밖은 여전히 미정의")
 
 
 
@@ -377,6 +380,43 @@ class FrameLogWrites(unittest.TestCase):
         f.trace_packet(True, bytes([1, 0x10, 1, 0xF7, 0, 4, 8] + [0] * 8))
         f.trace_packet(False, bytes([1, 0x90, 3, 0x0C, 0x01]))
         self.assertEqual(f.recent_writes()[-1]["hex"], "01 90 03 0C 01")
+
+
+class StatusCodesB2(unittest.TestCase):
+    """KS X 3267:2022 부속서 B.2 (규격) 상태 코드 — 표준 원문과 1:1 (2026-10-06).
+
+    왜 시험으로 못 박나: 코드 2 를 '동작중' 으로, 7~99 를 '알 수 없음' 으로 적어 두어
+    검정에서 지적받았다. 사람 눈으로 다시 대조하지 않게 여기서 고정한다.
+    표를 고치려면 표준 원문(42쪽)을 보고 이 시험부터 고칠 것.
+    """
+
+    B2 = {
+        0: "READY", 1: "ERROR", 2: "BUSY", 3: "VOLTAGE_ERROR", 4: "CURRENT_ERROR",
+        5: "TEMPERATURE_ERROR", 6: "FUSE_ERROR",
+        101: "NEED_REPLACE", 102: "NEED_CALIBRATION", 103: "NEED_CHECK",
+        201: "ON", 299: "USER_CONTROL",
+        301: "OPENING", 302: "CLOSING", 399: "MANUAL_CONTROL",
+    }
+
+    def test_정의된_코드의_이름이_표준과_같다(self):
+        for code, name in self.B2.items():
+            self.assertEqual(status_name(code), name, f"코드 {code}")
+
+    def test_7에서_99는_공통_예약이다(self):
+        """표준이 '공통 예약(reserved)' 으로 정의한 범위 — 미정의(UNKNOWN)로 다루면 판정이 틀어진다."""
+        for code in (7, 8, 50, 98, 99):
+            self.assertEqual(status_name(code), f"RESERVED_{code}", f"코드 {code}")
+
+    def test_900에서_999는_제조사_정의(self):
+        for code in (900, 950, 999):
+            self.assertEqual(status_name(code), f"VENDOR_ERROR_{code}")
+
+    def test_표준에_없는_값만_UNKNOWN(self):
+        for code in (100, 104, 200, 300, 400, 899, 1000):
+            self.assertTrue(status_name(code).startswith("UNKNOWN_"), f"코드 {code}")
+
+    def test_상태코드_표에_빠지거나_더해진_것이_없다(self):
+        self.assertEqual(set(STATUS_NAMES), set(self.B2), "B.2 표와 구현이 어긋났다")
 
 
 if __name__ == "__main__":

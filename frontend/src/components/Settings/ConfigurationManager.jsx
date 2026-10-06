@@ -978,6 +978,42 @@ const HouseDetailEditor = ({ house, farmId, onUpdate }) => {
       <div className="glass-card p-4 md:p-5">
         <h2 className="text-lg font-bold text-gray-800 mb-4">기본 설정</h2>
 
+        {/* 점검 중 (2026-10-07) — 목록에도 🔧 가 있지만, 상세에서 작업하다 바꾸려고
+            목록까지 올라가는 것이 번거로워 여기에도 둔다. 같은 값(collection.maintenance)이다. */}
+        <div className={`mb-4 rounded-xl border p-3 flex items-center justify-between gap-3
+          ${editedHouse.collection?.maintenance ? 'bg-amber-50 border-amber-200' : 'bg-gray-50 border-gray-200'}`}>
+          <div className="min-w-0">
+            <p className="text-sm font-bold text-gray-800">
+              🔧 점검 중 {editedHouse.collection?.maintenance && <span className="text-amber-700">— 켜짐</span>}
+            </p>
+            <p className="text-xs text-gray-500 mt-0.5">
+              노드·릴레이를 떼어 둔 동안 <b>수집 중단·장비 고장 알림을 멈춥니다</b>.
+              화면과 보고서 조회에는 그대로 남습니다 (삭제·비활성과 다릅니다).
+            </p>
+          </div>
+          <button
+            onClick={async () => {
+              const next = !editedHouse.collection?.maintenance;
+              const body = { ...editedHouse, collection: { ...(editedHouse.collection || {}), maintenance: next } };
+              try {
+                const res = await rpiApi('put', `/config/${house.houseId}?farmId=${house.farmId}`, body);
+                if (res.data?.success) {
+                  const updated = res.data.data || body;
+                  setEditedHouse(updated);
+                  onUpdate(updated);
+                }
+              } catch (error) {
+                alert('❌ 점검 중 설정 실패: ' + (error.response?.data?.error || error.message));
+              }
+            }}
+            className={`shrink-0 px-3 py-2 rounded-lg text-sm font-bold border transition-all
+              ${editedHouse.collection?.maintenance
+                ? 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
+                : 'bg-amber-500 text-white border-amber-500 hover:bg-amber-600'}`}>
+            {editedHouse.collection?.maintenance ? '해제' : '점검 중으로'}
+          </button>
+        </div>
+
         {/* 하우스 이름 */}
         <div className="mb-4">
           <label className="text-sm text-gray-600 font-semibold mb-1.5 block">하우스 이름</label>

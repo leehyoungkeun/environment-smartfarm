@@ -38,16 +38,35 @@ const AlertPanel = ({ farmId, houseId, showPanel, setShowPanel, isMobile = false
   const [loading, setLoading] = useState(false);
   const panelRef = useRef(null);
   const buttonRef = useRef(null);
-  const [panelPos, setPanelPos] = useState({ top: 0, right: 0 });
+  const [panelPos, setPanelPos] = useState({ top: 0, right: 0, maxH: 400 });
   const { user, roleLabel } = useAuth();
   const userName = `${roleLabel || ''} ${user?.name || user?.username || 'unknown'}`.trim();
 
-  // 드롭다운 위치 계산
+  // 드롭다운 위치·높이 계산 (2026-10-06)
+  //   예전엔 maxHeight 를 calc(100vh - 100px) 로 고정해 **top 을 빼지 않았다.** 버튼이 내비
+  //   아래(≈250px)에 있으면 패널이 화면 아래로 250px 더 뻗어, 마지막 알림과 바닥 버튼이
+  //   잘려 누를 수 없었다. 높이는 '남은 공간'으로 잡고, 창 크기·스크롤이 바뀌면 다시 잡는다.
   useEffect(() => {
-    if (showPanel && buttonRef.current) {
+    if (!showPanel) return;
+    const place = () => {
+      if (!buttonRef.current) return;
       const rect = buttonRef.current.getBoundingClientRect();
-      setPanelPos({ top: rect.bottom + 8, right: window.innerWidth - rect.right });
-    }
+      const GAP = 8, EDGE = 12;
+      const top = Math.max(EDGE, rect.bottom + GAP);
+      setPanelPos({
+        top,
+        // 화면 오른쪽 밖으로 나가지 않게, 또 세로 스크롤바에 가리지 않게
+        right: Math.max(EDGE, window.innerWidth - rect.right),
+        maxH: Math.max(220, window.innerHeight - top - EDGE),
+      });
+    };
+    place();
+    window.addEventListener('resize', place);
+    window.addEventListener('scroll', place, true);
+    return () => {
+      window.removeEventListener('resize', place);
+      window.removeEventListener('scroll', place, true);
+    };
   }, [showPanel]);
 
   // 외부 클릭 감지 (오버레이 대신)
@@ -366,8 +385,8 @@ const AlertPanel = ({ farmId, houseId, showPanel, setShowPanel, isMobile = false
               top: panelPos.top,
               right: panelPos.right,
               width: '400px',
-              maxWidth: 'calc(100vw - 32px)',
-              maxHeight: 'calc(100vh - 100px)',
+              maxWidth: 'calc(100vw - 24px)',
+              maxHeight: panelPos.maxH,
               zIndex: 9999,
               boxShadow: '0 20px 40px -8px rgba(0,0,0,0.12), 0 8px 16px -4px rgba(0,0,0,0.08)'
             }}

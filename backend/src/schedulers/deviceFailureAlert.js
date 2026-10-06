@@ -64,6 +64,10 @@ export async function checkDeviceFailures() {
       const cooldownMs = cfg.cooldownMinutes * 60 * 1000;
 
       // 최근 N분간 장치별 실패 횟수 집계
+      //
+      // '미연결' 은 고장이 아니다 (2026-10-06). 노드·모듈을 일부러 떼어 둔 상태에서 조작하면
+      // 당연히 전부 실패하는데, 그걸 「장비 고장 의심 · 심각」 으로 올리면 진짜 고장이 묻힌다
+      // (경보 피로). 실패 사유가 '연결/노드 없음' 계열이면 세지 않는다.
       const { rows: failedDevices } = await pool.query(
         `SELECT device_id, farm_id, house_id, device_name,
                 COUNT(*)::int as fail_count,
@@ -73,6 +77,7 @@ export async function checkDeviceFailures() {
          WHERE success = false
            AND farm_id = $1
            AND timestamp > NOW() - interval '${windowMin} minutes'
+           AND COALESCE(error, '') !~* '(응답 없음|노드 없음|미연결|not ?found|no ?node|timeout|사용 안 함|disabled)'
          GROUP BY device_id, farm_id, house_id, device_name
          HAVING COUNT(*) >= $2`,
         [farmId, threshold]

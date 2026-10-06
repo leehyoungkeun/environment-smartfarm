@@ -73,6 +73,44 @@ const ControlLog = {
   },
 
   /**
+   * 실행 결과로 **전송 기록을 갱신** (2026-10-06)
+   *
+   * 왜: 한 번의 조작이 두 줄로 남았다.
+   *   ① 화면/프론트 → `success=true` (= 명령을 **보냈다**)
+   *   ② Node-RED 실행 결과 → `success=false` (= 장치가 **실행 못 했다**)
+   * 이력 화면에는 ①만 보여 실패를 못 알아챘고, 고장 감지는 ②만 세어 숫자가 두 배로 보였다.
+   * 같은 request_id 면 ②가 ①을 덮어쓴다 — 한 조작은 한 줄이어야 한다.
+   *
+   * 반환: 갱신했으면 그 행, 맞는 전송 기록이 없으면 null (부르는 쪽이 새로 넣는다)
+   */
+  async completeByRequestId(requestId, data) {
+    if (!requestId) return null;
+    const result = await pool.query(
+      `UPDATE control_logs
+          SET success = $2,
+              error = COALESCE($3, error),
+              operator = COALESCE($4, operator),
+              operator_name = COALESCE($5, operator_name),
+              is_automatic = COALESCE($6, is_automatic),
+              automation_rule_id = COALESCE($7, automation_rule_id),
+              automation_reason = COALESCE($8, automation_reason)
+        WHERE request_id = $1
+        RETURNING *`,
+      [
+        requestId,
+        data.success !== false,
+        data.error || null,
+        data.operator || null,
+        data.operatorName || null,
+        typeof data.isAutomatic === "boolean" ? data.isAutomatic : null,
+        data.automationRuleId || null,
+        data.automationReason || null,
+      ]
+    );
+    return result.rows[0] ? formatLog(result.rows[0]) : null;
+  },
+
+  /**
    * 이력 조회 (필터 + 페이지네이션)
    */
   async find(query, { sort, skip, limit } = {}) {

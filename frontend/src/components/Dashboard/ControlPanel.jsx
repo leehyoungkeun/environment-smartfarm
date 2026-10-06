@@ -2090,6 +2090,13 @@ const ControlPanel = ({ farmId, houseId, houseConfig }) => {
                   // 자기 장치 modbus 잠금만 체크 — RS-485 시리얼 큐는 Node-RED modbus-flex-write 가 처리
                   // anyModbusBusy 는 전역 잠금이라 다른 장치 verifying 중에 깜빡임(disable→enable) 발생
                   const myModbusBusy = modbusStatus[device.deviceId] === 'verifying';
+                  // 표준 노드가 안 붙어 있으면 눌러도 반드시 실패한다 (2026-10-06).
+                  //   누르게 두면 ① 실패 이력이 쌓이고 ② 「장비 고장 의심 · 심각」 알림이 올라온다.
+                  //   고장이 아니라 **처음부터 없는 것**이다. 버튼을 막고 이유를 보여 준다.
+                  const ksMissing = isKsProfile(device.modbus)
+                    && !!ksState && !ksState._error
+                    && !deviceKsStatus(ksState, device.modbus);
+                  const blocked = myModbusBusy || ksMissing;
                   const mode = getDeviceMode(device.deviceId);
                   const isAuto = mode === 'auto';
 
@@ -2319,17 +2326,23 @@ const ControlPanel = ({ farmId, houseId, houseConfig }) => {
                         </div>
                       ) : isToggleType ? (
                         <div className="space-y-2">
+                        {ksMissing && (
+                          <div style={{fontSize:11,fontWeight:700,color:'#92400e',background:'#fffbeb',
+                                       border:'1px solid #fde68a',borderRadius:8,padding:'6px 8px'}}>
+                            ⚠ 표준 노드가 연결되어 있지 않습니다 — 제어할 수 없습니다 (고장이 아닙니다)
+                          </div>
+                        )}
                         <div className="grid grid-cols-2 gap-3">
                           <button onClick={() => { timedOnSecRef.current[device.deviceId] = 0; handleControlWithRetry(device.deviceId, 'on'); }}
-                            disabled={myModbusBusy || isProcessing || state.status === 'on'}
-                            style={{...btnBase, ...(state.status === 'on' || state.status === 'turning_on' ? s.onActive : s.onInactive), ...(myModbusBusy || isProcessing || state.status === 'on' ? {opacity:0.4,cursor:'not-allowed'} : {})}}>
+                            disabled={blocked || isProcessing || state.status === 'on'}
+                            style={{...btnBase, ...(state.status === 'on' || state.status === 'turning_on' ? s.onActive : s.onInactive), ...(blocked || isProcessing || state.status === 'on' ? {opacity:0.4,cursor:'not-allowed'} : {})}}>
                             {state.status === 'turning_on' ? '⏳ 전환중...' : state.status === 'on' ? '● ON' : '◉ ON'}
                           </button>
                           <button onClick={() => {
                               if (isKsProfile(device.modbus)) { ksEndAtRef.current[device.deviceId] = null; ksCmdAtRef.current[device.deviceId] = Date.now(); }   // OFF 클릭 즉시 카운트다운 정지
                               handleControlWithRetry(device.deviceId, 'off');
                             }}
-                            disabled={myModbusBusy || isProcessing || state.status === 'off' || state.status === 'idle'}
+                            disabled={blocked || isProcessing || state.status === 'off' || state.status === 'idle'}
                             style={{...btnBase, ...(state.status === 'off' || state.status === 'idle' || state.status === 'turning_off' ? s.offActive : s.offInactive), ...(myModbusBusy || isProcessing || state.status === 'off' || state.status === 'idle' ? {opacity:0.4,cursor:'not-allowed'} : {})}}>
                             {state.status === 'turning_off' ? '⏳ 전환중...' : '○ OFF'}
                           </button>
@@ -2353,7 +2366,7 @@ const ControlPanel = ({ farmId, houseId, houseConfig }) => {
                                 ksBoostUntilRef.current = Date.now() + 30000;
                                 handleControlWithRetry(device.deviceId, 'on');
                               }}
-                              disabled={myModbusBusy || isProcessing}
+                              disabled={blocked || isProcessing}
                               className="btn-primary text-xs px-3 py-1.5 whitespace-nowrap"
                               title="명령코드 202 + OPID + 작동시간 → 노드가 시간 경과 후 스스로 READY">
                               ⏱ 작동시간 ON
@@ -2384,7 +2397,7 @@ const ControlPanel = ({ farmId, houseId, houseConfig }) => {
                                   ksMotionStart(device.deviceId, cmd, sec);                          // 위치 바: 클릭 즉시 진행 시작
                                   handleControlWithRetry(device.deviceId, cmd);
                                 }}
-                                disabled={myModbusBusy || isProcessing}
+                                disabled={blocked || isProcessing}
                                 className="btn-primary text-xs px-3 py-1.5 whitespace-nowrap" title={tip}>
                                 {lbl}
                               </button>

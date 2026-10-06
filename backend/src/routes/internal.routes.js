@@ -635,14 +635,21 @@ router.post("/control-log", async (req, res) => {
     const { farmId, houseId } = resolveFarmHouse(req);
     const {
       deviceId, deviceType, deviceName, command,
-      success, ruleName, ruleId, reason,
+      success, ruleName, ruleId, reason, requestId, operator,
     } = req.body;
 
     if (!deviceId || !command) {
       return res.status(400).json({ success: false, error: "deviceId, command 필수" });
     }
 
-    const log = await ControlLog.create({
+    // 출처는 보내 온 그대로 쓴다 (2026-10-06).
+    //   예전엔 operator 를 무조건 "automation" 으로 박아, **사람이 화면에서 누른 제어까지
+    //   자동화가 한 것으로** 기록했다. 자동화 통계가 오염되고 이력에서 누가 했는지 알 수 없었다.
+    //   NR 「표준 명령 결과」는 ctrl.operator 를 이미 실어 보낸다 — 버리고 있었을 뿐이다.
+    const isAuto = !operator || operator === "automation" || !!ruleId;
+    const who = operator && operator !== "automation" ? operator : "automation";
+
+    const payload = {
       farmId,
       houseId,
       deviceId,
@@ -650,12 +657,19 @@ router.post("/control-log", async (req, res) => {
       deviceName: deviceName || deviceId,
       command,
       success: success !== false,
-      operator: "automation",
-      operatorName: ruleName || "자동화",
-      isAutomatic: true,
+      requestId: requestId || null,
+      operator: who,
+      operatorName: ruleName || (isAuto ? "자동화" : null),
+      isAutomatic: isAuto,
       automationRuleId: ruleId || null,
       automationReason: reason || null,
-    });
+      error: success === false ? (reason || "제어 실행 실패") : null,
+    };
+
+    // 같은 request_id 의 '전송 기록' 이 있으면 **실행 결과로 덮어쓴다** — 한 조작은 한 줄.
+    // 없으면(자동화처럼 전송 기록이 없는 경로) 새로 넣는다.
+    const log = (await ControlLog.completeByRequestId(requestId, payload))
+      || (await ControlLog.create(payload));
 
     // 자동화 발동이면 rule 의 lastTriggeredAt + triggerCount 도 갱신
     // 시간 조건 단독 발동(④⑤)은 evaluate endpoint 안 거쳐 갱신 누락되던 케이스 보완

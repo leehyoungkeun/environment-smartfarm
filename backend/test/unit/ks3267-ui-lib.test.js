@@ -187,12 +187,57 @@ const ACT = { unit: 1, kind: "actuator", supported: true, default_map: true, pro
 const SEN = { unit: 2, kind: "sensor", supported: true, default_map: true, protocol_version: 10, channels: 30, devices: [
   { index: 1, code: 1, name: "온도", value_reg: 203, status_reg: 205 }, { index: 4, code: 4, name: "습도", value_reg: 212, status_reg: 214 } ] };
 
-describe("describeStatus — 표준 상태코드", () => {
-  test("대표 코드", () => {
-    assert.equal(lib.describeStatus(0).text, "정상"); assert.equal(lib.describeStatus(201).tone, "on");
-    assert.equal(lib.describeStatus(301).text, "열리는 중"); assert.equal(lib.describeStatus(103).tone, "warn");
-    assert.equal(lib.describeStatus(950).text, "제조사 오류 950"); assert.equal(lib.describeStatus("x").text, "—");
+describe("describeStatus — KS X 3267:2022 부속서 B.2 (규격, 42쪽)", () => {
+  // 2026-10-06 검정 탈락: 코드 2 를 '동작중'(파란색)으로, 7~99 를 '알 수 없음'(불통과)으로
+  // 띄우고 있었다. 이 시험이 그 옛 문구를 고정하고 있어서 전부 통과하는데도 떨어졌다.
+  // 표를 고치려면 표준 원문부터 볼 것 — 뜻이 통하는 우리말로 바꾸지 말 것.
+  const B2 = {
+    0: "정상·준비중·정지", 1: "오류", 2: "처리 불능",
+    3: "동작 전압 이상", 4: "동작 전류 이상", 5: "동작 온도 이상", 6: "휴즈 이상",
+    101: "센서 및 소모품 교체 요망", 102: "센서 교정 요망", 103: "센서 점검 필요",
+    201: "작동 중", 299: "사용자 제어 중",
+    301: "여는 중", 302: "닫는 중", 399: "사용자 제어 중",
+  };
+
+  test("표준 문구 그대로", () => {
+    for (const [code, text] of Object.entries(B2)) {
+      assert.equal(lib.describeStatus(Number(code)).text, text, `코드 ${code}`);
+    }
+  });
+
+  test("정의된 값은 defined=true — 판정은 문구가 아니라 이 플래그로 본다", () => {
+    for (const code of [...Object.keys(B2).map(Number), 7, 50, 99, 900, 999]) {
+      assert.equal(lib.describeStatus(code).defined, true, `코드 ${code}`);
+    }
+  });
+
+  test("7~99 는 '공통 예약' — 표준이 정의한 범위다 (미정의로 다루면 판정이 틀어진다)", () => {
+    assert.equal(lib.describeStatus(7).text, "공통 예약 7");
+    assert.equal(lib.describeStatus(99).text, "공통 예약 99");
+  });
+
+  test("제조사 정의 에러 900~999", () => {
+    assert.equal(lib.describeStatus(950).text, "제조사 정의 에러 950");
+  });
+
+  test("표준에 없는 값만 미정의", () => {
+    for (const code of [100, 104, 200, 300, 400, 899, 1000]) {
+      const s = lib.describeStatus(code);
+      assert.equal(s.defined, false, `코드 ${code}`);
+      assert.match(s.text, /^알 수 없음/);
+    }
+  });
+
+  test("코드가 없으면 —", () => {
+    assert.equal(lib.describeStatus("x").text, "—");
     assert.equal(lib.describeStatus(null).text, "—");
+    assert.equal(lib.describeStatus(null).defined, false);
+  });
+
+  test("색: 2 는 경고(bad) — '동작중' 파란색이면 시험관이 정상으로 읽는다", () => {
+    assert.equal(lib.describeStatus(2).tone, "bad");
+    assert.equal(lib.describeStatus(201).tone, "on");
+    assert.equal(lib.describeStatus(103).tone, "warn");
   });
 });
 
@@ -337,17 +382,17 @@ describe("registerMap — 화면에 띄우는 「읽는 레지스터 주소」 (
 describe("nodeReadRows — §5.1.3 b·c) 노드 데이터 읽기 시험표", () => {
   const ST_ACT = { t: 1788500000, node_status: 0, kind: "actuator", devices: { 3: { status: 201, remain: 25, opid: 9 }, 18: { status: 0, remain: 0, opid: 0 }, 5: { status: 777 } } };
   const ST_SEN = { t: 1788500000, node_status: 0, kind: "sensor", sensors: { 1: { value: 28.8, status: 0, code: 1 }, 4: { value: 60.1, status: 102, code: 2 } } };
-  test("구동기: 노드 상태 0 정상 ✓, 스위치3 201 켜짐+남은 25s ✓, 미정의 코드 777 ✗", () => {
+  test("구동기: 노드 상태 0 정상 ✓, 스위치3 201 작동 중+남은 25s ✓, 미정의 코드 777 ✗", () => {
     const r = lib.nodeReadRows(ACT, ST_ACT);
-    assert.equal(r.node.code, 0); assert.equal(r.node.meaning, "정상"); assert.equal(r.node.ok, true);
-    const sw3 = r.rows.find(x => x.index === 3); assert.equal(sw3.code, 201); assert.equal(sw3.meaning, "켜짐"); assert.equal(sw3.remain, 25); assert.equal(sw3.opid, 9); assert.equal(sw3.ok, true);
+    assert.equal(r.node.code, 0); assert.equal(r.node.meaning, "정상·준비중·정지"); assert.equal(r.node.ok, true);
+    const sw3 = r.rows.find(x => x.index === 3); assert.equal(sw3.code, 201); assert.equal(sw3.meaning, "작동 중"); assert.equal(sw3.remain, 25); assert.equal(sw3.opid, 9); assert.equal(sw3.ok, true);
     const bad = r.rows.find(x => x.index === 5); assert.equal(bad.ok, false, "표에 없는 777 은 부적절"); assert.match(bad.meaning, /알 수 없음/);
     assert.equal(r.fail, 1); assert.equal(r.readAt.getTime(), 1788500000 * 1000);
   });
-  test("센서: 관측치+단위, 상태 102(보정 필요)도 정의된 값이라 ✓, 값 없는 센서는 미읽음(null)", () => {
+  test("센서: 관측치+단위, 상태 102(센서 교정 요망)도 정의된 값이라 ✓, 값 없는 센서는 미읽음(null)", () => {
     const r = lib.nodeReadRows(SEN, ST_SEN);
     const t1 = r.rows.find(x => x.index === 1); assert.equal(t1.value, 28.8); assert.equal(t1.unit, "°C"); assert.equal(t1.ok, true);
-    const h1 = r.rows.find(x => x.index === 4); assert.equal(h1.code, 102); assert.equal(h1.meaning, "보정 필요"); assert.equal(h1.unit, "%"); assert.equal(h1.ok, true);
+    const h1 = r.rows.find(x => x.index === 4); assert.equal(h1.code, 102); assert.equal(h1.meaning, "센서 교정 요망"); assert.equal(h1.unit, "%"); assert.equal(h1.ok, true);
     assert.equal(r.fail, 0);
   });
   test("센서 관측치가 숫자가 아니면 ✗ (변이 프로브)", () => {
@@ -534,7 +579,7 @@ describe("deviceKsStatus — 제어판 배지", () => {
   const state = { 1: { kind: "actuator", t: 1, devices: { 3: { kind: "switch", n: 3, status: 201, remain: 25, opid: 9 }, 18: { kind: "opener", n: 2, status: 0, remain: 0 } } }, 5: { error: "timeout" } };
   test("켜짐 + 남은시간", () => {
     const s = lib.deviceKsStatus(state, { protocol: "ks3267", unit: 1, kind: "switch", n: 3 });
-    assert.equal(s.text, "켜짐"); assert.equal(s.remain, 25);
+    assert.equal(s.text, "작동 중"); assert.equal(s.remain, 25);
   });
   test("응답 없는 노드 → stale, 비표준·미존재 → null", () => {
     assert.equal(lib.deviceKsStatus(state, { protocol: "ks3267", unit: 5, kind: "switch", n: 1 }).stale, true);

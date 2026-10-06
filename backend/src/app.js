@@ -640,6 +640,9 @@ new promClient.Gauge({
            JOIN farms f ON f.farm_id = sd.farm_id AND f.status = 'active'  -- 점검중·중지 농장 제외 → SensorDataStalled 안 울림 (2026-08-29)
            JOIN house_configs hc ON hc.farm_id = sd.farm_id AND hc.house_id = sd.house_id AND hc.enabled = true
              -- 지금 있는 하우스만 — 삭제된 하우스는 sensor_data 7일 창이 지날 때까지 "수집 중단" 으로 울렸다 (2026-09-19 house_0002)
+             -- 「점검 중」 하우스 제외 (2026-10-07): 노드를 일부러 떼어 둔 동안 1시간마다 '심각' 이 올라와
+             -- 진짜 경보를 덮었다. 화면에는 그대로 두고 경보만 멈춘다 (enabled=false 와 다르다).
+             AND COALESCE((hc.collection->>'maintenance')::boolean, false) = false
            WHERE sd.timestamp > now() - interval '7 days'
            AND (sd.metadata->>'quality') IS DISTINCT FROM 'simulated'  -- 시뮬레이션 제외 (B4)
            GROUP BY sd.farm_id, sd.house_id`
@@ -663,9 +666,16 @@ new promClient.Gauge({
     try {
       const { pool } = await import("./db.js");
       const { rows } = await pool.query(
+        // 릴레이 모듈을 설정에서 전부 「사용 안 함」 으로 둔 농장은 상태가 안 오는 게 맞다 (2026-10-07).
+        // 어제 토글을 만들고 경보 쪽을 안 고쳐, 떼어 둔 릴레이로 RelayStatusStalled 가 계속 울렸다.
         `SELECT rs.farm_id, EXTRACT(EPOCH FROM (now() - max(rs.updated_at))) AS age
         FROM relay_status rs
         JOIN farms f ON f.farm_id = rs.farm_id AND f.status = 'active'  -- 점검중 농장 제외 (2026-08-29)
+        LEFT JOIN system_settings ss ON ss.farm_id = rs.farm_id
+        WHERE jsonb_typeof(ss.settings->'relayModules') IS DISTINCT FROM 'array'
+           OR jsonb_array_length(ss.settings->'relayModules') = 0
+           OR EXISTS (SELECT 1 FROM jsonb_array_elements(ss.settings->'relayModules') m
+                       WHERE COALESCE((m->>'enabled')::boolean, true))
         GROUP BY rs.farm_id`
       );
       this.reset();

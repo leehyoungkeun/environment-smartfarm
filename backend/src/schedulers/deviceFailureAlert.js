@@ -69,16 +69,23 @@ export async function checkDeviceFailures() {
       // 당연히 전부 실패하는데, 그걸 「장비 고장 의심 · 심각」 으로 올리면 진짜 고장이 묻힌다
       // (경보 피로). 실패 사유가 '연결/노드 없음' 계열이면 세지 않는다.
       const { rows: failedDevices } = await pool.query(
-        `SELECT device_id, farm_id, house_id, device_name,
+        `SELECT cl.device_id, cl.farm_id, cl.house_id, cl.device_name,
                 COUNT(*)::int as fail_count,
-                MAX(error) as last_error,
-                MAX(timestamp) as last_failure
-         FROM control_logs
+                MAX(cl.error) as last_error,
+                MAX(cl.timestamp) as last_failure
+         FROM control_logs cl
          WHERE success = false
            AND farm_id = $1
-           AND timestamp > NOW() - interval '${windowMin} minutes'
-           AND COALESCE(error, '') !~* '(응답 없음|노드 없음|미연결|not ?found|no ?node|timeout|사용 안 함|disabled)'
-         GROUP BY device_id, farm_id, house_id, device_name
+           -- 「점검 중」 하우스는 제외 — 지표(smartfarm_sensor_last_seen_seconds)와 같은 규칙.
+           -- 한쪽만 조용해지면 결국 다른 쪽에서 울린다 (2026-10-07).
+           AND NOT EXISTS (
+             SELECT 1 FROM house_configs hc
+              WHERE hc.farm_id = cl.farm_id AND hc.house_id = cl.house_id
+                AND COALESCE((hc.collection->>'maintenance')::boolean, false) = true
+           )
+           AND cl.timestamp > NOW() - interval '${windowMin} minutes'
+           AND COALESCE(cl.error, '') !~* '(응답 없음|노드 없음|미연결|not ?found|no ?node|timeout|사용 안 함|disabled)'
+         GROUP BY cl.device_id, cl.farm_id, cl.house_id, cl.device_name
          HAVING COUNT(*) >= $2`,
         [farmId, threshold]
       );

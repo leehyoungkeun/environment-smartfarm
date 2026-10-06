@@ -512,6 +512,25 @@ const ConfigurationManager = ({ farmId = import.meta.env.VITE_FARM_ID || 'farm_0
     }
   };
 
+  // 「점검 중」 (2026-10-07)
+  //   노드·릴레이를 일부러 떼어 둔 동안 「센서 수집 중단 · 심각」·「장비 고장 의심」 이 1시간마다
+  //   올라와 진짜 경보를 덮었다. 삭제·비활성과 달리 **화면에는 그대로 두고 경보만 멈춘다**.
+  //   collection 안에 두어 DB 마이그레이션 없이 모든 농장에 바로 적용된다.
+  const toggleMaintenance = async (house) => {
+    const next = !house.collection?.maintenance;
+    const body = { ...house, collection: { ...(house.collection || {}), maintenance: next } };
+    try {
+      const res = await rpiApi('put', `/config/${house.houseId}?farmId=${house.farmId || farmId}`, body);
+      if (res.data?.success) {
+        const updated = res.data.data || body;
+        setHouses(prev => prev.map(h => h.houseId === house.houseId ? updated : h));
+        if (selectedHouse?.houseId === house.houseId) setSelectedHouse(updated);
+      }
+    } catch (error) {
+      alert('❌ 점검 중 설정 실패: ' + (error.response?.data?.error || error.message));
+    }
+  };
+
   if (loading) {
     return (
       <div className="max-w-7xl mx-auto px-2 md:px-6 py-6">
@@ -600,10 +619,29 @@ const ConfigurationManager = ({ farmId = import.meta.env.VITE_FARM_ID || 'farm_0
                         onClick={() => { setSelectedHouse(house); setHousesSubTab('detail'); }}
                         className="flex-1 text-left"
                       >
-                        <p className="text-base font-bold text-gray-800">{house.houseName}</p>
+                        <p className="text-base font-bold text-gray-800">
+                          {house.houseName}
+                          {house.collection?.maintenance && (
+                            <span className="ml-2 text-xs px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 font-bold align-middle">🔧 점검 중</span>
+                          )}
+                        </p>
                         <p className="text-xs text-gray-500 mt-0.5">
                           {house.sensors.length}개 센서 · {house.devices?.length || 0}개 장치
+                          {house.collection?.maintenance && ' · 수집·고장 알림 멈춤'}
                         </p>
+                      </button>
+                      {/* 점검 중 (2026-10-07) — 노드·릴레이를 일부러 떼어 둔 동안 경보만 멈춘다.
+                          화면에서는 그대로 보이고 조회도 된다 (삭제·비활성과 다르다). */}
+                      <button
+                        onClick={(e) => { e.stopPropagation(); toggleMaintenance(house); }}
+                        className={`p-2 rounded-lg transition-all text-base ${house.collection?.maintenance
+                          ? 'text-amber-600 bg-amber-50 hover:bg-amber-100'
+                          : 'text-gray-400 hover:text-amber-600 hover:bg-amber-50'}`}
+                        title={house.collection?.maintenance
+                          ? '점검 중 해제 — 수집·고장 알림을 다시 받습니다'
+                          : '점검 중으로 — 노드를 떼어 둔 동안 수집·고장 알림을 멈춥니다'}
+                      >
+                        🔧
                       </button>
                       <button
                         onClick={(e) => { e.stopPropagation(); setDeleteConfirm(house); }}

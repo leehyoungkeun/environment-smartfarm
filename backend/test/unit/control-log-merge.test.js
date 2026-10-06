@@ -80,3 +80,56 @@ describe("장비 고장 감지 — '미연결' 은 고장이 아니다", () => {
     }
   });
 });
+
+// ── 「점검 중」 (2026-10-07) ────────────────────────────────────────────
+// 노드·릴레이를 일부러 떼어 둔 동안 SensorDataStalled(심각)·DEVICE_FAILURE 가 1시간마다
+// 올라와 진짜 경보를 덮었다. 경보 쪽만 멈추는 상태를 하우스별로 둔다.
+// 지표(app.js)와 고장 감지(deviceFailureAlert.js)가 **같은 규칙**을 써야 한다 —
+// 한쪽만 조용해지면 결국 다른 쪽에서 울린다.
+const inMaintenance = (house) => Boolean(house?.collection?.maintenance);
+
+describe("점검 중 — 화면에는 남고 경보만 멈춘다", () => {
+  test("켜면 점검 중", () => {
+    assert.equal(inMaintenance({ collection: { maintenance: true } }), true);
+  });
+
+  test("없거나 false 면 평소대로 경보를 받는다 (기존 하우스가 조용해지면 안 된다)", () => {
+    assert.equal(inMaintenance({}), false);
+    assert.equal(inMaintenance({ collection: {} }), false);
+    assert.equal(inMaintenance({ collection: { maintenance: false } }), false);
+    assert.equal(inMaintenance(null), false);
+  });
+
+  test("intervalSeconds 등 기존 collection 설정과 함께 둘 수 있다", () => {
+    const h = { collection: { intervalSeconds: 60, maintenance: true } };
+    assert.equal(inMaintenance(h), true);
+    assert.equal(h.collection.intervalSeconds, 60, "수집 주기를 덮어쓰면 안 된다");
+  });
+
+  test("삭제·비활성과 다르다 — 하우스는 그대로 남는다", () => {
+    const h = { houseId: "house_0003", enabled: true, collection: { maintenance: true } };
+    assert.equal(h.enabled, true, "enabled 를 건드리면 화면·조회에서 사라진다");
+    assert.equal(inMaintenance(h), true);
+  });
+});
+
+/** app.js 릴레이 지표의 제외 규칙 (같은 판단) */
+const relayMetricEmitted = (relayModules) =>
+  !Array.isArray(relayModules) || relayModules.length === 0
+  || relayModules.some((m) => m?.enabled !== false);
+
+describe("릴레이 상태 경보 — 모듈을 전부 꺼 두면 울리지 않는다", () => {
+  test("전부 사용 안 함이면 지표를 내지 않는다", () => {
+    assert.equal(relayMetricEmitted([{ enabled: false }, { enabled: false }]), false);
+  });
+
+  test("하나라도 쓰면 평소대로 감시한다", () => {
+    assert.equal(relayMetricEmitted([{ enabled: false }, { enabled: true }]), true);
+    assert.equal(relayMetricEmitted([{ unitId: 2 }]), true, "enabled 가 없으면 사용 중");
+  });
+
+  test("모듈 설정이 아예 없는 농장은 예전처럼 감시한다", () => {
+    assert.equal(relayMetricEmitted(undefined), true);
+    assert.equal(relayMetricEmitted([]), true);
+  });
+});

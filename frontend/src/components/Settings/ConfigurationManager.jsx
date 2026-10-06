@@ -2668,6 +2668,13 @@ const RelayModuleManager = ({ farmId }) => {
     setShowForm(false); setEditingId(null);
   };
 
+  // 사용 안 함 (2026-10-06) — 장치를 잠시 떼어 둘 때. 삭제하면 장치 매핑까지 다시 해야 하고,
+  // 그대로 두면 없는 모듈을 계속 찾아 「Modbus 버스 전체 실패」 경고와 알림이 쌓인다.
+  const toggleEnabled = async (m) => {
+    await persistModules(modules.map(x => x.id === m.id ? { ...x, enabled: x.enabled === false } : x));
+    setRelayStatus(prev => { const n = { ...prev }; delete n[m.id]; return n; });
+  };
+
   const deleteModule = async (id) => {
     if (!window.confirm('이 릴레이 모듈을 삭제하시겠습니까?')) return;
     await persistModules(modules.filter(m => m.id !== id));
@@ -2987,13 +2994,14 @@ const RelayModuleManager = ({ farmId }) => {
           {modules.map(m => {
             const st = relayStatus[m.id];
             return (
-              <div key={m.id} className="glass-card p-4 flex items-center gap-3">
+              <div key={m.id} className="glass-card p-4 flex items-center gap-3" style={m.enabled === false ? { opacity: 0.55 } : undefined}>
                 <div className="flex-1">
                   <div className="flex items-center gap-2 mb-0.5">
                     <span className="text-sm font-bold text-gray-800">{m.name}</span>
                     <span className="text-xs px-1.5 py-0.5 rounded bg-gray-100 text-gray-500 font-mono">Unit-Id {m.unitId}</span>
                     <span className="text-xs px-1.5 py-0.5 rounded bg-purple-100 text-purple-700">{m.moduleType}</span>
                     <span className="text-xs text-gray-400">{m.channels}ch</span>
+                    {m.enabled === false && <span className="text-xs px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 font-bold">⏸ 사용 안 함</span>}
                   </div>
                   {m.description && <p className="text-xs text-gray-400">{m.description}</p>}
                 </div>
@@ -3006,6 +3014,13 @@ const RelayModuleManager = ({ farmId }) => {
                 </div>
                 {/* 버튼 */}
                 <div className="flex gap-1.5">
+                  <button onClick={() => toggleEnabled(m)} title={m.enabled === false ? '다시 읽기 시작합니다' : '읽기를 멈춥니다 (설정은 그대로 둡니다)'}
+                    style={{ fontSize: 11, padding: '4px 10px', borderRadius: 7, fontWeight: 700,
+                             border: m.enabled === false ? '1px solid #a7f3d0' : '1px solid #fde68a',
+                             background: m.enabled === false ? '#ecfdf5' : '#fffbeb',
+                             color: m.enabled === false ? '#047857' : '#92400e', cursor: 'pointer' }}>
+                    {m.enabled === false ? '▶ 사용' : '⏸ 사용 안 함'}
+                  </button>
                   <button onClick={() => testModule(m)} disabled={st?.testing}
                     style={{ fontSize: 11, padding: '4px 10px', borderRadius: 7, border: '1px solid #e5e7eb', background: '#f0f9ff', color: '#0369a1', cursor: st?.testing ? 'default' : 'pointer' }}>
                     🔌 테스트
@@ -3149,6 +3164,12 @@ const SensorModuleManager = ({ farmId }) => {
     }
     await persistModules(newModules);
     setShowForm(false); setEditingId(null);
+  };
+
+  // 사용 안 함 (2026-10-06) — 릴레이 모듈과 같은 규칙. 설정은 남기고 읽기만 멈춘다.
+  const toggleEnabled = async (m) => {
+    await persistModules(modules.map(x => x.id === m.id ? { ...x, enabled: x.enabled === false } : x));
+    setSensorStatus(prev => { const n = { ...prev }; delete n[m.id]; return n; });
   };
 
   const deleteModule = async (id) => {
@@ -3318,7 +3339,7 @@ const SensorModuleManager = ({ farmId }) => {
             const st = sensorStatus[m.id];
             const typeLabel = SENSOR_MODULE_TYPES.find(t => t.value === m.sensorType)?.label || m.sensorType;
             return (
-              <div key={m.id} className="glass-card p-4">
+              <div key={m.id} className="glass-card p-4" style={m.enabled === false ? { opacity: 0.55 } : undefined}>
                 <div className="flex items-center gap-3">
                   <div className="flex-1">
                     <div className="flex items-center gap-2 mb-0.5">
@@ -3326,6 +3347,7 @@ const SensorModuleManager = ({ farmId }) => {
                       <span className="text-xs px-1.5 py-0.5 rounded bg-gray-100 text-gray-500 font-mono">Unit-Id {m.unitId}</span>
                       <span className="text-xs px-1.5 py-0.5 rounded bg-teal-100 text-teal-700">{typeLabel}</span>
                       <span className="text-xs text-gray-400">FC{m.fc || 3} R{m.address} Q{m.quantity}</span>
+                      {m.enabled === false && <span className="text-xs px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 font-bold">⏸ 사용 안 함</span>}
                     </div>
                     {m.description && <p className="text-xs text-gray-400">{m.description}</p>}
                   </div>
@@ -3336,6 +3358,13 @@ const SensorModuleManager = ({ farmId }) => {
                     {!st && <span className="text-xs text-gray-300">-</span>}
                   </div>
                   <div className="flex gap-1.5">
+                    <button onClick={() => toggleEnabled(m)} title={m.enabled === false ? '다시 읽기 시작합니다' : '읽기를 멈춥니다 (설정은 그대로 둡니다)'}
+                      style={{ fontSize: 11, padding: '4px 10px', borderRadius: 7, fontWeight: 700,
+                               border: m.enabled === false ? '1px solid #a7f3d0' : '1px solid #fde68a',
+                               background: m.enabled === false ? '#ecfdf5' : '#fffbeb',
+                               color: m.enabled === false ? '#047857' : '#92400e', cursor: 'pointer' }}>
+                      {m.enabled === false ? '▶ 사용' : '⏸ 사용 안 함'}
+                    </button>
                     <button onClick={() => testModule(m)} disabled={st?.testing}
                       style={{ fontSize: 11, padding: '4px 10px', borderRadius: 7, border: '1px solid #e5e7eb', background: '#f0f9ff', color: '#0369a1', cursor: st?.testing ? 'default' : 'pointer' }}>
                       🔍 테스트

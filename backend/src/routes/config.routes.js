@@ -542,7 +542,8 @@ router.put("/system-settings/:farmId", async (req, res) => {
       try {
         const modByType = {};
         for (const mod of submittedSensorModules) {
-          if (mod?.sensorType) modByType[mod.sensorType] = mod;
+          // 「사용 안 함」 모듈은 houses.sensors.modbus 에 내리지 않는다 — 내리면 NR 이 다시 읽는다 (2026-10-06)
+          if (mod?.sensorType && mod.enabled !== false) modByType[mod.sensorType] = mod;
         }
         const inferType = (sensorId) => {
           const id = String(sensorId || "").toLowerCase();

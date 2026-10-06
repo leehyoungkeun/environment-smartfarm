@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import axiosBase from 'axios';
 import { getApiBase } from '../../services/apiSwitcher';
 import { describeStatus, discoveryRows, nodeSummary, nodeInfoRows, registerMap, nodeReadRows, mappingIndex, mappingKey, frameRows, commChangeWarnings, deviceCodeCheck, nodeReadView, deviceKindSummary, changeStats, storageCheck } from '../../lib/ks3267';
-import { useConfirm } from '../common/ConfirmDialog.jsx';
+import { useConfirm } from '../Common/ConfirmDialog.jsx';
 
 // ━━━ KS X 3267 표준노드 탭 (P4, 2026-08-30 / UI 재구성 2026-09-04) ━━━
 // 읽기 전용 진단 UI. 백엔드 /config/:farmId/ks3267/:action → RPi NR → ks3267d 데몬(127.0.0.1:3002).

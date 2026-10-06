@@ -6,7 +6,7 @@
 
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import * as nutrientApi from '../../services/nutrientApi';
-import { useConfirm } from '../common/ConfirmDialog.jsx';
+import { useConfirm } from '../Common/ConfirmDialog.jsx';
 
 
 const STATE_POLL_MS  = 5000;

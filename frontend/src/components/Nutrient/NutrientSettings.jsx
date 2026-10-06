@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import * as nutrientApi from '../../services/nutrientApi';
 import NutrientScenarios from './NutrientScenarios';
-import { useConfirm } from '../common/ConfirmDialog.jsx';
+import { useConfirm } from '../Common/ConfirmDialog.jsx';
 
 // 초기값 — nutrient-flow-design.md 의 6 탱크 BOM 과 일치
 // Realtime 다이어그램 의 TANK_DEFAULTS 와도 동일 (id·이름 정렬)

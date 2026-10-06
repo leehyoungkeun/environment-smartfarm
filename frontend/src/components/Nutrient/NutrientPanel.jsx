@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import NutrientRealtime from './NutrientRealtime';
 import NutrientSettings from './NutrientSettings';
 import * as nutrientApi from '../../services/nutrientApi';
-import { useConfirm } from '../common/ConfirmDialog.jsx';
+import { useConfirm } from '../Common/ConfirmDialog.jsx';
 
 const TABS = [
   { id: 'realtime', label: '실시간', icon: '📊', desc: '운영·제어·흐름' },

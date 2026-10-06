@@ -3,7 +3,7 @@ import axiosBase from 'axios';
 import { getApiBase, getPcApiBase, getRpiApiBase, isFarmLocalMode, setFarmLocalMode } from '../../services/apiSwitcher';
 import wsService from '../../services/wsService';
 import { isKsProfile, ksDeviceLabel, validateKsProfile, validateKsSensor, ksSensorMeta, ksSuggestSensorId, ksDeviceModbus } from '../../lib/ks3267';
-import { useConfirm } from '../common/ConfirmDialog.jsx';
+import { useConfirm } from '../Common/ConfirmDialog.jsx';
 
 const AutomationManager = lazy(() => import('../Dashboard/AutomationManager'));
 const AccessoryManager = lazy(() => import('./AccessoryManager').then(m => ({ default: m.AccessoryManager })));

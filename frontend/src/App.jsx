@@ -19,7 +19,7 @@ import CCTVPanel from './components/Dashboard/CCTVPanel';
 import NutrientPanel from './components/Nutrient/NutrientPanel';
 import { getApiBase, getRpiApiBase, isFarmLocalMode, getSystemMode, onModeChange, setFarmLocalMode } from './services/apiSwitcher';
 import TouchKeyboard from './components/Common/TouchKeyboard';
-import { useConfirm } from './components/common/ConfirmDialog.jsx';
+import { useConfirm } from './components/Common/ConfirmDialog.jsx';
 
 /**
  * Error Boundary — 컴포넌트 렌더 에러 시 하얀 화면 방지

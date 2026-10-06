@@ -2,7 +2,7 @@ import React from 'react'
 import ReactDOM from 'react-dom/client'
 import * as Sentry from '@sentry/react'
 import App from './App.jsx'
-import { ConfirmProvider } from './components/common/ConfirmDialog.jsx'
+import { ConfirmProvider } from './components/Common/ConfirmDialog.jsx'
 import './index.css'
 
 if (import.meta.env.VITE_GLITCHTIP_DSN) {

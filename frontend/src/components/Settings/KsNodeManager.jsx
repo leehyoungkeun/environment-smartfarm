@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import axiosBase from 'axios';
 import { getApiBase } from '../../services/apiSwitcher';
 import { describeStatus, discoveryRows, nodeSummary, nodeInfoRows, registerMap, nodeReadRows, mappingIndex, mappingKey, frameRows, commChangeWarnings, deviceCodeCheck, nodeReadView, deviceKindSummary, changeStats, storageCheck } from '../../lib/ks3267';
+import { useConfirm } from '../common/ConfirmDialog.jsx';
 
 // ━━━ KS X 3267 표준노드 탭 (P4, 2026-08-30 / UI 재구성 2026-09-04) ━━━
 // 읽기 전용 진단 UI. 백엔드 /config/:farmId/ks3267/:action → RPi NR → ks3267d 데몬(127.0.0.1:3002).
@@ -58,6 +59,7 @@ const SubBox = ({ title, desc, right, children, tone = 'gray' }) => {
 const kindLabel = (k) => (k === 'sensor' ? '센서 노드' : k === 'actuator' ? '구동기 노드' : k === 'integrated' ? '복합 노드' : (k || '알 수 없음'));
 
 export const KsNodeManager = ({ farmId }) => {
+  const confirm = useConfirm();
   const api = getApiBase();
   // 패널(localhost)은 같은 출처 /api/ks3267/:action (nginx → NR 프록시 → 데몬, 인터넷·JWT 불필요) — 입고 시험장에 인터넷이 없어도 탭이 뜬다 (2026-09-15).
   // 웹은 클라우드 백엔드 /config/:farmId/ks3267/:action 이 같은 NR 프록시로 되돌아온다.
@@ -138,7 +140,7 @@ export const KsNodeManager = ({ farmId }) => {
     }
   };
   const deleteEvidence = async (id) => {
-    if (!window.confirm(`증적 ${id} 를 제어기에서 지웁니다. 계속할까요?`)) return;
+    if (!(await confirm({ title: '증적을 지울까요?', message: `${id} 를 제어기에서 삭제합니다.`, tone: 'danger' }))) return;
     try {
       const d = await commPost('evidence-delete', { id });
       if (d?.ok) await loadEvidence(); else setEvidenceMsg({ type: 'err', text: d?.error || '지우지 못했습니다' });
@@ -224,7 +226,7 @@ export const KsNodeManager = ({ farmId }) => {
   const applyComm = async () => {
     if (!commForm || !comm?.current) return;
     const warns = commChangeWarnings(comm.current, commForm);
-    if (warns.length && !window.confirm(warns.join('\n\n') + '\n\n계속할까요?')) return;
+    if (warns.length && !(await confirm({ title: '통신 설정을 바꿀까요?', message: warns.join('\n\n'), confirmText: '적용', tone: 'danger' }))) return;
     setCommBusy(true);
     setCommMsg(null);
     try {
@@ -251,7 +253,7 @@ export const KsNodeManager = ({ farmId }) => {
 
   // 예외·타임아웃 카운터 0 으로 — 시험 당일 연결 전 타임아웃·§5.3 의도된 예외가 빨갛게 남아 시험관 질문을 부르지 않게. 프레임은 남는다.
   const resetStats = async () => {
-    if (!window.confirm('예외·타임아웃·스캔 미응답 카운터를 0 으로 되돌립니다. 진단 프레임은 남습니다. 계속할까요?')) return;
+    if (!(await confirm({ title: '통계를 초기화할까요?', message: '예외·타임아웃·스캔 미응답 카운터를 0 으로 되돌립니다.\n진단 프레임은 그대로 남습니다.' }))) return;
     try {
       const d = (await axios.post('/api/ks3267-comm/stats-reset', {}, { timeout: 10000 })).data;   // 패널 같은 출처 전용
       if (d?.ok) setTick((x) => x + 1); else setMessage({ type: 'err', text: d?.error || '통계를 초기화하지 못했습니다' });

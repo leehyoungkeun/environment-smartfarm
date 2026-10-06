@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import * as nutrientApi from '../../services/nutrientApi';
 import NutrientScenarios from './NutrientScenarios';
+import { useConfirm } from '../common/ConfirmDialog.jsx';
 
 // 초기값 — nutrient-flow-design.md 의 6 탱크 BOM 과 일치
 // Realtime 다이어그램 의 TANK_DEFAULTS 와도 동일 (id·이름 정렬)
@@ -331,6 +332,7 @@ const CROP_OPTIONS = ['딸기','토마토','오이','파프리카','상추','쑥
 const newGroupId = () => 'g_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
 
 const GroupedValvesEditor = ({ count: initialCount, groups: initialGroups, valves: initialValves, onSaveCount, onSaveGroups, onSaveValves }) => {
+  const confirm = useConfirm();
   const [count, setCount] = useState(initialCount || 14);
   const [groups, setGroups] = useState(initialGroups || []);
   // valveData[idx] = { groupId, crop, plantCount } — 구역별 품목/식재수 보존
@@ -358,8 +360,8 @@ const GroupedValvesEditor = ({ count: initialCount, groups: initialGroups, valve
     }]);
   };
   const updateGroup = (id, patch) => setGroups(gs => gs.map(g => g.id === id ? { ...g, ...patch } : g));
-  const deleteGroup = (id) => {
-    if (!window.confirm('이 그룹을 삭제하시겠습니까?\n그룹 안 구역은 미배정으로 돌아갑니다 (품목/식재수는 보존).')) return;
+  const deleteGroup = async (id) => {
+    if (!(await confirm({ title: '이 그룹을 삭제할까요?', message: '그룹 안 구역은 미배정으로 돌아갑니다 (품목·식재수는 보존).', tone: 'danger' }))) return;
     setGroups(gs => gs.filter(g => g.id !== id));
     setValveData(d => {
       const next = { ...d };

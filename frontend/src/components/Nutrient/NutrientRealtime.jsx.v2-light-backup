@@ -1,0 +1,1487 @@
+// frontend/src/components/Nutrient/NutrientRealtime.jsx
+// 양액 실시간 운영 — NutrientPanel 1번째 탭 ("실시간")
+//
+// 디자인 톤 : Priva Connext / Hoogendoorn iSii / Netafim NetBeat 의 control-room aesthetic
+// — 단일 accent (cyan), monospace numerals, 1px hairline, tracked-out caps labels,
+//   schematic-grade SVG technical drawing, 절제된 색 사용.
+//
+// props (NutrientPanel 이 그대로 넘김):
+//   { farmId, mode, onModeChange }
+
+import React, { useEffect, useMemo, useState } from 'react';
+import * as nutrientApi from '../../services/nutrientApi';
+
+// ─────────────────────────────────────────────────────────
+// CONSTANTS  (초기값 — 추후 세팅에서 변경 가능)
+// ─────────────────────────────────────────────────────────
+const STATE_POLL_MS  = 5000;
+const ALERTS_POLL_MS = 15000;
+
+const PHASE_PLAN = [
+  { key: 'dosing',     label: '도싱',   short: '도싱',    duration: 42  },
+  { key: 'mixing',     label: '교반',   short: '교반',    duration: 60  },
+  { key: 'stabilize',  label: '안정화', short: '안정화', duration: 30  },
+  { key: 'irrigating', label: '관수',   short: '관수',  duration: 480 },
+  { key: 'cleanup',    label: '정리',   short: '정리',   duration: 20  },
+];
+
+const MODES = {
+  auto:      { label: '자동', long: '자동운행', c: '#16a34a' },
+  manual:    { label: '수동', long: '수동',     c: '#d97706' },
+  paused:    { label: '정지', long: '일시정지', c: '#2563eb' },
+  emergency: { label: '비상', long: '비상정지', c: '#dc2626' },
+};
+
+const SEV = {
+  info:     { c: '#0891b2', label: '정보' },
+  warning:  { c: '#d97706', label: '경고' },
+  critical: { c: '#dc2626', label: '위험' },
+};
+
+// 단일 디자인 토큰 — 다른 색은 의도적으로 안 씀
+const T = {
+  bg:    '#f7f8fa',  card:  '#ffffff',
+  bd:    '#e5e7eb',  hair:  '#eef0f3',
+  fg:    '#0b1220',  fg2:   '#475569',  fg3:   '#94a3b8',  fg4:   '#cbd5e1',
+  acc:   '#0891b2',  acc2:  '#06b6d4',  accBg: '#ecfeff',
+  ok:    '#16a34a',  warn:  '#d97706',  info:  '#2563eb',  danger:'#dc2626',
+};
+
+const MONO = `"JetBrains Mono", "SF Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace`;
+const SANS = `-apple-system, BlinkMacSystemFont, "Pretendard", "Apple SD Gothic Neo", "Noto Sans KR", sans-serif`;
+
+// 인라인 SVG 아이콘 — 12px, 1.4 stroke, currentColor
+const Ico = {
+  Play:  ({ s = 10 }) => <svg width={s} height={s} viewBox="0 0 12 12" fill="currentColor"><path d="M3.5 2 L10 6 L3.5 10 Z" /></svg>,
+  Pause: ({ s = 10 }) => <svg width={s} height={s} viewBox="0 0 12 12" fill="currentColor"><rect x="3" y="2.5" width="2" height="7" rx="0.5"/><rect x="7" y="2.5" width="2" height="7" rx="0.5"/></svg>,
+  Stop:  ({ s = 10 }) => <svg width={s} height={s} viewBox="0 0 12 12" fill="currentColor"><rect x="2.5" y="2.5" width="7" height="7" rx="1"/></svg>,
+  Hand:  ({ s = 10 }) => <svg width={s} height={s} viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M5 7 V3.5 M7 7 V2.5 M9 7 V3.5 M3 7 Q3 10.5 6 10.5 Q9.5 10.5 10 8 V6.5"/>
+  </svg>,
+  Bell:  ({ s = 10 }) => <svg width={s} height={s} viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M6 1.5 V2.5 M3 5.5 Q3 3 6 3 Q9 3 9 5.5 V7.5 L10 9 H2 L3 7.5 Z M5 10 Q5 11 6 11 Q7 11 7 10"/>
+  </svg>,
+  Trend: ({ s = 10, up }) => <svg width={s} height={s} viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round">
+    {up ? <path d="M2 8 L5 5 L7 7 L10 4 M8 4 H10 V6"/> : <path d="M2 4 L5 7 L7 5 L10 8 M8 8 H10 V6"/>}
+  </svg>,
+  Caret: ({ s = 10 }) => <svg width={s} height={s} viewBox="0 0 12 12" fill="currentColor"><path d="M3 5 L6 8 L9 5 Z"/></svg>,
+};
+const MODE_ICON = { auto: Ico.Play, manual: Ico.Hand, paused: Ico.Pause, emergency: Ico.Stop };
+
+// ─────────────────────────────────────────────────────────
+// MAIN
+// ─────────────────────────────────────────────────────────
+export default function NutrientRealtime({ farmId, mode, onModeChange }) {
+  const [state, setState] = useState(null);
+  const [config, setConfig] = useState(null);
+  const [scenarios, setScenarios] = useState([]);
+  const [alerts, setAlerts] = useState([]);
+  const [now, setNow] = useState(Date.now());
+
+  useEffect(() => {
+    let cancelled = false;
+    Promise.all([
+      nutrientApi.getConfig(farmId).catch(() => null),
+      nutrientApi.listScenarios(farmId).catch(() => []),
+    ]).then(([cfg, sc]) => {
+      if (cancelled) return;
+      setConfig(cfg || { tanks: [], valveCount: 0 });
+      setScenarios(sc || []);
+    });
+    return () => { cancelled = true; };
+  }, [farmId]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const tick = async () => {
+      try { const s = await nutrientApi.getState(farmId); if (!cancelled) setState(s); } catch {}
+    };
+    tick();
+    const id = setInterval(tick, STATE_POLL_MS);
+    return () => { cancelled = true; clearInterval(id); };
+  }, [farmId]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const tick = async () => {
+      try {
+        const a = await nutrientApi.listAlerts(farmId, { resolved: false, limit: 5 });
+        if (!cancelled) setAlerts(a || []);
+      } catch {}
+    };
+    tick();
+    const id = setInterval(tick, ALERTS_POLL_MS);
+    return () => { cancelled = true; clearInterval(id); };
+  }, [farmId]);
+
+  useEffect(() => {
+    const id = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, []);
+
+  const activeScenario = scenarios.find(s => s.active);
+  const activeScenarioIdx = scenarios.findIndex(s => s.active);
+  const activeProgramNum = activeScenarioIdx >= 0 ? activeScenarioIdx + 1 : null;
+  const activeProgramName = activeScenario?.name || null;
+  const ecTarget = activeScenario?.ecTarget ?? null;
+  const phTarget = activeScenario?.phTarget ?? null;
+
+  const phaseInfo = useMemo(() => {
+    const cc = state?.currentCycle;
+    if (!cc || !cc.phase || !cc.startedAt) return null;
+    const elapsed = Math.max(0, Math.floor((now - new Date(cc.startedAt).getTime()) / 1000));
+    const plan = PHASE_PLAN.find(p => p.key === cc.phase);
+    if (!plan) return null;
+    return {
+      phaseKey: cc.phase, label: plan.label, short: plan.short,
+      elapsed, duration: plan.duration,
+      remaining: Math.max(0, plan.duration - elapsed),
+      progress: Math.min(1, elapsed / plan.duration),
+      valveIdx: cc.valveIdx ?? null, suppliedL: cc.suppliedL ?? 0,
+    };
+  }, [state, now]);
+
+  // 하드웨어 BOM 기준 default — config 부족 시 보강
+  // (nutrient-flow-design.md 참조: 6 탱크 + 14 밸브)
+  const TANK_DEFAULTS = [
+    { id: 'A', name: '질산칼슘',     short: 'A' },
+    { id: 'B', name: '다비료 NPK',   short: 'B' },
+    { id: 'C', name: '미량요소',     short: 'C' },
+    { id: 'D', name: '황산마그네슘', short: 'D' },
+    { id: 'AC', name: '산 HNO₃',     short: '산' },
+    { id: 'AL', name: '알칼리 KOH',  short: '알' },
+  ];
+  const cfgTanks = config?.tanks ?? [];
+  const tanks = TANK_DEFAULTS.map((d, i) => {
+    const c = cfgTanks[i];
+    return {
+      id: c?.id ?? d.id,
+      // backend 는 label, 신규 디자인은 name — 둘 다 수용
+      name: c?.name || c?.label || d.name,
+      level: c?.level ?? null,
+    };
+  });
+  const valveCount = Math.max(config?.valveCount ?? 0, 14);
+  const valves = (config?.valves?.length ?? 0) >= valveCount
+    ? config.valves
+    : Array.from({ length: valveCount }, (_, i) => ({ id: i + 1, name: `V${i + 1}` }));
+
+  const ec = state?.ecCurrent ?? null;
+  const ph = state?.phCurrent ?? null;
+
+  const isEmergency = mode === 'emergency';
+  const isPaused    = mode === 'paused';
+  const isManual    = mode === 'manual';
+  const dataReady   = state !== null && config !== null;
+
+  const handleMode = (newMode) => {
+    if (newMode === mode) return;
+    if (newMode === 'emergency'
+        && !window.confirm('비상정지하시겠습니까?\n모든 릴레이가 OFF 됩니다.')) return;
+    onModeChange?.(newMode);
+  };
+
+  const dosingActive = phaseInfo?.phaseKey === 'dosing'    && !isPaused && !isEmergency;
+  const mixingActive = phaseInfo?.phaseKey === 'mixing'    && !isPaused && !isEmergency;
+  const stabilizing  = phaseInfo?.phaseKey === 'stabilize' && !isPaused && !isEmergency;
+  const irrigating   = phaseInfo?.phaseKey === 'irrigating' && !isPaused && !isEmergency;
+  const activeValveIdx = irrigating ? phaseInfo.valveIdx : null;
+  const lowTanks = tanks.filter(t => t.level !== null && t.level < 20);
+
+  return (
+    <div style={{
+      fontFamily: SANS, color: T.fg, background: T.bg, borderRadius: 14,
+      padding: 16, border: `1px solid ${T.bd}`, position: 'relative',
+      fontFeatureSettings: '"tnum", "cv11"',
+    }}>
+      {/* ─── HEADER ─────────────────────────────── */}
+      <header style={{
+        display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between',
+        flexWrap: 'wrap', gap: 16, paddingBottom: 14, borderBottom: `1px solid ${T.hair}`,
+        marginBottom: 16,
+      }}>
+        <div>
+          <div style={kicker}>NUTRIENT · FLOW</div>
+          <div style={{
+            fontSize: 20, fontWeight: 600, color: T.fg, letterSpacing: '-0.01em',
+            display: 'flex', alignItems: 'center', gap: 10, marginTop: 2,
+          }}>
+            <span>시스템도</span>
+            <Sep />
+            <PhaseInline phaseInfo={phaseInfo} mode={mode} />
+          </div>
+          <UpdatedAt at={state?.updatedAt} />
+        </div>
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 10 }}>
+          <ModeSegment mode={mode} onChange={handleMode}
+            programNum={activeProgramNum} programName={activeProgramName} />
+          <SafetyDots mode={mode} />
+        </div>
+      </header>
+
+      {/* ─── BODY — Live stats / Schematic / Today ─── */}
+      {!dataReady ? <LoadingPlaceholder /> : (
+        <>
+          <div className="hidden md:grid" style={{
+            gridTemplateColumns: '225px 1fr 205px', gap: 14, marginTop: 16,
+          }}>
+            <LiveStatsPanel ec={ec} ph={ph} ecTarget={ecTarget} phTarget={phTarget}
+              phaseInfo={phaseInfo} mode={mode}
+              drain={state?.drain} env={state?.env} />
+            <Schematic
+              tanks={tanks} valves={valves} ec={ec} ph={ph} mode={mode}
+              dosingActive={dosingActive} mixingActive={mixingActive}
+              stabilizing={stabilizing} irrigating={irrigating}
+              activeValveIdx={activeValveIdx}
+              rawWaterLevel={state?.rawWater?.level}
+            />
+            <TodayPanel
+              todayCycles={state?.todayCycles}
+              todaySuppliedL={state?.todaySuppliedL}
+              todayDrainedL={state?.todayDrainedL}
+              drainFlow={state?.drain?.flowLpm}
+              lastCycleEndedAt={state?.lastCycleEndedAt}
+              nextTrigger={state?.nextTrigger}
+              irrigating={irrigating}
+              suppliedL={phaseInfo?.suppliedL}
+              now={now}
+            />
+          </div>
+          <div className="md:hidden">
+            <CompactStatus
+              tanks={tanks} valves={valves} phaseInfo={phaseInfo}
+              activeValveIdx={activeValveIdx} mode={mode} lowTanks={lowTanks}
+            />
+          </div>
+        </>
+      )}
+
+      {/* ─── PHASE TIMELINE ──────────────────────── */}
+      <PhaseTimeline phaseInfo={phaseInfo} dimmed={isManual || isPaused} />
+
+      {/* ─── ALERTS ──────────────────────────────── */}
+      <Alerts alerts={alerts} />
+
+      {/* ─── FOOTER ──────────────────────────────── */}
+      <Footer />
+
+      {/* overlays */}
+      {isPaused    && <PausedOverlay />}
+      {isEmergency && <EmergencyOverlay />}
+
+      <style>{KEYFRAMES}</style>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────
+// HEADER bits
+// ─────────────────────────────────────────────────────────
+const kicker = {
+  fontSize: 10, fontWeight: 700, color: T.fg3, letterSpacing: '0.14em', textTransform: 'uppercase',
+};
+const Sep = () => <span style={{ width: 1, height: 14, background: T.bd, display: 'inline-block' }} />;
+
+const UpdatedAt = ({ at }) => (
+  <div style={{
+    marginTop: 6, fontSize: 11, color: T.fg3, fontFamily: MONO, letterSpacing: '0.04em',
+    display: 'flex', alignItems: 'center', gap: 6,
+  }}>
+    <span style={{
+      width: 6, height: 6, borderRadius: 3, background: at ? T.ok : T.fg4,
+      animation: at ? 'sd-blink 1.6s infinite' : 'none',
+    }} />
+    마지막 업데이트 
+    {at ? new Date(at).toLocaleTimeString('ko-KR', { hour12: false }) : '— : — : —'}
+  </div>
+);
+
+const PhaseInline = ({ phaseInfo, mode }) => {
+  if (mode === 'emergency') {
+    return <span style={{ fontSize: 12, fontWeight: 700, color: T.danger, letterSpacing: '0.04em' }}>
+      비상정지 · 모든 릴레이 OFF
+    </span>;
+  }
+  if (mode === 'paused') {
+    return <span style={{ fontSize: 12, fontWeight: 700, color: T.info, letterSpacing: '0.04em' }}>
+      일시정지
+    </span>;
+  }
+  if (!phaseInfo) {
+    return <span style={{ fontSize: 12, fontWeight: 600, color: T.fg3, letterSpacing: '0.04em' }}>
+      사이클 대기
+    </span>;
+  }
+  return (
+    <span style={{ fontSize: 12, fontWeight: 600, color: T.fg2, letterSpacing: '0.04em',
+      display: 'inline-flex', alignItems: 'center', gap: 8, fontFamily: MONO }}>
+      <span style={{ color: T.acc }}>
+        {String(PHASE_PLAN.findIndex(p => p.key === phaseInfo.phaseKey) + 1).padStart(2, '0')}
+      </span>
+      <span>{phaseInfo.short}</span>
+      <span style={{ color: T.fg3 }}>·</span>
+      <span>{fmtMS(phaseInfo.elapsed)} / −{fmtMS(phaseInfo.remaining)}</span>
+    </span>
+  );
+};
+
+// ─────────────────────────────────────────────────────────
+// MODE SEGMENT — 4 segment toggle (single container)
+// ─────────────────────────────────────────────────────────
+const ModeSegment = ({ mode, onChange, programNum, programName }) => (
+  <div role="group" aria-label="운영 모드"
+    style={{
+      display: 'inline-flex', background: T.card, borderRadius: 10,
+      border: `1px solid ${T.bd}`, overflow: 'hidden',
+      boxShadow: '0 1px 0 rgba(11,18,32,0.02)',
+    }}>
+    {Object.entries(MODES).map(([key, m], i) => {
+      const active = mode === key;
+      const isEmer = key === 'emergency';
+      const isAuto = key === 'auto';
+      const Icon = MODE_ICON[key];
+      return (
+        <button key={key} onClick={() => onChange(key)}
+          title={isAuto && programName ? `P-${String(programNum).padStart(2, '0')} · ${programName}` : undefined}
+          style={{
+            display: 'flex', alignItems: 'center', gap: 7,
+            padding: '8px 14px',
+            background: active ? (isEmer ? '#fef2f2' : key === 'auto' ? '#f0fdf4' : key === 'manual' ? '#fffbeb' : '#eff6ff') : 'transparent',
+            color: active ? m.c : T.fg2,
+            border: 'none', cursor: 'pointer',
+            borderLeft: i > 0 ? `1px solid ${T.bd}` : 'none',
+            fontFamily: SANS, fontSize: 12.5, fontWeight: 600,
+            transition: 'background 0.12s, color 0.12s',
+            position: 'relative',
+          }}>
+          {isAuto && programNum != null && (
+            <span style={{
+              fontFamily: MONO, fontSize: 10.5, fontWeight: 700,
+              padding: '2px 6px', borderRadius: 4, letterSpacing: '0.04em',
+              background: active ? m.c + '1f' : T.hair,
+              color: active ? m.c : T.fg2,
+            }}>P-{String(programNum).padStart(2, '0')}</span>
+          )}
+          <span style={{
+            display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+            width: 14, height: 14, color: active ? m.c : T.fg3,
+            animation: active && isEmer ? 'sd-pulse 0.9s infinite' : 'none',
+          }}><Icon /></span>
+          <span>{m.long}</span>
+          {active && (
+            <span style={{
+              position: 'absolute', left: 0, right: 0, bottom: 0, height: 2, background: m.c,
+            }}/>
+          )}
+        </button>
+      );
+    })}
+  </div>
+);
+
+// ─────────────────────────────────────────────────────────
+// KPI ROW — 6 tile, hairline 으로 구분, 단일 background
+// ─────────────────────────────────────────────────────────
+const KpiRow = ({ ec, ph, ecTarget, phTarget, phaseInfo, activeValveIdx,
+                  valveCount, tankCount, lowTankCount, alertCount }) => {
+  const ecDiff = ec !== null && ecTarget !== null ? ec - ecTarget : null;
+  const phDiff = ph !== null && phTarget !== null ? ph - phTarget : null;
+  return (
+    <section style={{
+      background: T.card, border: `1px solid ${T.bd}`, borderRadius: 10,
+      display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)',
+      overflow: 'hidden',
+    }}>
+      <KpiTile label="EC" unit="mS/cm"
+        value={ec === null ? '—' : ec.toFixed(2)}
+        target={ecTarget !== null ? `목표 ${ecTarget.toFixed(1)}` : null}
+        diff={ecDiff} diffFmt={d => (d >= 0 ? '+' : '') + d.toFixed(2)}
+      />
+      <KpiTile label="pH"  unit=""
+        value={ph === null ? '—' : ph.toFixed(2)}
+        target={phTarget !== null ? `목표 ${phTarget.toFixed(1)}` : null}
+        diff={phDiff} diffFmt={d => (d >= 0 ? '+' : '') + d.toFixed(2)}
+      />
+      <KpiTile label="PHASE" unit=""
+        value={phaseInfo ? phaseInfo.short : 'IDLE'}
+        target={phaseInfo ? `${fmtMS(phaseInfo.elapsed)} 경과` : '사이클 없음'}
+        small valueColor={phaseInfo ? T.acc : T.fg3}
+      />
+      <KpiTile label="VALVE" unit=""
+        value={activeValveIdx ? `V${activeValveIdx}` : '— —'}
+        target={activeValveIdx ? '관수 중' : `전체 ${valveCount}개`}
+        valueColor={activeValveIdx ? T.ok : T.fg3}
+        live={!!activeValveIdx}
+      />
+      <KpiTile label="TANKS" unit=""
+        value={tankCount > 0 ? `${tankCount - lowTankCount}/${tankCount}` : '—'}
+        target={lowTankCount > 0 ? `${lowTankCount}개 부족` : '정상 보유'}
+        valueColor={lowTankCount > 0 ? T.danger : T.fg}
+      />
+      <KpiTile label="ALERTS" unit=""
+        value={String(alertCount).padStart(2, '0')}
+        target={alertCount > 0 ? '확인 필요' : '활성 경보 없음'}
+        valueColor={alertCount > 0 ? T.warn : T.fg3}
+      />
+    </section>
+  );
+};
+
+const KpiTile = ({ label, unit, value, target, diff, diffFmt, valueColor, small, live }) => {
+  let diffColor = T.fg3;
+  if (diff !== null && diff !== undefined) {
+    diffColor = Math.abs(diff) < 0.1 ? T.ok : Math.abs(diff) < 0.5 ? T.warn : T.danger;
+  }
+  return (
+    <div style={{
+      padding: '14px 16px', borderRight: `1px solid ${T.hair}`,
+      display: 'flex', flexDirection: 'column', gap: 4,
+    }}>
+      <div style={{ ...kicker, fontSize: 9.5, color: T.fg3 }}>{label}</div>
+      <div style={{
+        fontFamily: MONO, fontSize: small ? 18 : 22, fontWeight: 600,
+        color: valueColor || T.fg, lineHeight: 1.05, letterSpacing: '-0.01em',
+        display: 'flex', alignItems: 'baseline', gap: 5,
+      }}>
+        {live && <span style={{
+          width: 6, height: 6, borderRadius: 3, background: T.ok, marginRight: 2,
+          animation: 'sd-blink 1.2s infinite', alignSelf: 'center',
+        }} />}
+        {value}
+        {unit && <span style={{ fontSize: 11, color: T.fg3, fontWeight: 500 }}>{unit}</span>}
+      </div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 2 }}>
+        {diff !== null && diff !== undefined && (
+          <span style={{
+            fontFamily: MONO, fontSize: 11, fontWeight: 600, color: diffColor,
+            background: diffColor + '14', borderRadius: 4, padding: '1px 6px',
+          }}>
+            {diffFmt(diff)}
+          </span>
+        )}
+        {target && <span style={{ fontSize: 10.5, color: T.fg3 }}>{target}</span>}
+      </div>
+    </div>
+  );
+};
+
+// ─────────────────────────────────────────────────────────
+// SIDE PANELS  (LEFT = sensors, RIGHT = safety)
+// ─────────────────────────────────────────────────────────
+const TodayStrip = ({ todayCycles, todaySuppliedL, lastCycleEndedAt, nextTrigger, irrigating, suppliedL, now }) => {
+  const sinceLast = lastCycleEndedAt
+    ? Math.max(0, Math.floor((now - new Date(lastCycleEndedAt).getTime()) / 60000))
+    : null;
+  const lastTime = lastCycleEndedAt
+    ? new Date(lastCycleEndedAt).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit', hour12: false })
+    : '—';
+  const sinceLabel = sinceLast === null ? '데이터 없음'
+    : sinceLast < 60 ? `${sinceLast}분 전`
+    : `${Math.floor(sinceLast / 60)}시간 ${sinceLast % 60}분 전`;
+
+  const items = [
+    { label: '오늘 사이클',       value: todayCycles != null ? String(todayCycles) : '—', unit: '회', sub: todayCycles ? '완료' : '대기' },
+    { label: '오늘 누적 공급량',   value: todaySuppliedL != null ? String(todaySuppliedL) : '—', unit: 'L',
+      sub: irrigating && suppliedL ? `현재 사이클 +${suppliedL}L` : '오늘 누적' },
+    { label: '마지막 관수',        value: lastTime, unit: '', sub: sinceLabel, mono: true },
+    { label: '다음 트리거',         value: nextTrigger?.label || '—', unit: '',
+      sub: nextTrigger?.type === 'running' ? '진행 중' : '조건 대기' },
+  ];
+  return (
+    <section style={{
+      marginTop: 10, background: T.card, border: `1px solid ${T.bd}`, borderRadius: 10,
+      display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1.5fr', overflow: 'hidden',
+    }}>
+      {items.map((it, i) => (
+        <div key={i} style={{
+          padding: '12px 16px', borderRight: i < items.length - 1 ? `1px solid ${T.hair}` : 'none',
+          display: 'flex', flexDirection: 'column', gap: 4,
+        }}>
+          <div style={{ ...kicker, fontSize: 10.5 }}>{it.label}</div>
+          <div style={{
+            fontFamily: it.mono || /^\d/.test(it.value) ? MONO : SANS,
+            fontSize: 18, fontWeight: 600, color: T.fg, lineHeight: 1.1, letterSpacing: '-0.005em',
+            display: 'flex', alignItems: 'baseline', gap: 5,
+          }}>
+            {it.value}
+            {it.unit && <span style={{ fontSize: 12, color: T.fg3, fontWeight: 500 }}>{it.unit}</span>}
+          </div>
+          <div style={{ fontSize: 11.5, color: T.fg3, fontFamily: it.mono ? MONO : SANS }}>{it.sub}</div>
+        </div>
+      ))}
+    </section>
+  );
+};
+
+// ─────────────────────────────────────────────────────────
+// HEADER · 안전 인디케이터 (compact pills)
+// ─────────────────────────────────────────────────────────
+const SafetyDots = ({ mode }) => {
+  const items = [
+    { label: '비상',  active: mode === 'emergency' },
+    { label: '누액',  active: mode === 'emergency' },
+    { label: '도어',  active: false },
+  ];
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontFamily: SANS }}>
+      {items.map((it, i) => (
+        <span key={i} style={{
+          display: 'inline-flex', alignItems: 'center', gap: 5,
+          padding: '4px 10px', borderRadius: 999,
+          background: it.active ? '#fef2f2' : T.card,
+          border: `1px solid ${it.active ? T.danger + '55' : T.bd}`,
+          fontSize: 12, fontWeight: 600,
+          color: it.active ? T.danger : T.fg2,
+          animation: it.active ? 'sd-flash 1s infinite' : 'none',
+        }}>
+          <span style={{
+            width: 7, height: 7, borderRadius: 3.5,
+            background: it.active ? T.danger : T.ok,
+            animation: it.active ? 'sd-blink 0.7s infinite' : 'none',
+          }} />
+          {it.label}
+        </span>
+      ))}
+    </div>
+  );
+};
+
+// ─────────────────────────────────────────────────────────
+// LEFT · LIVE STATS  (EC / pH / PHASE)
+// ─────────────────────────────────────────────────────────
+const LiveStatsPanel = ({ ec, ph, ecTarget, phTarget, phaseInfo, mode, drain, env }) => {
+  const ecDiff = ec !== null && ecTarget !== null ? ec - ecTarget : null;
+  const phDiff = ph !== null && phTarget !== null ? ph - phTarget : null;
+  const drainEcDelta = drain && ec !== null ? drain.ecCurrent - ec : null;
+  const drainPhDelta = drain && ph !== null ? drain.phCurrent - ph : null;
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+      <StatSection title="공급액" kicker="" accent={T.acc}>
+        <StatRow label="EC" value={ec === null ? '—' : ec.toFixed(2)} unit="mS/cm"
+          diff={ecDiff} diffFmt={d => (d >= 0 ? '+' : '') + d.toFixed(2)}
+          target={ecTarget !== null ? `목표 ${ecTarget.toFixed(1)}` : null} big />
+        <StatRow label="pH" value={ph === null ? '—' : ph.toFixed(2)} unit=""
+          diff={phDiff} diffFmt={d => (d >= 0 ? '+' : '') + d.toFixed(2)}
+          target={phTarget !== null ? `목표 ${phTarget.toFixed(1)}` : null} big />
+      </StatSection>
+
+      <StatSection title="퇴수" kicker="" accent="#d97706">
+        <StatRow label="EC" value={drain ? drain.ecCurrent.toFixed(2) : '—'} unit="mS/cm"
+          diff={drainEcDelta} diffFmt={d => (d >= 0 ? '+' : '') + d.toFixed(2)} compareLabel="공급 대비" />
+        <StatRow label="pH" value={drain ? drain.phCurrent.toFixed(2) : '—'} unit=""
+          diff={drainPhDelta} diffFmt={d => (d >= 0 ? '+' : '') + d.toFixed(2)} compareLabel="공급 대비" />
+      </StatSection>
+
+      <StatSection title="환경" kicker="" accent="#0d9488">
+        <EnvRow label="내부" lhs={env ? `${env.inTemp.toFixed(1)}°C` : '—'}
+          rhs={env ? `${env.inHumid.toFixed(0)}%` : ''} />
+        <EnvRow label="외부" lhs={env ? `${env.outTemp.toFixed(1)}°C` : '—'}
+          rhs={env ? `${env.outHumid.toFixed(0)}%` : ''} />
+        <EnvRow label="강우" lhs={env ? `${env.rainfall.toFixed(1)} mm` : '—'}
+          warn={env && env.rainfall > 0} />
+        <EnvRow label="풍속" lhs={env ? `${env.windSpeed.toFixed(1)} m/s` : '—'}
+          warn={env && env.windSpeed > 5} />
+        <EnvRow label="일사" lhs={env ? `${env.solar} W/m²` : '—'} />
+      </StatSection>
+    </div>
+  );
+};
+
+const StatSection = ({ title, kicker: kickerLabel, accent, children }) => (
+  <div style={{
+    background: T.card, border: `1px solid ${T.bd}`, borderRadius: 10,
+    position: 'relative', overflow: 'hidden',
+  }}>
+    <div style={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: 3, background: accent }} />
+    <div style={{
+      padding: '10px 14px 8px 14px',
+      borderBottom: `1px solid ${T.hair}`,
+      display: 'flex', alignItems: 'baseline', justifyContent: 'space-between',
+    }}>
+      <span style={{ fontSize: 14, fontWeight: 700, color: T.fg }}>{title}</span>
+      <span style={{ ...kicker, fontSize: 10 }}>{kickerLabel}</span>
+    </div>
+    <div style={{ padding: '6px 0' }}>{children}</div>
+  </div>
+);
+
+const StatRow = ({ label, value, unit, diff, diffFmt, target, compareLabel, big }) => {
+  let diffColor = T.fg3;
+  if (diff !== null && diff !== undefined) {
+    diffColor = Math.abs(diff) < 0.1 ? T.ok : Math.abs(diff) < 0.5 ? T.warn : T.danger;
+  }
+  return (
+    <div style={{ padding: '4px 14px 6px 14px' }}>
+      <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
+        <span style={{ fontSize: 11.5, fontWeight: 700, color: T.fg3, letterSpacing: '0.08em', minWidth: 22 }}>{label}</span>
+        <span style={{
+          fontFamily: MONO, fontSize: big ? 22 : 18, fontWeight: 600, color: T.fg,
+          letterSpacing: '-0.01em', lineHeight: 1,
+        }}>{value}</span>
+        {unit && <span style={{ fontSize: 11, color: T.fg3 }}>{unit}</span>}
+        <span style={{ flex: 1 }} />
+        {diff !== null && diff !== undefined && (
+          <span style={{ fontFamily: MONO, fontSize: 11.5, fontWeight: 600, color: diffColor,
+            background: diffColor + '14', borderRadius: 4, padding: '1.5px 6px' }}>
+            {diffFmt(diff)}
+          </span>
+        )}
+      </div>
+      {(target || compareLabel) && (
+        <div style={{ marginTop: 2, marginLeft: 30, fontSize: 11, color: T.fg3 }}>
+          {target || compareLabel}
+        </div>
+      )}
+    </div>
+  );
+};
+
+const EnvRow = ({ label, lhs, rhs, warn }) => (
+  <div style={{
+    display: 'flex', alignItems: 'center', gap: 10,
+    padding: '5px 14px', fontSize: 13,
+    background: warn ? '#fef2f244' : 'transparent',
+  }}>
+    <span style={{ fontSize: 11.5, fontWeight: 700, color: T.fg3, letterSpacing: '0.06em', minWidth: 32 }}>{label}</span>
+    <span style={{ fontFamily: MONO, fontWeight: 600, color: warn ? T.danger : T.fg, letterSpacing: '-0.01em' }}>{lhs}</span>
+    {rhs && (
+      <>
+        <span style={{ color: T.fg4 }}>·</span>
+        <span style={{ fontFamily: MONO, fontWeight: 600, color: T.fg2 }}>{rhs}</span>
+      </>
+    )}
+  </div>
+);
+
+// ─────────────────────────────────────────────────────────
+// RIGHT · TODAY  (사이클 / 누적공급량 / 마지막 / 다음 트리거)
+// ─────────────────────────────────────────────────────────
+const TodayPanel = ({ todayCycles, todaySuppliedL, todayDrainedL, drainFlow, lastCycleEndedAt, nextTrigger, irrigating, suppliedL, now }) => {
+  const sinceLast = lastCycleEndedAt
+    ? Math.max(0, Math.floor((now - new Date(lastCycleEndedAt).getTime()) / 60000))
+    : null;
+  const lastTime = lastCycleEndedAt
+    ? new Date(lastCycleEndedAt).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit', hour12: false })
+    : '—';
+  const sinceLabel = sinceLast === null ? ''
+    : sinceLast < 60 ? `${sinceLast}분 전`
+    : `${Math.floor(sinceLast / 60)}시간 ${sinceLast % 60}분 전`;
+  const drainRatio = todaySuppliedL && todayDrainedL != null
+    ? (todayDrainedL / todaySuppliedL) * 100 : null;
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+      <BigStatCard
+        label="오늘 사이클"
+        value={todayCycles != null ? String(todayCycles) : '—'} unit="회"
+        target={todayCycles ? '완료' : '대기 중'}
+        accent={T.ok}
+      />
+      <BigStatCard
+        label="오늘 누적 공급량"
+        value={todaySuppliedL != null ? String(todaySuppliedL) : '—'} unit="L"
+        target={irrigating && suppliedL ? `현재 사이클 +${suppliedL}L` : null}
+        accent="#2563eb"
+        live={irrigating}
+      />
+      <BigStatCard
+        label="퇴수 유량"
+        value={drainFlow != null ? drainFlow.toFixed(1) : '—'} unit="L/min"
+        target={drainRatio != null
+          ? `오늘 ${todayDrainedL}L · 배액률 ${drainRatio.toFixed(0)}%`
+          : todayDrainedL != null ? `오늘 ${todayDrainedL}L` : null}
+        accent="#d97706"
+        live={irrigating && drainFlow > 0}
+      />
+      <BigStatCard
+        label="마지막 관수"
+        value={lastTime} unit=""
+        target={sinceLabel}
+        accent={T.fg2} mono
+      />
+      <BigStatCard
+        label="다음 트리거"
+        value={nextTrigger?.label || '—'} unit=""
+        target={nextTrigger?.type === 'running' ? '진행 중' : '조건 대기'}
+        accent="#7c3aed" small
+      />
+    </div>
+  );
+};
+
+// 공용 카드 — 라벨 / 값 / target / diff / accent 좌측 바 / live dot / progress bar / sub
+const BigStatCard = ({ label, value, unit, target, diff, diffFmt, valueColor, accent, live, progress, sub, mono, small }) => {
+  let diffColor = T.fg3;
+  if (diff !== null && diff !== undefined) {
+    diffColor = Math.abs(diff) < 0.1 ? T.ok : Math.abs(diff) < 0.5 ? T.warn : T.danger;
+  }
+  const valueFontSize = small ? 17 : 26;
+  return (
+    <div style={{
+      background: T.card, border: `1px solid ${T.bd}`, borderRadius: 10,
+      padding: '12px 14px', position: 'relative', overflow: 'hidden',
+    }}>
+      <div style={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: 3, background: accent }} />
+      <div style={{ marginLeft: 4, display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 6 }}>
+        <div style={{ ...kicker, fontSize: 11 }}>{label}</div>
+        {live && <span style={{ width: 7, height: 7, borderRadius: 3.5, background: T.ok,
+          animation: 'sd-blink 1.2s infinite' }} />}
+      </div>
+      <div style={{
+        marginTop: 5, marginLeft: 4, fontFamily: mono || /^-?\d/.test(value) ? MONO : SANS,
+        fontSize: valueFontSize, fontWeight: 600, color: valueColor || T.fg, lineHeight: 1.05,
+        letterSpacing: '-0.015em', display: 'flex', alignItems: 'baseline', gap: 5,
+      }}>
+        {value}
+        {unit && <span style={{ fontSize: 12, color: T.fg3, fontWeight: 500 }}>{unit}</span>}
+      </div>
+      {(diff !== null && diff !== undefined) || target ? (
+        <div style={{ marginTop: 6, marginLeft: 4, display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+          {diff !== null && diff !== undefined && (
+            <span style={{ fontFamily: MONO, fontSize: 12, fontWeight: 600, color: diffColor,
+              background: diffColor + '14', borderRadius: 4, padding: '2px 6px' }}>
+              {diffFmt(diff)}
+            </span>
+          )}
+          {target && <span style={{ fontSize: 12, color: T.fg3 }}>{target}</span>}
+        </div>
+      ) : null}
+      {progress !== undefined && progress !== null && (
+        <div style={{ marginTop: 8, marginLeft: 4, marginRight: 4,
+          height: 3, background: T.hair, borderRadius: 1.5, overflow: 'hidden' }}>
+          <div style={{ width: `${progress * 100}%`, height: '100%',
+            background: T.acc, transition: 'width 0.4s' }} />
+        </div>
+      )}
+      {sub && (
+        <div style={{ marginTop: 6, marginLeft: 4, fontSize: 11.5, color: T.fg3, fontFamily: MONO }}>
+          {sub}
+        </div>
+      )}
+    </div>
+  );
+};
+
+// ─────────────────────────────────────────────────────────
+// SCHEMATIC SVG — 기술 도면 톤
+// ─────────────────────────────────────────────────────────
+const Schematic = ({ tanks, valves, ec, ph, mode,
+  dosingActive, mixingActive, stabilizing, irrigating, activeValveIdx, rawWaterLevel }) => {
+  const W = 760, H = 540;
+  const isEmergency = mode === 'emergency';
+  const isPaused = mode === 'paused';
+  const dim = isPaused || isEmergency;
+
+  const TANK_X0 = 30, TANK_X1 = W - 30;
+  const n = Math.max(tanks.length, 1);
+  const tankCx = (i) => TANK_X0 + (i + 0.5) * (TANK_X1 - TANK_X0) / n;
+  const tankW = 100, tankH = 96, tankY = 30;
+  const pumpY = tankY + tankH + 26;
+  const mixerCx = W / 2;
+  const mixerW = 220, mixerH = 130;
+  const mixerY = 232, mixerBot = mixerY + mixerH;
+  const mainPumpY = 405;
+  const manifoldY = 460;
+  const valveY = 490;
+
+  const VX0 = 30, VX1 = W - 30;
+  const vN = Math.max(valves.length, 1);
+  const valveCx = (i) => vN === 1 ? W / 2 : VX0 + i * (VX1 - VX0) / (vN - 1);
+
+  const phaseLabel = mode === 'emergency' ? '비상정지 · 모든 릴레이 OFF'
+    : mode === 'paused' ? '일시정지'
+    : dosingActive ? '01 · 도싱 진행 중'
+    : mixingActive ? '02 · 교반 진행 중'
+    : stabilizing ? '03 · 안정화 진행 중'
+    : irrigating ? `04 · V${activeValveIdx} 관수 중`
+    : '사이클 대기';
+  const phaseColor = mode === 'emergency' ? T.danger
+    : mode === 'paused' ? T.info
+    : (dosingActive || mixingActive || stabilizing || irrigating) ? T.acc
+    : T.fg3;
+  const phaseActive = dosingActive || mixingActive || stabilizing || irrigating;
+
+  return (
+    <div style={{
+      background: '#fbfcfd',
+      border: `1.5px solid ${T.bd}`, borderRadius: 14,
+      padding: 18,
+      position: 'relative', overflow: 'hidden',
+      boxShadow: '0 4px 20px rgba(11,18,32,0.06), 0 1px 2px rgba(11,18,32,0.04)',
+      filter: dim ? 'saturate(0.3) opacity(0.6)' : 'none', transition: 'filter 0.25s',
+    }}>
+      <div style={{
+        position: 'absolute', left: 0, right: 0, top: 0, height: 3,
+        background: `linear-gradient(90deg, ${T.acc} 0%, ${T.acc2} 100%)`,
+      }} />
+      <div style={{
+        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+        marginBottom: 10, paddingLeft: 2, paddingRight: 4,
+      }}>
+        <div style={{ display: 'flex', alignItems: 'baseline', gap: 10 }}>
+          <span style={{ fontSize: 13, fontWeight: 700, color: T.fg, letterSpacing: '0.16em' }}>공정 흐름도</span>
+          <span style={{ fontSize: 11, fontWeight: 600, color: T.fg3, letterSpacing: '0.04em' }}>양액 자동 공급 흐름도</span>
+        </div>
+        <div style={{
+          display: 'inline-flex', alignItems: 'center', gap: 7,
+          padding: '5px 12px', borderRadius: 999,
+          background: phaseActive ? T.accBg : T.card,
+          border: `1px solid ${phaseColor}30`,
+          fontFamily: MONO, fontSize: 11.5, fontWeight: 700,
+          color: phaseColor, letterSpacing: '0.04em',
+        }}>
+          <span style={{ width: 7, height: 7, borderRadius: 3.5, background: phaseColor,
+            animation: phaseActive ? 'sd-blink 1.2s infinite' : 'none' }} />
+          {phaseLabel}
+        </div>
+      </div>
+      <svg viewBox={`0 0 ${W} ${H}`} width="100%" preserveAspectRatio="xMidYMid meet" style={{ display: 'block' }}>
+        <defs>
+          <pattern id="sd-grid" width="20" height="20" patternUnits="userSpaceOnUse">
+            <path d="M 20 0 L 0 0 0 20" fill="none" stroke="#eef0f3" strokeWidth="0.5" />
+          </pattern>
+          <pattern id="sd-grid-major" width="100" height="100" patternUnits="userSpaceOnUse">
+            <path d="M 100 0 L 0 0 0 100" fill="none" stroke="#e5e7eb" strokeWidth="0.6" />
+          </pattern>
+          <marker id="sd-arrow" viewBox="0 0 10 10" refX="9" refY="5"
+                  markerWidth="6" markerHeight="6" orient="auto">
+            <path d="M 0 0 L 10 5 L 0 10 z" fill={T.acc} />
+          </marker>
+          <marker id="sd-arrow-mute" viewBox="0 0 10 10" refX="9" refY="5"
+                  markerWidth="6" markerHeight="6" orient="auto">
+            <path d="M 0 0 L 10 5 L 0 10 z" fill={T.fg4} />
+          </marker>
+          <linearGradient id="sd-cap" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor="#f8fafc" />
+            <stop offset="100%" stopColor="#e2e8f0" />
+          </linearGradient>
+          <linearGradient id="sd-pipe-on" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor={T.acc} />
+            <stop offset="100%" stopColor={T.acc2} />
+          </linearGradient>
+          <filter id="sd-shadow" x="-10%" y="-10%" width="120%" height="130%">
+            <feGaussianBlur in="SourceAlpha" stdDeviation="1.6" />
+            <feOffset dx="0" dy="1.5" result="off" />
+            <feComponentTransfer><feFuncA type="linear" slope="0.18" /></feComponentTransfer>
+            <feMerge><feMergeNode /><feMergeNode in="SourceGraphic" /></feMerge>
+          </filter>
+        </defs>
+
+        <rect x="0" y="0" width={W} height={H} fill="url(#sd-grid)" />
+        <rect x="0" y="0" width={W} height={H} fill="url(#sd-grid-major)" />
+
+        {/* zone backgrounds */}
+        <g>
+          <rect x={12} y={tankY - 22} width={W - 24} height={tankH + 70} rx="10"
+                fill="rgba(13,148,136,0.04)" stroke="rgba(13,148,136,0.18)" strokeDasharray="3 3" strokeWidth="0.8" />
+          <rect x={12} y={mixerY - 22} width={W - 24} height={mixerH + 56} rx="10"
+                fill="rgba(8,145,178,0.05)" stroke="rgba(8,145,178,0.22)" strokeDasharray="3 3" strokeWidth="0.8" />
+          <rect x={12} y={manifoldY - 22} width={W - 24} height={H - manifoldY + 4} rx="10"
+                fill="rgba(37,99,235,0.04)" stroke="rgba(37,99,235,0.18)" strokeDasharray="3 3" strokeWidth="0.8" />
+        </g>
+
+        {/* zone step badges */}
+        <g fontFamily={SANS}>
+          <ZoneBadge x={TANK_X0} y={tankY - 10} num="01" label="원료 탱크" sub="도싱" active={dosingActive} />
+          <ZoneBadge x={mixerCx - mixerW / 2} y={mixerY - 10} num="02" label="혼합기" sub="교반·안정화" active={mixingActive || stabilizing} />
+          <ZoneBadge x={VX0} y={manifoldY - 10} num="03" label="관수 매니폴드" sub="관수" active={irrigating} />
+        </g>
+
+        {/* ─── 원수 RAW WATER ─── */}
+        {(() => {
+          const lvl = rawWaterLevel ?? null;
+          const rwx = 20, rwy = mixerY + 8, rww = 92, rwh = 116;
+          const rwCx = rwx + rww / 2;
+          const isLow = lvl !== null && lvl < 20;
+          const hasLvl = lvl !== null;
+          const fillH = hasLvl ? (lvl / 100) * (rwh - 4) : 0;
+          const pumpCx = 168, pumpCy = mixerY + 66;
+          return (
+            <g>
+              <text x={20} y={mixerY - 10} fontSize="13" fontWeight="700"
+                    fill={T.fg3} letterSpacing="2" fontFamily={SANS}>원수 라인</text>
+              <g style={{ animation: isLow ? 'sd-flash 1.2s infinite' : 'none' }}>
+                <rect x={rwx} y={rwy} width={rww} height={rwh} rx="3"
+                  fill={T.card}
+                  stroke={isLow ? T.danger : dosingActive ? T.acc : T.bd}
+                  strokeWidth={dosingActive || isLow ? 2.5 : 1} />
+                {hasLvl && (
+                  <rect x={rwx + 2} y={rwy + rwh - fillH - 2} width={rww - 4} height={fillH}
+                    fill={isLow ? '#fef2f2' : '#eff6ff'} />
+                )}
+                <text x={rwCx} y={rwy + rwh / 2 - 4} textAnchor="middle"
+                  fontSize="15" fontWeight="600" fill={isLow ? T.danger : T.fg} fontFamily={SANS}>원수</text>
+                <text x={rwCx} y={rwy + rwh / 2 + 18} textAnchor="middle"
+                  fontSize="15" fontWeight="600" fill={isLow ? T.danger : T.fg2} fontFamily={MONO}>
+                  {hasLvl ? `${lvl}%` : '— %'}
+                </text>
+                {isLow && (
+                  <text x={rwCx} y={rwy + rwh + 14} textAnchor="middle"
+                    fontSize="13" fontWeight="700" fill={T.danger} letterSpacing="1.2" fontFamily={SANS}>부족</text>
+                )}
+              </g>
+              <DosingPump cx={pumpCx} cy={pumpCy} active={dosingActive && !isLow} />
+              <text x={pumpCx} y={pumpCy + 24} textAnchor="middle" fontSize="11" fontWeight="700"
+                fill={T.fg3} letterSpacing="1.2" fontFamily={SANS}>원수 펀프</text>
+              <FlowLine x1={rwx + rww} y1={pumpCy} x2={pumpCx - 9} y2={pumpCy} active={dosingActive && !isLow} />
+              <FlowLine x1={pumpCx + 9} y1={pumpCy} x2={mixerCx - mixerW / 2} y2={pumpCy} active={dosingActive && !isLow} />
+            </g>
+          );
+        })()}
+
+        {/* ─── 6 원료 탱크 ─── */}
+        {tanks.length === 0 ? (
+          <g>
+            <rect x={TANK_X0} y={tankY + 30} width={TANK_X1 - TANK_X0} height={26}
+                  rx="4" fill="none" stroke={T.bd} strokeDasharray="4 3" />
+            <text x={(TANK_X0 + TANK_X1) / 2} y={tankY + 47}
+                  textAnchor="middle" fontSize="11" fill={T.fg3} fontFamily={SANS}>
+              탱크 설정 대기 — 설정 탭에서 추가하세요
+            </text>
+          </g>
+        ) : tanks.map((t, i) => {
+          const cx = tankCx(i);
+          const x = cx - tankW / 2;
+          const hasLvl = t.level !== null && t.level !== undefined;
+          const isLow = hasLvl && t.level < 20;
+          const fillH = hasLvl ? (t.level / 100) * (tankH - 8) : 0;
+          return (
+            <g key={t.id ?? i} style={{ animation: isLow ? 'sd-flash 1.2s infinite' : 'none' }}>
+              <rect x={x} y={tankY} width={tankW} height={tankH} rx="4"
+                    fill={T.card}
+                    stroke={isLow ? T.danger : dosingActive ? T.acc : T.bd}
+                    strokeWidth={dosingActive || isLow ? 2.5 : 1}
+                    filter="url(#sd-shadow)" />
+              {/* level fill (실측이 있으면 실제 값으로 채움) */}
+              {hasLvl && (
+                <rect x={x + 1} y={tankY + tankH - fillH - 1} width={tankW - 2} height={fillH}
+                      fill={isLow ? '#fef2f2' : dosingActive ? T.accBg : '#f0fdfa'} />
+              )}
+              {/* top cap rim */}
+              <rect x={x} y={tankY} width={tankW} height="6" rx="4" fill="url(#sd-cap)" />
+              <line x1={x} y1={tankY + 6} x2={x + tankW} y2={tankY + 6} stroke={T.bd} strokeWidth="0.6" />
+              {/* level tick marks */}
+              {hasLvl && [25, 50, 75].map(p => (
+                <line key={p} x1={x + tankW - 6} y1={tankY + (1 - p/100) * (tankH - 8) + 4}
+                      x2={x + tankW - 2} y2={tankY + (1 - p/100) * (tankH - 8) + 4}
+                      stroke={T.fg4} strokeWidth="0.6" />
+              ))}
+              {/* tank label */}
+              <text x={cx} y={tankY + tankH / 2 + 2} textAnchor="middle"
+                    fontSize="15" fontWeight="600" fill={isLow ? T.danger : T.fg} fontFamily={SANS}>
+                {truncate(t.name, 8)}
+              </text>
+              {/* tank value */}
+              <text x={cx} y={tankY + tankH / 2 + 22} textAnchor="middle"
+                    fontSize="15" fontWeight="600" fill={isLow ? T.danger : T.fg2} fontFamily={MONO}>
+                {hasLvl ? `${t.level}%` : '— %'}
+              </text>
+              {isLow && (
+                <text x={cx} y={tankY + tankH + 14} textAnchor="middle"
+                      fontSize="13" fontWeight="700" fill={T.danger} letterSpacing="1.2" fontFamily={SANS}>부족</text>
+              )}
+              {/* dosing pump */}
+              <DosingPump cx={cx} cy={pumpY} active={dosingActive && !isLow} />
+              {/* flow line: pump → mixer top */}
+              <FlowLine x1={cx} y1={pumpY + 8} x2={mixerCx} y2={mixerY} active={dosingActive && !isLow} />
+            </g>
+          );
+        })}
+
+        {/* ─── MIXER ─── */}
+        <g>
+          <rect x={mixerCx - mixerW / 2} y={mixerY} width={mixerW} height={mixerH} rx="6"
+                fill={T.card} stroke={mixingActive || stabilizing ? T.acc : T.bd}
+                strokeWidth={mixingActive || stabilizing ? 2.5 : 1}
+                filter="url(#sd-shadow)" />
+          {/* 옅은 액체 표시 — 65% */}
+          <rect x={mixerCx - mixerW / 2 + 1} y={mixerY + mixerH * 0.4} width={mixerW - 2} height={mixerH * 0.6 - 1}
+                fill={T.accBg} />
+          {/* top cap rim */}
+          <rect x={mixerCx - mixerW / 2} y={mixerY} width={mixerW} height="6" rx="6" fill="url(#sd-cap)" />
+          <line x1={mixerCx - mixerW / 2 + 8} y1={mixerY + 6} x2={mixerCx + mixerW / 2 - 8} y2={mixerY + 6}
+                stroke={T.bd} strokeWidth="0.6" />
+          {/* agitator (spinning when mixing) */}
+          <Agitator cx={mixerCx} cy={mixerY + 20} active={mixingActive} />
+          <text x={mixerCx} y={mixerY + 48} textAnchor="middle"
+                fontSize="14" fontWeight="700" fill={T.fg2} letterSpacing="1.5" fontFamily={SANS}>혼합 탱크</text>
+          {/* EC / pH 디지털 디스플레이 */}
+          <g>
+            <line x1={mixerCx - mixerW / 2 + 12} y1={mixerY + 54} x2={mixerCx + mixerW / 2 - 12} y2={mixerY + 54}
+                  stroke={T.hair} strokeWidth="1" />
+            <text x={mixerCx - mixerW / 2 + 18} y={mixerY + 76} fontSize="13" fontWeight="700"
+                  fill={T.fg3} letterSpacing="1.5" fontFamily={SANS}>EC</text>
+            <text x={mixerCx - mixerW / 2 + 18} y={mixerY + 106} fontSize="32" fontWeight="600"
+                  fill={T.acc} fontFamily={MONO} letterSpacing="-0.02em">
+              {ec !== null ? ec.toFixed(2) : '—.—'}
+            </text>
+            <line x1={mixerCx} y1={mixerY + 60} x2={mixerCx} y2={mixerY + 104} stroke={T.hair} strokeWidth="1" />
+            <text x={mixerCx + 16} y={mixerY + 76} fontSize="13" fontWeight="700"
+                  fill={T.fg3} letterSpacing="1.5" fontFamily={SANS}>pH</text>
+            <text x={mixerCx + 16} y={mixerY + 106} fontSize="32" fontWeight="600"
+                  fill="#7c3aed" fontFamily={MONO} letterSpacing="-0.02em">
+              {ph !== null ? ph.toFixed(2) : '—.—'}
+            </text>
+          </g>
+          {stabilizing && (
+            <text x={mixerCx} y={mixerY + mixerH + 18} textAnchor="middle"
+                  fontSize="13" fontWeight="700" fill={T.warn} letterSpacing="1.5" fontFamily={SANS}
+                  style={{ animation: 'sd-blink 1.4s infinite' }}>안정화 중…</text>
+          )}
+        </g>
+
+        {/* mixer → main pump */}
+        <FlowLine x1={mixerCx} y1={mixerBot} x2={mixerCx} y2={mainPumpY - 12} active={irrigating} thick />
+
+        {/* MAIN PUMP */}
+        <MainPump cx={mixerCx} cy={mainPumpY} active={irrigating} />
+        <text x={mixerCx + 26} y={mainPumpY - 5} fontSize="14" fontWeight="700"
+              fill={T.fg2} letterSpacing="1.4" fontFamily={SANS}>메인 펌프</text>
+        <text x={mixerCx + 26} y={mainPumpY + 13} fontSize="14" fontWeight="600"
+              fill={irrigating ? T.ok : T.fg3} fontFamily={MONO}>
+          {irrigating ? '가동 중' : '대기'}
+        </text>
+
+        {/* main pump → manifold (with direction arrow) */}
+        <line x1={mixerCx} y1={mainPumpY + 14} x2={mixerCx} y2={manifoldY - 4}
+              stroke={irrigating ? T.acc : T.fg4} strokeWidth="2"
+              markerEnd={irrigating ? 'url(#sd-arrow)' : 'url(#sd-arrow-mute)'} />
+
+        {/* manifold pill (header pipe) */}
+        <g>
+          <rect x={VX0 - 8} y={manifoldY - 4} width={(VX1 - VX0) + 16} height={8} rx="4"
+                fill={irrigating ? `url(#sd-pipe-on)` : T.fg4}
+                stroke={irrigating ? T.acc : T.fg4} strokeWidth="0.5" />
+          <rect x={VX0 - 6} y={manifoldY - 3} width={(VX1 - VX0) + 12} height={1.5}
+                fill="rgba(255,255,255,0.45)" />
+        </g>
+
+        {/* valves */}
+        {valves.length === 0 ? (
+          <g>
+            <rect x={VX0} y={valveY - 4} width={VX1 - VX0} height={22}
+                  rx="4" fill="none" stroke={T.bd} strokeDasharray="4 3" />
+            <text x={(VX0 + VX1) / 2} y={valveY + 11}
+                  textAnchor="middle" fontSize="11" fill={T.fg3} fontFamily={SANS}>
+              밸브 설정 대기 — 설정 탭에서 추가하세요
+            </text>
+          </g>
+        ) : valves.map((v, i) => {
+          const cx = valveCx(i);
+          const active = activeValveIdx === (v.id ?? i + 1);
+          const stroke = active ? T.acc : irrigating ? T.acc2 : T.fg4;
+          return (
+            <g key={v.id ?? i}>
+              {/* T-junction node at manifold */}
+              <circle cx={cx} cy={manifoldY} r="3"
+                      fill={active ? T.acc : irrigating ? T.acc2 : '#fff'}
+                      stroke={active ? T.acc : irrigating ? T.acc2 : T.fg4} strokeWidth="1" />
+              <line x1={cx} y1={manifoldY + 3} x2={cx} y2={valveY} stroke={stroke}
+                    strokeWidth={active ? 2 : 1} />
+              <rect x={cx - 18} y={valveY} width="36" height="24" rx="3"
+                    fill={active ? T.acc : T.card}
+                    stroke={active ? T.acc : T.bd} strokeWidth={active ? 2.5 : 1} />
+              <text x={cx} y={valveY + 17} textAnchor="middle" fontSize="14" fontWeight="700"
+                    fill={active ? '#fff' : T.fg2} fontFamily={MONO}>
+                {truncate(v.name || `V${i + 1}`, 4)}
+              </text>
+              {active && (
+                <g>
+                  <circle cx={cx} cy={valveY + 30} r="2.5" fill={T.acc}>
+                    <animate attributeName="cy" values={`${valveY + 26};${valveY + 40}`} dur="0.9s" repeatCount="indefinite" />
+                    <animate attributeName="opacity" values="1;0" dur="0.9s" repeatCount="indefinite" />
+                  </circle>
+                </g>
+              )}
+            </g>
+          );
+        })}
+      </svg>
+    </div>
+  );
+};
+
+// ─────────────────────────────────────────────────────────
+// SVG primitives — refined (no glow / drop-shadow noise)
+// ─────────────────────────────────────────────────────────
+const ZoneBadge = ({ x, y, num, label, sub, active }) => (
+  <g>
+    <circle cx={x + 9} cy={y} r="9"
+            fill={active ? T.acc : T.card}
+            stroke={active ? T.acc : T.bd} strokeWidth="1" />
+    <text x={x + 9} y={y + 3.5} fontSize="9" fontWeight="700"
+          fill={active ? '#fff' : T.fg2} textAnchor="middle"
+          fontFamily={MONO}>{num}</text>
+    <text x={x + 24} y={y - 1} fontSize="11" fontWeight="700"
+          fill={active ? T.acc : T.fg} letterSpacing="0.5"
+          fontFamily={SANS}>{label}</text>
+    <text x={x + 24} y={y + 10} fontSize="9" fontWeight="500"
+          fill={T.fg3} letterSpacing="1.2"
+          fontFamily={SANS}>{sub}</text>
+  </g>
+);
+
+const DosingPump = ({ cx, cy, active }) => (
+  <g>
+    <circle cx={cx} cy={cy} r="9" fill={active ? T.acc : T.card}
+            stroke={active ? T.acc : T.bd} strokeWidth="1" />
+    <g style={{ transformOrigin: `${cx}px ${cy}px`,
+                animation: active ? 'sd-spin 1.4s linear infinite' : 'none' }}>
+      <line x1={cx - 5} y1={cy} x2={cx + 5} y2={cy}
+            stroke={active ? '#fff' : T.fg3} strokeWidth="1.2" strokeLinecap="round" />
+      <line x1={cx} y1={cy - 5} x2={cx} y2={cy + 5}
+            stroke={active ? '#fff' : T.fg3} strokeWidth="1.2" strokeLinecap="round" />
+    </g>
+  </g>
+);
+
+const Agitator = ({ cx, cy, active }) => (
+  <g>
+    <circle cx={cx} cy={cy} r="9" fill={active ? T.acc : T.card}
+            stroke={active ? T.acc : T.bd} strokeWidth="1" />
+    <g style={{ transformOrigin: `${cx}px ${cy}px`,
+                animation: active ? 'sd-spin 0.7s linear infinite' : 'none' }}>
+      <line x1={cx - 6} y1={cy} x2={cx + 6} y2={cy}
+            stroke={active ? '#fff' : T.fg3} strokeWidth="1.4" strokeLinecap="round" />
+      <line x1={cx} y1={cy - 6} x2={cx} y2={cy + 6}
+            stroke={active ? '#fff' : T.fg3} strokeWidth="1.4" strokeLinecap="round" />
+    </g>
+  </g>
+);
+
+const MainPump = ({ cx, cy, active }) => (
+  <g>
+    <circle cx={cx} cy={cy} r="14" fill={active ? T.acc : T.card}
+            stroke={active ? T.acc : T.bd} strokeWidth="1.2" />
+    <g style={{ transformOrigin: `${cx}px ${cy}px`,
+                animation: active ? 'sd-spin 1.1s linear infinite' : 'none' }}>
+      <circle cx={cx} cy={cy} r="3" fill={active ? '#fff' : T.fg3} />
+      <path d={`M ${cx} ${cy - 11} L ${cx - 3} ${cy - 3} L ${cx + 3} ${cy - 3} Z`}
+            fill={active ? '#fff' : T.fg3} />
+      <path d={`M ${cx} ${cy + 11} L ${cx - 3} ${cy + 3} L ${cx + 3} ${cy + 3} Z`}
+            fill={active ? '#fff' : T.fg3} />
+      <path d={`M ${cx - 11} ${cy} L ${cx - 3} ${cy - 3} L ${cx - 3} ${cy + 3} Z`}
+            fill={active ? '#fff' : T.fg3} />
+      <path d={`M ${cx + 11} ${cy} L ${cx + 3} ${cy - 3} L ${cx + 3} ${cy + 3} Z`}
+            fill={active ? '#fff' : T.fg3} />
+    </g>
+  </g>
+);
+
+const FlowLine = ({ x1, y1, x2, y2, active, thick }) => {
+  const cy = (y1 + y2) / 2;
+  const d = `M ${x1} ${y1} C ${x1} ${cy}, ${x2} ${cy}, ${x2} ${y2}`;
+  return (
+    <g>
+      <path d={d} fill="none"
+            stroke={active ? T.acc : T.fg4}
+            strokeWidth={thick ? 1.6 : 1}
+            strokeDasharray={active ? 'none' : '3 3'} strokeLinecap="round" />
+      {active && (
+        <>
+          <circle r={thick ? 2.4 : 2} fill={T.acc}>
+            <animateMotion path={d} dur="1.4s" repeatCount="indefinite" />
+            <animate attributeName="opacity" values="0;1;1;0" dur="1.4s" repeatCount="indefinite" />
+          </circle>
+          <circle r={thick ? 2.4 : 2} fill={T.acc}>
+            <animateMotion path={d} dur="1.4s" begin="0.7s" repeatCount="indefinite" />
+            <animate attributeName="opacity" values="0;1;1;0" dur="1.4s" begin="0.7s" repeatCount="indefinite" />
+          </circle>
+        </>
+      )}
+    </g>
+  );
+};
+
+// ─────────────────────────────────────────────────────────
+// COMPACT (mobile) — 4 zone row
+// ─────────────────────────────────────────────────────────
+const CompactStatus = ({ tanks, valves, phaseInfo, activeValveIdx, mode, lowTanks }) => (
+  <div style={{ marginTop: 16, display: 'flex', flexDirection: 'column', gap: 8 }}>
+    <CompactRow label="SENSORS"    value={phaseInfo ? '실시간 수집 중' : '대기'} accent="#0d9488" />
+    <CompactRow label="CONTROL"    value={phaseInfo ? `${phaseInfo.short} · −${fmtMS(phaseInfo.remaining)}` : '시나리오 대기'} accent="#d97706" />
+    <CompactRow label="ACTUATORS"
+      value={activeValveIdx ? `V${activeValveIdx} 중` : `밸브 ${valves.length}개 대기`}
+      accent="#2563eb" live={!!activeValveIdx} />
+    <CompactRow label="SAFETY"
+      value={mode === 'emergency' ? '비상정지 ACTIVE' : '정상'}
+      accent="#dc2626" alarm={mode === 'emergency'} />
+    {lowTanks.length > 0 && (
+      <div style={{
+        marginTop: 4, padding: '10px 12px', borderRadius: 8,
+        background: '#fef2f2', border: `1px solid ${T.danger}33`,
+        fontSize: 12, color: T.danger, fontFamily: MONO,
+      }}>
+        LOW : {lowTanks.map(t => `${t.name} ${t.level}%`).join(' · ')}
+      </div>
+    )}
+  </div>
+);
+
+const CompactRow = ({ label, value, accent, live, alarm }) => (
+  <div style={{
+    background: T.card, border: `1px solid ${T.bd}`, borderRadius: 8,
+    padding: '10px 12px', position: 'relative', display: 'flex',
+    alignItems: 'center', justifyContent: 'space-between',
+    animation: alarm ? 'sd-flash 1s infinite' : 'none',
+  }}>
+    <div style={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: 2, background: accent }} />
+    <span style={{ marginLeft: 6, ...kicker, fontSize: 9.5 }}>{label}</span>
+    <span style={{ fontSize: 12, fontWeight: 600, color: alarm ? T.danger : T.fg, fontFamily: MONO }}>
+      {live && <span style={{
+        display: 'inline-block', width: 6, height: 6, borderRadius: 3, background: T.ok,
+        marginRight: 6, animation: 'sd-blink 1.2s infinite',
+      }} />}
+      {value}
+    </span>
+  </div>
+);
+
+// ─────────────────────────────────────────────────────────
+// PHASE TIMELINE — process-flow style, 5 node + connector
+// ─────────────────────────────────────────────────────────
+const PhaseTimeline = ({ phaseInfo, dimmed }) => {
+  const cur = phaseInfo ? PHASE_PLAN.findIndex(p => p.key === phaseInfo.phaseKey) : -1;
+  return (
+    <section style={{
+      marginTop: 16, padding: '16px 18px',
+      background: T.card, border: `1px solid ${T.bd}`, borderRadius: 10,
+      opacity: dimmed ? 0.45 : 1, transition: 'opacity 0.25s',
+    }}>
+      <div style={{
+        display: 'flex', justifyContent: 'space-between', alignItems: 'baseline',
+        marginBottom: 14,
+      }}>
+        <div style={kicker}>사이클 진행</div>
+        <div style={{ fontSize: 11, color: T.fg3, fontFamily: MONO }}>
+          {phaseInfo
+            ? `${String(cur + 1).padStart(2, '0')} / ${String(PHASE_PLAN.length).padStart(2, '0')} 단계`
+            : '사이클 대기'}
+        </div>
+      </div>
+
+      <div style={{ display: 'flex', alignItems: 'flex-start', gap: 4 }}>
+        {PHASE_PLAN.map((p, i) => {
+          const past = cur > i;
+          const isCur = cur === i;
+          const c = isCur ? T.acc : past ? T.ok : T.fg4;
+          return (
+            <React.Fragment key={p.key}>
+              <div style={{ flex: 1, position: 'relative', minWidth: 0 }}>
+                {/* node */}
+                <div style={{
+                  display: 'flex', alignItems: 'center', gap: 8,
+                }}>
+                  <div style={{
+                    width: 22, height: 22, borderRadius: 11,
+                    border: `1.5px solid ${c}`,
+                    background: isCur ? T.accBg : past ? '#f0fdf4' : T.card,
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    fontFamily: MONO, fontSize: 10, fontWeight: 700, color: c,
+                    flexShrink: 0,
+                    animation: isCur ? 'sd-pulse 2s infinite' : 'none',
+                  }}>
+                    {past ? '✓' : String(i + 1).padStart(2, '0')}
+                  </div>
+                  <div style={{
+                    fontSize: 11, fontWeight: 700, color: isCur ? T.fg : past ? T.ok : T.fg3,
+                    letterSpacing: '0.04em',
+                  }}>
+                    {p.short}
+                  </div>
+                </div>
+                {/* meta */}
+                <div style={{
+                  marginTop: 6, marginLeft: 32,
+                  fontSize: 10.5, color: isCur ? T.fg2 : T.fg3, fontFamily: MONO,
+                }}>
+                  {isCur && phaseInfo
+                    ? <>{fmtMS(phaseInfo.elapsed)} · −{fmtMS(phaseInfo.remaining)}</>
+                    : past ? <>완료 · {p.duration}s</> : <>대기 · {p.duration}s</>}
+                </div>
+                {/* progress bar — current only */}
+                {isCur && phaseInfo && (
+                  <div style={{
+                    marginTop: 6, marginLeft: 32, marginRight: 10,
+                    height: 2, background: T.hair, borderRadius: 1, overflow: 'hidden',
+                  }}>
+                    <div style={{
+                      width: `${phaseInfo.progress * 100}%`, height: '100%',
+                      background: T.acc, transition: 'width 0.4s',
+                    }} />
+                  </div>
+                )}
+              </div>
+              {/* connector line between nodes */}
+              {i < PHASE_PLAN.length - 1 && (
+                <div style={{
+                  flexShrink: 0, width: 16, height: 1.5, marginTop: 10,
+                  background: cur > i ? T.ok : T.hair,
+                }}/>
+              )}
+            </React.Fragment>
+          );
+        })}
+      </div>
+    </section>
+  );
+};
+
+// ─────────────────────────────────────────────────────────
+// ALERTS — single-line ticker rows
+// ─────────────────────────────────────────────────────────
+const Alerts = ({ alerts }) => {
+  if (!alerts || alerts.length === 0) return null;
+  return (
+    <section style={{ marginTop: 12 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+        <Ico.Bell s={11} />
+        <span style={kicker}>활성 경보 · {String(alerts.length).padStart(2, '0')}</span>
+      </div>
+      <div style={{
+        background: T.card, border: `1px solid ${T.bd}`, borderRadius: 10, overflow: 'hidden',
+      }}>
+        {alerts.map((a, i) => {
+          const sev = SEV[a.severity] || SEV.warning;
+          const t = a.occurredAt
+            ? new Date(a.occurredAt).toLocaleTimeString('ko-KR', { hour12: false })
+            : '';
+          return (
+            <div key={a.id} style={{
+              display: 'flex', alignItems: 'center', gap: 12,
+              padding: '11px 14px',
+              borderTop: i > 0 ? `1px solid ${T.hair}` : 'none',
+            }}>
+              <span style={{
+                width: 6, height: 6, borderRadius: 3, background: sev.c,
+                animation: a.severity === 'critical' ? 'sd-blink 1.1s infinite' : 'none',
+                flexShrink: 0,
+              }} />
+              <span style={{
+                fontFamily: MONO, fontSize: 10, fontWeight: 700, color: sev.c,
+                letterSpacing: '0.1em', width: 78,
+              }}>
+                {sev.label}
+              </span>
+              <span style={{ flex: 1, fontSize: 13, color: T.fg, fontWeight: 500 }}>
+                {a.message}
+              </span>
+              <span style={{ fontFamily: MONO, fontSize: 11, color: T.fg3 }}>{t}</span>
+            </div>
+          );
+        })}
+      </div>
+    </section>
+  );
+};
+
+// ─────────────────────────────────────────────────────────
+// FOOTER — aux actions (disabled placeholders)
+// ─────────────────────────────────────────────────────────
+const Footer = () => (
+  <div style={{
+    marginTop: 14, paddingTop: 12, borderTop: `1px solid ${T.hair}`,
+    display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+  }}>
+    <div style={{ fontSize: 10.5, color: T.fg3, fontFamily: MONO, letterSpacing: '0.06em' }}>
+      엔지니어링 진단 · 별도 페이지 페이지에서 확인
+    </div>
+    <div style={{ display: 'flex', gap: 8 }}>
+      <button disabled title="Phase 3.2 이후 활성화"
+        style={{
+          padding: '6px 12px', borderRadius: 6, border: `1px solid ${T.bd}`,
+          background: T.card, color: T.fg3, fontSize: 11, fontWeight: 600,
+          letterSpacing: '0.04em', cursor: 'not-allowed', fontFamily: SANS,
+        }}>
+        강제 사이클
+      </button>
+      <button disabled title="Phase 3.2 이후 활성화"
+        style={{
+          padding: '6px 12px', borderRadius: 6, border: `1px solid ${T.bd}`,
+          background: T.card, color: T.fg3, fontSize: 11, fontWeight: 600,
+          letterSpacing: '0.04em', cursor: 'not-allowed', fontFamily: SANS,
+        }}>
+        센서 캘리브레이션
+      </button>
+    </div>
+  </div>
+);
+
+// ─────────────────────────────────────────────────────────
+// Overlays
+// ─────────────────────────────────────────────────────────
+const PausedOverlay = () => (
+  <div style={{
+    position: 'absolute', inset: 0, pointerEvents: 'none',
+    background: 'rgba(247, 248, 250, 0.55)', borderRadius: 14,
+    display: 'flex', alignItems: 'center', justifyContent: 'center',
+  }}>
+    <div style={{
+      padding: '10px 28px', borderRadius: 4, background: T.info,
+      color: '#fff', fontSize: 11, fontWeight: 700, letterSpacing: '0.24em',
+      fontFamily: SANS,
+    }}>
+      ❚❚  SYSTEM PAUSED
+    </div>
+  </div>
+);
+
+const EmergencyOverlay = () => (
+  <div style={{
+    position: 'absolute', inset: 0, pointerEvents: 'none',
+    borderRadius: 14, animation: 'sd-emergency 1.2s infinite',
+  }}>
+    <div style={{
+      position: 'absolute', top: 12, right: 12,
+      padding: '6px 12px', borderRadius: 4, background: T.danger,
+      color: '#fff', fontSize: 10, fontWeight: 700, letterSpacing: '0.2em',
+      fontFamily: MONO,
+      display: 'flex', alignItems: 'center', gap: 6,
+    }}>
+      <span style={{
+        width: 6, height: 6, borderRadius: 3, background: '#fff',
+        animation: 'sd-blink 0.6s infinite',
+      }} />
+      EMERGENCY · ALL RELAY OFF
+    </div>
+  </div>
+);
+
+const LoadingPlaceholder = () => (
+  <div style={{
+    marginTop: 16, padding: '60px 20px', background: T.card,
+    border: `1px dashed ${T.bd}`, borderRadius: 10, textAlign: 'center',
+  }}>
+    <div style={{ fontFamily: MONO, fontSize: 11, color: T.fg3, letterSpacing: '0.24em' }}>
+      AWAITING TELEMETRY
+    </div>
+    <div style={{ marginTop: 6, fontSize: 12, color: T.fg3 }}>
+      양액 제어기 연결을 확인하는 중입니다…
+    </div>
+  </div>
+);
+
+// ─────────────────────────────────────────────────────────
+// utils + keyframes
+// ─────────────────────────────────────────────────────────
+function fmtMS(sec) {
+  if (sec === null || sec === undefined || Number.isNaN(sec)) return '—:——';
+  const m = Math.floor(sec / 60), s = Math.floor(sec % 60);
+  return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+}
+function truncate(s, n) {
+  if (!s) return '';
+  return s.length > n ? s.slice(0, n - 1) + '…' : s;
+}
+
+const KEYFRAMES = `
+@keyframes sd-blink   { 0%, 100% { opacity: 1; } 50% { opacity: 0.25; } }
+@keyframes sd-pulse   { 0%, 100% { box-shadow: 0 0 0 0 rgba(8,145,178,0.35); } 50% { box-shadow: 0 0 0 6px rgba(8,145,178,0); } }
+@keyframes sd-flash   { 0%, 100% { background-color: transparent; } 50% { background-color: rgba(220, 38, 38, 0.07); } }
+@keyframes sd-spin    { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+@keyframes sd-emergency {
+  0%, 100% { box-shadow: inset 0 0 0 1px rgba(220,38,38,0.4); }
+  50%      { box-shadow: inset 0 0 0 3px rgba(220,38,38,0.55); }
+}
+`;

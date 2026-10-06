@@ -3,6 +3,7 @@ import axiosBase from 'axios';
 import { getApiBase, getPcApiBase, getRpiApiBase, isFarmLocalMode, setFarmLocalMode } from '../../services/apiSwitcher';
 import wsService from '../../services/wsService';
 import { isKsProfile, ksDeviceLabel, validateKsProfile, validateKsSensor, ksSensorMeta, ksSuggestSensorId, ksDeviceModbus } from '../../lib/ks3267';
+import { useConfirm } from '../common/ConfirmDialog.jsx';
 
 const AutomationManager = lazy(() => import('../Dashboard/AutomationManager'));
 const AccessoryManager = lazy(() => import('./AccessoryManager').then(m => ({ default: m.AccessoryManager })));
@@ -1451,6 +1452,7 @@ const getDeviceLabel = (type) => {
 };
 
 const DeviceManager = ({ house, farmId, setEditedHouse, onUpdate, isDirty, saving, onSave, ksFound }) => {
+  const confirm = useConfirm();
   const [confirmDelete, setConfirmDelete] = useState(null);   // 삭제 확인 중인 deviceId
   const [ksAddType, setKsAddType] = useState({});   // 찾은 구동기별로 고른 장치 종류 (추가 전까지만)
   const [showAddDevice, setShowAddDevice] = useState(false);
@@ -2028,9 +2030,11 @@ const DeviceManager = ({ house, farmId, setEditedHouse, onUpdate, isDirty, savin
         const untestedDevices = modbusDevices.filter(d => modbusTestResult[d.deviceId] === 'fail');
         if (untestedDevices.length > 0) {
           const names = untestedDevices.map(d => `${d.name} (U${d.modbus.unitId || 1})`).join(', ');
-          const proceed = window.confirm(
-            `다음 장치의 Modbus 연결이 확인되지 않았습니다:\n${names}\n\n연결 안 된 장치가 있으면 릴레이 폴링 오류가 발생합니다.\n그래도 저장하시겠습니까?`
-          );
+          const proceed = await confirm({
+            title: 'Modbus 연결이 확인되지 않은 장치가 있습니다',
+            message: `${names}\n\n연결 안 된 장치가 있으면 릴레이 폴링 오류가 납니다.`,
+            confirmText: '그래도 저장', tone: 'danger',
+          });
           if (!proceed) return;
         }
         onSave();
@@ -2606,6 +2610,7 @@ const CHANNEL_OPTIONS = [8, 16, 32];
 const EMPTY_FORM = { name: '', unitId: '', moduleType: 'waveshare', channels: 8, description: '' };
 
 const RelayModuleManager = ({ farmId }) => {
+  const confirm = useConfirm();
   const [modules, setModules] = useState([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -2676,7 +2681,7 @@ const RelayModuleManager = ({ farmId }) => {
   };
 
   const deleteModule = async (id) => {
-    if (!window.confirm('이 릴레이 모듈을 삭제하시겠습니까?')) return;
+    if (!(await confirm({ title: '이 릴레이 모듈을 삭제할까요?', message: '이 모듈을 쓰는 장치의 매핑도 함께 정리해야 합니다.\n잠시 떼어 두는 것이면 「사용 안 함」 을 쓰세요.', tone: 'danger' }))) return;
     await persistModules(modules.filter(m => m.id !== id));
     setRelayStatus(prev => { const n = { ...prev }; delete n[id]; return n; });
     if (channelTest?.moduleId === id) setChannelTest(null);
@@ -2737,7 +2742,7 @@ const RelayModuleManager = ({ farmId }) => {
       alert('릴레이가 연결되어 있지 않습니다.\n먼저 🔌 테스트로 연결을 확인하세요.');
       return;
     }
-    if (!window.confirm(`${module.name} (${module.channels}ch) 전체 채널을 순차적으로 ON→OFF 테스트합니다.\n릴레이가 동작합니다. 진행하시겠습니까?`)) return;
+    if (!(await confirm({ title: '채널 테스트를 시작할까요?', message: `${module.name} (${module.channels}ch) 전체 채널을 순차적으로 ON→OFF 합니다.\n실제 릴레이가 동작합니다.`, confirmText: '시작', tone: 'danger' }))) return;
 
     channelTestAbortRef.current = false;
     const rpiUrl = getRpiApiBase();
@@ -3104,6 +3109,7 @@ const SENSOR_MODULE_TYPES = [
 const EMPTY_SENSOR_FORM = { name: '', unitId: '', sensorType: 'temperature_humidity', fc: 3, address: 0, quantity: 2, divider: 10, signed: false, description: '' };
 
 const SensorModuleManager = ({ farmId }) => {
+  const confirm = useConfirm();
   const [modules, setModules] = useState([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -3173,7 +3179,7 @@ const SensorModuleManager = ({ farmId }) => {
   };
 
   const deleteModule = async (id) => {
-    if (!window.confirm('이 센서 모듈을 삭제하시겠습니까?')) return;
+    if (!(await confirm({ title: '이 센서 모듈을 삭제할까요?', message: '잠시 떼어 두는 것이면 「사용 안 함」 을 쓰세요.', tone: 'danger' }))) return;
     await persistModules(modules.filter(m => m.id !== id));
     setSensorStatus(prev => { const n = { ...prev }; delete n[id]; return n; });
   };
@@ -4087,6 +4093,7 @@ const SystemManagePanel = ({ farmId }) => {
 // SyncPanel — 동기화 상태 및 제어
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 const SyncPanel = ({ farmId }) => {
+  const confirm = useConfirm();
   const [syncStatus, setSyncStatus] = useState(null);
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState(null);
@@ -4131,7 +4138,7 @@ const SyncPanel = ({ farmId }) => {
 
   // hybrid: WebSocket 우선 (Category B: RPi command) + LAN HTTP fallback
   const handleAction = async (action) => {
-    if (action === 'skip' && !window.confirm('미동기화 데이터를 동기화 안함으로 처리하시겠습니까?\n해당 데이터는 서버에 전송되지 않습니다.')) return;
+    if (action === 'skip' && !(await confirm({ title: '동기화 안 함으로 처리할까요?', message: '해당 데이터는 서버로 전송되지 않습니다.', tone: 'danger' }))) return;
     setActionLoading(action);
     setActionMsg(null);
     const labels = { start: '동기화 시작', stop: '동기화 중지', skip: '동기화 안함' };
@@ -4333,6 +4340,7 @@ const SyncPanel = ({ farmId }) => {
 //   담당한다. 그것을 리팩터링하는 위험보다, 단순한 패널을 하나 더 두는 편이 낫다.
 //   제어 이력은 RPi HTTP 경로만 쓰므로 훨씬 단순하다.
 const ControlLogSyncPanel = ({ farmId }) => {
+  const confirm = useConfirm();
   const [status, setStatus] = useState(null);
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState(null);
@@ -4371,10 +4379,10 @@ const ControlLogSyncPanel = ({ farmId }) => {
   }, [actionMsg]);
 
   const handleAction = async (action) => {
-    if (action === 'skip' && !window.confirm(
-      '미동기화 제어 이력을 동기화 안함으로 처리하시겠습니까?\n' +
-      '해당 기록은 서버로 전송되지 않으며 되돌릴 수 없습니다.'
-    )) return;
+    if (action === 'skip' && !(await confirm({
+      title: '제어 이력을 동기화 안 함으로 처리할까요?',
+      message: '해당 기록은 서버로 전송되지 않으며 되돌릴 수 없습니다.', tone: 'danger',
+    }))) return;
 
     setActionLoading(action);
     setActionMsg(null);

@@ -76,3 +76,54 @@ describe("modsync_handler 교체본 — 「사용 안 함」 모듈 제외", () 
     assert.equal(out.payload.disabled, 1);
   });
 });
+
+// ── 릴레이 워치독 — 이 노드만 houseConfig 의 장치에서 모듈을 뽑는다 (global 캐시를 안 본다).
+// 모듈을 꺼도 장치는 남아 있어 계속 두드렸고 「Modbus 모듈 장애」 경보가 그대로 떴다 (2026-10-06 실측).
+const WD = join(here, "..", "..", "..", "docs", "nodered-module-enabled", "fn_wd_request.js");
+
+const HC = (units) => ({ houses: [{ houseId: "house_0001", devices: units.map((u, i) => ({ deviceId: "d" + i, modbus: { unitId: u, moduleType: "waveshare" } })) }] });
+
+const runWd = (globals) => {
+  const e = makeEnv({ clock: makeClock(), globals });
+  const out = e.runFile(WD, {});
+  return { e, out };
+};
+
+describe("wd_request 교체본 — 「사용 안 함」 unitId 는 두드리지 않는다", () => {
+  test("disabledUnits 에 든 unitId 는 건너뛴다", () => {
+    const { e, out } = runWd({ houseConfig: HC([2, 3]), disabledUnits: [3] });
+    assert.deepEqual([...e.global.get("_watchdogModules")].map((m) => m.unitId), [2]);
+    assert.equal(out.payload.unitid, 2);
+  });
+
+  test("disabledUnits 가 없으면 예전과 같다", () => {
+    const { e } = runWd({ houseConfig: HC([2, 3]) });
+    assert.deepEqual([...e.global.get("_watchdogModules")].map((m) => m.unitId), [2, 3]);
+  });
+
+  test("전부 꺼지면 경보도 지운다 — 안 지우면 평가가 안 돌아 옛 경보가 영원히 남는다", () => {
+    const { e, out } = runWd({ houseConfig: HC([2]), disabledUnits: [2], watchdogAlert: { waveshare_2: { failCount: 8 } } });
+    assert.equal(out, null);
+    assert.equal(e.global.get("_watchdogModules").length, 0);
+    assert.ok(!e.global.get("watchdogAlert"), "지켜볼 모듈이 없으면 경보도 없다");   // 하네스는 null 저장을 undefined 로 돌려준다
+  });
+
+  test("modsync_handler 가 넘기는 disabledUnits 와 키가 맞는다", () => {
+    const e = makeEnv({ clock: makeClock(), globals: {} });
+    const out = e.runFile(FILE, {
+      payload: { data: { settings: { relayModules: [{ id: "r1", unitId: 2, enabled: false }], sensorModules: [{ id: "s1", unitId: 1 }] } } },
+      statusCode: 200,
+    });
+    assert.deepEqual([...out.payload.disabledUnits], [2]);
+    assert.deepEqual([...e.global.get("disabledUnits")], [2]);
+  });
+
+  test("같은 unitId 를 쓰는 다른 모듈이 켜져 있으면 끄지 않는다", () => {
+    const e = makeEnv({ clock: makeClock(), globals: {} });
+    e.runFile(FILE, {
+      payload: { data: { settings: { relayModules: [{ id: "r1", unitId: 2, enabled: false }], sensorModules: [{ id: "s1", unitId: 2 }] } } },
+      statusCode: 200,
+    });
+    assert.equal(e.global.get("disabledUnits").length, 0, "켜진 모듈이 쓰는 주소를 막으면 그 모듈이 죽는다");
+  });
+});

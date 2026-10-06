@@ -2,6 +2,7 @@ import React from 'react'
 import ReactDOM from 'react-dom/client'
 import * as Sentry from '@sentry/react'
 import App from './App.jsx'
+import { ConfirmProvider } from './components/common/ConfirmDialog.jsx'
 import './index.css'
 
 if (import.meta.env.VITE_GLITCHTIP_DSN) {
@@ -30,7 +31,10 @@ if (import.meta.env.VITE_GLITCHTIP_DSN) {
 
 ReactDOM.createRoot(document.getElementById('root')).render(
   <React.StrictMode>
-    <App />
+    {/* 확인창은 화면 안에서 — window.confirm 은 브라우저가 막으면 말없이 false (2026-10-06) */}
+    <ConfirmProvider>
+      <App />
+    </ConfirmProvider>
   </React.StrictMode>,
 )
 

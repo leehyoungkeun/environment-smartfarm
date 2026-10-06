@@ -19,6 +19,7 @@ import CCTVPanel from './components/Dashboard/CCTVPanel';
 import NutrientPanel from './components/Nutrient/NutrientPanel';
 import { getApiBase, getRpiApiBase, isFarmLocalMode, getSystemMode, onModeChange, setFarmLocalMode } from './services/apiSwitcher';
 import TouchKeyboard from './components/Common/TouchKeyboard';
+import { useConfirm } from './components/common/ConfirmDialog.jsx';
 
 /**
  * Error Boundary — 컴포넌트 렌더 에러 시 하얀 화면 방지
@@ -195,6 +196,7 @@ const ControlPage = ({ farmId, isTouchPanel = false }) => {
 };
 
 function AppContent() {
+  const confirm = useConfirm();
   const { user, logout, hasPermission, roleLabel, loading: authLoading, needsSetup, farms, selectedFarmId, selectedFarmInfo, selectFarm, isSystemWide } = useAuth();
   const getPageFromHash = () => {
     const hash = window.location.hash.replace('#', '');
@@ -726,8 +728,8 @@ function AppContent() {
               {/* 종료 — 로그아웃 */}
               <div className="border-t border-gray-100 mt-2 pt-2">
                 <button
-                  onClick={() => {
-                    if (window.confirm('로그아웃 하시겠습니까?')) {
+                  onClick={async () => {
+                    if (await confirm({ title: '로그아웃 할까요?', confirmText: '로그아웃', tone: 'danger' })) {
                       logout();
                       setShowMobileSidebar(false);
                     }

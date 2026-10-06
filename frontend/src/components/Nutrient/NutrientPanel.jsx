@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import NutrientRealtime from './NutrientRealtime';
 import NutrientSettings from './NutrientSettings';
 import * as nutrientApi from '../../services/nutrientApi';
+import { useConfirm } from '../common/ConfirmDialog.jsx';
 
 const TABS = [
   { id: 'realtime', label: '실시간', icon: '📊', desc: '운영·제어·흐름' },
@@ -23,6 +24,7 @@ const MOCK_ENV = {
 };
 
 export default function NutrientPanel({ farmId }) {
+  const confirm = useConfirm();
   const [activeTab, setActiveTab] = useState('realtime');
   const [mode, setMode] = useState('paused');
   const [programNum, setProgramNum] = useState(null);
@@ -75,7 +77,7 @@ export default function NutrientPanel({ farmId }) {
     if (newMode === mode) return;
     // 사용자 액션일 때만 emergency 확인 — 외부 자동 변경 (RPi GPIO 등) 은 confirm 우회
     if (!opts.external && newMode === 'emergency'
-        && !window.confirm('비상정지하시겠습니까?\n모든 릴레이가 OFF 됩니다.')) return;
+        && !(await confirm({ title: '비상정지하시겠습니까?', message: '모든 릴레이가 OFF 됩니다.', confirmText: '비상정지', tone: 'danger' }))) return;
     const prev = mode;
     setMode(newMode);
     if (opts.external) return;  // 외부 변경 통보 — API 호출 X

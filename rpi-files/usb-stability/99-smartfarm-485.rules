@@ -1,25 +1,19 @@
 # /etc/udev/rules.d/99-smartfarm-485.rules
-# SmartFarm USB-485 어댑터 안정화 (2026-09-02: 표준 노드 FTDI 분리)
+# SmartFarm USB-485 어댑터 안정화
 #  - CH340(1a86) = 자체 장치(Waveshare 릴레이·XY-MD02) → /dev/smartfarm-485
 #  - FTDI(0403)  = KS X 3267 표준 노드 전용 → /dev/smartfarm-485-std (자체와 물리·심링크 분리)
 #
-# 적용:
-#   sudo cp 99-smartfarm-485.rules /etc/udev/rules.d/
-#   sudo udevadm control --reload-rules
-#   sudo udevadm trigger
-#
-# ⚠ FTDI 를 꽂기 전에 이 규칙부터 넣을 것. 옛 규칙은 VID 만 봐서 CH340 과 FTDI 를 둘 다
-#   smartfarm-485 로 보냈고, FTDI 를 꽂는 순간 자체 485 심링크를 빼앗겨 측창·센서가
-#   빈 버스를 가리켰다 (2026-09-02 farm_0001). 두 칩이 모두 CH340 이면 KERNELS== 포트경로로 고정.
-#   이 사본은 2026-09-14 farm_0001 라이브(/etc/udev/rules.d/99-smartfarm-485.rules)와 동기화함.
+# 2026-10-06: 복구를 RUN+= 에서 systemd 유닛으로 옮겼다. RUN+= 로 띄운 프로세스는
+#   udev 의 cgroup 에 묶여 이벤트가 끝나면 죽는다 — 거기서 pm2 를 부르면 pm2 데몬이
+#   함께 죽어 전체 프로세스가 내려간다. udev 는 유닛을 지명만 한다.
 
-# CH340 = 자체 485
+# CH340 = 자체 485 (연결되면 복구 유닛 기동)
 SUBSYSTEM=="tty", ATTRS{idVendor}=="1a86", ATTRS{idProduct}=="7523", \
     SYMLINK+="smartfarm-485", \
     GROUP="dialout", MODE="0660", \
-    RUN+="/usr/local/bin/smartfarm-usb-event.sh add %k"
+    TAG+="systemd", ENV{SYSTEMD_WANTS}+="smartfarm-usb-recover@%k.service"
 
-# FTDI = KS 표준 노드 전용 485 (NR 재시작 RUN 없음 — ks3267d 가 소유)
+# FTDI = KS 표준 노드 전용 485 (복구 없음 — ks3267d 가 포트를 직접 소유하고 스스로 재연결한다)
 SUBSYSTEM=="tty", ATTRS{idVendor}=="0403", \
     SYMLINK+="smartfarm-485-std", \
     GROUP="dialout", MODE="0660"
@@ -30,6 +24,8 @@ ACTION=="add", SUBSYSTEM=="usb", ATTR{idVendor}=="1a86", ATTR{idProduct}=="7523"
 # USB autosuspend 비활성화 (FTDI)
 ACTION=="add", SUBSYSTEM=="usb", ATTR{idVendor}=="0403", \
     TEST=="power/control", ATTR{power/control}="on"
-# USB-485 분리 감지 → 백엔드 알림
+
+# 분리 감지 → 백엔드 알림만. 짧은 curl 한 번이라 RUN+= 로 둬도 안전하다
+# (자식 프로세스를 남기지 않는다 — 남기면 위와 같은 사고가 난다).
 ACTION=="remove", SUBSYSTEM=="tty", KERNEL=="ttyUSB*", \
     RUN+="/usr/local/bin/smartfarm-usb-event.sh remove %k"

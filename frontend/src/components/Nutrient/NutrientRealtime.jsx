@@ -6,6 +6,7 @@
 
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import * as nutrientApi from '../../services/nutrientApi';
+import { useConfirm } from '../common/ConfirmDialog.jsx';
 
 
 const STATE_POLL_MS  = 5000;
@@ -56,6 +57,7 @@ const MODE_ICON = { auto: Ico.Play, manual: Ico.Hand, direct: Ico.Direct, paused
 const kicker = { fontSize: 11.5, fontWeight: 700, color: T.fg3, letterSpacing: '0.14em', textTransform: 'uppercase' };
 
 export default function NutrientRealtime({ farmId, mode, onModeChange, onProgramChange, onPhaseChange, onAutoStatusChange, onManualStatusChange }) {
+  const confirm = useConfirm();
   const [state, setState] = useState(null);
   const [config, setConfig] = useState(null);
   const [scenarios, setScenarios] = useState([]);
@@ -361,7 +363,7 @@ export default function NutrientRealtime({ farmId, mode, onModeChange, onProgram
   };
 
   const abortRunningJob = async () => {
-    if (!window.confirm('진행 중인 수동 공급을 중단할까요?\n모든 양액 릴레이가 OFF 됩니다.')) return;
+    if (!(await confirm({ title: '수동 공급을 중단할까요?', message: '모든 양액 릴레이가 OFF 됩니다.', confirmText: '중단', tone: 'danger' }))) return;
     try {
       await nutrientApi.abortManualJob(farmId);
       refreshManualJobs();

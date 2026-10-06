@@ -1,0 +1,11 @@
+[Unit]
+Description=SmartFarm pm2 감시 (1분마다)
+
+[Timer]
+OnBootSec=90
+OnUnitActiveSec=60
+AccuracySec=5s
+Unit=smartfarm-pm2-guard.service
+
+[Install]
+WantedBy=timers.target

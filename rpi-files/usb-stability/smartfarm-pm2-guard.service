@@ -1,0 +1,8 @@
+[Unit]
+Description=SmartFarm pm2 감시·자동 복구
+After=pm2-lhk.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/smartfarm-pm2-guard.sh
+TimeoutStartSec=120

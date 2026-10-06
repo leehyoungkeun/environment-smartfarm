@@ -45,6 +45,19 @@ const relayModules = allRelay.filter(on);
 const sensorModules = allSensor.filter(on);
 const offCount = (allRelay.length - relayModules.length) + (allSensor.length - sensorModules.length);
 
+// 릴레이 워치독(wd_request)은 모듈 목록을 houseConfig 의 장치에서 뽑는다 — 이 캐시를 보지 않는다.
+// 그래서 꺼둔 모듈의 unitId 를 따로 넘겨 거기서도 거르게 한다 (2026-10-06).
+// 같은 unitId 를 쓰는 다른 모듈이 켜져 있으면 끄면 안 되므로, 켜진 쪽을 먼저 모은다.
+const enabledUnits = {};
+relayModules.concat(sensorModules).forEach(function (m) { if (m && m.unitId != null) enabledUnits[m.unitId] = true; });
+const disabledUnits = [];
+allRelay.concat(allSensor).forEach(function (m) {
+    if (m && m.enabled === false && m.unitId != null && !enabledUnits[m.unitId] && disabledUnits.indexOf(Number(m.unitId)) < 0) {
+        disabledUnits.push(Number(m.unitId));
+    }
+});
+global.set('disabledUnits', disabledUnits);
+
 const prevRelay = global.get('relayModules') || [];
 const prevSensor = global.get('sensorModules') || [];
 
@@ -67,5 +80,5 @@ if (changed) {
         + ' sensor=' + sensorModules.length + (offCount ? ' · 사용 안 함 ' + offCount + '개 제외' : ''));
 }
 
-msg.payload = { relayModules, sensorModules, changed, source, disabled: offCount };
+msg.payload = { relayModules, sensorModules, changed, source, disabled: offCount, disabledUnits };
 return msg;

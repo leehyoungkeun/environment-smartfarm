@@ -63,13 +63,18 @@ groups:
       #   9/12 정전·9/13 농장 이동으로 표준 구동기 하루 손실률이 43%·48% 가 됐고 30일 창이 끊겼는데
       #   아무도 몰랐다. 어제(KST) 손실률이 3% 를 넘으면 30일을 오늘부터 다시 세야 한다.
       #   입고일을 잡기 전에 알아야 하므로 당일에 알린다. 지표는 10분 캐시라 for 30m.
+      #   2026-10-06 소음 정리: 센서·구동기마다 한 건씩 떠서 **활성 경보 17건 중 14건**이 이것이었다.
+      #   중요한 경보(SensorDataStalled·KioskApiDown)가 묻혔다. 두 가지를 고쳤다.
+      #     1) 농장 단위로 묶는다 — 어차피 조치는 농장 단위다 (14건 → 1건).
+      #     2) house_0003 제외 — 기능시험용 **시뮬레이션 채움 데이터**가 든 하우스라
+      #        손실률이 의미 없다. 그 데이터를 지우면 이 제외도 지울 것.
       - alert: KsDataWindowBroken
-        expr: smartfarm_ks_data_loss_yesterday_pct > 3
+        expr: max by (farm_id) (smartfarm_ks_data_loss_yesterday_pct{house_id!="house_0003"}) > 3
         for: 30m
         labels:
           severity: warning
         annotations:
-          summary: "{{ $labels.farm_id }} {{ $labels.kind }} {{ $labels.series }} 검정 30일 데이터 창 끊김"
+          summary: "{{ $labels.farm_id }} 검정 30일 데이터 창 끊김 (최대 손실률)"
           description: "어제 1분 데이터 손실률이 {{ $value }}% 로 검정 기준 3% 를 넘었습니다. KOAT 116 의 30일 데이터를 오늘부터 다시 세야 합니다. 입고 가능일까지 남은 일수는 smartfarm_ks_data_ready_in_days 로 확인하십시오."
 
   - name: smartfarm-resource

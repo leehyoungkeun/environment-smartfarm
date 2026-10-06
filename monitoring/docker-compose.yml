@@ -108,6 +108,10 @@ services:
     command:
       - --config.file=/etc/alertmanager/alertmanager.yml
       - --storage.path=/alertmanager
+      # 단일 노드인데 클러스터(가십)가 기본으로 켜져 있어, 피어가 없는 채로 큐가 쌓여
+      # "dropping messages because too many are queued (410)" 가 15분마다 반복됐다 (2026-10-06).
+      # 빈 값이면 클러스터를 아예 쓰지 않는다. 노드를 늘릴 때 이 줄을 지우면 된다.
+      - --cluster.listen-address=
     ports:
       - "127.0.0.1:9093:9093"
     extra_hosts:

@@ -1,0 +1,22 @@
+# SmartFarm USB-485 재연결 복구 (2026-10-06)
+#
+# 왜 유닛으로 뺐나:
+#   udev 의 RUN+= 는 systemd-udevd 의 임시 cgroup 안에서 돈다. 이벤트 처리가 끝나면
+#   udev 가 그 cgroup 에 남은 프로세스를 전부 죽인다. 예전 스크립트는 거기서
+#   `( sleep 3; pm2 restart node-red ) &` 를 띄웠고, 그 pm2 가 udev 와 함께 죽으면서
+#   **pm2 데몬째로** 사라져 7개 프로세스가 전부 내려갔다 (2026-10-06 실측, 저녁에 4번).
+#   udev 는 방아쇠만 당기고 실제 복구는 이 유닛이 자기 cgroup 에서 끝까지 수행한다.
+[Unit]
+Description=SmartFarm USB-485 재연결 복구 (%i)
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=lhk
+Group=lhk
+Environment=HOME=/home/lhk
+Environment=PATH=/usr/local/bin:/usr/bin:/bin
+# USB 재인식 직후 포트(ttyUSB 번호·심링크)가 자리잡을 시간
+ExecStartPre=/bin/sleep 3
+ExecStart=/usr/local/bin/smartfarm-usb-event.sh add %i
+TimeoutStartSec=180

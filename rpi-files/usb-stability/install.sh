@@ -36,6 +36,23 @@ echo "==> [3/6] /usr/local/bin 스크립트 설치"
 sudo install -m 0755 "$SRC_DIR/smartfarm-usb-event.sh" /usr/local/bin/smartfarm-usb-event.sh
 sudo install -m 0755 "$SRC_DIR/smartfarm-modbus-healthcheck.sh" /usr/local/bin/smartfarm-modbus-healthcheck.sh
 sudo install -m 0755 "$SRC_DIR/smartfarm-restart-nodered.sh" /usr/local/bin/smartfarm-restart-nodered.sh
+sudo install -m 0755 "$SRC_DIR/smartfarm-pm2-guard.sh" /usr/local/bin/smartfarm-pm2-guard.sh
+sudo install -m 0755 "$SRC_DIR/smartfarm-recovery-check.sh" /usr/local/bin/smartfarm-recovery-check.sh
+
+# ── 자가복구 (2026-10-06) — 제어기가 사람 없이 스스로 일어나게 ──
+#   ① USB 복구는 udev 가 아니라 전용 유닛에서. udev RUN+= 로 pm2 를 부르면 udev 가
+#      이벤트를 마치며 cgroup 을 정리할 때 pm2 데몬째로 죽는다 (2026-10-06 실측, 7개 전멸).
+#   ② pm2-lhk 기본 TimeoutStartSec=90 은 앱 8개 resurrect 에 모자라, systemd 가
+#      "start timed out" 으로 자기가 띄운 pm2 를 죽이는 루프가 된다 (9회 반복).
+#   ③ 그래도 전부 사라지면 가드 타이머가 60초 안에 되살린다.
+echo "==> [3b] 자가복구 유닛 설치"
+sudo install -m 0644 "$SRC_DIR/smartfarm-usb-recover@.service" /etc/systemd/system/
+sudo install -m 0644 "$SRC_DIR/smartfarm-pm2-guard.service"    /etc/systemd/system/
+sudo install -m 0644 "$SRC_DIR/smartfarm-pm2-guard.timer"      /etc/systemd/system/
+sudo mkdir -p /etc/systemd/system/pm2-lhk.service.d
+sudo install -m 0644 "$SRC_DIR/pm2-lhk.service.d-override.conf" /etc/systemd/system/pm2-lhk.service.d/override.conf
+sudo systemctl daemon-reload
+sudo systemctl enable --now smartfarm-pm2-guard.timer
 
 # 4) /boot/firmware/cmdline.txt — usbcore.autosuspend=-1 (즉시 효과 없음, 다음 reboot 부터)
 echo "==> [4/6] cmdline.txt 패치 (usbcore.autosuspend=-1)"
@@ -89,6 +106,8 @@ echo "  ls -la /dev/smartfarm-485                         # ttyUSBn 가리키는
 echo "  cat /sys/bus/usb/devices/*/power/control          # 'on' 이어야 함"
 echo "  crontab -l | grep smartfarm-modbus-healthcheck"
 echo "  ls -la /usr/local/bin/smartfarm-*.sh"
+echo "  systemctl is-active smartfarm-pm2-guard.timer     # 자가복구 타이머"
+echo "  smartfarm-recovery-check.sh                       # 복구 능력 13항목 실측 (설정이 아니라 동작을 본다)"
 echo ""
 echo "다음 단계 (수동):"
 echo "  1. Node-RED 에디터에서 modbus-client 노드 옵션 갱신 (serialPort=/dev/smartfarm-485)"

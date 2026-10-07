@@ -426,9 +426,11 @@ const ResultCard = ({ group, columns, fileBase }) => {
   // 그래프용 — 고른 열이 숫자인 행만, 균등 간격으로 솎아서
   const chartData = useMemo(() => {
     if (!field) return [];
+    // 표는 최신이 위지만 그래프는 **시간순**이어야 한다 — 안 그러면 가로축이 거꾸로 간다 (2026-10-07)
     const pts = group.rows
       .map(r => ({ t: r.timestamp, v: Number(r[field.key]) }))
-      .filter(p => Number.isFinite(p.v));
+      .filter(p => Number.isFinite(p.v))
+      .sort((a, b) => new Date(a.t) - new Date(b.t));
     if (pts.length <= CHART_MAX_POINTS) return pts;
     const step = Math.ceil(pts.length / CHART_MAX_POINTS);
     return pts.filter((_, i) => i % step === 0);

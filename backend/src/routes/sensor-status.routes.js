@@ -20,7 +20,9 @@ async function queryRows(farmId, { unit, idx, houseId, start, end, limit }) {
   }
   if (houseId) { params.push(houseId); sql += ` AND house_id = $${params.length}`; }
   params.push(Math.min(parseInt(limit) || MAX_ROWS, MAX_ROWS));
-  sql += ` ORDER BY "timestamp" ASC, unit ASC, idx ASC LIMIT $${params.length}`;
+  // 최신부터 (2026-10-07) — ASC LIMIT 이면 한도를 넘을 때 **최신이 통째로 잘린다**.
+  // 부르는 쪽이 파일처럼 시간순이 필요하면 뒤집어 쓴다.
+  sql += ` ORDER BY "timestamp" DESC, unit ASC, idx ASC LIMIT $${params.length}`;
   const { rows } = await pool.query(sql, params);
   return rows;
 }
@@ -29,8 +31,8 @@ async function queryRows(farmId, { unit, idx, houseId, start, end, limit }) {
 router.get("/:farmId", async (req, res) => {
   try {
     const [start, end] = resolveRange(req.query.startDate, req.query.endDate);
-    const rows = await queryRows(req.params.farmId, { ...req.query, start, end });
-    res.json({ success: true, count: rows.length, range: { start, end }, intervalSec: 60, data: rows });
+    const rows = await queryRows(req.params.farmId, { ...req.query, start, end });   // 최신이 위
+    res.json({ success: true, count: rows.length, range: { start, end }, intervalSec: 60, order: "desc", data: rows });
   } catch (e) {
     res.status(400).json({ success: false, error: e.message });
   }
@@ -41,6 +43,7 @@ router.get("/:farmId/export", async (req, res) => {
   try {
     const [start, end] = resolveRange(req.query.startDate, req.query.endDate);
     const rows = await queryRows(req.params.farmId, { ...req.query, start, end });
+    rows.reverse();   // 파일은 시간순(오름차순) — 조회는 최신이 위, 파일은 관례대로
     const { columns, rows: table } = sensorStatusTable(rows);
     const body = toDelimited(table, columns, req.query.format);
     res.setHeader("Content-Type", formatSpec(req.query.format).mime);

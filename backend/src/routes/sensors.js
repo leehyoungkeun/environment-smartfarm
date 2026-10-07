@@ -364,13 +364,19 @@ router.get("/:farmId/:houseId/export", async (req, res, next) => {
     const [start, end] = resolveRange(req.query.startDate, req.query.endDate);
     const sensorIds = req.query.sensorIds ? String(req.query.sensorIds).split(",").map((s) => s.trim()).filter(Boolean) : null;
     const limit = Math.min(parseInt(req.query.limit) || 50000, 50000); // 31일 × 1440 = 44,640
+    // 최신부터 가져온다 (2026-10-07). 예전엔 ASC LIMIT 이라, 행이 한도를 넘으면
+    // **가장 오래된 것만 주고 최신을 통째로 버렸다** — 화면에서 뒤집어도 최신이 아니다.
+    // 잘려야 한다면 오래된 쪽이 잘리는 게 맞다.
     const { rows } = await pool.query(
       `SELECT "timestamp", data FROM sensor_data WHERE farm_id = $1 AND house_id = $2 AND "timestamp" >= $3 AND "timestamp" <= $4
-       ORDER BY "timestamp" ASC LIMIT $5`, [farmId, houseId, start, end, limit]);
+       ORDER BY "timestamp" DESC LIMIT $5`, [farmId, houseId, start, end, limit]);
     const { columns, rows: table } = sensorTable(rows, sensorIds);
     if (String(req.query.format || "").toLowerCase() === "json") {
-      return res.json({ success: true, count: table.length, range: { start, end }, columns: columns.map((c) => c.key), data: table });
+      // 화면 조회 — 최신이 위
+      return res.json({ success: true, count: table.length, range: { start, end }, columns: columns.map((c) => c.key), data: table, order: "desc" });
     }
+    // 파일은 시간순(오름차순)이 관례다 — 시계열 자료를 거꾸로 주면 쓰는 쪽이 다시 정렬해야 한다
+    table.reverse();
     res.setHeader("Content-Type", formatSpec(req.query.format).mime);
     res.setHeader("Content-Disposition", `attachment; filename="${exportFilename("sensor", farmId, houseId, start, end, req.query.format)}"`);
     res.send(toDelimited(table, columns, req.query.format));

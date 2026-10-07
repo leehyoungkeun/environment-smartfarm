@@ -816,7 +816,27 @@ const DiscoveredBox = ({ title, desc, err, reload, empty, children }) => (
   </div>
 );
 
+// 센서 ID 로 모듈 종류를 추측하던 규칙 — 이제 **덮어쓰기에는 쓰지 않고**, 화면에서
+// "등록 모듈과 다릅니다" 를 알려 줄 때만 쓴다 (2026-10-07). 판단은 사람이 한다.
+const guessModuleType = (sensorId) => {
+  const id = String(sensorId || '').toLowerCase();
+  if (id.startsWith('temp')) return 'temperature_humidity';
+  if (id.startsWith('humid')) return 'temperature_humidity';
+  if (id.startsWith('co2')) return 'co2';
+  if (id.startsWith('soil_temp') || id.startsWith('soil_moist')) return 'soil';
+  if (id.startsWith('ec')) return 'ec';
+  if (id.startsWith('ph')) return 'ph';
+  return null;
+};
+
 const HouseDetailEditor = ({ house, farmId, onUpdate }) => {
+  // 농장 센서 모듈 — 센서 매핑이 모듈과 다른지 **보여 주기 위해서만** 읽는다 (고치지 않는다)
+  const [farmSensorModules, setFarmSensorModules] = useState([]);
+  useEffect(() => {
+    axiosBase.get(`${getPcApiBase()}/config/system-settings/${farmId}`, { timeout: 8000 })
+      .then(r => setFarmSensorModules(r.data?.data?.settings?.sensorModules || []))
+      .catch(() => setFarmSensorModules([]));
+  }, [farmId]);
   const [confirmDeleteSensor, setConfirmDeleteSensor] = useState(null);   // 삭제 확인 중인 sensorId
   const ksFound = useKsDiscovered(farmId);   // 표준 노드에서 찾은 센서·구동기 (아래 매핑 목록)
   const [editedHouse, setEditedHouse] = useState(house);
@@ -1258,6 +1278,30 @@ const HouseDetailEditor = ({ house, farmId, onUpdate }) => {
                         {sensor.ks3267?.unit != null && (
                           <span className={`font-semibold ${validateKsSensor(sensor.ks3267).length ? 'text-rose-600' : 'text-indigo-600'}`} title={validateKsSensor(sensor.ks3267).join(' / ')}>
                             {' '}· 📐 표준 U{sensor.ks3267.unit} 센서{sensor.ks3267.index}
+                          </span>
+                        )}
+                        {/* 매핑이 비어 있는 센서를 드러낸다 (2026-10-07).
+                            예전에는 비어 있어도 Node-RED 가 조용히 채워 읽었다 — 화면은 비어 보이는데
+                            값은 들어오니, 그 값이 어느 장치 것인지 알 수 없었다. */}
+                        {/* 등록 모듈과 다른 매핑 — 알려만 주고 고치지 않는다 (2026-10-07).
+                            예전엔 이런 차이를 시스템이 말없이 모듈 값으로 되돌렸다. */}
+                        {hasModbus && sensor.ks3267?.unit == null && (() => {
+                          const t = guessModuleType(sensor.sensorId);
+                          const mod = t && farmSensorModules.find(m => m.sensorType === t && m.enabled !== false);
+                          if (!mod) return null;
+                          const same = mb.unitId === mod.unitId && (mb.address || 0) === (mod.address || 0)
+                            && (mb.fc || 3) === (mod.fc || 3) && (mb.quantity || 1) === (mod.quantity || 1);
+                          if (same) return null;
+                          return (
+                            <span className="text-amber-600 font-semibold"
+                              title={`등록된 「${mod.name || t}」 모듈은 U${mod.unitId}:R${mod.address || 0} (FC${mod.fc || 3}) 입니다. 이 센서는 다르게 지정돼 있습니다 — 의도한 것이면 그대로 두세요. 시스템이 바꾸지 않습니다.`}>
+                              {' '}· ⚠ 모듈과 다름
+                            </span>
+                          );
+                        })()}
+                        {!hasModbus && sensor.ks3267?.unit == null && (
+                          <span className="font-semibold text-amber-600" title="이 센서는 읽을 장치가 지정돼 있지 않습니다. 하우스가 하나뿐인 농장은 등록된 센서 모듈로 자동 연결되지만, 어느 장치인지 화면에 남지 않습니다.">
+                            {' '}· ⚠ 매핑 없음
                           </span>
                         )}
                       </p>

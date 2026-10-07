@@ -4,11 +4,33 @@
 
 import express from "express";
 import Config from "../models/Config.js";
-import { pool } from "../db.js";
+import { prisma, pool } from "../db.js";
 import logger from "../utils/logger.js";
 import mqttService from "../services/mqttClient.js";
 import { authorize } from "../middleware/auth.middleware.js";
 import { reportServerError } from "../utils/errorReport.js";
+
+// ── 설정 변경 이력 (2026-10-07) ──────────────────────────────────────
+// 왜: 설정이 "내가 안 했는데" 바뀌는 일이 있었고, 흔적이 없어 코드를 뒤져야 알 수 있었다
+// (농장 센서 모듈 저장이 모든 하우스의 센서 매핑을 덮어쓰던 것). 이제 사람이 바꾼 것과
+// 시스템이 바꾼 것을 모두 남긴다. 보고서 › 감사 로그에서 바로 보인다.
+async function auditConfig(req, action, targetId, details = {}) {
+  try {
+    await prisma.auditLog.create({
+      data: {
+        farmId: details.farmId || null,
+        userId: req?.user?.id || null,
+        userName: req?.user?.name || req?.user?.username || (req ? null : "system"),
+        action,
+        targetType: "config",
+        targetId: targetId || null,
+        details,
+      },
+    });
+  } catch (e) {
+    logger.warn(`설정 변경 이력 기록 실패: ${e.message}`);
+  }
+}
 
 const router = express.Router();
 
@@ -214,6 +236,7 @@ router.put("/:houseId", async (req, res) => {
     }
     updateData.configVersion = maxVer + 1;
 
+    const beforeCfg = await Config.findOne(query).catch(() => null);
     const config = await Config.findOneAndUpdate(query, updateData, {
       new: true,
       upsert: true,
@@ -315,10 +338,33 @@ router.post("/:farmId/sync", async (req, res) => {
       const existing = allExisting.find(e => e.houseId === cfg.houseId);
 
       if (existing) {
+        // 제어기 → 서버 설정 동기화의 승자 판정 (2026-10-07 개정)
+        //
+        // 예전에는 updatedAt **벽시계**만 비교했다. 제어기에는 RTC 배터리가 없어
+        // 전원이 끊기면 1970 으로 부팅하고, NTP 가 붙기까지 몇 분~수십 분 걸린다
+        // (2026-10-05 실측 38분). 그동안
+        //   · 시계가 뒤처지면 → 제어기에서 바꾼 설정이 영영 서버로 못 올라간다
+        //   · 시계가 앞서면   → 서버에서 바꾼 설정이 조용히 되돌아간다
+        // 둘 다 "설정한 대로" 를 깬다. 그래서 **우리가 올리는 configVersion** 을 먼저 본다.
         const existingTime = new Date(existing.updatedAt).getTime();
         const incomingTime = new Date(cfg.updatedAt).getTime();
+        const existingVer = Number(existing.configVersion) || 0;
+        const incomingVer = Number(cfg.configVersion) || 0;
 
-        if (incomingTime > existingTime) {
+        // 시계가 말이 안 되면(1970 부팅·먼 미래) 시각 비교를 믿지 않는다
+        const CLOCK_MIN = Date.UTC(2020, 0, 1);
+        const CLOCK_MAX = Date.now() + 24 * 60 * 60 * 1000;
+        const clockSane = Number.isFinite(incomingTime) && incomingTime > CLOCK_MIN && incomingTime < CLOCK_MAX;
+
+        const accept = incomingVer !== existingVer
+          ? incomingVer > existingVer                 // 버전이 다르면 버전이 이긴다
+          : (clockSane && incomingTime > existingTime); // 같은 버전이면 시각 (옛 제어기 호환)
+
+        if (!clockSane) {
+          logger.warn(`[config/sync] ${farmId}/${cfg.houseId} 제어기 시각이 비정상(${cfg.updatedAt}) — 시각 비교를 쓰지 않고 configVersion(${incomingVer} vs ${existingVer})만 본다`);
+        }
+
+        if (accept) {
           hasUpdate = true;
           await Config.findOneAndUpdate(
             { farmId, houseId: cfg.houseId },
@@ -338,6 +384,11 @@ router.post("/:farmId/sync", async (req, res) => {
             { new: true }
           );
           results.updated++;
+          await auditConfig(null, "config.sync.overwrite", cfg.houseId, {
+            farmId, houseId: cfg.houseId, source: "rpi",
+            fromVersion: existingVer, toVersion: incomingVer,
+            rpiUpdatedAt: cfg.updatedAt, clockSane,
+          });
         } else {
           results.skipped++;
         }
@@ -535,93 +586,19 @@ router.put("/system-settings/:farmId", async (req, res) => {
       }
     }
 
-    // sensorModules 저장 시 → farms.houses.sensors.modbus 도 동기 갱신
-    // (system_settings 와 houses.sensors 저장 위치 이원화 결함 방어)
-    const submittedSensorModules = req.body.settings?.sensorModules;
-    if (Array.isArray(submittedSensorModules)) {
-      try {
-        const modByType = {};
-        for (const mod of submittedSensorModules) {
-          // 「사용 안 함」 모듈은 houses.sensors.modbus 에 내리지 않는다 — 내리면 NR 이 다시 읽는다 (2026-10-06)
-          if (mod?.sensorType && mod.enabled !== false) modByType[mod.sensorType] = mod;
-        }
-        const inferType = (sensorId) => {
-          const id = String(sensorId || "").toLowerCase();
-          if (id.startsWith("temp")) return { type: "temperature_humidity", registerIndex: 1 };
-          if (id.startsWith("humid")) return { type: "temperature_humidity", registerIndex: 0 };
-          if (id.startsWith("co2")) return { type: "co2", registerIndex: 0 };
-          if (id.startsWith("soil_temp")) return { type: "soil", registerIndex: 0 };
-          if (id.startsWith("soil_moist")) return { type: "soil", registerIndex: 1 };
-          if (id.startsWith("ec")) return { type: "ec", registerIndex: 0 };
-          if (id.startsWith("ph")) return { type: "ph", registerIndex: 0 };
-          return null;
-        };
-        const houses = await Config.find({ farmId });
-        let maxVer = 0;
-        for (const h of houses) {
-          if ((h.configVersion || 0) > maxVer) maxVer = h.configVersion || 0;
-        }
-        let syncedCount = 0;
-        for (const house of houses) {
-          let changed = false;
-          const newSensors = (house.sensors || []).map((s) => {
-            const inferred = inferType(s.sensorId);
-            if (!inferred) return s;
-            const mod = modByType[inferred.type];
-            if (!mod) return s;
-            const newModbus = {
-              unitId: mod.unitId,
-              fc: mod.fc || 3,
-              address: mod.address || 0,
-              quantity: mod.quantity || 1,
-              registerIndex: inferred.registerIndex,
-              divider: mod.divider || 1,
-              signed: mod.signed || false,
-            };
-            if (JSON.stringify(s.modbus || {}) !== JSON.stringify(newModbus)) {
-              changed = true;
-              syncedCount++;
-              return { ...s, modbus: newModbus };
-            }
-            return s;
-          });
-          if (changed) {
-            await Config.findOneAndUpdate(
-              { farmId, houseId: house.houseId },
-              { sensors: newSensors, configVersion: maxVer + 1 }
-            );
-          }
-        }
-        if (syncedCount > 0) {
-          logger.info(`✅ sensorModules → houses.sensors.modbus sync: ${syncedCount}개 (farmId=${farmId})`);
-          mqttService.publishConfigUpdate(farmId, {
-            type: "sensors_synced",
-            configVersion: maxVer + 1,
-          });
-        }
-      } catch (e) {
-        logger.warn(`sensorModules sync 실패 (farmId=${farmId}): ${e.message}`);
-      }
-    }
-
-    // 모듈 변경 감지 → RPi에 즉시 알림 (즉시 반영, 5분 검증으로 누락 보정)
-    const submittedSettings = req.body.settings;
-    if (
-      submittedSettings &&
-      typeof submittedSettings === "object" &&
-      (submittedSettings.relayModules !== undefined ||
-        submittedSettings.sensorModules !== undefined)
-    ) {
-      mqttService.publishConfigUpdate(farmId, {
-        type: "modules_changed",
-        relayModuleCount: Array.isArray(submittedSettings.relayModules)
-          ? submittedSettings.relayModules.length
-          : undefined,
-        sensorModuleCount: Array.isArray(submittedSettings.sensorModules)
-          ? submittedSettings.sensorModules.length
-          : undefined,
-      });
-    }
+    // 2026-10-07 제거 — 사람이 정한 센서 매핑을 시스템이 덮어쓰지 않는다.
+    //
+    // 예전에는 sensorModules 를 저장할 때마다 **농장의 모든 하우스**를 돌며,
+    // 센서 ID 가 temp_* / humidity_* 로 시작하면 그 모듈 설정을 sensors[].modbus 에 덮어썼다.
+    //   · 센서 이름만 보고 추측했다 (그 하우스에 그 하드웨어가 있는지는 보지 않았다)
+    //   · 사람이 화면에서 지정한 매핑도 말없이 바꿨다
+    //   · 표준(ks3267) 센서까지 덮어, 다른 하우스 레지스터를 가리키는 설정이 남았다
+    //     (house_0003 temp_0002 가 house_0001 의 XY-MD02 번지를 가리키던 것)
+    // 사용자 요구: "내가 매핑한 대로 있어야 하고 CRUD 가 설정한 대로 그대로 있어야 한다".
+    //
+    // 원래 막으려던 문제(모듈만 등록하고 센서 매핑을 안 하면 수집이 안 됨)는
+    // Node-RED 가 **빈 매핑에 한해** 채우는 것으로 남겨 둔다 — 있는 값은 건드리지 않는다.
+    // 매핑이 비어 있는 센서는 설정 화면에 「매핑 없음」으로 드러낸다.
 
     // collectionConfig 저장 시 모든 하우스의 collection.intervalSeconds 전파
     if (settings.collectionConfig?.intervalSeconds) {

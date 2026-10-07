@@ -40,6 +40,19 @@ notify() {   # 배경(&) 없이 — 자식을 남기지 않는다
         || log "백엔드 알림 실패 (무시)"
 }
 
+# 부팅 직후에는 세지 않는다 (2026-10-07 실측).
+#   pm2-lhk 의 resurrect 가 3분 9초 걸렸고, 그동안 이 검사가 HTTP 000 을 3회 세어
+#   「Node-RED 정지 · 심각」을 올리고 재시작까지 했다. 정상 기동 과정이다.
+#   pm2 가 아직 준비 중이면 그냥 넘어간다 — pm2 가 node-red 를 띄운다.
+UP_SEC="$(cut -d. -f1 /proc/uptime 2>/dev/null || echo 9999)"
+if [ "$UP_SEC" -lt 300 ] 2>/dev/null; then
+    if ! systemctl is-active --quiet pm2-lhk || ! /usr/bin/pm2 jlist 2>/dev/null | grep -q node-red; then
+        log "부팅 ${UP_SEC}초 — pm2 준비 전이라 건너뜀"
+        rm -f "$STATE_FILE"
+        exit 0
+    fi
+fi
+
 BODY="$(curl -s --max-time 8 -w '\n%{http_code}' "$PING_URL" 2>/dev/null || true)"
 HTTP_CODE="$(printf '%s' "$BODY" | tail -1)"
 JSON="$(printf '%s' "$BODY" | sed '$d')"

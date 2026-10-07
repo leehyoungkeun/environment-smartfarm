@@ -44,9 +44,27 @@ post_event() {
         || log "백엔드 알림 실패 (무시하고 계속)"
 }
 
+# pm2 가 준비됐나 — 부팅 중에는 pm2-lhk 가 resurrect 중이라 아직 없다 (2026-10-07 실측 3분 9초).
+# 그때 재시작을 시도하면 실패하고 「NODERED_RESTART_FAILED · 경고」가 뜬다.
+# 정상 기동 과정인데 경보가 뜨면 진짜 경보가 묻힌다 — 기다렸다가, 그래도 없으면 **건너뛴다**
+# (pm2 가 어차피 node-red 를 띄우므로 우리가 할 일이 없다).
+wait_for_pm2() {
+    local tries=0
+    while [ $tries -lt 36 ]; do          # 5초 × 36 = 3분
+        if /usr/bin/pm2 jlist 2>/dev/null | grep -q '"name":"node-red"'; then return 0; fi
+        tries=$((tries + 1))
+        sleep 5
+    done
+    return 1
+}
+
 # USB 가 다시 인식되면 Node-RED 가 쥐고 있던 죽은 시리얼 핸들을 버리게 한다.
 # 재시작하지 않으면 Modbus 노드가 영원히 응답을 기다리며 멈춘다(hang) — 실측 확인됨.
 restart_nodered() {
+    if ! wait_for_pm2; then
+        log "pm2 가 아직 없다 — 부팅 중으로 보고 재시작을 건너뛴다 (pm2 가 node-red 를 띄운다)"
+        return 0
+    fi
     log "Node-RED 재시작 시작"
     if timeout 90 /usr/bin/pm2 restart node-red >> "$LOG" 2>&1; then
         log "Node-RED 재시작 완료"

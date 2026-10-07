@@ -54,6 +54,14 @@ sudo install -m 0644 "$SRC_DIR/pm2-lhk.service.d-override.conf" /etc/systemd/sys
 sudo systemctl daemon-reload
 sudo systemctl enable --now smartfarm-pm2-guard.timer
 
+# 로그 파일은 lhk 소유여야 한다 (2026-10-07).
+#   옛 udev 가 root 로 만든 파일이 남아 있으면, 지금처럼 유닛이 lhk 로 돌 때
+#   "Permission denied" 로 기록이 조용히 사라진다 — 무슨 일이 있었는지 알 수 없게 된다.
+for f in usb-events.log pm2-guard.log modbus-healthcheck.log nodered-restart.log; do
+    sudo touch "$LOG_DIR/$f"
+    sudo chown lhk:lhk "$LOG_DIR/$f"
+done
+
 # 4) /boot/firmware/cmdline.txt — usbcore.autosuspend=-1 (즉시 효과 없음, 다음 reboot 부터)
 echo "==> [4/6] cmdline.txt 패치 (usbcore.autosuspend=-1)"
 CMDLINE=/boot/firmware/cmdline.txt

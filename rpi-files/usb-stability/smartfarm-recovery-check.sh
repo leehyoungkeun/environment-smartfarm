@@ -29,6 +29,10 @@ systemctl is-enabled pm2-lhk >/dev/null 2>&1; chk "pm2-lhk 부팅 자동시작" 
 systemctl is-active pm2-lhk >/dev/null 2>&1; chk "pm2-lhk 동작 중" $?
 systemctl is-active smartfarm-pm2-guard.timer >/dev/null 2>&1; chk "pm2 가드 타이머" $?
 [ "$(systemctl show pm2-lhk -p TimeoutStartUSec --value)" != "1min 30s" ]; chk "pm2-lhk 기동 타임아웃이 기본(90초)이 아님" $?
+# Type=forking + PIDFile 이면 systemd 가 pm2 의 포크를 main PID 로 인정하지 못해
+# 유닛이 영영 activating 에 머물고, 타임아웃이 오면 또 죽인다 (2026-10-07).
+[ "$(systemctl show pm2-lhk -p Type --value)" = "oneshot" ]; chk "pm2-lhk Type=oneshot (forking 이면 기동 미완료로 굳음)" $?
+[ -z "$(systemctl show pm2-lhk -p PIDFile --value)" ]; chk "pm2-lhk PIDFile 비어 있음" $?
 crontab -l 2>/dev/null | grep -q modbus-healthcheck; chk "Modbus 헬스체크 cron" $?
 test -f /etc/systemd/system/smartfarm-usb-recover@.service; chk "USB 복구 유닛" $?
 grep -q SYSTEMD_WANTS /etc/udev/rules.d/99-smartfarm-485.rules 2>/dev/null; chk "udev 가 RUN+= 대신 유닛을 지명" $?

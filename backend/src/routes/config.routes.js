@@ -766,6 +766,12 @@ router.put("/:farmId/ks3267-collect", authorize("owner"), async (req, res) => {
   res.json(await ksCommProxy(req.params.farmId, "PUT", "/ks3267/collect", req.body || {}));
 });
 
+// 제어기 상태 (2026-10-07) — 「서버」 화면. rpi-server /local-config/controller/status (읽기 전용: pm2·유닛·자가점검·포트·온도).
+// 10/07 아침처럼 제어기가 겉으로는 살아 있는데 유닛이 굳어 있는 상태를 사람이 화면에서 보게 한다.
+router.get("/:farmId/controller-status", async (req, res) => {
+  res.json(await ksCommProxy(req.params.farmId, "GET", "/controller/status"));
+});
+
 router.get("/:farmId/ks3267-conntest", async (req, res) => {
   const unit = parseInt(req.query.unit, 10);
   res.json(await ksCommProxy(req.params.farmId, "GET", `/ks3267/conntest?unit=${Number.isFinite(unit) ? unit : ""}`));

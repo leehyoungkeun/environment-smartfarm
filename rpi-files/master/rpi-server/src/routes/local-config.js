@@ -273,5 +273,140 @@ router.post('/ks3267/evidence-delete', async (req, res) => {
   res.json(await ksDaemon('POST', '/evidence/delete', { id }));
 });
 
+// ── 제어기 상태 (2026-10-07) ─────────────────────────────────────────────────
+// 「서버」 화면이 제어기 안에서 도는 것들을 보여 준다: pm2 앱·systemd 유닛·자가점검(smartfarm-recovery-check.sh)·
+// USB-485 포트·온도/메모리/디스크·최근 자가복구 활동. 읽기 전용, sudo 없음 (lhk 가 전부 읽을 수 있는 것만).
+// 점검 스크립트는 0.5초(실측)라 매번 돌리되, 화면 여럿이 동시에 눌러도 제어기가 바쁘지 않게 10초 캐시.
+const os = require('os');
+const { exec } = require('child_process');
+
+const RECOVERY_CHECK = '/usr/local/bin/smartfarm-recovery-check.sh';
+const LOG_DIR = '/home/lhk/smartfarm/logs';
+const STATUS_UNITS = [
+  'pm2-lhk.service', 'smartfarm-pm2-guard.timer', 'smartfarm-nr-patches.service', 'smartfarm-pm2-start.service',
+  'smartfarm-firewall.service', 'nginx.service', 'mosquitto.service', 'tailscaled.service', 'cloudflared.service',
+  'promtail.service', 'NetworkManager.service', 'lightdm.service', 'ssh.service',
+];
+
+function sh(cmd, timeoutMs = 8000) {
+  return new Promise((resolve) => {
+    exec(cmd, { timeout: timeoutMs, maxBuffer: 1 << 20 }, (err, stdout) => resolve(err ? null : String(stdout)));
+  });
+}
+function readText(p) { try { return fs.readFileSync(p, 'utf8'); } catch { return null; } }
+function lastLogLine(file, dropPattern) {
+  // 색 코드·pm2 저장 메시지 같은 잡음은 빼고 마지막 의미 있는 줄 하나
+  const raw = readText(path.join(LOG_DIR, file));
+  if (!raw) return null;
+  const lines = raw.trim().split('\n').filter((l) => l.startsWith('[') && !(dropPattern && dropPattern.test(l)));
+  return lines.length ? lines[lines.length - 1].slice(0, 200) : null;
+}
+
+function parsePm2(jlist) {
+  try {
+    return JSON.parse(jlist || '[]').map((p) => {
+      const e = p.pm2_env || {};
+      return {
+        name: p.name, status: e.status, upSince: e.pm_uptime || null, restarts: e.restart_time || 0,
+        cpu: p.monit ? p.monit.cpu : null, memory: p.monit ? p.monit.memory : null,
+        script: String(e.pm_exec_path || '').replace('/home/lhk/', '~/'),
+      };
+    });
+  } catch { return null; }
+}
+
+function parseUnits(show) {
+  if (!show) return null;
+  return show.trim().split(/\n\s*\n/).map((block) => {
+    const o = {};
+    for (const line of block.split('\n')) { const i = line.indexOf('='); if (i > 0) o[line.slice(0, i)] = line.slice(i + 1); }
+    return {
+      id: o.Id, active: o.ActiveState, sub: o.SubState, enabled: o.UnitFileState,
+      since: o.ActiveEnterTimestamp || null, restarts: Number(o.NRestarts || 0),
+    };
+  }).filter((u) => u.id);
+}
+
+function parseCheck(out) {
+  if (!out) return null;
+  const items = []; let section = '';
+  for (const line of out.split('\n')) {
+    const sec = line.match(/^\[(\d)\]\s*(.+)$/); if (sec) { section = sec[2].trim(); continue; }
+    const m = line.match(/^\s*(✅|❌)\s*(.+)$/); if (m) items.push({ ok: m[1] === '✅', label: m[2].trim(), section });
+  }
+  const sum = out.match(/통과\s*(\d+)\s*·\s*실패\s*(\d+)/);
+  const age = out.match(/마지막 센서 값\s*(\d+)초 전/);
+  return {
+    pass: sum ? Number(sum[1]) : items.filter((i) => i.ok).length,
+    fail: sum ? Number(sum[2]) : items.filter((i) => !i.ok).length,
+    items, lastSensorAgeSec: age ? Number(age[1]) : null,
+  };
+}
+
+function parseThrottled(out) {
+  // vcgencmd get_throttled → throttled=0x50000 : 하위 4비트 = 지금, 16~19비트 = 부팅 뒤 한 번이라도
+  const m = (out || '').match(/0x([0-9a-f]+)/i); if (!m) return null;
+  const v = parseInt(m[1], 16);
+  const names = ['저전압', 'ARM 주파수 제한', '과열 스로틀', '온도 상한(소프트)'];
+  const pick = (shift) => names.filter((_, i) => v & (1 << (i + shift)));
+  return { raw: '0x' + m[1], now: pick(0), past: pick(16) };
+}
+
+let controllerCache = { at: 0, data: null };
+async function controllerStatus() {
+  if (Date.now() - controllerCache.at < 10000 && controllerCache.data) return controllerCache.data;
+  const [jlist, units, check, throttled, df, tsIp, crontab] = await Promise.all([
+    sh('/usr/bin/pm2 jlist'),
+    sh('systemctl show -p Id,ActiveState,SubState,UnitFileState,ActiveEnterTimestamp,NRestarts ' + STATUS_UNITS.join(' ')),
+    sh('bash ' + RECOVERY_CHECK, 25000),
+    sh('vcgencmd get_throttled'),
+    sh('df -B1 --output=size,used,avail / | tail -1'),
+    sh('tailscale ip -4'),
+    sh('crontab -l'),
+  ]);
+  const up = parseFloat((readText('/proc/uptime') || '0').split(' ')[0]) || 0;
+  const meminfo = readText('/proc/meminfo') || '';
+  const kb = (k) => { const m = meminfo.match(new RegExp('^' + k + ':\\s+(\\d+)', 'm')); return m ? Number(m[1]) * 1024 : null; };
+  const tempRaw = readText('/sys/class/thermal/thermal_zone0/temp');
+  const dfv = (df || '').trim().split(/\s+/).map(Number);
+  const link = (p) => { try { return fs.readlinkSync(p); } catch { return null; } };
+  const data = {
+    ok: true,
+    at: new Date().toISOString(),
+    controller: {
+      hostname: os.hostname(),
+      model: (readText('/proc/device-tree/model') || '').replace(/\0/g, '') || null,
+      farmId: (readText('/home/lhk/smartfarm/.farm-id') || '').trim() || null,
+      ipv4: (() => { for (const n of Object.values(os.networkInterfaces())) for (const a of n || []) if (a.family === 'IPv4' && !a.internal && !a.address.startsWith('100.')) return a.address; return null; })(),
+      tailscaleIp: (tsIp || '').trim() || null,
+      uptimeSec: Math.round(up),
+      bootAt: new Date(Date.now() - up * 1000).toISOString(),
+      load: os.loadavg().map((x) => Math.round(x * 100) / 100),
+      cpus: os.cpus().length,
+      mem: { total: kb('MemTotal'), available: kb('MemAvailable') },
+      disk: dfv.length === 3 && dfv.every(Number.isFinite) ? { size: dfv[0], used: dfv[1], avail: dfv[2] } : null,
+      tempC: tempRaw ? Math.round(Number(tempRaw) / 100) / 10 : null,
+      throttled: parseThrottled(throttled),
+    },
+    pm2: parsePm2(jlist),
+    units: parseUnits(units),
+    check: parseCheck(check),
+    ports: { vendor: link('/dev/smartfarm-485'), standard: link('/dev/smartfarm-485-std') },
+    recent: {
+      healthcheck: lastLogLine('modbus-healthcheck.log'),
+      guard: lastLogLine('pm2-guard.log', /구성 변경 감지/),
+      usb: lastLogLine('usb-events.log'),
+    },
+    cron: (crontab || '').split('\n').map((l) => l.trim()).filter((l) => l && !l.startsWith('#')),
+  };
+  controllerCache = { at: Date.now(), data };
+  return data;
+}
+
+router.get('/controller/status', async (req, res) => {
+  try { res.json(await controllerStatus()); }
+  catch (e) { res.json({ ok: false, error: '제어기 상태를 읽지 못했습니다: ' + e.message }); }
+});
+
 module.exports = router;
 module.exports.reconcileDisplayNetwork = reconcileDisplayNetwork;

@@ -818,7 +818,7 @@ function AppContent() {
           </div>
         )}
         {currentPage === 'server' && hasPermission('server') && (
-          <ServerStatus />
+          <ServerStatus farmId={farmId} />
         )}
         {currentPage === 'settings' && hasPermission('settings') && (
           <ConfigurationManager farmId={farmId} />

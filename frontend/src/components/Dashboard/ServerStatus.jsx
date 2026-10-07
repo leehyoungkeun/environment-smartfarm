@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import axios from 'axios';
 import { getApiBase, getSystemMode, onModeChange, isFarmLocalMode } from '../../services/apiSwitcher';
+import ControllerStatus from './ControllerStatus';
 
 const PC_API_BASE = import.meta.env.VITE_API_BASE_URL || 'https://api.smartgreen.kr/api';
 const PC_HEALTH_URL = PC_API_BASE.replace(/\/api$/, '/health');
@@ -8,7 +9,7 @@ const RPI_API_BASE = import.meta.env.VITE_RPI_API_URL || 'http://farm-0001:1880/
 const RPI_HEALTH_URL = RPI_API_BASE.replace(/\/api$/, '/api/health');
 const AWS_CONTROL_ENDPOINT = import.meta.env.VITE_AWS_CONTROL_ENDPOINT || '';
 
-const ServerStatus = () => {
+const ServerStatus = ({ farmId }) => {
   const [health, setHealth] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -259,6 +260,9 @@ const ServerStatus = () => {
           )}
         </div>
       </div>}
+
+      {/* 제어기(RPi) 안 — pm2 앱 · 자가복구 유닛 · 자가점검 · 포트 · 온도 (2026-10-07) */}
+      <ControllerStatus farmId={farmId} />
 
       {/* 상세 상태 카드 (PC 서버 연결 시) */}
       {isConnected && (

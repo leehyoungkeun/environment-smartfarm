@@ -264,6 +264,8 @@ scp lhk@192.168.0.38:/home/lhk/smartfarm/ecosystem.config.js   rpi-files/master/
    ```
 
 7. **PM2 dump.pm2 stopped 상태 박힘 — 부팅 후 서비스 안 뜸** (해결됨, 2026-05-08): sanitize 절차 끝에 `pm2 stop all && pm2 save` 가 dump.pm2 를 stopped 로 만듦 → 부팅 후 자동 시작 안 됨. 해결: `smartfarm-pm2-start.service` (systemd oneshot) 추가. dump 상태 무관하게 부팅 시 무조건 `pm2 start all`.
+   **2026-10-07 개정**: 이 유닛의 `ExecStartPost=pm2 save --force` 를 뗐다 — resurrect 가 일부만 살린 날 그 상태를 dump 에 덮어써 다음 부팅부터 앱이 영구히 빠지는 함정. dump 갱신은 `smartfarm-pm2-guard`(전부 online 일 때만)가 맡는다. 부팅 자가복구 전체(pm2-lhk oneshot·usb-recover 경주·가드)는 `usb-stability/install.sh` 머리말 참고.
+   **부팅 폭풍 (2026-10-07)**: 전원을 켜면 데스크톱 OS 가 SD 를 콜드 로드해 iowait 2.6 CPU 분 — pm2 가 그 안에 들어가면 4초가 16~39초가 된다. `smartfarm-nr-patches.service` 가 `network-online` 을 기다리게 해 pm2 를 폭풍 안으로 밀던 것 제거(`After=local-fs.target`), pm2-lhk 원본의 `After=network.target` 도 제거(`usb-stability/pm2-lhk.service` — **`pm2 startup` 재실행 시 원본으로 되돌아가므로 install.sh 재실행**), `usb-stability/boot-diet.sh` 로 packagekit·cloud-init·cups·e2scrub_reap·apt exporter 를 부팅에서 뺀다 (install.sh 가 호출).
    ```bash
    # 검증
    ssh lhk@<RPi-IP> "systemctl is-enabled smartfarm-pm2-start.service && pm2 list"

@@ -1,6 +1,9 @@
+# After=pm2-lhk.service 를 두지 않는다 (2026-10-07):
+#   가드는 pm2-lhk 의 구조자다. After= 가 있으면 pm2-lhk 의 start 작업이 굳어 있을 때
+#   가드의 작업이 그 뒤에 줄 서서 함께 기다린다 — 11:35 에 떠야 할 첫 틱이 pm2-lhk 가
+#   타임아웃으로 풀린 11:38:55 에야 돌았다. 구조자가 피구조자를 기다리면 안 된다.
 [Unit]
 Description=SmartFarm pm2 감시·자동 복구
-After=pm2-lhk.service
 
 [Service]
 Type=oneshot

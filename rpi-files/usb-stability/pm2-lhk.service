@@ -1,0 +1,34 @@
+# /etc/systemd/system/pm2-lhk.service — pm2 가 `pm2 startup systemd -u lhk` 로 만든 원본에서
+# After= 한 줄만 바꿨다 (2026-10-07). Type·타임아웃 등은 pm2-lhk.service.d/override.conf 가 덮는다.
+#
+# ⚠ `pm2 startup` 을 다시 돌리면 이 파일이 원본(After=network.target)으로 되돌아간다.
+#   그 뒤엔 usb-stability/install.sh 를 다시 돌릴 것.
+#
+# 왜 After=network.target 을 뗐나:
+#   전원을 켜면 데스크톱 OS 전체가 SD 카드를 콜드 로드한다 (iowait 2.4 CPU 분, 사용자 CPU 0.1).
+#   NetworkManager 는 바이너리를 읽는 데만 4.5초, 기동 8.3초 — pm2 가 그 뒤(39초)에 서면
+#   lightdm·X·pipewire 와 같은 창에서 SD 를 나눠 써 15~39초가 걸린다. basic.target(26초) 직후에
+#   띄우면 그 앞을 지나간다. pm2 앱들은 네트워크를 기다릴 필요가 없다 — NR/MQTT 는 재접속하고,
+#   rpi-server 는 0.0.0.0 에 바인드하고, ks3267d 는 시리얼이다.
+[Unit]
+Description=PM2 process manager
+Documentation=https://pm2.keymetrics.io/
+After=local-fs.target
+
+[Service]
+Type=forking
+User=lhk
+LimitNOFILE=infinity
+LimitNPROC=infinity
+LimitCORE=infinity
+Environment=PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/local/games:/usr/games:/usr/bin:/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin
+Environment=PM2_HOME=/home/lhk/.pm2
+PIDFile=/home/lhk/.pm2/pm2.pid
+Restart=on-failure
+
+ExecStart=/usr/lib/node_modules/pm2/bin/pm2 resurrect
+ExecReload=/usr/lib/node_modules/pm2/bin/pm2 reload all
+ExecStop=/usr/lib/node_modules/pm2/bin/pm2 kill
+
+[Install]
+WantedBy=multi-user.target

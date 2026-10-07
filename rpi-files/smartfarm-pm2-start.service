@@ -1,3 +1,11 @@
+# 트랩 7 (2026-05-08): dump.pm2 가 stopped 상태로 저장돼 있으면 resurrect 가 앱을 stopped 로
+#   되살려 아무것도 안 뜬다 → 부팅 때 무조건 `pm2 start all`. 이 방어는 유지한다.
+#
+# 2026-10-07: `ExecStartPost=pm2 save --force` 를 뗐다.
+#   resurrect 가 일부만 살린 날 그 상태를 dump 에 **덮어써** 다음 부팅부터 앱이 영구히
+#   빠지는 함정이었다. dump 갱신은 smartfarm-pm2-guard 가 "전부 online 일 때만" 한다.
+#   Requires=pm2-lhk 라 pm2-lhk 가 실패하면 이 유닛도 취소된다 (pm2 CLI 를 데몬 없이
+#   부르는 일은 없다 — 데몬 없는 pm2 CLI 는 자기가 데몬을 띄워 경주를 만든다).
 [Unit]
 Description=SmartFarm PM2 Start All (boot 시 모든 앱 무조건 start)
 Documentation=https://github.com/leehyoungkeun/environment-smartfarm
@@ -11,7 +19,6 @@ User=lhk
 Environment=PM2_HOME=/home/lhk/.pm2
 Environment=PATH=/usr/local/bin:/usr/bin:/bin
 ExecStart=/usr/bin/pm2 start all
-ExecStartPost=/usr/bin/pm2 save --force
 RemainAfterExit=yes
 TimeoutStartSec=120
 

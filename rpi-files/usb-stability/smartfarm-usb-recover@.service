@@ -6,9 +6,15 @@
 #   `( sleep 3; pm2 restart node-red ) &` 를 띄웠고, 그 pm2 가 udev 와 함께 죽으면서
 #   **pm2 데몬째로** 사라져 7개 프로세스가 전부 내려갔다 (2026-10-06 실측, 저녁에 4번).
 #   udev 는 방아쇠만 당기고 실제 복구는 이 유닛이 자기 cgroup 에서 끝까지 수행한다.
+#
+# After=pm2-lhk.service (2026-10-07):
+#   udev 는 부팅 때도 콜드플러그 "add" 를 쏜다 — 이 유닛이 pm2-lhk 보다 1초 먼저 떠서
+#   스크립트의 pm2 CLI 가 데몬을 띄우고, pm2-lhk 의 resurrect 데몬과 충돌해 둘 다 영원히
+#   대기했다 (11:31 부팅, 기동 5분 공백). 부팅 때는 pm2-lhk 가 끝난 뒤에 선다.
+#   핫플러그 때는 pm2-lhk 가 이미 active 라 영향 없다.
 [Unit]
 Description=SmartFarm USB-485 재연결 복구 (%i)
-After=network-online.target
+After=network-online.target pm2-lhk.service
 
 [Service]
 Type=oneshot

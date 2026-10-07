@@ -5,7 +5,9 @@
 #     제어기는 사람이 없어도 스스로 일어나야 한다.
 #
 # 무엇을 하나 (보수적으로 — 사람이 일부러 한 것은 건드리지 않는다):
-#   1) pm2-lhk 서비스가 비활성/실패면  → systemctl restart
+#   1) pm2-lhk 서비스가 비활성/실패면  → systemctl start (restart 가 아니다 — restart 는
+#      ExecStop 의 `pm2 kill` 을 먼저 쳐서 살아 있던 앱까지 전부 내린다). 기동 중(activating)이면
+#      systemd 의 타임아웃·Restart= 에 맡기고 건드리지 않는다 (2026-10-07).
 #   2) dump.pm2 에 있는 앱이 목록에서 **통째로 사라졌으면** → pm2 resurrect
 #      (사람이 `pm2 stop X` 한 앱은 목록에 stopped 로 남으므로 건드리지 않는다)
 #   3) 복구했으면 백엔드에 알린다 — 조용한 복구는 조용한 고장만큼 나쁘다
@@ -39,13 +41,21 @@ notify() {
 aspm2() { runuser -u lhk -- env PM2_HOME="$PM2_HOME" "$PM2" "$@"; }
 
 # ── 1) 서비스가 살아 있나
-if ! systemctl is-active --quiet pm2-lhk; then
-    log "pm2-lhk 비활성($(systemctl is-active pm2-lhk)) → restart"
-    systemctl reset-failed pm2-lhk 2>/dev/null || true
-    systemctl restart pm2-lhk
-    notify "PM2_SERVICE_RECOVERED" "WARNING" "pm2-lhk 비활성 감지 → 자동 재시작"
-    exit 0
-fi
+STATE="$(systemctl is-active pm2-lhk 2>/dev/null || true)"
+case "$STATE" in
+    active) ;;
+    activating|deactivating|reloading)
+        # 진행 중 — systemd 가 TimeoutStartSec 로 끊고 Restart= 로 다시 띄운다.
+        # 여기서 restart 를 치면 `pm2 kill` 이 먼저 돌고, 작업은 어차피 진행 중인 작업 뒤에 줄 선다.
+        log "pm2-lhk $STATE — systemd 에 맡기고 건너뛴다"
+        exit 0 ;;
+    *)
+        log "pm2-lhk 비활성($STATE) → start"
+        systemctl reset-failed pm2-lhk 2>/dev/null || true
+        systemctl start --no-block pm2-lhk      # 가드 자신이 굳지 않게 기다리지 않는다
+        notify "PM2_SERVICE_RECOVERED" "WARNING" "pm2-lhk 비활성($STATE) 감지 → 자동 기동"
+        exit 0 ;;
+esac
 
 # ── 2) dump 에 있는 앱이 목록에서 사라졌나
 [ -s "$DUMP" ] || exit 0

@@ -1,9 +1,14 @@
+# network-online 을 기다리지 않는다 (2026-10-07):
+#   이 스크립트는 파일 패치만 하고 네트워크를 쓰지 않는데, After/Wants=network-online 이
+#   붙어 있어 pm2-lhk 까지 WiFi 연결 뒤(24~31초)로 밀렸다. 그 시점은 lightdm·X·pipewire·
+#   promtail·cloudflared 가 SD 카드를 콜드 로드하는 한가운데라 pm2 기동이 4초 → 16~39초
+#   (iowait 2.6 CPU 분 실측). 11초에 뜬 부팅은 4초였다. pm2 앱들은 네트워크를 기다릴
+#   필요가 없다 (NR/MQTT 재접속, rpi-server 0.0.0.0, ks3267d 시리얼).
 [Unit]
 Description=SmartFarm Node-RED Patches (idempotent re-apply on boot)
 Documentation=https://github.com/lhk/smartfarm_environment
-After=network-online.target
+After=local-fs.target
 Before=pm2-lhk.service
-Wants=network-online.target
 
 [Service]
 Type=oneshot

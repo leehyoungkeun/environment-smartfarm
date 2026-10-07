@@ -44,18 +44,36 @@ post_event() {
         || log "백엔드 알림 실패 (무시하고 계속)"
 }
 
-# pm2 가 준비됐나 — 부팅 중에는 pm2-lhk 가 resurrect 중이라 아직 없다 (2026-10-07 실측 3분 9초).
-# 그때 재시작을 시도하면 실패하고 「NODERED_RESTART_FAILED · 경고」가 뜬다.
-# 정상 기동 과정인데 경보가 뜨면 진짜 경보가 묻힌다 — 기다렸다가, 그래도 없으면 **건너뛴다**
-# (pm2 가 어차피 node-red 를 띄우므로 우리가 할 일이 없다).
+# pm2 가 준비됐나.
+#
+# ⚠ pm2 CLI 는 데몬이 없으면 **자기가 데몬을 띄운다** (`pm2 jlist` 도 예외가 아니다).
+#   2026-10-07 11:31 부팅: udev 콜드플러그로 이 유닛이 pm2-lhk 보다 1초 먼저 떴고,
+#   여기서 부른 `pm2 jlist` 의 데몬과 pm2-lhk 의 `pm2 resurrect` 데몬이 같은 ~/.pm2 소켓을
+#   두고 충돌 → 둘 다 영원히 대기 → 전체 기동 5분 공백. (11:12 부팅도 같은 경주, 운 좋게 통과)
+#   → pm2 CLI 를 부르기 전에 반드시 systemd 에게 먼저 묻는다. 데몬은 pm2-lhk 만 띄운다.
+pm2_ready() {
+    systemctl is-active --quiet pm2-lhk || return 1
+    /usr/bin/pm2 jlist 2>/dev/null | grep -q '"name":"node-red"'
+}
 wait_for_pm2() {
     local tries=0
     while [ $tries -lt 36 ]; do          # 5초 × 36 = 3분
-        if /usr/bin/pm2 jlist 2>/dev/null | grep -q '"name":"node-red"'; then return 0; fi
+        pm2_ready && return 0
         tries=$((tries + 1))
         sleep 5
     done
     return 1
+}
+
+# node-red 가 뜬 지 몇 초 됐나 (모르면 큰 값).
+nodered_age_sec() {
+    /usr/bin/pm2 jlist 2>/dev/null | python3 -c '
+import json, sys, time
+for p in json.load(sys.stdin):
+    if p["name"] == "node-red":
+        print(int(time.time() - p["pm2_env"].get("pm_uptime", 0) / 1000)); break
+else:
+    print(999999)' 2>/dev/null || echo 999999
 }
 
 # USB 가 다시 인식되면 Node-RED 가 쥐고 있던 죽은 시리얼 핸들을 버리게 한다.
@@ -63,6 +81,13 @@ wait_for_pm2() {
 restart_nodered() {
     if ! wait_for_pm2; then
         log "pm2 가 아직 없다 — 부팅 중으로 보고 재시작을 건너뛴다 (pm2 가 node-red 를 띄운다)"
+        return 0
+    fi
+    # 부팅 때는 유닛이 pm2-lhk 뒤에 서므로(After=) 여기 오면 node-red 가 방금 떴다.
+    # 방금 뜬 node-red 는 죽은 핸들을 쥐고 있을 수 없다 — 재시작하면 부팅마다 두 번 뜬다.
+    local age; age="$(nodered_age_sec)"
+    if [ "$age" -lt 120 ] 2>/dev/null; then
+        log "node-red 가 ${age}초 전에 떴다 — 새 핸들이므로 재시작을 건너뛴다"
         return 0
     fi
     log "Node-RED 재시작 시작"

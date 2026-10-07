@@ -42,13 +42,20 @@ sudo install -m 0755 "$SRC_DIR/smartfarm-recovery-check.sh" /usr/local/bin/smart
 # ── 자가복구 (2026-10-06) — 제어기가 사람 없이 스스로 일어나게 ──
 #   ① USB 복구는 udev 가 아니라 전용 유닛에서. udev RUN+= 로 pm2 를 부르면 udev 가
 #      이벤트를 마치며 cgroup 을 정리할 때 pm2 데몬째로 죽는다 (2026-10-06 실측, 7개 전멸).
-#   ② pm2-lhk 기본 TimeoutStartSec=90 은 앱 8개 resurrect 에 모자라, systemd 가
-#      "start timed out" 으로 자기가 띄운 pm2 를 죽이는 루프가 된다 (9회 반복).
-#   ③ 그래도 전부 사라지면 가드 타이머가 60초 안에 되살린다.
+#   ② pm2-lhk 원본은 Type=forking+PIDFile 인데 pm2 데몬이 lhk 로 pid 파일을 써서 systemd 가
+#      거부한다 → 유닛이 영영 activating. 드롭인으로 Type=oneshot, 타임아웃 60초 (2026-10-07).
+#   ③ udev 콜드플러그로 usb-recover 가 부팅 때 pm2-lhk 보다 먼저 떠 pm2 데몬 spawn 경주가
+#      난다 → usb-recover 는 After=pm2-lhk, 스크립트는 pm2 CLI 전에 systemd 를 먼저 본다.
+#   ④ 그래도 전부 사라지면 가드 타이머가 60초 안에 되살린다 (가드는 pm2-lhk 를 기다리지 않는다).
 echo "==> [3b] 자가복구 유닛 설치"
 sudo install -m 0644 "$SRC_DIR/smartfarm-usb-recover@.service" /etc/systemd/system/
 sudo install -m 0644 "$SRC_DIR/smartfarm-pm2-guard.service"    /etc/systemd/system/
 sudo install -m 0644 "$SRC_DIR/smartfarm-pm2-guard.timer"      /etc/systemd/system/
+sudo install -m 0644 "$SRC_DIR/../smartfarm-pm2-start.service" /etc/systemd/system/   # 트랩 7, save --force 없음
+sudo install -m 0644 "$SRC_DIR/../scripts/smartfarm-nr-patches.service" /etc/systemd/system/   # network-online 을 기다리지 않는 판
+echo "==> [3c] 부팅 다이어트 (SD 콜드 로드 폭풍에서 제어기에 불필요한 것 제거)"
+bash "$SRC_DIR/boot-diet.sh"
+sudo install -m 0644 "$SRC_DIR/pm2-lhk.service" /etc/systemd/system/pm2-lhk.service   # After=network.target 뗀 판 (pm2 startup 재실행 시 되돌아감)
 sudo mkdir -p /etc/systemd/system/pm2-lhk.service.d
 sudo install -m 0644 "$SRC_DIR/pm2-lhk.service.d-override.conf" /etc/systemd/system/pm2-lhk.service.d/override.conf
 sudo systemctl daemon-reload
